@@ -58,6 +58,26 @@ test('Storefront-Proxy: Weiterleitungen bleiben im /shop-Präfix, Status ohne Bo
   assert.equal(await css.text(), 'body{}');
 });
 
+test('Storefront-Proxy: CORS-Stern nur für Bilder und Schriften', async () => {
+  const cors = async (type: string, body: BodyInit = 'x') => {
+    reply = () => new Response(body, { headers: { 'content-type': type } });
+    return (await GET(req('/shop/theme/asset'))).headers.get('access-control-allow-origin');
+  };
+  assert.equal(await cors('image/png', new Uint8Array([137, 80, 78, 71])), '*');
+  assert.equal(await cors('image/jpeg'), '*');
+  assert.equal(await cors('font/woff2', new Uint8Array([0, 1])), '*');
+  assert.equal(await cors('application/font-woff'), '*');
+  assert.equal(await cors('application/font-woff2'), '*');
+  assert.equal(await cors('application/json', '{}'), null);
+  assert.equal(await cors('text/css', 'body{}'), null);
+  assert.equal(await cors('text/plain', 'hinweis'), null);
+  assert.equal(await cors('application/javascript', 'var x=1'), null);
+  reply = () => new Response('<p>ok</p>', { headers: { 'content-type': 'text/html' } });
+  const html = await GET(req('/shop/'));
+  assert.equal(html.headers.get('access-control-allow-origin'), null);
+  assert.equal(html.headers.get('content-security-policy'), "script-src 'none'");
+});
+
 test('Storefront-Proxy: Assets mit CORS-Freigabe (Schriften im sandboxed Entwurf), HTML ohne', async () => {
   reply = () => new Response(new Uint8Array([0, 1]), { headers: { 'content-type': 'font/woff2' } });
   const font = await GET(req('/shop/theme/abc/assets/font/Inter.woff2'));
