@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { PublicSettings, ScopeKey, TestResult } from '@/lib/protocol';
 import { PLATFORM_KINDS, PLATFORM_SETTINGS, scopeDisplay, type PlatformField, type PlatformKind } from '@/lib/platforms';
+import { EGRESS_NOTICE } from '@/lib/privacy-copy';
 import { AI_MODELS, authOf, buildPatch, connectionTestBlock, fieldValue, formFromSettings, hasSecret, isDirty, platformAvailable, savedConfigured, secretState, withAuth, withFieldValue, withSecret, type SecretKey, type SettingsForm } from '@/lib/settings-form';
 import { useShell } from '@/components/shell/ShellProvider';
 import { Button } from '@/components/ui/Button';
@@ -89,6 +90,7 @@ export function SettingsView() {
         <main className={styles.content}>
           <h1 className={styles.h1}>Einstellungen</h1>
           <p className={styles.lead}>Zugangsdaten werden verschlüsselt lokal gespeichert und nie an die KI weitergegeben. Gespeicherte Schlüssel werden hier nicht angezeigt.</p>
+          <p className={styles.lead}>{EGRESS_NOTICE}</p>
 
           {loadError && <div className={styles.alert} role="alert">Einstellungen konnten nicht geladen werden: {loadError}</div>}
           {!form && !loadError && <p className={styles.lead}>Lade …</p>}

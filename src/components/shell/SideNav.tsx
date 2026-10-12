@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { ago, groupByDay, hostOf, swatches } from '@/lib/format';
 import { catalogState, shellFlags } from '@/lib/load-state';
+import { chatDeleteQuestion } from '@/lib/privacy-copy';
 import type { ChatStatus, ChatSummary, Health } from '@/lib/protocol';
 import { IconBook, IconChat, IconClose, IconHistory, IconLog, IconPalette, IconPanel, IconPlus, IconSearch, IconSettings, IconTarget, IconTrash } from '@/components/ui/icons';
 import { useShell } from './ShellProvider';
@@ -188,7 +189,7 @@ function HistoryRow({ chat: c, state, active, confirming, onOpen, onAskDelete, o
   if (confirming) {
     return (
       <li className={cx(styles.row, styles.confirm)}>
-        <span className={styles.rowTitle}>„{c.title}“ löschen?</span>
+        <span className={styles.rowTitle}>{chatDeleteQuestion(c.title)}</span>
         <span className={styles.confirmBtns}>
           <button type="button" className={styles.yes} onClick={onDelete} autoFocus>Löschen</button>
           <button type="button" onClick={onCancel}>Abbrechen</button>
