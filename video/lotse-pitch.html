@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Lotse Pitch-Video</title>
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@500,700,900&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Präsentationsvideo 1080×1350 (4:5, LinkedIn-Feed) im CODING-9-CI.
+   Ein durchgehendes Browserfenster, Kamerafahrten über echte Screens, Mauszeiger mit Klicks. window.render(t) ist deterministisch. */
+:root{--ink:#2E2E38;--cream:#FFF3E2;--paper:#FBF7F0;--line:#E5DCCD;--green:#7EBBAE;--green-d:#3F7A6B;--coral:#FF786D;--mute:#62626b;
+  --display:"Satoshi","Inter",system-ui,sans-serif;--body:"Inter",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1350px;overflow:hidden;background:var(--paper)}
+body{font-family:var(--body);-webkit-font-smoothing:antialiased;color:var(--ink)}
+.layer{position:absolute;inset:0}
+canvas.contours{position:absolute;inset:0;width:100%;height:100%}
+
+/* Titel über dem Fenster */
+.cap{position:absolute;left:60px;right:60px;top:84px;opacity:0}
+.cap small{display:block;font:600 24px/1 var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--green-d);margin-bottom:20px}
+.cap h2{font:900 68px/1.03 var(--display);letter-spacing:-.04em}
+.cap h2 em{font-style:normal;color:var(--coral)}
+
+/* Fiktives Browserfenster */
+#browser{position:absolute;left:60px;top:320px;width:960px;height:880px;border-radius:26px;overflow:hidden;background:#fff;
+  border:2px solid var(--line);box-shadow:0 60px 120px -50px rgb(46 46 56/.55),0 8px 24px -12px rgb(46 46 56/.2)}
+#bar{height:60px;display:flex;align-items:center;gap:12px;padding:0 20px;background:#F3EEE6;border-bottom:1.5px solid var(--line)}
+#bar i{width:14px;height:14px;border-radius:50%}#bar i:nth-child(1){background:#FF786D}#bar i:nth-child(2){background:#F2C26B}#bar i:nth-child(3){background:#7EBBAE}
+#url{margin-left:18px;flex:1;height:36px;border-radius:10px;background:#fff;border:1.5px solid var(--line);display:flex;align-items:center;gap:10px;padding:0 14px;font:500 18px/1 var(--mono);color:var(--mute)}
+#url svg{width:16px;height:16px;flex:none}
+#vp{position:absolute;left:0;top:60px;width:960px;height:820px;overflow:hidden;background:#fff}
+#vp img{position:absolute;left:0;top:0;width:3200px;transform-origin:0 0;opacity:0;will-change:transform,opacity}
+#cursor{position:absolute;left:0;top:0;width:40px;height:40px;z-index:5;pointer-events:none;will-change:transform}
+#ripple{position:absolute;left:0;top:0;width:90px;height:90px;margin:-45px 0 0 -45px;border-radius:50%;border:4px solid var(--coral);opacity:0;z-index:4;pointer-events:none}
+
+.note{position:absolute;left:60px;right:60px;bottom:58px;display:flex;justify-content:space-between;align-items:center;font:500 22px/1 var(--body);color:var(--mute);opacity:0}
+.note .ai{background:#fff;border:1.5px solid var(--line);border-radius:99px;padding:10px 16px}
+.note .brand{font:900 30px/1 var(--display);letter-spacing:-.03em;color:var(--ink)}.note .brand b{color:var(--coral)}
+
+/* Dunkle Szenen: Intro, Fähigkeiten, Outro */
+.dark{background:var(--ink);color:#fff;opacity:0;visibility:hidden}
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.kicker{font:600 30px/1 var(--body);letter-spacing:.02em;color:var(--green);margin-bottom:56px}
+.lock{display:flex;align-items:center;gap:34px}.lock svg{width:170px;height:170px}
+.word{font:900 150px/1 var(--display);letter-spacing:-.05em;color:#fff}.word b{color:var(--coral)}
+.tag{margin-top:52px;font:500 46px/1.25 var(--display);color:var(--cream);letter-spacing:-.01em}
+
+#feat .wrap{position:absolute;left:80px;right:80px;top:150px}
+#feat h2{font:900 84px/1 var(--display);letter-spacing:-.045em;margin-bottom:24px}
+#feat h2 em{font-style:normal;color:var(--coral)}
+#feat p.lead{font:500 32px/1.35 var(--body);color:var(--cream);opacity:.85;margin-bottom:64px}
+#feat ul{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:26px 34px}
+#feat li{display:flex;align-items:center;gap:20px;font:700 34px/1.15 var(--display);letter-spacing:-.015em;opacity:0}
+#feat li span{width:64px;height:64px;flex:none;border-radius:18px;background:#3A3A46;display:grid;place-items:center}
+#feat li svg{width:32px;height:32px;color:var(--green)}
+#feat .gate{position:absolute;left:80px;right:80px;bottom:150px;display:flex;align-items:center;gap:20px;padding:30px 34px;border-radius:24px;background:#3A3A46;font:700 38px/1.2 var(--display);opacity:0}
+#feat .gate svg{width:52px;height:52px;flex:none;color:var(--coral)}
+
+.ask{font:900 92px/1.02 var(--display);letter-spacing:-.045em;max-width:900px}.ask em{font-style:normal;color:var(--coral)}
+.sub{margin-top:36px;font:500 38px/1.3 var(--body);color:var(--cream);opacity:.85}
+.mini{display:flex;align-items:center;gap:16px;margin-top:70px}.mini svg{width:64px;height:64px}.mini span{font:900 56px/1 var(--display);letter-spacing:-.04em;color:#fff}.mini span b{color:var(--coral)}
+.by{position:absolute;left:0;right:0;bottom:96px;display:flex;align-items:center;justify-content:center;gap:16px;font:500 28px/1 var(--body);color:var(--cream);opacity:.85}
+.by img{width:40px;height:40px}.by b{font-weight:700;letter-spacing:.06em}
+</style>
+</head>
+<body>
+<div class="layer" id="stage">
+  <div id="caps"></div>
+  <div id="browser">
+    <div id="bar"><i></i><i></i><i></i>
+      <div id="url"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>localhost:3333</span></div>
+    </div>
+    <div id="vp">
+      <div id="ripple"></div>
+      <svg id="cursor" viewBox="0 0 24 24"><path d="M4 2.5l15.5 8.6-6.8 1.9-3 6.7z" fill="#2E2E38" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+    </div>
+  </div>
+  <div class="note" id="note"><span class="ai">Demo-Shop · Produktbilder KI-generiert</span><span class="brand">lotse<b>.</b></span></div>
+</div>
+
+<section class="layer dark" id="intro"><canvas class="contours" width="1080" height="1350"></canvas>
+  <div class="center">
+    <p class="kicker" id="k1">Heute Nachmittag gebaut</p>
+    <div class="lock" id="l1">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#3A3A46"/><circle cx="32" cy="32" r="21" fill="none" stroke="#FFF3E2" stroke-opacity=".3" stroke-width="2"/><path d="M32 8.5v4M32 51.5v4M8.5 32h4M51.5 32h4" stroke="#FFF3E2" stroke-opacity=".55" stroke-width="2.4" stroke-linecap="round"/><g id="needle"><path d="M47 17 36.2 36.2 27.8 27.8Z" fill="#FF786D"/><path d="M17 47 27.8 27.8 36.2 36.2Z" fill="#7EBBAE"/></g><circle cx="32" cy="32" r="3.4" fill="#FFF3E2"/></svg>
+      <div class="word">lotse<b>.</b></div>
+    </div>
+    <p class="tag" id="t1">Das KI-Interface für<br>deinen Shopware-Shop.</p>
+  </div>
+</section>
+
+<section class="layer dark" id="feat"><canvas class="contours" width="1080" height="1350"></canvas>
+  <div class="wrap">
+    <h2>Was Lotse <em>kann</em></h2>
+    <p class="lead">Alles per Chat, mit echten Shopdaten.</p>
+    <ul id="fl"></ul>
+  </div>
+  <div class="gate" id="gate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Jede Änderung nur mit deiner Freigabe.</div>
+</section>
+
+<section class="layer dark" id="outro"><canvas class="contours" width="1080" height="1350"></canvas>
+  <div class="center">
+    <h2 class="ask" id="a9">Sollen wir es <em>veröffentlichen?</em></h2>
+    <p class="sub" id="b9">Sag es mir in den Kommentaren.</p>
+    <div class="mini" id="m9"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#3A3A46"/><circle cx="32" cy="32" r="21" fill="none" stroke="#FFF3E2" stroke-opacity=".3" stroke-width="2"/><path d="M47 17 36.2 36.2 27.8 27.8Z" fill="#FF786D"/><path d="M17 47 27.8 27.8 36.2 36.2Z" fill="#7EBBAE"/><circle cx="32" cy="32" r="3.4" fill="#FFF3E2"/></svg><span>lotse<b>.</b></span></div>
+  </div>
+  <div class="by" id="y9"><img src="../public/logo.svg" alt="">Ein Produkt von <b>CODING 9</b></div>
+</section>
+
+<script>
+// ---- Szenen im Browserfenster ----
+// Kamera: Ausschnitt [x, y, Breite] im Screenshot (3200×2000); Höhe = Breite × 820/960.
+// Maus: Punkte [Sekunde ab Szenenbeginn, x, y, klick?] in Screenshot-Koordinaten – der Zeiger „klebt“ an der Oberfläche.
+const SHOTS = [
+  { id: 'auftrag', a: 3.0, b: 7.4, img: 'pitch-shots/A-auftrag.png', kicker: 'Auftrag', title: 'Sag einfach,<br>was du <em>willst</em>.',
+    from: [420, 0, 2300], to: [1450, 380, 1350], mouse: [[1.2, 2000, 760], [2.9, 2450, 728, true]] },
+  { id: 'produkte', a: 7.2, b: 12.2, img: 'pitch-shots/H-produkt-vorschlag.png', kicker: 'Produkte', title: 'Foto hochladen.<br>Produkt <em>fertig</em>.',
+    from: [700, 0, 2300], to: [770, 460, 1800], mouse: [[1.6, 1500, 1300], [3.6, 2168, 1548, true]] },
+  { id: 'seo', a: 12.0, b: 16.8, img: 'pitch-shots/J-seo.png', kicker: 'Content & SEO', title: 'Texte und SEO<br>für alle <em>Produkte</em>.',
+    from: [700, 0, 2300], to: [770, 460, 1800], mouse: [[1.4, 1500, 1200], [3.6, 2118, 1664, true]] },
+  { id: 'seiten', a: 16.6, b: 21.0, img: 'pitch-shots/B-entwurf.png', kicker: 'Seiten', title: 'Landingpages im<br>Look deines <em>Shops</em>.',
+    from: [1080, 40, 2120], to: [1180, 200, 1800], mouse: [[1.6, 2400, 700], [3.2, 1560, 1078]] },
+  { id: 'anmerken', a: 20.8, b: 23.9, img: 'pitch-shots/C-anmerken-popover.png', kicker: 'Anmerken', title: 'Anklicken, was<br>anders sein <em>soll</em>.',
+    from: [1080, 380, 1900], to: [1100, 820, 1300], mouse: [[1.2, 1500, 1250], [2.4, 1770, 1424, true]] },
+  { id: 'liste', a: 23.7, b: 27.2, img: 'pitch-shots/C-anmerken-liste.png', kicker: 'Anmerken', title: 'Wünsche sammeln,<br>einmal <em>absenden</em>.',
+    from: [1100, 820, 1300], to: [1080, 880, 1280], mouse: [[1.8, 1676, 1890, true]] },
+  { id: 'freigabe', a: 27.0, b: 31.4, img: 'pitch-shots/E-freigabe.png', kicker: 'Freigabe', title: 'Keine Änderung<br>ohne deine <em>Freigabe</em>.',
+    from: [100, 200, 1950], to: [80, 740, 1250], mouse: [[1.6, 700, 1500], [3.2, 404, 1684, true]] },
+  { id: 'live', a: 31.2, b: 34.8, img: 'pitch-shots/F-live.png', kicker: 'Live', title: 'Und dann<br><em>live</em> im Shop.',
+    from: [1080, 40, 2120], to: [1110, 120, 1980], mouse: [[2.0, 2500, 1500]] },
+];
+const FEAT = [
+  ['Produktpflege', '<path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 11v10"/>'],
+  ['Produkte mit Fotos verwalten', '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m21 16-5-5-8 8"/>'],
+  ['SEO-Optimierung', '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>'],
+  ['Preisanpassungen', '<path d="M20 12 12 20 4 12V4h8z"/><circle cx="8.5" cy="8.5" r="1.5"/>'],
+  ['Landingpages', '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>'],
+  ['Kategorie-Layouts', '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>'],
+  ['Produkt-Layouts', '<rect x="3" y="4" width="8" height="16" rx="1"/><path d="M14 6h7M14 11h7M14 16h5"/>'],
+  ['Texte & Inhalte', '<path d="M4 6h16M4 12h16M4 18h10"/>'],
+];
+const DURATION = 46.4, T_FEAT = [34.6, 40.8], T_OUT = [40.6, 46.4];
+const VW = 960, VH = 820;
+
+// ---- Aufbau ----
+const $ = id => document.getElementById(id);
+const vp = $('vp'), caps = $('caps');
+for (const s of SHOTS) {
+  const im = document.createElement('img'); im.src = s.img; vp.insertBefore(im, $('ripple')); s.el = im;
+  const c = document.createElement('div'); c.className = 'cap'; c.innerHTML = `<small>${s.kicker}</small><h2>${s.title}</h2>`; caps.appendChild(c); s.cap = c;
+}
+$('fl').innerHTML = FEAT.map(([t, ic]) => `<li><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ic}</svg></span>${t}</li>`).join('');
+
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const easeOut = x => 1 - Math.pow(1 - x, 3);
+const easeInOut = x => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const back = x => { const c = 1.6; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+const lerp = (a, b, k) => a + (b - a) * k;
+const show = (el, p, dy = 30) => { el.style.opacity = p; el.style.transform = `translateY(${(1 - p) * dy}px)`; };
+
+function contours(cv, t) {
+  const cx = cv.getContext('2d'), w = cv.width, h = cv.height; cx.clearRect(0, 0, w, h);
+  for (let i = 0; i < 18; i++) {
+    cx.beginPath(); const base = h * (i / 17), amp = 24 + i * 3;
+    for (let x = -30; x <= w + 30; x += 16) { const y = base + Math.sin(x / 240 + i * .7 + t * .25) * amp + Math.cos(x / 100 - i * .4 + t * .15) * 8; x === -30 ? cx.moveTo(x, y) : cx.lineTo(x, y); }
+    cx.strokeStyle = i % 4 === 0 ? 'rgba(126,187,174,.30)' : 'rgba(255,243,226,.06)'; cx.lineWidth = i % 4 === 0 ? 2 : 1.4; cx.stroke();
+  }
+}
+// Kamera einer Szene zur Zeit t: [x, y, Breite, Skala]
+function cam(s, t) {
+  const k = easeInOut(seg(t, s.a, s.b)), r = s.from.map((v, i) => lerp(v, s.to[i], k));
+  return [r[0], r[1], r[2], VW / r[2]];
+}
+const toVp = (s, t, X, Y) => { const [x, y, , sc] = cam(s, t); return [(X - x) * sc, (Y - y) * sc]; };
+// Mauszeiger: Start = Position am Ende der vorigen Szene (im Fenster), dann die Punkte der Szene
+const REST = [VW * .72, VH * .82];
+function mouseAt(t) {
+  const i = SHOTS.findLastIndex(s => t >= s.a); if (i < 0) return { p: REST, click: -1 };
+  const s = SHOTS[i];
+  let start = i > 0 ? mouseAt(s.a - 1e-3).p : REST, t0 = s.a, click = -1;
+  for (const [dt, X, Y, c] of s.mouse) {
+    const tk = s.a + dt, target = toVp(s, t, X, Y);
+    if (t < tk) { const k = easeInOut(seg(t, t0, tk)); return { p: [lerp(start[0], target[0], k), lerp(start[1], target[1], k)], click }; }
+    start = target; t0 = tk; if (c) click = tk;
+  }
+  return { p: start, click };
+}
+
+window.render = function (t) {
+  // Intro
+  const introP = 1 - seg(t, 2.9, 3.5);
+  $('intro').style.opacity = introP; $('intro').style.visibility = introP > 0 ? 'visible' : 'hidden';
+  if (introP > 0) {
+    contours(document.querySelector('#intro canvas'), t);
+    show($('k1'), easeOut(seg(t, .1, .7)), 20);
+    $('needle').setAttribute('transform', `rotate(${-140 + 140 * back(seg(t, .5, 1.8))} 32 32)`);
+    show($('l1'), easeOut(seg(t, .4, 1.2)), 30); show($('t1'), easeOut(seg(t, 1.3, 2.0)), 20);
+  }
+  // Browserfenster fährt ein, Hinweis unten
+  const bIn = easeOut(seg(t, 3.0, 3.8));
+  $('browser').style.transform = `translateY(${(1 - bIn) * 120}px) scale(${.96 + .04 * bIn})`; $('browser').style.opacity = bIn;
+  $('note').style.opacity = bIn * (1 - seg(t, T_FEAT[0] - .2, T_FEAT[0] + .3));
+  // Screens überblenden, Kamera fahren, Titel wechseln
+  SHOTS.forEach((s, i) => {
+    const next = SHOTS[i + 1];
+    const op = Math.min(seg(t, s.a, s.a + .45), next ? 1 - seg(t, next.a, next.a + .45) : 1);
+    s.el.style.opacity = op;
+    if (op > 0) { const [x, y, , sc] = cam(s, t); s.el.style.transform = `scale(${sc}) translate(${-x}px,${-y}px)`; }
+    const capOp = Math.min(seg(t, s.a + .05, s.a + .55), next ? 1 - seg(t, next.a - .05, next.a + .3) : 1 - seg(t, T_FEAT[0] - .3, T_FEAT[0]));
+    show(s.cap, easeOut(capOp), 22);
+  });
+  // Maus mit Klick (Drücken + Welle)
+  const inShots = t >= SHOTS[0].a && t < T_FEAT[0] + .2;
+  const m = mouseAt(t), cur = $('cursor'), rip = $('ripple');
+  const press = m.click > 0 ? seg(t, m.click, m.click + .12) - seg(t, m.click + .12, m.click + .3) : 0;
+  cur.style.opacity = inShots ? seg(t, 3.4, 3.9) : 0;
+  cur.style.transform = `translate(${m.p[0] - 6}px,${m.p[1] - 4}px) scale(${1 - .18 * press})`;
+  const rp = m.click > 0 ? seg(t, m.click, m.click + .55) : 1;
+  rip.style.opacity = rp < 1 ? (1 - rp) * .9 : 0; rip.style.transform = `translate(${m.p[0]}px,${m.p[1]}px) scale(${.3 + rp})`;
+  // Was Lotse kann
+  const fOp = Math.min(seg(t, T_FEAT[0], T_FEAT[0] + .5), 1 - seg(t, T_FEAT[1] - .4, T_FEAT[1]));
+  $('feat').style.opacity = fOp; $('feat').style.visibility = fOp > 0 ? 'visible' : 'hidden';
+  if (fOp > 0) {
+    const l = t - T_FEAT[0]; contours(document.querySelector('#feat canvas'), t);
+    document.querySelectorAll('#fl li').forEach((li, i) => show(li, easeOut(seg(l, .6 + i * .22, 1.1 + i * .22)), 18));
+    show($('gate'), easeOut(seg(l, 2.9, 3.5)), 24);
+  }
+  // Outro
+  const oOp = seg(t, T_OUT[0], T_OUT[0] + .5);
+  $('outro').style.opacity = oOp; $('outro').style.visibility = oOp > 0 ? 'visible' : 'hidden';
+  if (oOp > 0) {
+    const l = t - T_OUT[0]; contours(document.querySelector('#outro canvas'), t);
+    show($('a9'), easeOut(seg(l, .2, 1.0)), 30); show($('b9'), easeOut(seg(l, .9, 1.6)), 20);
+    show($('m9'), easeOut(seg(l, 1.5, 2.2)), 16); show($('y9'), easeOut(seg(l, 2.0, 2.7)), 12);
+  }
+};
+window.DURATION = DURATION;
+window.SIZE = [1080, 1350];
+render(0);
+</script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+- SHOP-VERWALTUNG (Details in den Abschnitten unten): Produktbilder & Alt-Texte, SEO-URLs & interne Links, Stammdaten (Eigenschaften, Kategorien, Hersteller, Tags, Sichtbarkeit, Cross-Selling), Übersetzungen, Varianten & Stapeländerungen, Produktstreams, Promotionen & Rabattcodes.

@@ -1,0 +1,9 @@
+## Mehrsprachigkeit (Store-Views)
+Grundlage: Magento speichert Texte global (Standardwert) und optional je Store-View. Eine Store-View ohne eigenen Wert zeigt den globalen Text, oft den deutschen Originaltext. Store-Codes stehen nicht unbedingt in der URL.
+1. ÜBERBLICK: Zuerst list_store_views (Code, Name, Locale, Website). Ist unklar, in welche Store-Views übersetzt werden soll, per ask_user fragen. Neue Store-Views richtet der Nutzer im Admin ein.
+2. LESEN: get_translations (Produkte, Kategorien; own=false = kein eigener Wert in dieser Store-View). Zum Übersetzen den vollständigen Quelltext lesen (full=true).
+3. UMFANG BESTÄTIGEN per ask_user: Quell- und Ziel-Store-View(s), welche Datensätze und Felder, ob vorhandene eigene Übersetzungen überschrieben werden. Bei vielen Datensätzen in Paketen (je Set bis ~50 Datensätze).
+4. ÜBERSETZEN, muttersprachlich und nicht wörtlich: Marken-, Produkt- und Eigennamen bleiben; Fakten (Maße, Material, Mengen) exakt übernehmen; Einheiten und Zahlenformat der Zielsprache; SEO je Sprache neu denken (eigenes Fokus-Keyword, metaTitle ≤ 60, metaDescription 120 bis 158 Zeichen); nie Sprachen mischen.
+5. VORSCHLAGEN mit propose_translations (store = Code oder Locale). null entfernt eine eigene Übersetzung, die Store-View zeigt dann wieder den globalen Text. Den globalen Text änderst du nicht über propose_translations, sondern mit propose_product_changes / propose_category_changes.
+6. GRENZEN: Einen eigenen Kategorienamen oder -status einer Store-View kann Lotse nicht auf „Standardwert verwenden“ zurückstellen (Rückgängig setzt dort den globalen Wert als eigenen Wert). URL-Schlüssel je Store-View, Bild-Labels je Store-View und CMS-Inhalte übersetzt Lotse nicht.
+7. NACH DER FREIGABE: melden, was je Store-View übernommen wurde, was übersprungen ist und was fehlt.

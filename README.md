@@ -1,0 +1,156 @@
+<p align="center"><img src="docs/lotse-logo.svg" alt="Lotse" width="260"></p>
+
+<p align="center"><b>Der KI-Lotse für Shopware 6.</b> Du gibst den Kurs vor – Lotse bringt deinen Shop sicher hin.<br>
+Einkaufswelten, Preise, Texte & SEO per Chat. Die KI liest nur, geschrieben wird erst nach deiner Freigabe.</p>
+
+<p align="center"><img src="docs/screenshots/app.png" alt="Lotse Oberfläche" width="820"></p>
+
+## Schnellstart (Docker)
+
+```bash
+docker run -d --name lotse --restart unless-stopped \
+  -p 127.0.0.1:3333:3333 -v lotse-data:/data \
+  --read-only --tmpfs /tmp:size=256m,mode=1777 --tmpfs /app/.next/cache:size=64m,uid=1000,gid=1000 \
+  --cap-drop ALL --security-opt no-new-privileges:true \
+  --pids-limit 512 --memory 2g --cpus 2 \
+  ghcr.io/coding9gmbh/lotse:latest
+```
+
+> `latest` gibt es erst, wenn der Release-Lauf der Pipeline manuell von einem Tag aus gestartet wurde (siehe [Releases & Image](#releases--image)). Gibt es das Image noch nicht, baust du es mit `make up` aus dem Quellcode.
+
+Dann **http://localhost:3333** öffnen und unter *Einstellungen*:
+1. **KI verbinden** – wahlweise
+   - **Claude**: Anthropic-API-Schlüssel (console.anthropic.com, Abrechnung nach Verbrauch), oder
+   - **ChatGPT-Abo (Codex)**: „Mit ChatGPT anmelden“ → Link öffnen, angezeigten Code eingeben. Funktioniert auch im Container, ohne API-Kosten (es gelten die Limits deines Abos).
+2. **Shop verbinden** – im Shopware-Admin unter *Einstellungen → System → Integrationen* eine Integration anlegen und Shop-URL, Zugangs-ID und Schlüssel eintragen.
+3. Mit dem **Styleguide-Onboarding** starten, damit Lotse Ton und Farben deines Shops trifft.
+
+Alles (App, KI-Laufzeit, SQLite-Datenbank) steckt im Image; Daten, verschlüsselte Zugangsdaten und Verlauf liegen im Volume `lotse-data` und überstehen Updates.
+
+> Shop auf demselben Rechner? Im Container ist `localhost` der Container selbst – nutze `http://host.docker.internal:<port>`.
+
+## Aus dem Quellcode / Entwicklung
+
+```bash
+make env     # .env aus .env.example (optional – alles geht auch in der Oberfläche)
+make up      # Image bauen und starten → http://localhost:3333
+make demo    # zusätzlich Demo-Shop (dockware) → http://localhost:8888
+make logs    # Logs   ·   make down  stoppen   ·   make backup  Daten sichern
+make help    # alle Befehle
+```
+
+Mit dem Demo-Shop in Lotse eintragen: Shop-URL `http://shopware`, öffentliche URL `http://localhost:8888`, Benutzer `admin` / `shopware`.
+Ohne Docker: `npm install && npm run dev` (Node ≥ 22.13) → http://localhost:3333. Vor jedem Commit: `npm run check` (Typecheck, ESLint, Tests).
+
+## Sicherheit – damit kein Shop plötzlich down geht
+
+| Schutz | Wie |
+|---|---|
+| KI ohne Schreibrechte | Das Modell bekommt nur `ReadOnlyShopware` mit Freigabeliste; Kunden-, Bestell-, Zahlungs- und Zugangsdaten sind fest gesperrt, jeder Lesezugriff wird protokolliert. |
+| Freigabe vor jedem Schreiben | Änderungen erscheinen als Alt→Neu-Vergleich; erst „Anwenden“ schreibt. Audit-Log + Rückgängig. |
+| Shop wird geschont | Schreibzugriffe gedrosselt (`LOTSE_WRITE_CONCURRENCY`, Standard 2), max. 300 Einträge je Änderungsset, Timeouts (`LOTSE_SHOP_TIMEOUT_MS`), Backoff bei 429/503. |
+| Lokal & gehärtet | Port nur auf `127.0.0.1`, Host-/Origin-Prüfung, Container als Nicht-Root, read-only, ohne Capabilities, mit Ressourcen-Limits. |
+| Zugangsdaten | AES-256-GCM-verschlüsselt im Volume, gehen nie an die KI. |
+| Codex (ChatGPT-Abo) | Eigene Codex-Werkzeuge (Shell, Dateien, Web, Bilder, Plugins …) abgeschaltet, Dateizugriff per Berechtigungsprofil komplett gesperrt, keine Rückfragen nach mehr Rechten; Shop-Tools nur über einen lokalen MCP-Endpunkt mit Zufalls-Token je Chat. Taucht trotzdem ein gesperrtes Werkzeug auf, bricht Lotse die Runde ab. |
+| Serverbetrieb | `LOTSE_PASSWORD` (Login) + `ALLOWED_HOSTS` setzen, HTTPS per Reverse-Proxy. |
+
+Für Live-Shops: eigene Integration mit eingeschränkter Rolle statt Admin-Login, neue Abläufe zuerst im Staging testen. Details: [SECURITY.md](SECURITY.md).
+
+> **Warum kein Claude-Abo?** Anthropic erlaubt Drittprodukten auf Basis des Claude Agent SDK ohne vorherige Freigabe keinen claude.ai-Login und keine Abo-Kontingente ([Agent-SDK-Dokumentation](https://code.claude.com/docs/en/agent-sdk/overview)). Lotse nutzt Claude deshalb nur mit API-Schlüssel – und ignoriert bewusst eine eventuell vorhandene Claude-Code-Anmeldung auf dem Rechner.
+
+## Konfiguration
+
+Alle Variablen mit Erklärung in [`.env.example`](.env.example). In der Oberfläche gesetzte Werte haben Vorrang.
+
+| Variable | Zweck |
+|---|---|
+| `AI_PROVIDER` | `claude` (Standard) oder `codex` (ChatGPT-Abo) |
+| `ANTHROPIC_API_KEY` | KI-Zugang Claude (API-Schlüssel) |
+| `CODEX_MODEL` | optionales Codex-Modell (leer = Standard des Abos) |
+| `SHOPWARE_URL`, `SHOPWARE_CLIENT_ID`, `SHOPWARE_CLIENT_SECRET` | Shop-Zugang (Integration) |
+| `SHOPWARE_PUBLIC_URL` | Shop-Adresse aus Sicht des Browsers, falls abweichend |
+| `SHOP_PLATFORM` | verbundene Plattform: `shopware` (Standard), `shopify`, `magento` (Magento 2) oder `openmage` (Magento 1 mit dem Modul aus `integrations/openmage/`); Variablen `SHOPIFY_*`, `MAGENTO_*`, `OPENMAGE_*` siehe `src/lib/platforms.ts` |
+| `AI_MODEL` | z. B. `sonnet` oder `opus` |
+| `LOTSE_PASSWORD`, `ALLOWED_HOSTS` | Zugangsschutz für Serverbetrieb |
+| `LOTSE_WRITE_CONCURRENCY`, `LOTSE_SHOP_TIMEOUT_MS` | Shop-Schonung |
+| `OPENAI_API_KEY`, `IMAGE_MODEL` | optionale Bild-KI |
+
+## Releases & Image
+
+Images werden nur von Hand gebaut: GitHub → Actions → *Docker-Image* → *Run workflow* (`.github/workflows/docker.yml`). Push und Pull Request führen nur Typecheck, Lint, Tests, Build und Smoke-Test aus, veröffentlichen aber kein Image.
+
+- Lauf von einem Tag `vX.Y.Z`: veröffentlicht `ghcr.io/coding9gmbh/lotse` als `X.Y.Z`, `X.Y` und `latest`.
+- Lauf von `main`: veröffentlicht `edge` und ein Tag mit dem Kurz-Hash des Commits.
+
+Gebaut wird für amd64 und arm64, mit SBOM und Provenance. `latest` gibt es deshalb erst nach einem manuell ausgelösten Release-Lauf; vorher bleibt nur der Bau aus dem Quellcode (siehe unten).
+
+## Konzept: AI-first Verwaltung
+Chat statt Formulare. Du schreibst, was passieren soll („Ändere das Layout von Produkt XY“, „Senke alle Preise um 20 %“, „FAQ bei allen Produkten“). Der Agent **versteht → fragt gezielt zurück** (klickbare Antworten) **→ recherchiert (nur lesen) → zeigt Vorschau bzw. Alt→Neu-Vergleich → du gibst frei → der Server schreibt** (Audit-Log, Rückgängig).
+
+**Sicherheitsmodell:** Die KI hat ausschließlich Lesezugriff (`ReadOnlyShopware`, kein create/update/upload). Schreiben passiert nur im Executor (`src/server/changes.ts`) nach Klick auf „Anwenden“; jede Anwendung wird im Audit-Log (SQLite, `data/aicb.db`) protokolliert und ist per „Rückgängig“ umkehrbar. Hochgeladene Bild-Anhänge und KI-erzeugte Bilder liegen bis zur Freigabe lokal in `data/staging/` und kommen erst mit einem freigegebenen Änderungsset in den Shop.
+
+## Funktionen
+- **Chat-Start mit Beispielen**, Rückfragen mit Antwort-Buttons, Verlauf. Optionaler Kontext (Kategorie/Produkt wählen) mit Direktlinks ins Admin/Storefront.
+- **Massenänderungen** (Preise, Streichpreise, Bestand, Aktiv, Texte, SEO) mit serverseitig gerechneten Preisregeln, Warnungen (z. B. −99 %), Zeilen-Auswahl, Audit-Log und Rückgängig.
+- **Produktindividuelle Blöcke** (FAQ): gemeinsames PDP-Layout mit Block `pdp-faq`, Inhalt je Produkt im JSON-Zusatzfeld `aicb_blocks` (mit FAQPage-Schema).
+- **Styleguide-Onboarding**: Die KI analysiert Theme-Konfiguration, Storefront-CSS, Logo und echte Texte → gespeichert in der Datenbank. Wirkt auf Texte, Farben, Vorschau und die CSS-Variablen (`--sg-*`) in Custom-HTML.
+- **Einkaufswelten-Know-how**: Agent kennt Sections/Blöcke/Slots, liest bestehende Layouts (`get_cms_page`) und bezieht vorhandene Inhalte ein.
+- **Custom-HTML/CSS/JS** als `html`-Element (Block `custom-html`, CSS automatisch gescoped).
+- **Verlauf**: Alle Chats inkl. Entwurf/Freigaben liegen in der Datenbank und lassen sich im UI wieder öffnen.
+- UI im Coding9-CI (Dunkel `#2E2E38`, Grün, Koralle, Creme; Satoshi/Inter via Fontshare/Google Fonts).
+
+## Shop-Plattformen
+
+Lotse verbindet sich mit **Shopware 6** (Standard), **Shopify**, **Magento 2** und **OpenMage (Magento 1)**; die Plattform wird in den Einstellungen unter „Shop verbinden“ gewählt (oder per `SHOP_PLATFORM`). Was welche Plattform kann, zeigt die Fähigkeitsmatrix in [`docs/platform.md`](docs/platform.md).
+
+**OpenMage** hat keine brauchbare Schnittstelle für CMS-Seiten/-Blöcke, darum liegt im Repository das Modul **`Lotse_Connector`** ([`integrations/openmage/`](integrations/openmage/)) mit token-gesicherter JSON-API unter `/lotse-api/v1`. Installation in Kurzform (Details, Sicherheit und Endpunkte in [`integrations/openmage/README.md`](integrations/openmage/README.md)):
+
+1. Modul in die OpenMage-Installation legen: Dateien aus `integrations/openmage/` kopieren bzw. das Zip aus `./package.sh` entpacken, per `modman link`, oder per Composer (Typ `magento-module`).
+2. Cache leeren, im Admin unter **System → Konfiguration → Lotse → API** die Schnittstelle aktivieren und ein API-Token erzeugen (alternativ `php shell/lotse.php --generate-token`).
+3. In Lotse unter „Shop verbinden“ **OpenMage** wählen, Shop-URL und Token eintragen (oder `OPENMAGE_URL`, `OPENMAGE_TOKEN`, optional `OPENMAGE_STORE_CODE`).
+
+Das Modul kennt keine Routen für Kunden, Bestellungen, Zahlungen oder Benutzer – diese Daten erreichen Lotse gar nicht.
+
+## Produktseite
+
+Die Produktseite von Lotse liegt auf [coding9.de/produkte/lotse](https://coding9.de/produkte/lotse) und wird mit der CODING-9-Website gepflegt.
+
+## Aufbau
+
+Next.js 16 (App Router) · React 19 · TypeScript (strict) · SQLite (`node:sqlite`) · Claude Agent SDK oder OpenAI Codex SDK (ChatGPT-Abo).
+
+```
+src/
+├── proxy.ts              Host-/Origin-Prüfung, optionaler Login, Storefront-Pfade → /shop
+├── app/
+│   ├── page.tsx          Arbeitsfläche (Chat, Kontext, Vorschau)
+│   ├── settings/         Einstellungen: Shop, KI, Bild-KI, KI-Zugriff, Protokolle
+│   ├── api/**/route.ts   REST + Chat-Stream (NDJSON)
+│   ├── shop/             Storefront-Proxy für die Live-Vorschau
+│   └── staged/           vorgemerkte Bilder (vor Freigabe nur lokal)
+├── components/           UI nach Bereichen (shell = Navigation, chat, context, preview, dialogs, settings, ui), CSS Modules
+├── hooks/                useChatStream, useAttachments
+├── lib/
+│   ├── protocol.ts       Vertrag Server ↔ Oberfläche (REST-Typen, Chat-Ereignisse)
+│   └── chat-state.ts     ein Reducer für Live-Stream und Wiederherstellung eines Chats
+└── server/               nur serverseitig (`server-only`)
+    ├── agent.ts          Chat-Runde: Claude Agent SDK (In-Process-MCP), Streaming des Entwurfs
+    ├── agent-codex.ts    Chat-Runde mit Codex (ChatGPT-Abo); Shop-Tools über /api/mcp/<chat> (Token je Chat)
+    ├── codex.ts          Codex-Anmeldung (Gerätecode), gesperrte Konfiguration ohne Shell/Dateien/Web
+    ├── platform/         Plattform-Schicht: Adapter-Vertrag + Shopware, Shopify, Magento 2, OpenMage, siehe docs/platform.md
+    ├── tools.ts          Kern-Tools + Zusammenbau je Plattform (lesen frei, schreiben nur über Änderungssets)
+    ├── policy.ts         Schutzschicht: Freigabeliste, gesperrte Daten, Zugriffsprotokoll
+    ├── changes.ts        Executor: einziger schreibender Code (gedrosselt, Audit, Rückgängig)
+    ├── shopware.ts       Admin-API-Client (Timeouts, Backoff) + ReadOnlyShopware für die KI
+    ├── cms.ts / patterns.ts   Block-Katalog, Spec → `cms_page`, HTML-Vorschau
+    └── db.ts / settings.ts    SQLite, verschlüsselte Zugangsdaten
+prompts/                  System-Prompt als versioniertes Markdown: common/ (alle Plattformen) + shopware/, shopify/, magento/, openmage/
+integrations/openmage/    OpenMage-Modul Lotse_Connector (JSON-API, openapi.yaml, Tests, package.sh)
+```
+
+Neue Blocktypen: in `BLOCKS` (`src/server/cms.ts`) ergänzen (+ Vorschau-Renderer) – der Agent bekommt den Katalog automatisch.
+Neue Shop-Plattform: Vertrag, Konventionen und Checkliste in [`docs/platform.md`](docs/platform.md).
+
+## Lizenz
+
+[MIT](LICENSE) © CODING 9 GmbH

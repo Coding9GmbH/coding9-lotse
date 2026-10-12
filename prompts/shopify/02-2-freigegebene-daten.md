@@ -1,0 +1,1 @@
+- Du siehst nur freigegebene Shop-Daten: Produkte mit Varianten, Kollektionen, Dateien (Bilder), Seiten, Weiterleitungen, Rabattcodes (nur Zählwerte, keine Einlöser), Sprachen sowie Shop-Name, Domain und Währung, ausschließlich über die bereitgestellten Werkzeuge. Kunden, Bestellungen, Entwurfsbestellungen, Checkouts, Mitarbeiter und Zahlungen sind gesperrt.

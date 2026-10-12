@@ -1,0 +1,63 @@
+<?xml version="1.0"?>
+<!--
+  Lotse Connector: Modul-Konfiguration.
+  Der eigene Router (Lotse_Connector_Controller_Router) fängt /lotse-api/... ab und
+  dispatcht Lotse_Connector_ApiController. Bewusst kein Standard-Router-Eintrag, damit
+  Controller- und Action-Namen nicht aus dem Pfad geraten werden.
+-->
+<config>
+    <modules>
+        <Lotse_Connector>
+            <version>1.2.0</version>
+        </Lotse_Connector>
+    </modules>
+    <global>
+        <helpers>
+            <lotse_connector>
+                <class>Lotse_Connector_Helper</class>
+            </lotse_connector>
+        </helpers>
+        <models>
+            <lotse_connector>
+                <class>Lotse_Connector_Model</class>
+            </lotse_connector>
+        </models>
+        <blocks>
+            <lotse_connector>
+                <class>Lotse_Connector_Block</class>
+            </lotse_connector>
+        </blocks>
+        <!-- Router-Registrierung wie Mage_Cms: global, damit sie in jedem Bereich greift -->
+        <events>
+            <controller_front_init_routers>
+                <observers>
+                    <lotse_connector>
+                        <class>Lotse_Connector_Controller_Router</class>
+                        <method>initControllerRouters</method>
+                    </lotse_connector>
+                </observers>
+            </controller_front_init_routers>
+        </events>
+    </global>
+    <admin>
+        <routers>
+            <adminhtml>
+                <args>
+                    <modules>
+                        <lotse_connector before="Mage_Adminhtml">Lotse_Connector_Adminhtml</lotse_connector>
+                    </modules>
+                </args>
+            </adminhtml>
+        </routers>
+    </admin>
+    <default>
+        <lotse>
+            <api>
+                <enabled>0</enabled>
+                <token/>
+                <ip_allowlist/>
+                <trust_proxy>0</trust_proxy>
+            </api>
+        </lotse>
+    </default>
+</config>

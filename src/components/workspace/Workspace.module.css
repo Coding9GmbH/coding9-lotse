@@ -1,0 +1,29 @@
+/* Layout-Modi: home (nur Chat, mittig) · work (Chat) · pv (Chat + Vorschau). Navigation liegt in der App-Hülle. */
+.app { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.main { flex: 1; display: grid; grid-template-columns: minmax(380px, 470px) minmax(0, 1fr); min-height: 0; }
+.chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-right: 1px solid var(--line); background: var(--bg); }
+.statusRow { flex: none; display: flex; }
+
+/* Start: nur der Chat, mittig, scrollt als Ganzes */
+.app[data-mode="home"] .main { grid-template-columns: minmax(0, 1fr); }
+.app[data-mode="home"] .right { display: none; }
+.app[data-mode="home"] .chat { border: 0; max-width: 920px; width: 100%; margin: 0 auto; overflow: auto; padding-top: clamp(8px, 4vh, 40px); }
+.app[data-mode="home"] .statusRow { padding-top: 12px; }
+.homeLog { flex: none; overflow: visible; padding-top: 22px; }
+
+/* Arbeiten ohne Vorschau: Chat-Spalte zentriert, max. 900px */
+.app[data-mode="work"] .main { grid-template-columns: minmax(0, 1fr); }
+.app[data-mode="work"] .right { display: none; }
+.app[data-mode="work"] .chat { align-items: center; border-right: 0; }
+.app[data-mode="work"] .chat > * { width: 100%; max-width: 900px; }
+.app[data-mode="work"] .chat > section:first-child { width: calc(100% - 24px); max-width: 876px; }
+
+/* Schmaler Viewport: Vorschau nicht daneben, sondern auf Knopfdruck (oder beim fertigen Entwurf) über dem Chat */
+.pvBar { display: none; }
+@media (max-width: 1100px) {
+  .main { grid-template-columns: minmax(0, 1fr); position: relative; }
+  .right { display: none; }
+  .chat { border-right: 0; }
+  .pvBar { display: flex; justify-content: flex-end; padding: 8px 12px 0; }
+  .app[data-show="preview"] .right { display: flex; position: absolute; inset: 0; z-index: 10; background: var(--bg); }
+}

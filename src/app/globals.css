@@ -1,0 +1,72 @@
+/* CODING 9 CI: Dunkel #2E2E38 · Grün #7EBBAE/#3F7A6B · Koralle #FF786D · Creme #FFF3E2/#FBF7F0 · Satoshi + Inter */
+:root {
+  --dark: #2e2e38;
+  --green: #7ebbae;
+  --green-d: #3f7a6b;
+  --green-bg: #e6f0ec;
+  --coral: #ff786d;
+  --coral-d: #e85a50;
+  --coral-bg: #ffe0dc;
+  --cream: #fff3e2;
+  --bg: #fbf7f0;
+  --sand: #efe8dc;
+  --panel: #fff;
+  --ink: #1e1e1e;
+  --mute: #66666d;
+  --line: #e9e2d6;
+  --warn: #8a5a00;
+  --warn-bg: #fff1d6;
+  --r: 12px;
+  --shadow-pop: 0 10px 36px #2e2e3814;
+  --display: "Satoshi", var(--font-inter), "Inter", system-ui, sans-serif;
+  --body: var(--font-inter), "Inter", system-ui, -apple-system, sans-serif;
+  color-scheme: light;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { margin: 0; }
+
+body {
+  font: 14px/1.55 var(--body);
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { font-family: var(--display); }
+
+button, input, textarea, select { font: inherit; color: inherit; }
+
+button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 6px 13px;
+  cursor: pointer;
+  transition: .12s;
+}
+button:hover { border-color: var(--dark); }
+button:disabled { opacity: .45; cursor: default; }
+button:disabled:hover { border-color: var(--line); }
+
+a { color: var(--green-d); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; }
+
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+@keyframes pulse { 50% { opacity: .3; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pop { from { opacity: 0; transform: translateY(6px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition: none !important; }
+}

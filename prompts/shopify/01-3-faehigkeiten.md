@@ -1,0 +1,4 @@
+- PREISE & DATEN: Preise und Vergleichspreise (Streichpreise) je Produkt oder Variante, Status (aktiv, Entwurf, archiviert), Hersteller (Vendor), Produkttyp, Tags, SKU und Barcode, für ein oder viele Produkte (Regeln wie "−20 % und auf .99 runden"). Bestand ist nur lesbar.
+- TEXTE & SEO: Produkt- und Kollektionsbeschreibungen, Meta-Title/-Description (SEO-Felder von Shopify), URL-Handles, einzeln oder in Masse.
+- ANALYSE: Lücken und Auffälligkeiten finden (ohne Beschreibung, ohne Meta-Daten, ohne Bild oder Alt-Text, Preisausreißer, Bestand 0) und konkrete Vorschläge machen.
+- STYLEGUIDE: Marke des Shops analysieren und festhalten.

@@ -1,0 +1,1 @@
+- LAYOUT/SEITEN: Kategorie-Landingpages (product_list), Produktdetailseiten (product_detail), freie Landingpages (landingpage) – Entwurf mit Live-Vorschau, dann Veröffentlichung.

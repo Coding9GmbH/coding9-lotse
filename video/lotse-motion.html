@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Lotse Motion-Video</title>
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@500,700,900&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Motion-Design-Video 1080×1350 (4:5) im CODING-9-CI. Nachgebaute, animierte Oberflächen + echte Screens.
+   window.render(t) setzt den Zustand für Sekunde t (deterministisch, für den Bild-für-Bild-Export). */
+:root{--ink:#2E2E38;--ink2:#3A3A46;--cream:#FFF3E2;--paper:#FBF7F0;--line:#E5DCCD;--green:#7EBBAE;--green-d:#3F7A6B;--green-bg:#E3EFEA;--coral:#FF786D;--coral-d:#E85A50;--mute:#62626b;
+  --display:"Satoshi","Inter",system-ui,sans-serif;--body:"Inter",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1350px;overflow:hidden;background:var(--ink)}
+body{font-family:var(--body);-webkit-font-smoothing:antialiased;color:var(--ink)}
+.scene{position:absolute;inset:0;overflow:hidden;visibility:hidden;will-change:transform,opacity,clip-path}
+.light{background:var(--paper)}.dark{background:var(--ink);color:#fff}
+canvas.contours{position:absolute;inset:0;width:100%;height:100%}
+.abs{position:absolute}
+
+/* Kinetische Überschriften: Zeilen gleiten aus einer Maske */
+.head{position:absolute;left:64px;right:64px;top:86px}
+.head small{display:block;font:600 24px/1 var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--green-d);margin-bottom:18px;opacity:0}
+.dark .head small{color:var(--green)}
+.line{display:block;overflow:hidden;padding-bottom:6px}
+.line>span{display:block;font:900 74px/1.0 var(--display);letter-spacing:-.045em;transform:translateY(110%)}
+.line em{font-style:normal;color:var(--coral)}
+
+.card{background:#fff;border:2px solid var(--line);border-radius:24px;box-shadow:0 40px 90px -40px rgb(46 46 56/.45)}
+.pill{display:inline-flex;align-items:center;gap:8px;border-radius:99px;padding:8px 16px;font:600 20px/1 var(--body)}
+.chip{position:absolute;background:var(--ink);color:#fff;border-radius:99px;padding:12px 20px;font:600 22px/1 var(--body);box-shadow:0 14px 30px -12px rgb(0 0 0/.4);transform:scale(0)}
+.chip i{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--green);margin-right:10px}
+
+/* Szene 1: Foto → Produkt */
+#photo{left:64px;top:392px;width:420px;height:470px;padding:16px;border-radius:26px}
+#photo img{width:100%;height:388px;object-fit:cover;border-radius:14px;display:block}
+#photo .cap{font:500 18px/1 var(--mono);color:var(--mute);margin-top:16px}
+#scan{position:absolute;left:16px;right:16px;height:90px;border-radius:14px;background:linear-gradient(to bottom,rgb(126 187 174/0),rgb(126 187 174/.45));border-bottom:4px solid var(--green);opacity:0}
+#sheet{left:516px;top:392px;width:500px;padding:28px 30px 30px}
+#sheet h4{display:flex;justify-content:space-between;align-items:center;font:800 30px/1 var(--display);letter-spacing:-.02em;margin-bottom:22px}
+.field{border-top:1.5px solid #F0E9DF;padding:16px 0 14px;opacity:0}
+.field label{display:block;font:600 16px/1 var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin-bottom:10px}
+.field div{font:600 25px/1.3 var(--body);min-height:33px}
+.field .mono{font:500 22px/1.35 var(--mono);color:var(--green-d)}
+#btn1{margin-top:20px;height:68px;border-radius:16px;background:var(--coral);color:#fff;display:flex;align-items:center;justify-content:center;gap:12px;font:700 26px/1 var(--body);opacity:0;position:relative}
+.dot{position:absolute;width:14px;height:14px;border-radius:50%;opacity:0}
+
+/* Szene 2: SEO */
+#serp{left:64px;top:372px;width:952px;padding:30px 34px}
+#serp .crumb{display:flex;align-items:center;gap:12px;font:500 20px/1 var(--body);color:#4d5156;margin-bottom:12px}
+#serp .crumb b{width:30px;height:30px;border-radius:50%;background:var(--ink);display:inline-block}
+#serp .t{font:500 31px/1.3 var(--body);color:#1a0dab;min-height:41px}
+#serp .d{font:400 22px/1.45 var(--body);color:#4d5156;margin-top:8px;min-height:64px}
+.row{position:absolute;left:64px;width:952px;height:132px;display:flex;align-items:center;gap:22px;padding:0 26px;opacity:0}
+.row img{width:86px;height:86px;border-radius:14px;object-fit:cover}
+.row .tx{flex:1;min-width:0}
+.row .tx b{display:block;font:700 23px/1.2 var(--body);margin-bottom:8px}
+.row .tx span{display:block;font:500 19px/1.2 var(--mono);color:var(--green-d);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meter{width:150px;flex:none}
+.meter .bar{height:12px;border-radius:6px;background:#EFE8DD;overflow:hidden}.meter .bar i{display:block;height:100%;width:0;background:var(--green-d);border-radius:6px}
+.meter small{display:flex;justify-content:space-between;font:600 17px/1 var(--body);color:var(--mute);margin-top:8px}
+.ok{width:46px;height:46px;border-radius:50%;background:var(--green-d);display:grid;place-items:center;transform:scale(0);flex:none}
+.ok svg{width:26px;height:26px}
+
+/* Szene 3: Preise */
+#prompt3{left:64px;top:372px;background:var(--ink);color:#fff;border-radius:22px 22px 6px 22px;padding:22px 28px;font:600 30px/1.2 var(--body);opacity:0}
+.tagc{position:absolute;top:520px;width:300px;padding:16px;border-radius:24px;opacity:0}
+.tagc img{width:100%;height:240px;object-fit:cover;border-radius:14px;display:block}
+.tagc b{display:block;font:700 22px/1.25 var(--body);margin:14px 4px 10px;min-height:56px}
+.tagc .old{font:600 24px/1 var(--body);color:var(--mute);position:relative;display:inline-block;margin:0 4px}
+.tagc .old::after{content:"";position:absolute;left:-2px;top:50%;height:3px;background:var(--coral-d);width:var(--strike,0%)}
+.tagc .new{display:block;font:900 52px/1 var(--display);letter-spacing:-.03em;margin:10px 4px 2px}
+.tagc .pct{position:absolute;top:28px;right:28px;background:var(--coral);color:#fff;border-radius:12px;padding:8px 12px;font:800 22px/1 var(--body);transform:scale(0)}
+#sum3{left:64px;top:1060px;opacity:0;background:var(--green-bg);color:var(--green-d)}
+
+/* Szene 4: Seite baut sich auf */
+#persp{position:absolute;left:60px;top:350px;width:960px;height:900px;perspective:1800px}
+#win{position:absolute;inset:0;border-radius:26px;overflow:hidden;background:#fff;border:2px solid var(--line);box-shadow:0 60px 120px -50px rgb(46 46 56/.55);transform-origin:50% 0}
+.wbar{height:60px;display:flex;align-items:center;gap:12px;padding:0 20px;background:#F3EEE6;border-bottom:1.5px solid var(--line)}
+.wbar i{width:14px;height:14px;border-radius:50%}.wbar i:nth-child(1){background:#FF786D}.wbar i:nth-child(2){background:#F2C26B}.wbar i:nth-child(3){background:#7EBBAE}
+.wbar span{margin-left:18px;flex:1;height:36px;border-radius:10px;background:#fff;border:1.5px solid var(--line);display:flex;align-items:center;padding:0 14px;font:500 18px/1 var(--mono);color:var(--mute)}
+#page{position:absolute;left:0;top:60px;width:960px}
+.slice{position:absolute;left:0;width:960px;background-image:url(pitch-shots/page-full.png);background-size:960px auto;background-repeat:no-repeat;opacity:0}
+
+/* Szene 5: Anmerken (echte Screens) */
+#win5{position:absolute;left:60px;top:350px;width:960px;height:900px;border-radius:26px;overflow:hidden;background:#fff;border:2px solid var(--line);box-shadow:0 60px 120px -50px rgb(46 46 56/.55)}
+#vp5{position:absolute;left:0;top:60px;width:960px;height:840px;overflow:hidden}
+#vp5 img{position:absolute;left:0;top:0;width:3200px;transform-origin:0 0}
+
+/* Szene 6: Freigabe */
+#appr{left:64px;top:372px;width:952px;padding:0;overflow:hidden}
+#appr header{display:flex;justify-content:space-between;align-items:center;padding:26px 30px;background:#FFF6EC;border-bottom:1.5px solid var(--line)}
+#appr header b{font:800 28px/1.15 var(--display);letter-spacing:-.02em}
+.arow{display:flex;align-items:center;gap:20px;padding:20px 30px;border-bottom:1.5px solid #F2ECE2;opacity:0}
+.arow .cb{width:34px;height:34px;border-radius:9px;border:2.5px solid #CFC5B6;display:grid;place-items:center;flex:none}
+.arow .cb svg{width:22px;height:22px;opacity:0}
+.arow div b{display:block;font:600 23px/1.25 var(--body)}.arow div span{display:block;font:500 19px/1.3 var(--mono);color:var(--green-d);margin-top:4px}
+#appr footer{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px 30px;background:var(--paper)}
+#appr footer small{font:500 20px/1.3 var(--body);color:var(--mute)}
+#btn6{height:68px;padding:0 30px;border-radius:16px;background:var(--coral);color:#fff;display:flex;align-items:center;gap:12px;font:700 25px/1 var(--body);white-space:nowrap;position:relative}
+#live6{left:120px;top:1010px;width:840px;height:300px;border-radius:22px;overflow:hidden;opacity:0}
+#live6 img{position:absolute;left:0;top:0;width:3200px;transform-origin:0 0}
+
+/* Szene 7: Was Lotse kann */
+#tiles{position:absolute;left:64px;right:64px;top:400px;display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.tile{height:122px;border-radius:22px;background:var(--ink2);display:flex;align-items:center;gap:20px;padding:0 26px;font:700 31px/1.15 var(--display);letter-spacing:-.015em;transform:scale(.6);opacity:0}
+.tile span{width:62px;height:62px;flex:none;border-radius:16px;background:#2E2E38;display:grid;place-items:center}
+.tile svg{width:32px;height:32px;color:var(--green)}
+#gate{position:absolute;left:64px;right:64px;top:1000px;display:flex;align-items:center;gap:20px;padding:30px 34px;border-radius:24px;background:var(--coral);color:#fff;font:800 36px/1.2 var(--display);opacity:0}
+#gate svg{width:50px;height:50px;flex:none}
+
+/* Intro / Outro */
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+#sweep{position:absolute;left:0;top:50%;height:6px;background:var(--coral);width:0}
+.lock{display:flex;align-items:center;gap:30px}
+.lock svg{width:160px;height:160px}
+.word{display:flex;font:900 150px/1 var(--display);letter-spacing:-.05em;color:#fff}
+.word span{display:inline-block;transform:translateY(120%);opacity:0}.word .c{color:var(--coral)}
+.tag{margin-top:56px;font:500 46px/1.25 var(--display);color:var(--cream)}
+.tag .line>span{font:600 46px/1.2 var(--display);letter-spacing:-.01em}
+.tag .line em{color:var(--green)}
+.ask .line>span{font:900 96px/1.0 var(--display)}
+.sub{margin-top:36px;font:500 38px/1.3 var(--body);color:var(--cream);opacity:0}
+.mini{display:flex;align-items:center;gap:16px;margin-top:70px;opacity:0}.mini svg{width:64px;height:64px}.mini b{font:900 56px/1 var(--display);letter-spacing:-.04em;color:#fff}.mini b i{font-style:normal;color:var(--coral)}
+.by{position:absolute;left:0;right:0;bottom:96px;display:flex;align-items:center;justify-content:center;gap:16px;font:500 28px/1 var(--body);color:var(--cream);opacity:0}
+.by img{width:40px;height:40px}.by b{font-weight:700;letter-spacing:.06em}
+
+#note{position:absolute;left:64px;bottom:44px;font:500 21px/1 var(--body);color:var(--mute);background:#fff;border:1.5px solid var(--line);border-radius:99px;padding:10px 16px;opacity:0;z-index:20}
+#cursor{position:absolute;left:0;top:0;width:44px;height:44px;z-index:30;pointer-events:none;opacity:0}
+#ripple{position:absolute;left:0;top:0;width:100px;height:100px;margin:-50px 0 0 -50px;border-radius:50%;border:5px solid var(--coral);opacity:0;z-index:29;pointer-events:none}
+</style>
+</head>
+<body>
+<!-- 0 Intro -->
+<section class="scene dark" id="s0"><canvas class="contours" width="1080" height="1350"></canvas>
+  <div id="sweep"></div>
+  <div class="center">
+    <div class="lock">
+      <svg id="mark" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#3A3A46"/><circle cx="32" cy="32" r="21" fill="none" stroke="#FFF3E2" stroke-opacity=".3" stroke-width="2"/><path d="M32 8.5v4M32 51.5v4M8.5 32h4M51.5 32h4" stroke="#FFF3E2" stroke-opacity=".55" stroke-width="2.4" stroke-linecap="round"/><g id="needle"><path d="M47 17 36.2 36.2 27.8 27.8Z" fill="#FF786D"/><path d="M17 47 27.8 27.8 36.2 36.2Z" fill="#7EBBAE"/></g><circle cx="32" cy="32" r="3.4" fill="#FFF3E2"/></svg>
+      <div class="word" id="word"><span>l</span><span>o</span><span>t</span><span>s</span><span>e</span><span class="c">.</span></div>
+    </div>
+    <div class="tag"><span class="line"><span>Das KI-Interface für</span></span><span class="line"><span>deinen <em>Shopware-Shop</em>.</span></span></div>
+  </div>
+</section>
+
+<!-- 1 Foto → Produkt -->
+<section class="scene light" id="s1">
+  <div class="head"><small>Produkte</small><span class="line"><span>Foto rein.</span></span><span class="line"><span>Produkt <em>raus</em>.</span></span></div>
+  <div class="abs card" id="photo"><img src="pitch-shots/vase.jpg" alt=""><div id="scan"></div><p class="cap">vase.jpg · hochgeladen</p></div>
+  <div class="chip" id="c1a" style="left:70px;top:900px"><i></i>bauchige Form</div>
+  <div class="chip" id="c1b" style="left:300px;top:900px"><i></i>cremefarben</div>
+  <div class="chip" id="c1c" style="left:150px;top:972px"><i></i>matte Oberfläche</div>
+  <div class="abs card" id="sheet">
+    <h4>Neues Produkt <span class="pill" style="background:var(--green-bg);color:var(--green-d)" id="st1">Entwurf</span></h4>
+    <div class="field" id="f1"><label>Name</label><div id="v1"></div></div>
+    <div class="field" id="f2"><label>Preis</label><div id="v2">0,00 €</div></div>
+    <div class="field" id="f3"><label>Kategorie</label><div><span class="pill" style="background:var(--paper);border:1.5px solid var(--line)">Wohnaccessoires</span></div></div>
+    <div class="field" id="f4"><label>Meta-Title</label><div class="mono" id="v4"></div></div>
+    <div id="btn1"><span id="btn1t">Produkt anlegen</span></div>
+  </div>
+</section>
+
+<!-- 2 SEO -->
+<section class="scene light" id="s2">
+  <div class="head"><small>Content & SEO</small><span class="line"><span>SEO für alle</span></span><span class="line"><span>Produkte. <em>Auf einmal.</em></span></span></div>
+  <div class="abs card" id="serp"><div class="crumb"><b></b>Haus Holm › Wohnaccessoires</div><div class="t" id="st"></div><div class="d" id="sd"></div></div>
+  <div class="row card" id="r1" style="top:700px"><img src="pitch-shots/becher.jpg" alt=""><div class="tx"><b>Becher „Morgen“</b><span id="rt1"></span></div><div class="meter"><div class="bar"><i id="rb1"></i></div><small><span>Länge</span><span id="rn1">0/60</span></small></div><div class="ok" id="ok1"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></div></div>
+  <div class="row card" id="r2" style="top:852px"><img src="pitch-shots/vase.jpg" alt=""><div class="tx"><b>Vase „Kiesel“</b><span id="rt2"></span></div><div class="meter"><div class="bar"><i id="rb2"></i></div><small><span>Länge</span><span id="rn2">0/60</span></small></div><div class="ok" id="ok2"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></div></div>
+  <div class="row card" id="r3" style="top:1004px"><img src="pitch-shots/plaid.jpg" alt=""><div class="tx"><b>Plaid „Düne“</b><span id="rt3"></span></div><div class="meter"><div class="bar"><i id="rb3"></i></div><small><span>Länge</span><span id="rn3">0/60</span></small></div><div class="ok" id="ok3"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></div></div>
+</section>
+
+<!-- 3 Preise -->
+<section class="scene light" id="s3">
+  <div class="head"><small>Preise</small><span class="line"><span>Preise anpassen.</span></span><span class="line"><span>Auf den <em>Cent</em> genau.</span></span></div>
+  <div class="abs" id="prompt3">Alle Preise −10 %, auf ,90 runden.</div>
+  <div class="tagc card" id="p1" style="left:64px"><img src="pitch-shots/becher.jpg" alt=""><b>Becher „Morgen“</b><span class="old" id="o1">18,00 €</span><span class="new" id="n1">18,00 €</span><span class="pct" id="q1">−10 %</span></div>
+  <div class="tagc card" id="p2" style="left:390px"><img src="pitch-shots/vase.jpg" alt=""><b>Vase „Kiesel“</b><span class="old" id="o2">49,00 €</span><span class="new" id="n2">49,00 €</span><span class="pct" id="q2">−10 %</span></div>
+  <div class="tagc card" id="p3" style="left:716px"><img src="pitch-shots/plaid.jpg" alt=""><b>Plaid „Düne“</b><span class="old" id="o3">89,00 €</span><span class="new" id="n3">89,00 €</span><span class="pct" id="q3">−10 %</span></div>
+  <div class="abs pill" id="sum3">Server rechnet · du gibst frei</div>
+</section>
+
+<!-- 4 Seite baut sich auf -->
+<section class="scene light" id="s4">
+  <div class="head"><small>Seiten</small><span class="line"><span>Landingpages im</span></span><span class="line"><span>Look deiner <em>Marke</em>.</span></span></div>
+  <div id="persp"><div id="win"><div class="wbar"><i></i><i></i><i></i><span>Entwurf · Wohnaccessoires</span></div><div id="page"></div></div></div>
+</section>
+
+<!-- 5 Anmerken -->
+<section class="scene light" id="s5">
+  <div class="head"><small>Anmerken</small><span class="line"><span>Anklicken.</span></span><span class="line"><span>Wunsch <em>notieren</em>.</span></span></div>
+  <div id="win5"><div class="wbar"><i></i><i></i><i></i><span>localhost:3333</span></div><div id="vp5"><img id="i5a" src="pitch-shots/C-anmerken-popover.png" alt=""><img id="i5b" src="pitch-shots/C-anmerken-liste.png" alt=""></div></div>
+</section>
+
+<!-- 6 Freigabe -->
+<section class="scene light" id="s6">
+  <div class="head"><small>Freigabe</small><span class="line"><span>Nichts passiert</span></span><span class="line"><span>ohne deine <em>Freigabe</em>.</span></span></div>
+  <div class="abs card" id="appr">
+    <header><b>Seite veröffentlichen: Wohnaccessoires</b><span class="pill" style="background:#fff;border:1.5px solid var(--line);color:var(--mute)">4 Schritte</span></header>
+    <div class="arow"><span class="cb"><svg viewBox="0 0 24 24" fill="none" stroke="#3F7A6B" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span><div><b>Neues Layout anlegen</b><span>10 Blöcke · Steinzeug trifft Gewebe</span></div></div>
+    <div class="arow"><span class="cb"><svg viewBox="0 0 24 24" fill="none" stroke="#3F7A6B" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span><div><b>Kategorie „Wohnaccessoires“: Layout</b><span>Standard → neues Layout</span></div></div>
+    <div class="arow"><span class="cb"><svg viewBox="0 0 24 24" fill="none" stroke="#3F7A6B" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span><div><b>Meta-Title</b><span>Wohnaccessoires aus Steinzeug &amp; Leinen</span></div></div>
+    <div class="arow"><span class="cb"><svg viewBox="0 0 24 24" fill="none" stroke="#3F7A6B" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span><div><b>Meta-Description</b><span>Vase, Becher und Plaid in Sand und Taupe …</span></div></div>
+    <footer><small>Protokolliert · mit einem Klick rückgängig</small><div id="btn6"><span id="btn6t">Freigeben &amp; veröffentlichen</span></div></footer>
+  </div>
+  <div class="abs card" id="live6"><img src="pitch-shots/F-live.png" alt=""></div>
+</section>
+
+<!-- 7 Was Lotse kann -->
+<section class="scene dark" id="s7"><canvas class="contours" width="1080" height="1350"></canvas>
+  <div class="head"><small>Ein Interface für den ganzen Shop</small><span class="line"><span>Was Lotse <em>kann</em>.</span></span></div>
+  <div id="tiles"></div>
+  <div id="gate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Jede Änderung nur mit deiner Freigabe.</div>
+</section>
+
+<!-- 8 Outro -->
+<section class="scene dark" id="s8"><canvas class="contours" width="1080" height="1350"></canvas>
+  <div class="center">
+    <div class="ask"><span class="line"><span>Sollen wir es</span></span><span class="line"><span><em>veröffentlichen?</em></span></span></div>
+    <p class="sub" id="b8">Sag es mir in den Kommentaren.</p>
+    <div class="mini" id="m8"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#3A3A46"/><circle cx="32" cy="32" r="21" fill="none" stroke="#FFF3E2" stroke-opacity=".3" stroke-width="2"/><path d="M47 17 36.2 36.2 27.8 27.8Z" fill="#FF786D"/><path d="M17 47 27.8 27.8 36.2 36.2Z" fill="#7EBBAE"/><circle cx="32" cy="32" r="3.4" fill="#FFF3E2"/></svg><b>lotse<i>.</i></b></div>
+  </div>
+  <div class="by" id="y8"><img src="../public/logo.svg" alt="">Ein Produkt von <b>CODING 9</b></div>
+</section>
+
+<div id="note">Demo-Shop · Produktbilder KI-generiert</div>
+<div id="ripple"></div>
+<svg id="cursor" viewBox="0 0 24 24"><path d="M4 2.5l15.5 8.6-6.8 1.9-3 6.7z" fill="#2E2E38" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+
+<script>
+const $ = id => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const easeOut = x => 1 - Math.pow(1 - x, 3);
+const easeIn = x => x * x * x;
+const easeInOut = x => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const spring = x => (x <= 0 ? 0 : x >= 1 ? 1 : 1 - Math.exp(-6 * x) * Math.cos(9.5 * x)); // mit Überschwingen
+const lerp = (a, b, k) => a + (b - a) * k;
+const eur = v => `${v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+const type = (el, text, p) => { const n = Math.round(text.length * clamp(p)); el.textContent = text.slice(0, n) + (p > 0 && p < 1 ? '▍' : ''); };
+const fadeUp = (el, p, dy = 26) => { el.style.opacity = p; el.style.transform = `translateY(${(1 - p) * dy}px)`; };
+const pop = (el, p) => { el.style.transform = `scale(${spring(p)})`; el.style.opacity = p > 0 ? 1 : 0; };
+// Überschrift: Kicker + Zeilen gleiten nacheinander aus der Maske
+function heading(sc, l) {
+  const k = sc.querySelector('.head small'); if (k) fadeUp(k, easeOut(seg(l, .05, .5)), 12);
+  sc.querySelectorAll('.head .line>span').forEach((s, i) => { s.style.transform = `translateY(${(1 - easeOut(seg(l, .12 + i * .14, .7 + i * .14))) * 110}%)`; });
+}
+function contours(cv, t) {
+  const cx = cv.getContext('2d'), w = cv.width, h = cv.height; cx.clearRect(0, 0, w, h);
+  for (let i = 0; i < 18; i++) {
+    cx.beginPath(); const base = h * (i / 17), amp = 24 + i * 3;
+    for (let x = -30; x <= w + 30; x += 16) { const y = base + Math.sin(x / 240 + i * .7 + t * .25) * amp + Math.cos(x / 100 - i * .4 + t * .15) * 8; x === -30 ? cx.moveTo(x, y) : cx.lineTo(x, y); }
+    cx.strokeStyle = i % 4 === 0 ? 'rgba(126,187,174,.30)' : 'rgba(255,243,226,.06)'; cx.lineWidth = i % 4 === 0 ? 2 : 1.4; cx.stroke();
+  }
+}
+
+// ---- Zeitplan der Szenen [Start, Ende] und Übergänge ----
+const S = { s0: [0, 4.1], s1: [3.4, 11.6], s2: [11.0, 17.2], s3: [16.6, 21.6], s4: [21.0, 27.8], s5: [27.2, 32.4], s6: [31.8, 37.6], s7: [37.0, 42.6], s8: [42.0, 48] };
+const DURATION = 48;
+function sceneState(id, t) {
+  const el = $(id), [a, b] = S[id], vis = t >= a && t <= b;
+  el.style.visibility = vis ? 'visible' : 'hidden';
+  if (!vis) return null;
+  const tin = seg(t, a, a + .6), tout = seg(t, b - .6, b);
+  let tr = '', clip = 'none', op = 1, filt = 'none';
+  // Eingang
+  if (id === 's1') clip = `circle(${easeInOut(tin) * 110}% at 50% 50%)`;
+  else if (id === 's2' || id === 's5') { tr += `translateX(${(1 - easeOut(tin)) * 1080}px) `; filt = tin < 1 ? `blur(${(1 - tin) * 8}px)` : 'none'; }
+  else if (id === 's3' || id === 's6') tr += `translateY(${(1 - easeOut(tin)) * 1350}px) `;
+  else if (id === 's4') { tr += `scale(${.9 + .1 * easeOut(tin)}) `; op = tin; }
+  else if (id === 's7') clip = `circle(${easeInOut(tin) * 110}% at 50% 90%)`;
+  else if (id === 's8') op = tin;
+  // Ausgang
+  if (['s1', 's4'].includes(id)) { tr += `translateX(${-easeIn(tout) * 1080}px)`; if (tout > 0) filt = `blur(${tout * 8}px)`; }
+  else if (['s2', 's5'].includes(id)) tr += `translateY(${-easeIn(tout) * 1350}px)`;
+  else if (id === 's3') { tr += `scale(${1 + .15 * easeIn(tout)})`; op = Math.min(op, 1 - tout); }
+  el.style.transform = tr || 'none'; el.style.clipPath = clip; el.style.opacity = op; el.style.filter = filt;
+  return t - a;
+}
+
+// ---- Aufbau dynamischer Teile ----
+const SLICES = [[0, 620], [620, 760], [760, 1400], [1400, 1660], [1660, 2240], [2240, 2551]], PS = 960 / 1440;
+$('page').innerHTML = SLICES.map(([y0, y1]) => `<div class="slice" style="top:${y0 * PS}px;height:${(y1 - y0) * PS}px;background-position:0 ${-y0 * PS}px"></div>`).join('');
+const FEAT = [
+  ['Produktpflege', '<path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 11v10"/>'],
+  ['Produkte mit Fotos verwalten', '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m21 16-5-5-8 8"/>'],
+  ['SEO-Optimierung', '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>'],
+  ['Preisanpassungen', '<path d="M20 12 12 20 4 12V4h8z"/><circle cx="8.5" cy="8.5" r="1.5"/>'],
+  ['Landingpages', '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>'],
+  ['Kategorie-Layouts', '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>'],
+  ['Produkt-Layouts', '<rect x="3" y="4" width="8" height="16" rx="1"/><path d="M14 6h7M14 11h7M14 16h5"/>'],
+  ['Texte & Inhalte', '<path d="M4 6h16M4 12h16M4 18h10"/>'],
+];
+$('tiles').innerHTML = FEAT.map(([t, ic]) => `<div class="tile"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ic}</svg></span>${t}</div>`).join('');
+// Konfetti-Punkte am Button (Szene 1 und 6)
+const DOTS = Array.from({ length: 14 }, (_, i) => ({ a: (i / 14) * Math.PI * 2 + (i % 2) * .2, r: 90 + (i % 3) * 40, c: ['#7EBBAE', '#FF786D', '#F2C26B'][i % 3] }));
+for (const host of ['btn1', 'btn6']) DOTS.forEach(() => { const d = document.createElement('i'); d.className = 'dot'; $(host).appendChild(d); });
+function burst(host, p) {
+  [...$(host).querySelectorAll('.dot')].forEach((d, i) => {
+    const D = DOTS[i], e = easeOut(p);
+    d.style.background = D.c; d.style.left = `calc(50% + ${Math.cos(D.a) * D.r * e}px - 7px)`; d.style.top = `calc(50% + ${Math.sin(D.a) * D.r * e * .6}px - 7px)`;
+    d.style.opacity = p > 0 && p < 1 ? 1 - p : 0;
+  });
+}
+// Szene 5: feste Kamera auf echtem Screen (Ausschnitt [x, y, Breite])
+const CAM5 = [1100, 820, 1300], SC5 = 960 / CAM5[2];
+for (const id of ['i5a', 'i5b']) $(id).style.transform = `scale(${SC5}) translate(${-CAM5[0]}px,${-CAM5[1]}px)`;
+const at5 = (X, Y) => [60 + (X - CAM5[0]) * SC5, 410 + (Y - CAM5[1]) * SC5];
+
+// ---- Mauszeiger: Wegpunkte [Sekunde, x, y, klick?] in Bildkoordinaten ----
+const M5a = at5(1770, 1424), M5b = at5(1676, 1890);
+const MOUSE = [
+  [8.4, 1060, 1300], [9.5, 766, 930, true], [10.6, 900, 1150],
+  [27.6, 1060, 1300], [28.9, M5a[0], M5a[1], true], [30.2, M5b[0], M5b[1], true], [31.0, 760, 1300],
+  [33.6, 1060, 1300], [35.0, 863, 922, true], [36.2, 980, 1250],
+];
+const SHOWN = [[8.3, 10.8], [27.5, 31.4], [33.5, 36.6]];
+function mouse(t) {
+  let i = MOUSE.findIndex(m => m[0] > t);
+  if (i === -1) i = MOUSE.length;
+  const prev = MOUSE[i - 1] ?? MOUSE[0], next = MOUSE[i] ?? prev;
+  const k = next === prev ? 1 : easeInOut(seg(t, prev[0], next[0]));
+  const lastClick = MOUSE.filter(m => m[3] && m[0] <= t).pop();
+  return { x: lerp(prev[1], next[1], k), y: lerp(prev[2], next[2], k), click: lastClick ? lastClick[0] : -9 };
+}
+
+window.render = function (t) {
+  let l;
+  // 0 Intro
+  if ((l = sceneState('s0', t)) !== null) {
+    contours(document.querySelector('#s0 canvas'), t);
+    $('sweep').style.width = `${easeInOut(seg(l, 0, .7)) * 100}%`; $('sweep').style.opacity = 1 - seg(l, .7, 1.1);
+    $('needle').setAttribute('transform', `rotate(${-200 + 200 * spring(seg(l, .5, 1.9))} 32 32)`);
+    $('mark').style.transform = `scale(${spring(seg(l, .4, 1.2))})`;
+    [...$('word').children].forEach((s, i) => { const p = easeOut(seg(l, .6 + i * .07, 1.1 + i * .07)); s.style.transform = `translateY(${(1 - p) * 120}%)`; s.style.opacity = p; });
+    document.querySelectorAll('#s0 .tag .line>span').forEach((s, i) => { s.style.transform = `translateY(${(1 - easeOut(seg(l, 1.6 + i * .2, 2.3 + i * .2))) * 110}%)`; });
+  }
+  // 1 Foto → Produkt
+  if ((l = sceneState('s1', t)) !== null) {
+    heading($('s1'), l - .5);
+    const d = spring(seg(l, .9, 2.0)); $('photo').style.transform = `translateY(${(1 - d) * -700}px) rotate(${(1 - d) * -9}deg)`;
+    const sc = seg(l, 2.0, 3.1); $('scan').style.opacity = sc > 0 && sc < 1 ? 1 : 0; $('scan').style.top = `${16 + sc * 300}px`;
+    pop($('c1a'), seg(l, 2.6, 3.2)); pop($('c1b'), seg(l, 2.8, 3.4)); pop($('c1c'), seg(l, 3.0, 3.6));
+    const sh = easeOut(seg(l, 1.4, 2.2)); $('sheet').style.transform = `translateX(${(1 - sh) * 640}px)`; $('sheet').style.opacity = sh;
+    ['f1', 'f2', 'f3', 'f4'].forEach((f, i) => fadeUp($(f), easeOut(seg(l, 2.9 + i * .45, 3.4 + i * .45)), 18));
+    type($('v1'), 'Vase, cremefarben, bauchige Form', seg(l, 3.0, 3.9));
+    $('v2').textContent = eur(Math.round(54 * easeOut(seg(l, 3.4, 4.1)) * 100) / 100);
+    type($('v4'), 'Vase cremefarben, bauchig | Haus Holm', seg(l, 4.3, 5.1));
+    fadeUp($('btn1'), easeOut(seg(l, 4.6, 5.0)), 14);
+    const clicked = l >= 6.15;
+    $('btn1').style.background = clicked ? 'var(--green-d)' : 'var(--coral)';
+    $('btn1t').textContent = clicked ? '✓ Angelegt' : 'Produkt anlegen';
+    $('btn1').style.transform = `scale(${clicked ? .94 + .06 * spring(seg(l, 6.15, 6.7)) : 1})`;
+    burst('btn1', seg(l, 6.15, 7.0));
+    $('st1').textContent = clicked ? 'Angelegt · inaktiv' : 'Entwurf';
+  }
+  // 2 SEO
+  if ((l = sceneState('s2', t)) !== null) {
+    heading($('s2'), l - .3);
+    fadeUp($('serp'), easeOut(seg(l, .5, 1.1)), 40);
+    type($('st'), 'Steinzeugbecher „Morgen“, 350 ml | Haus Holm', seg(l, 1.0, 2.0));
+    type($('sd'), 'Becher aus Steinzeug mit gesprenkelter Glasur in Sand, 350 ml. Spülmaschinen- und mikrowellengeeignet.', seg(l, 1.8, 3.0));
+    const T = ['Steinzeugbecher „Morgen“, 350 ml | Haus Holm', 'Vase „Kiesel“ aus mattem Steinzeug | Haus Holm', 'Plaid „Düne“ aus Leinen-Baumwolle | Haus Holm'];
+    T.forEach((txt, i) => {
+      const s = 2.4 + i * .55;
+      const row = $('r' + (i + 1)); const p = easeOut(seg(l, s, s + .5)); row.style.opacity = p; row.style.transform = `translateX(${(1 - p) * 120}px)`;
+      type($('rt' + (i + 1)), txt, seg(l, s + .3, s + 1.2));
+      const f = easeOut(seg(l, s + .5, s + 1.4)); $('rb' + (i + 1)).style.width = `${f * (txt.length / 60) * 100}%`; $('rn' + (i + 1)).textContent = `${Math.round(f * txt.length)}/60`;
+      pop($('ok' + (i + 1)), seg(l, s + 1.4, s + 1.9));
+    });
+  }
+  // 3 Preise
+  if ((l = sceneState('s3', t)) !== null) {
+    heading($('s3'), l - .3);
+    const pr = spring(seg(l, .6, 1.3)); $('prompt3').style.opacity = seg(l, .6, .8); $('prompt3').style.transform = `scale(${.6 + .4 * pr})`; $('prompt3').style.transformOrigin = '0 100%';
+    [[18, 15.9], [49, 43.9], [89, 79.9]].forEach(([o, n], i) => {
+      const c = $('p' + (i + 1)), p = spring(seg(l, 1.0 + i * .18, 1.9 + i * .18));
+      c.style.opacity = seg(l, 1.0 + i * .18, 1.2 + i * .18); c.style.transform = `translateY(${(1 - p) * 220}px)`;
+      const r = easeInOut(seg(l, 2.2 + i * .15, 3.1 + i * .15));
+      $('n' + (i + 1)).textContent = eur(Math.round(lerp(o, n, r) * 100) / 100);
+      $('n' + (i + 1)).style.color = r >= 1 ? 'var(--green-d)' : 'var(--ink)';
+      $('o' + (i + 1)).style.setProperty('--strike', `${easeOut(seg(l, 2.0 + i * .15, 2.4 + i * .15)) * 105}%`);
+      pop($('q' + (i + 1)), seg(l, 3.0 + i * .15, 3.6 + i * .15));
+    });
+    fadeUp($('sum3'), easeOut(seg(l, 3.6, 4.1)), 16);
+  }
+  // 4 Seite baut sich auf
+  if ((l = sceneState('s4', t)) !== null) {
+    heading($('s4'), l - .3);
+    const flat = easeInOut(seg(l, .6, 3.4));
+    $('win').style.transform = `rotateX(${(1 - flat) * 16}deg) rotateY(${(1 - flat) * -14}deg) rotateZ(${(1 - flat) * 2}deg) translateY(${(1 - easeOut(seg(l, .2, 1.0))) * 300}px)`;
+    document.querySelectorAll('.slice').forEach((s, i) => { const p = spring(seg(l, 1.0 + i * .32, 1.8 + i * .32)); s.style.opacity = seg(l, 1.0 + i * .32, 1.2 + i * .32); s.style.transform = `translateY(${(1 - p) * 90}px)`; });
+    const total = 2551 * PS, view = 840;
+    $('page').style.transform = `translateY(${-easeInOut(seg(l, 3.6, 6.4)) * (total - view)}px)`;
+  }
+  // 5 Anmerken (echte Screens, Klick auf „Merken“, dann „Wünsche senden“)
+  if ((l = sceneState('s5', t)) !== null) {
+    heading($('s5'), l - .3);
+    const sw = seg(t, 29.2, 29.6); $('i5a').style.opacity = 1 - sw; $('i5b').style.opacity = sw;
+    $('win5').style.transform = `translateY(${(1 - easeOut(seg(l, .2, .9))) * 120}px)`;
+  }
+  // 6 Freigabe
+  if ((l = sceneState('s6', t)) !== null) {
+    heading($('s6'), l - .3);
+    fadeUp($('appr'), easeOut(seg(l, .5, 1.1)), 50);
+    document.querySelectorAll('#appr .arow').forEach((r, i) => {
+      fadeUp(r, easeOut(seg(l, 1.0 + i * .22, 1.4 + i * .22)), 14);
+      const c = seg(l, 1.6 + i * .22, 1.9 + i * .22); r.querySelector('svg').style.opacity = c; r.querySelector('svg').style.transform = `scale(${spring(c)})`;
+      r.querySelector('.cb').style.borderColor = c > 0 ? 'var(--green-d)' : '#CFC5B6';
+    });
+    const clicked = t >= 35.15;
+    $('btn6').style.background = clicked ? 'var(--green-d)' : 'var(--coral)';
+    $('btn6t').textContent = clicked ? '✓ Live im Shop' : 'Freigeben & veröffentlichen';
+    $('btn6').style.transform = `scale(${clicked ? .94 + .06 * spring(seg(t, 35.15, 35.7)) : 1})`;
+    burst('btn6', seg(t, 35.15, 36.0));
+    const lv = spring(seg(t, 35.5, 36.4)); $('live6').style.opacity = seg(t, 35.5, 35.7); $('live6').style.transform = `translateY(${(1 - lv) * 300}px)`;
+    const im = $('live6').querySelector('img'), sc = 840 / 2100; im.style.transform = `scale(${sc}) translate(${-1090}px,${-(160 + easeInOut(seg(t, 35.6, 37.6)) * 200)}px)`;
+  }
+  // 7 Was Lotse kann
+  if ((l = sceneState('s7', t)) !== null) {
+    contours(document.querySelector('#s7 canvas'), t);
+    heading($('s7'), l - .3);
+    document.querySelectorAll('#tiles .tile').forEach((ti, i) => { const p = seg(l, .7 + i * .16, 1.3 + i * .16); ti.style.opacity = p > 0 ? 1 : 0; ti.style.transform = `scale(${.6 + .4 * spring(p)})`; });
+    const g = spring(seg(l, 2.4, 3.1)); $('gate').style.opacity = seg(l, 2.4, 2.6); $('gate').style.transform = `translateY(${(1 - g) * 80}px)`;
+  }
+  // 8 Outro
+  if ((l = sceneState('s8', t)) !== null) {
+    contours(document.querySelector('#s8 canvas'), t);
+    document.querySelectorAll('#s8 .ask .line>span').forEach((s, i) => { s.style.transform = `translateY(${(1 - easeOut(seg(l, .4 + i * .2, 1.1 + i * .2))) * 110}%)`; });
+    fadeUp($('b8'), easeOut(seg(l, 1.3, 1.9)), 18); fadeUp($('m8'), easeOut(seg(l, 1.8, 2.4)), 16); fadeUp($('y8'), easeOut(seg(l, 2.3, 2.9)), 12);
+  }
+  // Hinweis „Demo-Shop · KI-Bilder“ in allen hellen Szenen
+  $('note').style.opacity = Math.min(seg(t, 3.8, 4.3), 1 - seg(t, 36.8, 37.3));
+  // Maus
+  const m = mouse(t), vis = Math.max(...SHOWN.map(([a, b]) => Math.min(seg(t, a, a + .3), 1 - seg(t, b - .3, b))));
+  const press = t >= m.click && t < m.click + .3 ? Math.sin(seg(t, m.click, m.click + .3) * Math.PI) : 0;
+  $('cursor').style.opacity = vis; $('cursor').style.transform = `translate(${m.x - 6}px,${m.y - 4}px) scale(${1 - .2 * press})`;
+  const rp = seg(t, m.click, m.click + .6);
+  $('ripple').style.opacity = vis > 0 && rp > 0 && rp < 1 ? (1 - rp) * .9 : 0; $('ripple').style.transform = `translate(${m.x}px,${m.y}px) scale(${.3 + rp})`;
+};
+window.DURATION = DURATION;
+window.SIZE = [1080, 1350];
+render(0);
+</script>
+</body>
+</html>

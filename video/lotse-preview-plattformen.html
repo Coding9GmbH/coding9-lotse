@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Lotse Preview-Video (alle Plattformen)</title>
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@500,700,900&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Preview-Video 1080×1350 (4:5, LinkedIn-Feed) im CODING-9-CI: Shop-Check, Import, Wissen, Search Console, Recht.
+   window.render(t) setzt den Zustand für Sekunde t (deterministisch, für den Bild-für-Bild-Export mit render.mjs). */
+:root{--ink:#2E2E38;--ink2:#3A3A46;--cream:#FFF3E2;--paper:#FBF7F0;--line:#E5DCCD;--green:#7EBBAE;--green-d:#3F7A6B;--green-bg:#E3EFEA;--coral:#FF786D;--coral-d:#E85A50;--coral-bg:#FFE3DF;--amber:#C98A1B;--amber-bg:#FBEFD6;--mute:#62626b;
+  --display:"Satoshi","Inter",system-ui,sans-serif;--body:"Inter",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1350px;overflow:hidden;background:var(--ink)}
+body{font-family:var(--body);-webkit-font-smoothing:antialiased;color:var(--ink)}
+.scene{position:absolute;inset:0;overflow:hidden;visibility:hidden;will-change:transform,opacity,clip-path}
+.light{background:var(--paper)}.dark{background:var(--ink);color:#fff}
+canvas.contours{position:absolute;inset:0;width:100%;height:100%}
+.abs{position:absolute}
+.head{position:absolute;left:64px;right:64px;top:86px}
+.head small{display:block;font:600 24px/1 var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--green-d);margin-bottom:18px;opacity:0}
+.dark .head small{color:var(--green)}
+.line{display:block;overflow:hidden;padding-bottom:.24em;margin-bottom:-.16em} /* Platz für Unterlängen (g, p, y) */
+.line>span{display:block;font:900 74px/1.0 var(--display);letter-spacing:-.045em;transform:translateY(110%)}
+.line em{font-style:normal;color:var(--coral)}
+.card{background:#fff;border:2px solid var(--line);border-radius:24px;box-shadow:0 40px 90px -40px rgb(46 46 56/.45)}
+.pill{display:inline-flex;align-items:center;gap:8px;border-radius:99px;padding:8px 16px;font:600 20px/1 var(--body);white-space:nowrap}
+.sev{display:inline-flex;align-items:center;border-radius:99px;padding:7px 13px;font:700 17px/1 var(--body);letter-spacing:.02em}
+.sev.hi{background:var(--coral-bg);color:var(--coral-d)}.sev.mid{background:var(--amber-bg);color:var(--amber)}.sev.lo{background:var(--green-bg);color:var(--green-d)}
+.btnx{height:56px;padding:0 22px;border-radius:14px;background:#fff;color:var(--ink);border:2px solid var(--line);display:inline-flex;align-items:center;gap:10px;font:700 21px/1 var(--body);white-space:nowrap;position:relative}
+.ok{width:46px;height:46px;border-radius:50%;background:var(--green-d);display:grid;place-items:center;transform:scale(0);flex:none}
+.ok svg{width:26px;height:26px}
+.dot{position:absolute;width:14px;height:14px;border-radius:50%;opacity:0}
+
+/* 0 Ansprache + Logo */
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+#call{position:absolute;left:84px;right:84px;top:470px}
+#call .k{display:block;overflow:hidden;padding-bottom:.24em;margin-bottom:-.24em}#call .k>span{display:block;transform:translateY(110%)}
+#call .k1>span{font:600 52px/1.2 var(--display);color:var(--cream);letter-spacing:-.01em}
+#call .k4>span{font:600 40px/1.3 var(--display);color:var(--green);letter-spacing:-.01em;margin-top:18px}
+#call .k2>span,#call .k3>span{font:900 140px/1.0 var(--display);letter-spacing:-.05em;color:#fff}
+#call .k3>span{color:var(--coral)}
+#call .bar{height:8px;width:0;background:var(--coral);border-radius:4px;margin-top:44px}
+#lockwrap{opacity:0}
+.lock{display:flex;align-items:center;gap:30px}
+.lock svg{width:160px;height:160px}
+.word{display:flex;font:900 150px/1 var(--display);letter-spacing:-.05em;color:#fff}
+.word span{display:inline-block;transform:translateY(120%);opacity:0}.word .c{color:var(--coral)}
+.tag{margin-top:56px}
+.tag .line>span{font:600 46px/1.2 var(--display);letter-spacing:-.01em;color:var(--cream)}
+.tag .line em{color:var(--green)}
+
+/* 1 Shop-Check */
+#chk{left:64px;top:372px;width:952px;overflow:hidden;padding:0}
+#chk header{display:flex;align-items:center;gap:18px;padding:24px 28px;border-bottom:1.5px solid var(--line);background:#FFF9F1}
+#chk header .ring{width:64px;height:64px;flex:none}
+#chk header b{display:block;font:800 30px/1.1 var(--display);letter-spacing:-.02em}
+#chk header small{display:block;font:500 19px/1.2 var(--body);color:var(--mute);margin-top:6px}
+.fnd{display:flex;align-items:center;gap:18px;padding:20px 28px;border-bottom:1.5px solid #F2ECE2;opacity:0}
+.fnd:last-child{border-bottom:0}
+.fnd .n{font:900 46px/1 var(--display);letter-spacing:-.03em;width:92px;text-align:right;flex:none;font-variant-numeric:tabular-nums}
+.fnd .tx{flex:1;min-width:0}
+.fnd .tx b{display:block;font:700 23px/1.25 var(--body)}
+.fnd .tx span{display:flex;gap:10px;align-items:center;margin-top:8px;font:500 18px/1 var(--body);color:var(--mute)}
+#cap1{left:64px;right:64px;top:1090px;font:600 34px/1.3 var(--display);letter-spacing:-.01em;color:var(--ink);opacity:0}
+#cap1 em{font-style:normal;color:var(--coral)}
+#fix1{background:var(--coral);border-color:var(--coral);color:#fff}
+
+/* 2 Import */
+#xl{left:64px;top:372px;width:952px;padding:0;overflow:hidden}
+#xl .tb{display:flex;align-items:center;gap:12px;height:58px;padding:0 22px;background:#1F7A4D;color:#fff;font:600 20px/1 var(--body)}
+#xl .tb i{width:30px;height:30px;border-radius:7px;background:#fff;color:#1F7A4D;display:grid;place-items:center;font:800 17px/1 var(--body);font-style:normal}
+#xl table{width:100%;border-collapse:collapse;font:500 19px/1.2 var(--body);table-layout:fixed}
+#xl th{background:#F3F1EC;color:var(--ink);font:700 18px/1 var(--body);text-align:left;padding:15px 14px;border-right:1.5px solid #E6E1D8;border-bottom:1.5px solid #E6E1D8;position:relative}
+#xl td{padding:14px;border-right:1.5px solid #EEEAE2;border-bottom:1.5px solid #EEEAE2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#xl th.hl{background:var(--green-bg);color:var(--green-d)}
+#xl tr.go td{background:#F6FBF8}
+.map{position:absolute;top:700px;background:var(--ink);color:#fff;border-radius:12px;padding:10px 14px;font:600 18px/1 var(--body);white-space:nowrap;transform:scale(0);transform-origin:50% 0}
+.map::before{content:"";position:absolute;left:50%;top:-8px;margin-left:-8px;border:8px solid transparent;border-top:0;border-bottom-color:var(--ink)}
+#imp{left:64px;top:1000px;width:952px;padding:26px 30px;opacity:0}
+#imp .top{display:flex;align-items:center;justify-content:space-between;gap:18px}
+#imp b{font:800 30px/1.1 var(--display);letter-spacing:-.02em}
+#imp .prog{height:16px;border-radius:8px;background:#EFE8DD;overflow:hidden;margin:20px 0 12px}#imp .prog i{display:block;height:100%;width:0;background:var(--green-d);border-radius:8px}
+#imp small{display:flex;justify-content:space-between;font:600 19px/1 var(--body);color:var(--mute)}
+.stack{position:absolute;width:150px;height:150px;border-radius:18px;overflow:hidden;border:3px solid #fff;box-shadow:0 18px 40px -16px rgb(46 46 56/.5);opacity:0}
+.stack img{width:100%;height:100%;object-fit:cover}
+
+/* 3 Wissen */
+#pdf{left:64px;top:390px;width:430px;height:600px;padding:30px 30px;transform-origin:50% 100%}
+#pdf .ph{display:flex;align-items:center;gap:12px;font:700 19px/1.2 var(--body);margin-bottom:22px}
+#pdf .ph i{font-style:normal;background:var(--coral-d);color:#fff;border-radius:6px;padding:5px 8px;font:800 14px/1 var(--body)}
+#pdf .l{height:13px;border-radius:7px;background:#ECE6DC;margin:14px 0}
+#pdf .hlx{position:relative;font:600 19px/1.35 var(--body);padding:8px 10px;margin:12px -10px;border-radius:8px}
+#pdf .hlx::before{content:"";position:absolute;inset:0;border-radius:8px;background:#FBE9A6;transform-origin:0 50%;transform:scaleX(var(--hl,0));z-index:0}
+#pdf .hlx span{position:relative}
+#pdf .pg{position:absolute;bottom:22px;right:28px;font:500 16px/1 var(--mono);color:var(--mute)}
+#desc{left:530px;top:390px;width:486px;padding:28px 30px}
+#desc h4{display:flex;align-items:center;gap:14px;font:800 26px/1.15 var(--display);letter-spacing:-.02em;margin-bottom:16px}
+#desc h4 img{width:64px;height:64px;border-radius:12px;object-fit:cover}
+#desc label{display:block;font:600 16px/1 var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin:8px 0 10px}
+#dtext{font:500 22px/1.5 var(--body);min-height:230px}
+#dtext s{color:var(--coral-d);text-decoration-thickness:3px}
+#dtext .ins{color:var(--green-d);font-weight:700}
+#src{margin-top:16px;background:var(--green-bg);color:var(--green-d);opacity:0}
+#rule{left:64px;top:1030px;width:952px;display:flex;align-items:center;gap:20px;padding:24px 28px;opacity:0}
+#rule .ic{width:56px;height:56px;border-radius:16px;background:var(--coral-bg);color:var(--coral-d);display:grid;place-items:center;flex:none;font:900 30px/1 var(--display)}
+#rule b{display:block;font:700 24px/1.2 var(--body)}#rule span{display:block;font:500 19px/1.3 var(--body);color:var(--mute);margin-top:4px}
+#rule .ok{margin-left:auto}
+
+/* 4 Search Console */
+#gsc{left:64px;top:372px;width:952px;padding:28px 32px}
+#gsc .url{font:500 21px/1.2 var(--mono);color:var(--green-d)}
+#gsc .kp{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:22px}
+#gsc .kp div{background:var(--paper);border:1.5px solid var(--line);border-radius:16px;padding:16px 18px}
+#gsc .kp small{display:block;font:600 16px/1 var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+#gsc .kp b{display:block;font:900 44px/1.1 var(--display);letter-spacing:-.03em;margin-top:8px;font-variant-numeric:tabular-nums}
+#gsc .flag{margin-top:20px;background:var(--coral-bg);color:var(--coral-d);opacity:0}
+#meta{left:64px;top:770px;width:952px;padding:24px 32px;opacity:0}
+#meta label{display:block;font:600 16px/1 var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin-bottom:10px}
+#meta .old{font:500 22px/1.3 var(--body);color:var(--mute);position:relative;display:inline-block}
+#meta .old::after{content:"";position:absolute;left:0;top:52%;height:3px;background:var(--coral-d);width:var(--strike,0%)}
+#meta .new{font:500 25px/1.3 var(--body);color:#1a0dab;margin-top:10px;min-height:33px}
+#ctr{left:64px;top:1000px;width:952px;padding:24px 32px;opacity:0;display:flex;align-items:flex-end;gap:34px}
+#ctr .col{display:flex;flex-direction:column;align-items:center;gap:10px;width:150px}
+#ctr .bar{width:110px;border-radius:14px 14px 6px 6px;background:#D9D2C6;height:20px}
+#ctr .col.after .bar{background:var(--green-d)}
+#ctr .col b{font:900 36px/1 var(--display);font-variant-numeric:tabular-nums}
+#ctr .col small{font:600 18px/1 var(--body);color:var(--mute)}
+#ctr .txt{flex:1;padding-bottom:6px}
+#ctr .txt b{display:block;font:800 30px/1.15 var(--display);letter-spacing:-.02em}
+#ctr .txt span{display:block;font:500 19px/1.35 var(--body);color:var(--mute);margin-top:8px}
+#demo4{position:absolute;right:64px;top:300px;font:600 17px/1 var(--body);color:var(--mute);background:#fff;border:1.5px dashed var(--line);border-radius:99px;padding:8px 14px;opacity:0}
+
+/* 5 Recht */
+#law{left:64px;top:372px;width:952px;padding:0;overflow:hidden}
+.lrow{display:flex;align-items:center;gap:20px;padding:24px 28px;border-bottom:1.5px solid #F2ECE2;opacity:0}
+.lrow:last-child{border-bottom:0}
+.lrow .rule{width:120px;flex:none;font:800 19px/1 var(--body);letter-spacing:.04em;color:var(--green-d);background:var(--green-bg);border-radius:10px;padding:10px 0;text-align:center}
+.lrow .tx{flex:1;min-width:0}
+.lrow .tx b{display:block;font:700 23px/1.25 var(--body)}
+.lrow .tx span{display:block;font:500 19px/1.3 var(--mono);margin-top:6px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .st{flex:none;width:150px;text-align:center;border-radius:99px;padding:10px 0;font:700 19px/1 var(--body)}
+#lawnote{left:64px;top:1010px;font:500 20px/1.35 var(--body);color:var(--mute);opacity:0;max-width:900px}
+
+/* 6 Schnelldurchlauf */
+#burst{position:absolute;left:64px;right:64px;top:330px}
+.bl{display:flex;align-items:baseline;gap:22px;padding:14px 0;border-bottom:2px solid #ffffff14;opacity:0}
+.bl b{font:900 74px/1.05 var(--display);letter-spacing:-.045em;color:#fff}
+.bl span{font:600 25px/1.2 var(--body);color:var(--green);white-space:nowrap}
+
+/* 7 Freigabe */
+#appr{left:64px;top:372px;width:952px;padding:0;overflow:hidden}
+#appr header{display:flex;justify-content:space-between;align-items:center;padding:26px 30px;background:#FFF6EC;border-bottom:1.5px solid var(--line)}
+#appr header b{font:800 28px/1.15 var(--display);letter-spacing:-.02em}
+.arow{display:flex;align-items:center;gap:20px;padding:20px 30px;border-bottom:1.5px solid #F2ECE2;opacity:0}
+.arow img{width:64px;height:64px;border-radius:12px;object-fit:cover;flex:none}
+.arow div{flex:1;min-width:0}
+.arow div b{display:block;font:600 23px/1.25 var(--body)}.arow div span{display:block;font:500 19px/1.3 var(--mono);color:var(--green-d);margin-top:4px}
+.arow .cb{width:34px;height:34px;border-radius:9px;border:2.5px solid #CFC5B6;display:grid;place-items:center;flex:none}
+.arow .cb svg{width:22px;height:22px;opacity:0}
+#appr footer{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px 30px;background:var(--paper)}
+#appr footer small{font:500 20px/1.3 var(--body);color:var(--mute)}
+#btn7{height:68px;padding:0 30px;border-radius:16px;background:var(--coral);color:#fff;display:flex;align-items:center;gap:12px;font:700 25px/1 var(--body);white-space:nowrap;position:relative}
+#undo7{left:64px;top:1010px;opacity:0;background:#fff;border:1.5px solid var(--line);color:var(--ink)}
+
+/* 8 Was Lotse kann */
+#tiles{position:absolute;left:64px;right:64px;top:300px;display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.tile{height:96px;border-radius:20px;background:var(--ink2);display:flex;align-items:center;gap:18px;padding:0 22px;font:700 27px/1.12 var(--display);letter-spacing:-.015em;transform:scale(.6);opacity:0}
+.tile span{width:54px;height:54px;flex:none;border-radius:14px;background:#2E2E38;display:grid;place-items:center}
+.tile svg{width:28px;height:28px;color:var(--green)}
+.tile.new{box-shadow:inset 0 0 0 2px var(--green)}
+#gate{position:absolute;left:64px;right:64px;top:1040px;display:flex;align-items:center;gap:20px;padding:28px 32px;border-radius:24px;background:var(--coral);color:#fff;font:800 34px/1.2 var(--display);opacity:0}
+#gate svg{width:46px;height:46px;flex:none}
+
+/* 9 Outro */
+.ask .line>span{font:900 120px/1.0 var(--display);color:#fff}
+.ask .line em{color:var(--coral)}
+.sub{margin-top:40px;font:500 36px/1.3 var(--body);color:var(--cream);opacity:0}
+.mini{display:flex;align-items:center;gap:16px;margin-top:70px;opacity:0}.mini svg{width:64px;height:64px}.mini b{font:900 56px/1 var(--display);letter-spacing:-.04em;color:#fff}.mini b i{font-style:normal;color:var(--coral)}
+.by{position:absolute;left:0;right:0;bottom:96px;display:flex;align-items:center;justify-content:center;gap:16px;font:500 28px/1 var(--body);color:var(--cream);opacity:0}
+.by img{width:40px;height:40px}.by b{font-weight:700;letter-spacing:.06em}
+
+#note{position:absolute;left:64px;bottom:44px;font:500 21px/1 var(--body);color:var(--mute);background:#fff;border:1.5px solid var(--line);border-radius:99px;padding:10px 16px;opacity:0;z-index:20}
+#cursor{position:absolute;left:0;top:0;width:44px;height:44px;z-index:30;pointer-events:none;opacity:0}
+#ripple{position:absolute;left:0;top:0;width:100px;height:100px;margin:-50px 0 0 -50px;border-radius:50%;border:5px solid var(--coral);opacity:0;z-index:29;pointer-events:none}
+</style>
+</head>
+<body>
+<!-- 0 Ansprache + Logo -->
+<section class="scene dark" id="s0"><canvas class="contours" width="1080" height="1350"></canvas>
+  <div id="call">
+    <span class="k k1"><span>An alle</span></span>
+    <span class="k k2"><span>Shop-</span></span>
+    <span class="k k3"><span>Betreiber.</span></span>
+    <span class="k k4"><span>Shopware · Shopify · Magento · OpenMage</span></span>
+    <div class="bar" id="cbar"></div>
+  </div>
+  <div class="center" id="lockwrap">
+    <div class="lock">
+      <svg id="mark" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#3A3A46"/><circle cx="32" cy="32" r="21" fill="none" stroke="#FFF3E2" stroke-opacity=".3" stroke-width="2"/><path d="M32 8.5v4M32 51.5v4M8.5 32h4M51.5 32h4" stroke="#FFF3E2" stroke-opacity=".55" stroke-width="2.4" stroke-linecap="round"/><g id="needle"><path d="M47 17 36.2 36.2 27.8 27.8Z" fill="#FF786D"/><path d="M17 47 27.8 27.8 36.2 36.2Z" fill="#7EBBAE"/></g><circle cx="32" cy="32" r="3.4" fill="#FFF3E2"/></svg>
+      <div class="word" id="word"><span>l</span><span>o</span><span>t</span><span>s</span><span>e</span><span class="c">.</span></div>
+    </div>
+    <div class="tag"><span class="line"><span>Das KI-Interface für</span></span><span class="line"><span>deinen <em>Online-Shop</em>.</span></span></div>
+  </div>
+</section>
+
+<!-- 1 Shop-Check -->
+<section class="scene light" id="s1">
+  <div class="head"><small>Shop-Check</small><span class="line"><span>Dein Shop sagt dir,</span></span><span class="line"><span>was zu <em>tun</em> ist.</span></span></div>
+  <div class="abs card" id="chk">
+    <header>
+      <svg class="ring" viewBox="0 0 64 64"><circle cx="32" cy="32" r="26" fill="none" stroke="#EFE8DD" stroke-width="8"/><circle id="ringp" cx="32" cy="32" r="26" fill="none" stroke="#3F7A6B" stroke-width="8" stroke-linecap="round" stroke-dasharray="163.4" stroke-dashoffset="163.4" transform="rotate(-90 32 32)"/></svg>
+      <div><b id="chkT">Shop wird geprüft …</b><small id="chkS">Produkte, SEO, Bilder, Recht, Links</small></div>
+    </header>
+    <div class="fnd" id="fd1"><span class="n" id="fn1">0</span><div class="tx"><b>Produkte ohne Meta-Description</b><span><i class="sev hi">Wichtig</i>SEO · von 120 Produkten</span></div><div class="btnx" id="fix1"><span id="fix1t">Beheben</span></div></div>
+    <div class="fnd" id="fd2"><span class="n" id="fn2">0</span><div class="tx"><b>Grundpreis fehlt (ml, g, kg)</b><span><i class="sev hi">Wichtig</i>Recht · PAngV</span></div><div class="btnx">Beheben</div></div>
+    <div class="fnd" id="fd3"><span class="n" id="fn3">0</span><div class="tx"><b>Bilder ohne Alt-Text</b><span><i class="sev mid">Mittel</i>Barrierefreiheit</span></div><div class="btnx">Beheben</div></div>
+    <div class="fnd" id="fd4"><span class="n" id="fn4">0</span><div class="tx"><b>Aktiv, aber kein Bestand</b><span><i class="sev mid">Mittel</i>Daten</span></div><div class="btnx">Beheben</div></div>
+    <div class="fnd" id="fd5"><span class="n" id="fn5">0</span><div class="tx"><b>Interne Links ins Leere</b><span><i class="sev lo">Niedrig</i>Links</span></div><div class="btnx">Beheben</div></div>
+  </div>
+  <p class="abs" id="cap1">Ein Klick auf „Beheben“, und Lotse <em>schlägt die Lösung vor</em>.</p>
+</section>
+
+<!-- 2 Import -->
+<section class="scene light" id="s2">
+  <div class="head"><small>Lieferanten-Import</small><span class="line"><span>Excel rein.</span></span><span class="line"><span>Produkte <em>raus</em>.</span></span></div>
+  <div class="abs card" id="xl">
+    <div class="tb"><i>X</i>lieferant_herbst.xlsx · 248 Zeilen</div>
+    <table>
+      <colgroup><col style="width:17%"><col style="width:33%"><col style="width:16%"><col style="width:14%"><col style="width:20%"></colgroup>
+      <thead><tr><th id="h1">Artikelnr.</th><th id="h2">Bezeichnung</th><th id="h3">VK brutto</th><th id="h4">Farbe</th><th id="h5">Bild</th></tr></thead>
+      <tbody>
+        <tr><td>HH-SCHA-18</td><td>Schale „Ufer“ Steinzeug</td><td>29,90</td><td>Sand</td><td>schale.jpg</td></tr>
+        <tr><td>HH-KISS-45</td><td>Kissen „Böe“ Leinen</td><td>39,00</td><td>Taupe</td><td>kissen.jpg</td></tr>
+        <tr><td>HH-KRUG-1L</td><td>Krug „Gezeit“, 1 l</td><td>44,50</td><td>Weiß</td><td>krug.jpg</td></tr>
+        <tr><td>HH-VASE-22</td><td>Vase „Kiesel“, 22 cm</td><td>49,00</td><td>Creme</td><td>vase.jpg</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="map" id="m1" style="left:84px">Produktnummer</div>
+  <div class="map" id="m2" style="left:330px">Name</div>
+  <div class="map" id="m3" style="left:560px">Preis</div>
+  <div class="map" id="m4" style="left:700px">Eigenschaft</div>
+  <div class="map" id="m5" style="left:880px">Bild</div>
+  <img class="stack" id="k1" src="pitch-shots/becher.jpg" alt="" style="left:620px;top:790px">
+  <img class="stack" id="k2" src="pitch-shots/plaid.jpg" alt="" style="left:700px;top:810px">
+  <img class="stack" id="k3" src="pitch-shots/vase.jpg" alt="" style="left:780px;top:830px">
+  <div class="abs card" id="imp">
+    <div class="top"><b>247 neue Produkte · 1 Update</b><span class="pill" style="background:var(--green-bg);color:var(--green-d)">als Entwurf</span></div>
+    <div class="prog"><i id="ip"></i></div>
+    <small><span id="ic">0 / 248 angelegt</span><span>in Paketen · rückgängig machbar</span></small>
+  </div>
+</section>
+
+<!-- 3 Wissen -->
+<section class="scene light" id="s3">
+  <div class="head"><small>Wissensbasis</small><span class="line"><span>Dein Wissen.</span></span><span class="line"><span>Deine <em>Regeln</em>.</span></span></div>
+  <div class="abs card" id="pdf">
+    <div class="ph"><i>PDF</i>Datenblatt Vase Kiesel</div>
+    <div class="l" style="width:92%"></div><div class="l" style="width:78%"></div>
+    <div class="hlx" id="hl1"><span>Steinzeug, bei 1.200 °C gebrannt</span></div>
+    <div class="l" style="width:85%"></div><div class="l" style="width:64%"></div>
+    <div class="hlx" id="hl2"><span>Innen glasiert, wasserdicht</span></div>
+    <div class="l" style="width:88%"></div><div class="l" style="width:70%"></div><div class="l" style="width:80%"></div>
+    <div class="hlx" id="hl3"><span>Höhe 22 cm, Ø 18 cm</span></div>
+    <div class="l" style="width:58%"></div>
+    <span class="pg">S. 2</span>
+  </div>
+  <div class="abs card" id="desc">
+    <h4><img src="pitch-shots/vase.jpg" alt="">Vase „Kiesel“</h4>
+    <label>Neue Beschreibung</label>
+    <div id="dtext"></div>
+    <span class="pill" id="src">Quelle: Datenblatt, S. 2</span>
+  </div>
+  <div class="abs card" id="rule"><span class="ic">!</span><div><b>Regel: Wir sagen nie „günstig“.</b><span>Gilt für alle Produkttexte</span></div><span class="ok" id="okr"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span></div>
+</section>
+
+<!-- 4 Search Console -->
+<section class="scene light" id="s4">
+  <div class="head"><small>Search Console</small><span class="line"><span>Echte Suchdaten.</span></span><span class="line"><span>Statt <em>Bauchgefühl</em>.</span></span></div>
+  <span id="demo4">Beispielzahlen</span>
+  <div class="abs card" id="gsc">
+    <div class="url">/wohnaccessoires/vase-kiesel-steinzeug</div>
+    <div class="kp"><div><small>Impressionen</small><b id="g1">0</b></div><div><small>Klickrate</small><b id="g2">0,0 %</b></div><div><small>Position</small><b id="g3">0,0</b></div></div>
+    <span class="pill flag" id="gflag">Viele Impressionen, wenig Klicks</span>
+  </div>
+  <div class="abs card" id="meta">
+    <label>Meta-Title</label>
+    <span class="old" id="mo">Vase 22 cm | Haus Holm</span>
+    <div class="new" id="mn"></div>
+  </div>
+  <div class="abs card" id="ctr">
+    <div class="col"><span class="bar" id="cb1"></span><b>0,9 %</b><small>vorher</small></div>
+    <div class="col after"><span class="bar" id="cb2"></span><b id="cv2">0,9 %</b><small>nach 28 Tagen</small></div>
+    <div class="txt"><b>Wirkung gemessen.</b><span>Lotse vergleicht gleich lange Zeiträume vor und nach der Änderung.</span></div>
+  </div>
+</section>
+
+<!-- 5 Recht -->
+<section class="scene light" id="s5">
+  <div class="head"><small>Recht &amp; Barrierefreiheit</small><span class="line"><span>Pflichtangaben.</span></span><span class="line"><span>Lücken <em>gefunden</em>.</span></span></div>
+  <div class="abs card" id="law">
+    <div class="lrow"><span class="rule">GPSR</span><div class="tx"><b>Herstellerangaben</b><span id="lv1">Anschrift fehlt bei 2 Herstellern</span></div><span class="st" id="ls1">fehlt</span></div>
+    <div class="lrow"><span class="rule">PAngV</span><div class="tx"><b>Grundpreis Becher 350 ml</b><span id="lv2">kein Grundpreis</span></div><span class="st" id="ls2">fehlt</span></div>
+    <div class="lrow"><span class="rule">BFSG</span><div class="tx"><b>Alt-Texte und Linktexte</b><span id="lv3">12 Bilder ohne Alt-Text</span></div><span class="st" id="ls3">fehlt</span></div>
+    <div class="lrow"><span class="rule">Seiten</span><div class="tx"><b>Impressum, AGB, Widerruf</b><span id="lv4">im Footer prüfen</span></div><span class="st" id="ls4">prüfen</span></div>
+  </div>
+  <p class="abs" id="lawnote">Technische Prüfung, keine Rechtsberatung. Fehlende Angaben fragt Lotse bei dir nach, statt sie zu erfinden.</p>
+</section>
+
+<!-- 6 Schnelldurchlauf -->
+<section class="scene dark" id="s6"><canvas class="contours" width="1080" height="1350"></canvas>
+  <div class="head"><small>Und außerdem</small></div>
+  <div id="burst">
+    <div class="bl"><b>Varianten.</b><span>aus Eigenschaften erzeugt</span></div>
+    <div class="bl"><b>Produktstreams.</b><span>mit Trefferzahl vorab</span></div>
+    <div class="bl"><b>Promotionen.</b><span>Code HERBST15</span></div>
+    <div class="bl"><b>Übersetzungen.</b><span>muttersprachlich</span></div>
+    <div class="bl"><b>Interne Links.</b><span>nur echte SEO-URLs</span></div>
+    <div class="bl"><b>2.400 Artikel.</b><span>auf einmal, mit Fortschritt</span></div>
+  </div>
+</section>
+
+<!-- 7 Freigabe -->
+<section class="scene light" id="s7">
+  <div class="head"><small>Freigabe</small><span class="line"><span>Nichts passiert</span></span><span class="line"><span>ohne deine <em>Freigabe</em>.</span></span></div>
+  <div class="abs card" id="appr">
+    <header><b>Meta-Descriptions für 34 Produkte</b><span class="pill" style="background:#fff;border:1.5px solid var(--line);color:var(--mute)">34 ausgewählt</span></header>
+    <div class="arow"><img src="pitch-shots/becher.jpg" alt=""><div><b>Becher „Morgen“</b><span>Steinzeugbecher in Sand, 350 ml …</span></div><span class="cb"><svg viewBox="0 0 24 24" fill="none" stroke="#3F7A6B" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span></div>
+    <div class="arow"><img src="pitch-shots/vase.jpg" alt=""><div><b>Vase „Kiesel“</b><span>Matte Steinzeugvase, 22 cm hoch …</span></div><span class="cb"><svg viewBox="0 0 24 24" fill="none" stroke="#3F7A6B" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span></div>
+    <div class="arow"><img src="pitch-shots/plaid.jpg" alt=""><div><b>Plaid „Düne“</b><span>Leinen-Baumwolle, 130 × 170 cm …</span></div><span class="cb"><svg viewBox="0 0 24 24" fill="none" stroke="#3F7A6B" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span></div>
+    <footer><small>Protokolliert · mit einem Klick rückgängig</small><div id="btn7"><span id="btn7t">34 Änderungen anwenden</span></div></footer>
+  </div>
+  <span class="abs pill" id="undo7">↺ Rückgängig jederzeit möglich</span>
+</section>
+
+<!-- 8 Was Lotse kann -->
+<section class="scene dark" id="s8"><canvas class="contours" width="1080" height="1350"></canvas>
+  <div class="head"><small>Ein Interface für den ganzen Shop</small><span class="line"><span>Was Lotse <em>kann</em>.</span></span></div>
+  <div id="tiles"></div>
+  <div id="gate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Jede Änderung nur mit deiner Freigabe.</div>
+</section>
+
+<!-- 9 Outro -->
+<section class="scene dark" id="s9"><canvas class="contours" width="1080" height="1350"></canvas>
+  <div class="center">
+    <div class="ask"><span class="line"><span>Interesse?</span></span><span class="line"><span><em>Einfach melden.</em></span></span></div>
+    <p class="sub" id="b9">Shopware · Shopify · Magento · OpenMage<br>Coming soon</p>
+    <div class="mini" id="m9"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#3A3A46"/><circle cx="32" cy="32" r="21" fill="none" stroke="#FFF3E2" stroke-opacity=".3" stroke-width="2"/><path d="M47 17 36.2 36.2 27.8 27.8Z" fill="#FF786D"/><path d="M17 47 27.8 27.8 36.2 36.2Z" fill="#7EBBAE"/><circle cx="32" cy="32" r="3.4" fill="#FFF3E2"/></svg><b>lotse<i>.</i></b></div>
+  </div>
+  <div class="by" id="y9"><img src="../public/logo.svg" alt="">Ein Produkt von <b>CODING 9</b></div>
+</section>
+
+<div id="note">Demo-Shop · Produktbilder KI-generiert</div>
+<div id="ripple"></div>
+<svg id="cursor" viewBox="0 0 24 24"><path d="M4 2.5l15.5 8.6-6.8 1.9-3 6.7z" fill="#2E2E38" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+
+<script>
+const $ = id => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const easeOut = x => 1 - Math.pow(1 - x, 3);
+const easeIn = x => x * x * x;
+const easeInOut = x => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const spring = x => (x <= 0 ? 0 : x >= 1 ? 1 : 1 - Math.exp(-6 * x) * Math.cos(9.5 * x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const de = (v, d = 0) => v.toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d });
+const type = (el, text, p) => { const n = Math.round(text.length * clamp(p)); el.textContent = text.slice(0, n) + (p > 0 && p < 1 ? '▍' : ''); };
+const fadeUp = (el, p, dy = 26) => { el.style.opacity = p; el.style.transform = `translateY(${(1 - p) * dy}px)`; };
+const pop = (el, p) => { el.style.transform = `scale(${spring(p)})`; el.style.opacity = p > 0 ? 1 : 0; };
+function heading(sc, l) {
+  const k = sc.querySelector('.head small'); if (k) fadeUp(k, easeOut(seg(l, .05, .5)), 12);
+  sc.querySelectorAll('.head .line>span').forEach((s, i) => { s.style.transform = `translateY(${(1 - easeOut(seg(l, .12 + i * .14, .7 + i * .14))) * 110}%)`; });
+}
+function contours(cv, t) {
+  const cx = cv.getContext('2d'), w = cv.width, h = cv.height; cx.clearRect(0, 0, w, h);
+  for (let i = 0; i < 18; i++) {
+    cx.beginPath(); const base = h * (i / 17), amp = 24 + i * 3;
+    for (let x = -30; x <= w + 30; x += 16) { const y = base + Math.sin(x / 240 + i * .7 + t * .25) * amp + Math.cos(x / 100 - i * .4 + t * .15) * 8; x === -30 ? cx.moveTo(x, y) : cx.lineTo(x, y); }
+    cx.strokeStyle = i % 4 === 0 ? 'rgba(126,187,174,.30)' : 'rgba(255,243,226,.06)'; cx.lineWidth = i % 4 === 0 ? 2 : 1.4; cx.stroke();
+  }
+}
+
+// ---- Zeitplan [Start, Ende] und Übergänge ----
+const S = { s0: [0, 6.0], s1: [5.4, 12.6], s2: [12.0, 19.4], s3: [18.8, 25.8], s4: [25.2, 32.4], s5: [31.8, 37.8], s6: [37.2, 42.4], s7: [41.8, 47.4], s8: [46.8, 52.4], s9: [51.8, 57.5] };
+const DURATION = 57.5;
+function sceneState(id, t) {
+  const el = $(id), [a, b] = S[id], vis = t >= a && t <= b;
+  el.style.visibility = vis ? 'visible' : 'hidden';
+  if (!vis) return null;
+  const tin = seg(t, a, a + .6), tout = seg(t, b - .6, b);
+  let tr = '', clip = 'none', op = 1, filt = 'none';
+  if (id === 's1') clip = `circle(${easeInOut(tin) * 110}% at 50% 50%)`;
+  else if (id === 's2' || id === 's4' || id === 's7') { tr += `translateX(${(1 - easeOut(tin)) * 1080}px) `; filt = tin < 1 ? `blur(${(1 - tin) * 8}px)` : 'none'; }
+  else if (id === 's3' || id === 's5') tr += `translateY(${(1 - easeOut(tin)) * 1350}px) `;
+  else if (id === 's6' || id === 's8') clip = `circle(${easeInOut(tin) * 110}% at 50% 90%)`;
+  else if (id === 's9') op = tin;
+  if (['s1', 's3', 's7'].includes(id)) { tr += `translateX(${-easeIn(tout) * 1080}px)`; if (tout > 0) filt = `blur(${tout * 8}px)`; }
+  else if (['s2', 's4'].includes(id)) tr += `translateY(${-easeIn(tout) * 1350}px)`;
+  else if (id === 's5') { tr += `scale(${1 + .15 * easeIn(tout)})`; op = Math.min(op, 1 - tout); }
+  el.style.transform = tr || 'none'; el.style.clipPath = clip; el.style.opacity = op; el.style.filter = filt;
+  return t - a;
+}
+
+// ---- Aufbau ----
+const FEAT = [
+  ['Shop-Check', '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/>', 1],
+  ['Produkte & Fotos', '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m21 16-5-5-8 8"/>'],
+  ['Lieferanten-Import', '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 13h6M9 17h6"/>', 1],
+  ['Produktdaten in Masse', '<path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="m3 8 9 5 9-5M12 13v8"/>'],
+  ['SEO & Search Console', '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>', 1],
+  ['Interne Links', '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>'],
+  ['Recht & Barrierefreiheit', '<path d="M12 3v18M5 7h14M7 7l-3 7h6zM17 7l-3 7h6z"/>', 1],
+  ['Wissensbasis', '<path d="M4 4h10a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4z"/><path d="M8 8h6M8 12h6"/>', 1],
+  ['Mehrsprachig', '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'],
+  ['Varianten & Streams', '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17.5h7M17.5 14v7"/>'],
+  ['Preise & Promotionen', '<path d="M20 12 12 20 4 12V4h8z"/><circle cx="8.5" cy="8.5" r="1.5"/>'],
+  ['Landingpages & Layouts', '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>'],
+];
+$('tiles').innerHTML = FEAT.map(([t, ic, n]) => `<div class="tile${n ? ' new' : ''}"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ic}</svg></span>${t}</div>`).join('');
+const DOTS = Array.from({ length: 14 }, (_, i) => ({ a: (i / 14) * Math.PI * 2 + (i % 2) * .2, r: 90 + (i % 3) * 40, c: ['#7EBBAE', '#FF786D', '#F2C26B'][i % 3] }));
+for (const host of ['fix1', 'btn7']) DOTS.forEach(() => { const d = document.createElement('i'); d.className = 'dot'; $(host).appendChild(d); });
+function burst(host, p) {
+  [...$(host).querySelectorAll('.dot')].forEach((d, i) => {
+    const D = DOTS[i], e = easeOut(p);
+    d.style.background = D.c; d.style.left = `calc(50% + ${Math.cos(D.a) * D.r * e}px - 7px)`; d.style.top = `calc(50% + ${Math.sin(D.a) * D.r * e * .6}px - 7px)`;
+    d.style.opacity = p > 0 && p < 1 ? 1 - p : 0;
+  });
+}
+// Text der Wissensszene: getippt, dann wird „günstig“ durch die Regel ersetzt
+const D1 = 'Die Vase „Kiesel“ ist aus Steinzeug, bei 1.200 °C gebrannt und innen glasiert, also wasserdicht. 22 cm hoch, Ø 18 cm. ';
+
+// ---- Mauszeiger: [Sekunde, x, y, klick?] ----
+const MOUSE = [[9.0, 1060, 1300], [10.1, 0, 0, true], [11.2, 980, 1250], [44.0, 1060, 1300], [45.1, 0, 0, true], [46.3, 980, 1250]];
+const SHOWN = [[8.9, 11.5], [43.9, 46.6]];
+let posReady = false;
+function measure() { // Klickziele aus dem Layout (Mitte der Buttons)
+  const at = (id, t) => { render0(t); const r = $(id).getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; };
+  [MOUSE[1][1], MOUSE[1][2]] = at('fix1', 10.1); [MOUSE[4][1], MOUSE[4][2]] = at('btn7', 45.1); posReady = true;
+}
+function mouse(t) {
+  let i = MOUSE.findIndex(m => m[0] > t); if (i === -1) i = MOUSE.length;
+  const prev = MOUSE[i - 1] ?? MOUSE[0], next = MOUSE[i] ?? prev;
+  const k = next === prev ? 1 : easeInOut(seg(t, prev[0], next[0]));
+  const lastClick = MOUSE.filter(m => m[3] && m[0] <= t).pop();
+  return { x: lerp(prev[1], next[1], k), y: lerp(prev[2], next[2], k), click: lastClick ? lastClick[0] : -9 };
+}
+
+function render0(t) {
+  let l;
+  // 0 Ansprache, dann Logo
+  if ((l = sceneState('s0', t)) !== null) {
+    contours(document.querySelector('#s0 canvas'), t);
+    const out = easeIn(seg(l, 2.7, 3.2));
+    document.querySelectorAll('#call .k>span').forEach((s, i) => { const p = easeOut(seg(l, .2 + i * .22, .8 + i * .22)); s.style.transform = `translateY(${(1 - p) * 110 - out * 110}%)`; });
+    $('cbar').style.width = `${easeInOut(seg(l, 1.3, 2.4)) * 100}%`; $('call').style.opacity = 1 - out;
+    const L = l - 3.0; $('lockwrap').style.opacity = seg(L, 0, .2);
+    $('needle').setAttribute('transform', `rotate(${-200 + 200 * spring(seg(L, .1, 1.4))} 32 32)`);
+    $('mark').style.transform = `scale(${spring(seg(L, 0, .8))})`;
+    [...$('word').children].forEach((s, i) => { const p = easeOut(seg(L, .2 + i * .07, .7 + i * .07)); s.style.transform = `translateY(${(1 - p) * 120}%)`; s.style.opacity = p; });
+    document.querySelectorAll('#s0 .tag .line>span').forEach((s, i) => { s.style.transform = `translateY(${(1 - easeOut(seg(L, 1.0 + i * .2, 1.7 + i * .2))) * 110}%)`; });
+  }
+  // 1 Shop-Check
+  if ((l = sceneState('s1', t)) !== null) {
+    heading($('s1'), l - .5);
+    fadeUp($('chk'), easeOut(seg(l, .7, 1.3)), 50);
+    const scan = easeInOut(seg(l, 1.0, 2.6)); $('ringp').setAttribute('stroke-dashoffset', 163.4 * (1 - scan));
+    $('chkT').textContent = scan < 1 ? 'Shop wird geprüft …' : '5 Punkte, 2 davon wichtig';
+    $('chkS').textContent = scan < 1 ? `Produkte, SEO, Bilder, Recht, Links · ${Math.round(scan * 120)} von 120` : 'geprüft gerade eben · 120 Produkte';
+    [34, 8, 12, 5, 3].forEach((n, i) => {
+      const s = 1.5 + i * .28; fadeUp($('fd' + (i + 1)), easeOut(seg(l, s, s + .4)), 20);
+      $('fn' + (i + 1)).textContent = Math.round(n * easeOut(seg(l, s + .1, s + .9)));
+      $('fn' + (i + 1)).style.color = i < 2 ? 'var(--coral-d)' : i < 4 ? 'var(--amber)' : 'var(--green-d)';
+    });
+    const clicked = t >= 10.15, done = t >= 11.0;
+    $('fix1').style.background = done ? 'var(--green-d)' : 'var(--coral)'; $('fix1').style.borderColor = done ? 'var(--green-d)' : 'var(--coral)';
+    $('fix1t').textContent = done ? '✓ Vorschlag bereit' : clicked ? 'Lotse arbeitet …' : 'Beheben';
+    $('fix1').style.transform = `scale(${clicked ? .94 + .06 * spring(seg(t, 10.15, 10.7)) : 1})`;
+    burst('fix1', seg(t, 11.0, 11.8));
+    fadeUp($('cap1'), easeOut(seg(l, 3.2, 3.8)), 20);
+  }
+  // 2 Import
+  if ((l = sceneState('s2', t)) !== null) {
+    heading($('s2'), l - .3);
+    fadeUp($('xl'), easeOut(seg(l, .5, 1.1)), 50);
+    for (let i = 1; i <= 5; i++) { const s = 1.4 + i * .3; $('h' + i).classList.toggle('hl', l >= s); pop($('m' + i), seg(l, s, s + .5)); }
+    const rows = [...document.querySelectorAll('#xl tbody tr')];
+    rows.forEach((r, i) => { const s = 3.5 + i * .2; r.classList.toggle('go', l >= s); r.style.opacity = 1 - .55 * easeOut(seg(l, s + .2, s + .6)); });
+    ['k1', 'k2', 'k3'].forEach((k, i) => { const p = spring(seg(l, 3.7 + i * .2, 4.5 + i * .2)); $(k).style.opacity = seg(l, 3.7 + i * .2, 3.9 + i * .2) * (1 - seg(l, 5.4, 5.8)); $(k).style.transform = `translate(${(1 - p) * -260}px,${(1 - p) * -120}px) rotate(${(i - 1) * 6 * p}deg)`; });
+    fadeUp($('imp'), easeOut(seg(l, 4.2, 4.8)), 40);
+    const pr = easeInOut(seg(l, 4.8, 6.6)); $('ip').style.width = `${pr * 100}%`;
+    $('ic').textContent = pr < 1 ? `${Math.round(pr * 248)} / 248 angelegt` : '✓ 248 / 248 angelegt';
+  }
+  // 3 Wissen
+  if ((l = sceneState('s3', t)) !== null) {
+    heading($('s3'), l - .3);
+    const pd = spring(seg(l, .5, 1.3)); $('pdf').style.opacity = seg(l, .5, .7); $('pdf').style.transform = `rotate(${(1 - pd) * -8 - 1.5}deg) translateY(${(1 - pd) * 200}px)`;
+    ['hl1', 'hl2', 'hl3'].forEach((h, i) => $(h).style.setProperty('--hl', easeOut(seg(l, 1.4 + i * .35, 1.8 + i * .35))));
+    fadeUp($('desc'), easeOut(seg(l, 1.2, 1.8)), 40);
+    const p = seg(l, 2.4, 4.3);
+    if (l < 4.6) type($('dtext'), D1 + 'Ein günstiges Stück für jeden Tisch.', p);
+    else {
+      const r = seg(l, 4.6, 5.3);
+      $('dtext').innerHTML = D1 + (r < .5 ? 'Ein <s>günstiges</s> Stück für jeden Tisch.' : 'Ein <span class="ins">ehrlich gefertigtes</span> Stück für jeden Tisch.');
+    }
+    fadeUp($('rule'), easeOut(seg(l, 4.1, 4.6)), 30); pop($('okr'), seg(l, 5.2, 5.8));
+    fadeUp($('src'), easeOut(seg(l, 5.3, 5.8)), 10);
+  }
+  // 4 Search Console
+  if ((l = sceneState('s4', t)) !== null) {
+    heading($('s4'), l - .3);
+    fadeUp($('gsc'), easeOut(seg(l, .5, 1.1)), 40); $('demo4').style.opacity = seg(l, .8, 1.2);
+    const c = easeOut(seg(l, 1.0, 2.2));
+    $('g1').textContent = de(Math.round(12400 * c)); $('g2').textContent = `${de(.9 * c, 1)} %`; $('g3').textContent = de(4.2 * c, 1);
+    pop($('gflag'), seg(l, 2.2, 2.8));
+    fadeUp($('meta'), easeOut(seg(l, 2.6, 3.1)), 30);
+    $('mo').style.setProperty('--strike', `${easeOut(seg(l, 3.1, 3.5)) * 102}%`);
+    type($('mn'), 'Vase „Kiesel“ aus Steinzeug, 22 cm, handglasiert | Haus Holm', seg(l, 3.4, 4.6));
+    fadeUp($('ctr'), easeOut(seg(l, 4.6, 5.1)), 30);
+    $('cb1').style.height = `${30}px`;
+    const g = easeOut(seg(l, 5.2, 6.3)); $('cb2').style.height = `${30 + 60 * g}px`; $('cv2').textContent = `${de(.9 + 1.8 * g, 1)} %`;
+  }
+  // 5 Recht
+  if ((l = sceneState('s5', t)) !== null) {
+    heading($('s5'), l - .3);
+    fadeUp($('law'), easeOut(seg(l, .5, 1.1)), 50);
+    const FIX = [['Haus Holm GmbH · Anschrift und Kontakt ergänzt', 'ergänzt'], ['18,00 € → 51,43 € / 1 l', 'ergänzt'], ['12 Alt-Texte gesetzt', 'ergänzt'], ['alle Seiten erreichbar', 'ok']];
+    document.querySelectorAll('.lrow').forEach((r, i) => {
+      fadeUp(r, easeOut(seg(l, .9 + i * .25, 1.3 + i * .25)), 16);
+      const fixed = l >= 2.6 + i * .45, st = $('ls' + (i + 1));
+      st.textContent = fixed ? `✓ ${FIX[i][1]}` : i === 3 ? 'prüfen' : 'fehlt';
+      st.style.background = fixed ? 'var(--green-bg)' : i === 3 ? 'var(--amber-bg)' : 'var(--coral-bg)';
+      st.style.color = fixed ? 'var(--green-d)' : i === 3 ? 'var(--amber)' : 'var(--coral-d)';
+      st.style.transform = `scale(${fixed ? .9 + .1 * spring(seg(l, 2.6 + i * .45, 3.1 + i * .45)) : 1})`;
+      if (fixed) $('lv' + (i + 1)).textContent = FIX[i][0];
+    });
+    fadeUp($('lawnote'), easeOut(seg(l, 4.4, 4.9)), 14);
+  }
+  // 6 Schnelldurchlauf
+  if ((l = sceneState('s6', t)) !== null) {
+    contours(document.querySelector('#s6 canvas'), t);
+    heading($('s6'), l - .3);
+    document.querySelectorAll('.bl').forEach((b, i) => { const p = easeOut(seg(l, .5 + i * .5, .9 + i * .5)); b.style.opacity = p; b.style.transform = `translateX(${(1 - p) * 140}px)`; });
+  }
+  // 7 Freigabe
+  if ((l = sceneState('s7', t)) !== null) {
+    heading($('s7'), l - .3);
+    fadeUp($('appr'), easeOut(seg(l, .5, 1.1)), 50);
+    document.querySelectorAll('#appr .arow').forEach((r, i) => {
+      fadeUp(r, easeOut(seg(l, 1.0 + i * .22, 1.4 + i * .22)), 14);
+      const c = seg(l, 1.6 + i * .22, 1.9 + i * .22); r.querySelector('svg').style.opacity = c; r.querySelector('svg').style.transform = `scale(${spring(c)})`;
+      r.querySelector('.cb').style.borderColor = c > 0 ? 'var(--green-d)' : '#CFC5B6';
+    });
+    const clicked = t >= 45.15;
+    $('btn7').style.background = clicked ? 'var(--green-d)' : 'var(--coral)';
+    $('btn7t').textContent = clicked ? '✓ 34 angewendet' : '34 Änderungen anwenden';
+    $('btn7').style.transform = `scale(${clicked ? .94 + .06 * spring(seg(t, 45.15, 45.7)) : 1})`;
+    burst('btn7', seg(t, 45.15, 46.0));
+    fadeUp($('undo7'), easeOut(seg(t, 45.6, 46.2)), 20);
+  }
+  // 8 Was Lotse kann
+  if ((l = sceneState('s8', t)) !== null) {
+    contours(document.querySelector('#s8 canvas'), t);
+    heading($('s8'), l - .3);
+    document.querySelectorAll('#tiles .tile').forEach((ti, i) => { const p = seg(l, .6 + i * .12, 1.2 + i * .12); ti.style.opacity = p > 0 ? 1 : 0; ti.style.transform = `scale(${.6 + .4 * spring(p)})`; });
+    const g = spring(seg(l, 2.6, 3.3)); $('gate').style.opacity = seg(l, 2.6, 2.8); $('gate').style.transform = `translateY(${(1 - g) * 80}px)`;
+  }
+  // 9 Outro
+  if ((l = sceneState('s9', t)) !== null) {
+    contours(document.querySelector('#s9 canvas'), t);
+    document.querySelectorAll('#s9 .ask .line>span').forEach((s, i) => { s.style.transform = `translateY(${(1 - easeOut(seg(l, .4 + i * .25, 1.1 + i * .25))) * 110}%)`; });
+    fadeUp($('b9'), easeOut(seg(l, 1.4, 2.0)), 18); fadeUp($('m9'), easeOut(seg(l, 1.9, 2.5)), 16); fadeUp($('y9'), easeOut(seg(l, 2.4, 3.0)), 12);
+  }
+  // KI-Hinweis in den hellen Szenen mit Produktbildern
+  $('note').style.opacity = Math.max(Math.min(seg(t, 12.6, 13.1), 1 - seg(t, 25.4, 25.9)), Math.min(seg(t, 42.4, 42.9), 1 - seg(t, 46.9, 47.4)));
+}
+
+window.render = function (t) {
+  if (!posReady) measure();
+  render0(t);
+  const m = mouse(t), vis = Math.max(...SHOWN.map(([a, b]) => Math.min(seg(t, a, a + .3), 1 - seg(t, b - .3, b))));
+  const press = t >= m.click && t < m.click + .3 ? Math.sin(seg(t, m.click, m.click + .3) * Math.PI) : 0;
+  $('cursor').style.opacity = vis; $('cursor').style.transform = `translate(${m.x - 6}px,${m.y - 4}px) scale(${1 - .2 * press})`;
+  const rp = seg(t, m.click, m.click + .6);
+  $('ripple').style.opacity = vis > 0 && rp > 0 && rp < 1 ? (1 - rp) * .9 : 0; $('ripple').style.transform = `translate(${m.x}px,${m.y}px) scale(${.3 + rp})`;
+};
+window.DURATION = DURATION;
+window.SIZE = [1080, 1350];
+document.fonts.ready.then(() => { posReady = false; render(0); });
+render(0);
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+## SEO, URL-Handles und interne Links
+Werkzeuge: seo_audit (Bestandsaufnahme, seitenweise mit cursor), get_seo_urls (echte URLs und Weiterleitungen), propose_seo_urls (neue Handles). Texte und Meta-Daten änderst du mit propose_product_changes bzw. propose_category_changes.
+1. ANALYSE ZUERST: Bei „SEO verbessern“ erst seo_audit (ist die Search Console verbunden, vorher deren Daten). Zahlen nennen (wichtig zuerst) und den Umfang per ask_user bestätigen lassen.
+2. META-DATEN: Meta-Title ≤ 60 Zeichen (Hauptbegriff vorn, Marke hinten), jeder Title nur einmal im Shop. Meta-Description 120 bis 158 Zeichen mit konkretem Nutzen und Handlung. Nur belegte Fakten. Ohne eigene Meta-Daten nutzt Shopify Titel und Beschreibungsanfang; das ist meist zu lang oder unpassend.
+3. TEXTE: Beschreibungen mit mindestens 50 Wörtern echtem Inhalt. Die H1 setzt das Theme (Produkt- bzw. Kollektionsname), in Beschreibungen daher nur H2/H3.
+4. INTERNE LINKS: Linkziele per get_seo_urls ermitteln und deren Pfad verwenden (/products/<handle>, /collections/<handle>), nie URLs raten. 2 bis 5 passende Links mit beschreibendem Ankertext; keine Links auf Entwürfe oder nicht veröffentlichte Produkte/Kollektionen.
+5. URL-HANDLES: Nur ändern, wenn der Nutzer es will oder der Handle unpassend ist (z. B. „copy-of-…“, Zahlenreste). Jede Änderung legt eine Weiterleitung von der alten URL an; häufiges Umbenennen schadet. Slug kurz, sprechend, klein, mit Bindestrichen, ohne Füllwörter. Umfang per ask_user bestätigen, dann ein Änderungsset (propose_seo_urls). Rückgängig entfernt die Weiterleitung und stellt den alten Handle her.
+6. ERGEBNIS: kurz melden, was geändert ist, was übersprungen wurde und was offen bleibt.

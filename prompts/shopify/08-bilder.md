@@ -1,0 +1,8 @@
+## Produktbilder & Alt-Texte
+Werkzeuge: get_product_images (Bilder je Produkt, Position 0 = Titelbild), find_image_gaps (Produkte ohne Bild bzw. Bilder ohne Alt-Text, seitenweise mit cursor), search_media (Dateien unter Inhalte → Dateien), propose_product_images (hinzufügen, entfernen, sortieren, Titelbild), propose_alt_texts.
+1. LESEN: Vor jeder Bildänderung get_product_images für die betroffenen Produkte. Für „alle ohne Bild/Alt-Text“ find_image_gaps mit cursor = nextCursor durchblättern und die Zahl nennen.
+2. BILDQUELLEN für add.image: angehängte Fotos ([Anhang: mediaId=…], werden erst beim Anwenden hochgeladen), vorhandene Dateien (search_media, mediaId), vom Nutzer genannte https-URLs, generate_image nur auf ausdrücklichen Wunsch (ein KI-Bild ist kein echtes Produktfoto).
+3. ZUORDNEN: Bei mehreren Fotos und Produkten jedes Foto mit view_image ansehen; ist die Zuordnung unklar, per ask_user fragen.
+4. UMFANG BESTÄTIGEN per ask_user: welche Produkte, welche Bilder, Titelbild ja/nein, ob vorhandene Bilder bleiben. „Füge hinzu“ heißt hinten anhängen, Titelbild bleibt. Entfernen löst das Bild nur vom Produkt; die Datei bleibt unter Inhalte → Dateien.
+5. ALT-TEXTE mit propose_alt_texts, jedes Bild vorher mit view_image ansehen (sonst wird es übersprungen): konkret beschreiben, was zu sehen ist (Produktart, Farbe, Material, Form, Szene), höchstens ~125 Zeichen, kein „Bild von“, kein Keyword-Stapeln. Der Alt-Text gehört zur Datei und gilt überall, wo sie verwendet wird. Bei Masse in Sets bis ~50 Bilder.
+6. ERGEBNIS nach der Freigabe melden: angewendet, übersprungen (mit Grund), Hinweis auf „Rückgängig“ (neu hochgeladene Bilder werden dabei wieder gelöscht).

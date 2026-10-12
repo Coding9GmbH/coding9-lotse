@@ -1,0 +1,29 @@
+.pane { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.seg { margin: 12px 12px 8px; }
+.search { margin: 0 12px 8px; width: calc(100% - 24px); padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); outline: none; }
+.search:focus { border-color: var(--green); }
+.list { flex: 1; overflow: auto; padding: 0 6px 12px; min-height: 0; }
+.ul { list-style: none; margin: 0; padding: 0; }
+.note { padding: 20px 16px; color: var(--mute); font-size: 13px; }
+.note b { color: var(--ink); }
+
+.row { display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 8px; user-select: none; }
+.row:hover { background: var(--bg); }
+.sel, .sel:hover { background: var(--green-bg); color: var(--green-d); font-weight: 600; }
+.row button { border: 0; background: none; padding: 0; color: inherit; font-weight: inherit; border-radius: 6px; }
+.pick { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; padding: 6px 0 !important; text-align: left; }
+.tw { width: 14px; text-align: center; color: var(--mute); font-size: 10px; flex: none; }
+.nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag { font-size: 10px; color: var(--green-d); background: var(--green-bg); border-radius: 99px; padding: 0 7px; flex: none; font-weight: 400; }
+.inactive .nm { opacity: .5; }
+.row img, .noimg { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; background: var(--sand); flex: none; }
+
+/* Verlaufseinträge */
+.h { position: relative; padding: 0; }
+.open { display: flex; flex-direction: column; align-items: flex-start; width: 100%; padding: 8px 26px 8px 10px !important; text-align: left; }
+.open .nm { width: 100%; white-space: normal; font-weight: 500; }
+.sel .open .nm { font-weight: 600; }
+.open small { color: var(--mute); font-size: 11px; font-weight: 400; }
+.x { position: absolute; right: 6px; top: 6px; color: var(--mute) !important; padding: 0 5px !important; opacity: 0; }
+.h:hover .x, .x:focus-visible { opacity: 1; }
+.x:hover { color: var(--coral-d) !important; }

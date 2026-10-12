@@ -1,0 +1,17 @@
+node_modules/
+data/
+.env
+.env.*
+!.env.example
+.idea/
+.DS_Store
+*.log
+backups/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# Video-Export
+video/*.mp4
+video/stills/
+video/pitch-shots/

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 236 64" role="img" aria-label="Lotse">
+  <rect width="64" height="64" rx="15" fill="#2E2E38"/>
+  <circle cx="32" cy="32" r="21" fill="none" stroke="#FFF3E2" stroke-opacity=".22" stroke-width="2"/>
+  <path d="M32 8.5v4M32 51.5v4M8.5 32h4M51.5 32h4" stroke="#FFF3E2" stroke-opacity=".45" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M47 17 36.2 36.2 27.8 27.8Z" fill="#FF786D"/>
+  <path d="M17 47 27.8 27.8 36.2 36.2Z" fill="#7EBBAE"/>
+  <circle cx="32" cy="32" r="3.4" fill="#FFF3E2"/>
+  <text x="80" y="45" font-family="Satoshi, Inter, Helvetica, Arial, sans-serif" font-size="40" font-weight="700" letter-spacing="-1" fill="#2E2E38">lotse</text>
+  <circle cx="186" cy="41.5" r="4.5" fill="#FF786D"/>
+</svg>

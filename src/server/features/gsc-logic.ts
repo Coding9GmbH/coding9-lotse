@@ -1,0 +1,142 @@
+// Search Console: reine Auswertung (ohne Netz) – Zeiträume, CTR-Kurve, Chancen, Inhaltslücken, Erfolgsmessung.
+import type { Row } from './gsc-google';
+
+export const LAG_DAYS = 3;          // Search-Console-Daten sind ca. 2–3 Tage alt
+export const MIN_IMPRESSIONS = 100; // darunter keine Aussagen über Klickraten
+export const MIN_DAYS = 14;         // frühestens nach 14 Tagen messen
+export const BASE_DAYS = 28;
+
+// ---- Tage (JJJJ-MM-TT, UTC) ----
+export const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+export const addDays = (day: string, n: number) => isoDay(new Date(Date.parse(day + 'T00:00:00Z') + n * 86_400_000));
+export const daysBetween = (a: string, b: string) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86_400_000);
+/** Letzter Tag mit (endgültigen) Daten */
+export const lastDataDay = (now = new Date()) => addDays(isoDay(now), -LAG_DAYS);
+export function range(days = BASE_DAYS, now = new Date(), endDate?: string, startDate?: string) {
+  const end = endDate ?? lastDataDay(now), start = startDate ?? addDays(end, -(Math.max(1, days) - 1));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) throw new Error('Datum im Format JJJJ-MM-TT angeben');
+  if (start > end) throw new Error('startDate liegt nach endDate');
+  return { startDate: start, endDate: end, days: daysBetween(start, end) + 1 };
+}
+
+// ---- Erwartete Klickrate je Position (grobe Branchenkurve organischer Ergebnisse, Desktop+Mobil) ----
+const CURVE = [0, 0.28, 0.15, 0.10, 0.07, 0.05, 0.04, 0.03, 0.025, 0.02, 0.018];
+export function expectedCtr(position: number): number {
+  const p = Math.max(1, position);
+  if (p <= 10) { const i = Math.floor(p), f = p - i; return i >= 10 ? CURVE[10] : CURVE[i] + (CURVE[i + 1] - CURVE[i]) * f; }
+  if (p <= 20) return 0.012 - (0.012 - 0.006) * ((p - 10) / 10);
+  return 0.004;
+}
+
+export interface Metrics { clicks: number; impressions: number; ctr: number; position: number }
+/** Summe mehrerer Zeilen: Klickrate neu berechnet, Position nach Impressionen gewichtet */
+export function aggregate(rows: Pick<Row, 'clicks' | 'impressions' | 'position'>[]): Metrics {
+  const clicks = rows.reduce((s, r) => s + r.clicks, 0), impressions = rows.reduce((s, r) => s + r.impressions, 0);
+  const position = impressions ? rows.reduce((s, r) => s + r.position * r.impressions, 0) / impressions : 0;
+  return { clicks, impressions, ctr: impressions ? clicks / impressions : 0, position };
+}
+
+export const pct = (x: number, d = 1) => `${(x * 100).toFixed(d).replace('.', ',')} %`;
+export const round = (x: number, d = 1) => Math.round(x * 10 ** d) / 10 ** d;
+export const view = (m: Metrics) => ({ clicks: m.clicks, impressions: m.impressions, ctr: pct(m.ctr, 2), position: round(m.position) });
+
+// ---- Chancen: viele Impressionen, Klickrate deutlich unter Erwartung für die Position ----
+export interface Opportunity extends Metrics { page: string; expectedCtr: number; potentialClicks: number }
+export function opportunities(rows: Row[], o: { minImpressions?: number; maxPosition?: number; factor?: number } = {}): Opportunity[] {
+  const min = o.minImpressions ?? MIN_IMPRESSIONS, maxPos = o.maxPosition ?? 20, factor = o.factor ?? 0.7;
+  return rows.filter(r => r.impressions >= min && r.position <= maxPos).flatMap(r => {
+    const exp = expectedCtr(r.position);
+    if (r.ctr >= exp * factor) return [];
+    return [{ page: r.keys[0], clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position, expectedCtr: exp, potentialClicks: Math.round(r.impressions * (exp - r.ctr)) }];
+  }).sort((a, b) => b.potentialClicks - a.potentialClicks);
+}
+
+// ---- Relevanz Suchanfrage ↔ Seite (Wörter der Anfrage im URL-Pfad) ----
+const STOP = new Set('der die das und oder mit für fuer von aus auf in im am an zu zum zur ein eine einen kaufen online shop günstig guenstig bestellen the and for with to of a an'.split(' '));
+export const tokens = (s: string) => s.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+  .split(/[^a-z0-9]+/).filter(w => w.length > 1 && !STOP.has(w));
+/** Anteil der Suchwörter (ohne Füllwörter), die im Pfad vorkommen; Wortstamm ab 4 Zeichen genügt („vasen“ ~ „vase“). */
+export function relevance(query: string, url: string): number {
+  const q = tokens(query); if (!q.length) return 1;
+  let path = url; try { path = decodeURIComponent(new URL(url).pathname); } catch { /* relativer Pfad */ }
+  const p = tokens(path);
+  const hit = (w: string) => p.some(x => x === w || (Math.min(x.length, w.length) >= 4 && (x.startsWith(w.slice(0, Math.max(4, w.length - 2))) || w.startsWith(x.slice(0, Math.max(4, x.length - 2))))));
+  return q.filter(hit).length / q.length;
+}
+
+export interface Gap { query: string; impressions: number; clicks: number; bestPosition: number; bestPage: string; pages: number; relevance: number; reason: 'keine Seite auf Seite 1' | 'beste Seite passt nicht' }
+/** Inhaltslücken aus Zeilen mit dimensions [query, page]: Anfragen mit Impressionen, für die keine Seite gut rankt oder die beste Seite thematisch nicht passt. */
+export function contentGaps(rows: Row[], o: { minImpressions?: number; goodPosition?: number; minRelevance?: number } = {}): Gap[] {
+  const min = o.minImpressions ?? 50, good = o.goodPosition ?? 10, minRel = o.minRelevance ?? 0.5;
+  const by = new Map<string, Row[]>();
+  for (const r of rows) { const q = r.keys[0]; if (q) by.set(q, [...(by.get(q) ?? []), r]); }
+  const out: Gap[] = [];
+  for (const [query, rs] of by) {
+    const m = aggregate(rs); if (m.impressions < min) continue;
+    const best = [...rs].sort((a, b) => a.position - b.position || b.impressions - a.impressions)[0];
+    const rel = relevance(query, best.keys[1] ?? '');
+    const reason = best.position > good ? 'keine Seite auf Seite 1' : rel < minRel ? 'beste Seite passt nicht' : null;
+    if (reason) out.push({ query, impressions: m.impressions, clicks: m.clicks, bestPosition: best.position, bestPage: best.keys[1] ?? '', pages: rs.length, relevance: round(rel, 2), reason });
+  }
+  return out.sort((a, b) => b.impressions - a.impressions || a.bestPosition - b.bestPosition); // Nachfrage zuerst
+}
+
+// ---- Erfolgsmessung ----
+export interface Baseline {
+  id: string; entity: 'product' | 'category' | 'landing-page'; entityId: string; label: string; urls: string[]; pathRegex: string;
+  fields: { field: string; before: string; after: string; afterRaw?: unknown }[];
+  changedAt: string; changeSetId: string; chatId?: string;
+  before: Metrics & { startDate: string; endDate: string; days: number };
+  site?: Metrics;
+  measured?: { at: string; verdict: string };
+}
+
+/** Messzeitraum nach der Änderung: ab dem Folgetag, gleiche Länge wie die Basis; vorläufig ab 14 Tagen Daten. */
+export function measureWindow(b: Pick<Baseline, 'changedAt' | 'before'>, now = new Date()) {
+  const start = addDays(b.changedAt.slice(0, 10), 1), fullEnd = addDays(start, b.before.days - 1), last = lastDataDay(now);
+  const avail = daysBetween(start, last) + 1;
+  if (avail < MIN_DAYS) return { status: 'zu früh' as const, startDate: start, endDate: null, days: Math.max(0, avail), measurableFrom: addDays(start, MIN_DAYS - 1 + LAG_DAYS), completeFrom: addDays(fullEnd, LAG_DAYS) };
+  const end = last < fullEnd ? last : fullEnd;
+  return { status: (end === fullEnd ? 'vollständig' : 'vorläufig') as 'vollständig' | 'vorläufig', startDate: start, endDate: end, days: daysBetween(start, end) + 1, measurableFrom: addDays(start, MIN_DAYS - 1 + LAG_DAYS), completeFrom: addDays(fullEnd, LAG_DAYS) };
+}
+
+/** Zweiseitiger Test auf Unterschied zweier Klickraten (z-Wert) */
+export function ctrZ(c1: number, i1: number, c2: number, i2: number): number {
+  if (!i1 || !i2) return 0;
+  const p = (c1 + c2) / (i1 + i2), se = Math.sqrt(p * (1 - p) * (1 / i1 + 1 / i2));
+  return se ? (c2 / i2 - c1 / i1) / se : 0;
+}
+
+export function compareEffect(before: Metrics & { days: number }, after: Metrics & { days: number }, site?: { before: Metrics & { days: number }; after: Metrics & { days: number } }) {
+  const perDay = (m: Metrics & { days: number }) => ({ clicks: m.clicks / m.days, impressions: m.impressions / m.days });
+  const b = perDay(before), a = perDay(after), notes: string[] = [];
+  const rel = (x: number, y: number) => (x ? (y - x) / x : null);
+  const z = ctrZ(before.clicks, before.impressions, after.clicks, after.impressions);
+  const posDelta = after.position - before.position;
+  const expB = expectedCtr(before.position), expA = expectedCtr(after.position);
+  let verdict: 'verbessert' | 'verschlechtert' | 'kein klarer Effekt' | 'zu wenig Daten';
+  if (Math.min(before.impressions, after.impressions) < MIN_IMPRESSIONS) { verdict = 'zu wenig Daten'; notes.push(`Weniger als ${MIN_IMPRESSIONS} Impressionen in einem Zeitraum: Unterschiede sind Zufall, keine Aussage möglich.`); }
+  else if (Math.abs(z) < 1.96) { verdict = 'kein klarer Effekt'; notes.push('Der Unterschied der Klickrate liegt im Rahmen normaler Schwankung (nicht signifikant).'); }
+  else verdict = z > 0 ? 'verbessert' : 'verschlechtert';
+  if (Math.abs(posDelta) >= 1) notes.push(`Die durchschnittliche Position hat sich um ${round(Math.abs(posDelta))} Plätze ${posDelta < 0 ? 'verbessert' : 'verschlechtert'}. Die Klickrate hängt stark von der Position ab; aussagekräftiger ist der Vergleich mit der erwarteten Klickrate (ctrVsExpected).`);
+  let siteTrend: number | null = null;
+  if (site) {
+    siteTrend = rel(site.before.impressions / site.before.days, site.after.impressions / site.after.days);
+    if (siteTrend != null && Math.abs(siteTrend) >= 0.15) notes.push(`Der ganze Shop hatte im Vergleichszeitraum ${siteTrend > 0 ? '+' : ''}${Math.round(siteTrend * 100)} % Impressionen pro Tag (Saison, Updates): Veränderungen bei Klicks/Impressionen nicht allein der Änderung zuschreiben.`);
+  }
+  notes.push('Saison, Google-Updates und Wettbewerber wirken mit. Eine Messung ist ein Hinweis, kein Beweis.');
+  return {
+    verdict, zScore: round(z, 2),
+    before: { ...view(before), days: before.days, clicksPerDay: round(b.clicks, 2), impressionsPerDay: round(b.impressions, 1), ctrVsExpected: round(before.ctr / expB, 2) },
+    after: { ...view(after), days: after.days, clicksPerDay: round(a.clicks, 2), impressionsPerDay: round(a.impressions, 1), ctrVsExpected: round(after.ctr / expA, 2) },
+    change: { clicksPerDay: fmtRel(rel(b.clicks, a.clicks)), impressionsPerDay: fmtRel(rel(b.impressions, a.impressions)), ctr: fmtPp(after.ctr - before.ctr), position: round(posDelta), ...(siteTrend != null ? { shopImpressionsPerDay: fmtRel(siteTrend) } : {}) },
+    notes,
+  };
+}
+const fmtPp = (d: number) => `${d >= 0 ? '+' : ''}${round(d * 100, 2).toString().replace('.', ',')} Prozentpunkte`;
+const fmtRel = (x: number | null) => (x == null ? 'n/a' : `${x >= 0 ? '+' : ''}${Math.round(x * 100)} %`);
+
+/** RE2-Muster für Seiten-URLs mit diesen Pfaden (beliebiges Schema/Host, Pfad exakt).
+ *  Die Search Console liefert URLs percent-kodiert (küche → k%C3%BCche); je Pfad gelten deshalb die rohe und die kodierte Form. */
+export const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export const pathRegex = (paths: string[]) => `^https?://[^/]+/(${[...new Set(paths.flatMap(p => { const c = p.replace(/^\/+/, ''); return [c, encodeURI(c)]; }))].map(escapeRe).join('|')})$`;

@@ -1,0 +1,1 @@
+- Du siehst nur freigegebene Shop-Daten: Produkte (inkl. Varianten und Stammdaten), Kategorien, Produktstreams, Promotionen (nur Zählwerte, keine Einlöser), Einkaufswelten-Layouts, Medien-Metadaten, Sprachen, Verkaufskanäle/Domains und Theme-Einstellungen – ausschließlich über die bereitgestellten Werkzeuge.

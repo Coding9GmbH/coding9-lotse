@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Lotse Produktvideo</title>
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@500,700,900&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Produktvideo 1920×1080 im CODING-9-CI. Zeitgesteuert: window.render(t) setzt den Zustand für Sekunde t (deterministisch, für Frame-Export). */
+:root{--ink:#2E2E38;--ink-2:#3A3A46;--cream:#FFF3E2;--paper:#FBF7F0;--line:#E5DCCD;--green:#7EBBAE;--green-d:#3F7A6B;--green-bg:#E3EFEA;--coral:#FF786D;--coral-d:#E85A50;--mute:#62626b;
+  --display:"Satoshi","Inter",system-ui,sans-serif;--body:"Inter",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:var(--ink)}
+body{font-family:var(--body);color:var(--ink);-webkit-font-smoothing:antialiased}
+.stage{position:relative;width:1920px;height:1080px;overflow:hidden}
+.scene{position:absolute;inset:0;opacity:0;will-change:opacity,transform}
+.dark{background:var(--ink);color:#fff}.light{background:var(--paper)}
+canvas.contours{position:absolute;inset:0;width:100%;height:100%}
+
+/* 1 Intro */
+#s1 .center{position:absolute;inset:0;display:grid;place-items:center}
+#s1 .lock{display:flex;align-items:center;gap:56px}
+#s1 svg.mark{width:260px;height:260px}
+#s1 .word{font:900 210px/1 var(--display);letter-spacing:-.05em;color:#fff;display:flex;align-items:baseline}
+#s1 .word b{color:var(--coral)}
+#s1 .tag{position:absolute;left:0;right:0;top:770px;text-align:center;font:500 44px/1.2 var(--display);color:var(--cream);letter-spacing:-.01em}
+#s1 .tag span{color:var(--green)}
+
+/* 2 Claim + Chat */
+#s2 .l{position:absolute;left:160px;top:250px;width:820px}
+#s2 h1{font:900 128px/1 var(--display);letter-spacing:-.045em}
+#s2 h1 em{font-style:normal;color:var(--coral)}
+#s2 p.sub{margin-top:40px;font:500 40px/1.35 var(--body);color:var(--mute);max-width:16em}
+#s2 .chat{position:absolute;right:160px;top:300px;width:720px;display:flex;flex-direction:column;gap:22px}
+.bubble{padding:26px 32px;border-radius:26px;font:500 32px/1.4 var(--body);max-width:100%}
+.bubble.user{align-self:flex-end;background:var(--ink);color:#fff;border-bottom-right-radius:8px}
+.bubble.ai{align-self:flex-start;background:#fff;border:2px solid var(--line);border-bottom-left-radius:8px}
+.caret{display:inline-block;width:3px;height:1.05em;background:currentColor;vertical-align:-.15em;margin-left:3px}
+.chips{display:flex;gap:12px}
+.chip{font:500 22px/1 var(--mono);background:#fff;border:2px solid var(--line);border-radius:99px;padding:12px 18px;color:var(--mute);display:flex;align-items:center;gap:10px}
+.chip i{width:12px;height:12px;border-radius:50%;background:var(--green)}
+
+/* 3 Änderungsset */
+#s3 .cap{position:absolute;left:160px;top:120px;font:900 84px/1.02 var(--display);letter-spacing:-.04em;width:1600px}
+#s3 .cap em{font-style:normal;color:var(--green-d)}
+#s3 .card{position:absolute;left:160px;top:330px;width:1600px;background:#fff;border:2px solid var(--line);border-radius:28px;overflow:hidden;box-shadow:0 40px 90px -40px rgb(46 46 56/.35)}
+#s3 .head{display:flex;align-items:center;gap:20px;padding:30px 40px;border-bottom:2px solid var(--line)}
+#s3 .head b{font:700 38px/1 var(--display)}
+#s3 .tagx{margin-left:auto;font:600 24px/1 var(--body);color:var(--green-d);background:var(--green-bg);padding:12px 20px;border-radius:99px}
+#s3 table{width:100%;border-collapse:collapse;font:500 30px/1 var(--body);font-variant-numeric:tabular-nums}
+#s3 td{padding:26px 40px;border-bottom:2px solid #F2ECE2}
+#s3 td.nm{width:48%}#s3 .old{color:var(--mute);text-decoration:line-through;text-align:right}#s3 .new{font-weight:600;text-align:right}#s3 .pct{color:var(--coral-d);text-align:right}
+#s3 .chk{display:inline-block;width:30px;height:30px;border-radius:8px;background:var(--green-d);position:relative;vertical-align:middle}
+#s3 .chk::after{content:"";position:absolute;left:10px;top:4px;width:9px;height:16px;border:solid #fff;border-width:0 4px 4px 0;transform:rotate(45deg)}
+#s3 .foot{display:flex;align-items:center;gap:18px;padding:28px 40px;background:var(--paper)}
+#s3 .foot small{margin-right:auto;font:500 26px/1 var(--body);color:var(--mute)}
+#s3 .btn{font:600 30px/1 var(--body);padding:22px 38px;border-radius:16px;border:2px solid var(--line);background:#fff}
+#s3 .btn.ok{background:var(--coral);border-color:var(--coral)}
+#s3 .cursor{position:absolute;width:44px;height:44px;left:0;top:0}
+
+/* 4 Echtes Produkt */
+#s4 .cap{position:absolute;left:160px;top:110px;font:900 80px/1.02 var(--display);letter-spacing:-.04em;width:1600px}
+#s4 .cap em{font-style:normal;color:var(--coral)}
+#s4 .frame{position:absolute;left:160px;top:300px;width:1600px;height:690px;border-radius:24px;overflow:hidden;background:#fff;box-shadow:0 50px 120px -40px rgb(46 46 56/.45);border:2px solid var(--line)}
+#s4 .bar{height:56px;background:#EFE8DC;display:flex;align-items:center;gap:12px;padding:0 22px}
+#s4 .bar i{width:16px;height:16px;border-radius:50%;background:#d8cfc0}
+#s4 .bar span{margin-left:24px;font:500 20px/1 var(--mono);color:var(--mute);background:#fff;border-radius:10px;padding:10px 18px}
+#s4 .note{position:absolute;right:160px;bottom:44px;font:500 22px/1 var(--body);color:var(--mute)}
+#s4 .shot{position:absolute;left:0;top:56px;width:1600px;transform-origin:0 0}
+
+/* 4b Möglichkeiten */
+#s8 .cap{position:absolute;left:160px;top:120px;font:900 96px/1 var(--display);letter-spacing:-.045em}
+#s8 .cap em{font-style:normal;color:var(--coral)}
+#s8 ul{position:absolute;left:160px;top:360px;width:1600px;list-style:none;display:grid;grid-template-columns:repeat(3,1fr);column-gap:64px;row-gap:90px}
+#s8 li{border-top:3px solid var(--line);padding-top:30px}
+#s8 li b{display:block;font:700 50px/1.1 var(--display);letter-spacing:-.02em;margin-bottom:18px}
+#s8 li q{display:block;font:400 30px/1.45 var(--mono);color:var(--mute);quotes:"„" "“"}
+
+/* 5 Sicherheit */
+#s5 .cap{position:absolute;left:160px;top:150px;font:900 96px/1 var(--display);letter-spacing:-.045em;width:1600px}
+#s5 .cap em{font-style:normal;color:var(--green)}
+#s5 ul{position:absolute;left:160px;top:440px;width:1600px;list-style:none;display:grid;grid-template-columns:repeat(4,1fr);gap:40px}
+#s5 li{border-top:3px solid rgb(255 255 255/.18);padding-top:34px}
+#s5 li svg{width:64px;height:64px;color:var(--green);margin-bottom:26px}
+#s5 li b{display:block;font:700 42px/1.1 var(--display);letter-spacing:-.02em;margin-bottom:16px}
+#s5 li span{font:400 28px/1.45 var(--body);color:rgb(255 255 255/.72)}
+
+/* 6 Installation */
+
+/* 7 Outro */
+#s7 .center{position:absolute;inset:0;display:grid;place-items:center;align-content:center;gap:56px;text-align:center}
+#s7 .lock{display:flex;align-items:center;gap:40px;justify-content:center}
+#s7 svg.mark{width:170px;height:170px}
+#s7 .word{font:900 150px/1 var(--display);letter-spacing:-.05em;color:#fff}
+#s7 .word b{color:var(--coral)}
+#s7 .line{font:500 40px/1.3 var(--display);color:var(--cream)}
+#s7 .url{font:600 44px/1 var(--mono);color:var(--green)}
+#s7 .by{position:absolute;left:0;right:0;bottom:90px;display:flex;justify-content:center;align-items:center;gap:20px;font:500 30px/1 var(--body);color:rgb(255 255 255/.7)}
+#s7 .by img{width:56px;height:56px}
+#s7 .by b{color:#fff;font-family:var(--display);font-weight:700;letter-spacing:.02em}
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- 1 Intro -->
+  <section class="scene dark" id="s1">
+    <canvas class="contours" width="1920" height="1080"></canvas>
+    <div class="center"><div class="lock">
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <rect width="64" height="64" rx="15" fill="#3A3A46"/>
+        <circle id="ring" cx="32" cy="32" r="21" fill="none" stroke="#FFF3E2" stroke-opacity=".3" stroke-width="2" stroke-dasharray="132" stroke-dashoffset="132"/>
+        <path id="ticks" d="M32 8.5v4M32 51.5v4M8.5 32h4M51.5 32h4" stroke="#FFF3E2" stroke-opacity=".55" stroke-width="2.4" stroke-linecap="round" opacity="0"/>
+        <g id="needle" transform="rotate(-140 32 32)">
+          <path d="M47 17 36.2 36.2 27.8 27.8Z" fill="#FF786D"/>
+          <path d="M17 47 27.8 27.8 36.2 36.2Z" fill="#7EBBAE"/>
+        </g>
+        <circle cx="32" cy="32" r="3.4" fill="#FFF3E2"/>
+      </svg>
+      <div class="word" id="w1">lotse<b>.</b></div>
+    </div></div>
+    <p class="tag" id="t1">Der <span>KI-Assistent</span> für Shopware 6</p>
+  </section>
+
+  <!-- 2 Claim -->
+  <section class="scene light" id="s2">
+    <div class="l">
+      <h1 id="c2">Shop-Pflege<br>per <em>Chat</em>.</h1>
+      <p class="sub" id="sub2">Du schreibst, was im Shop passieren soll. Lotse bereitet die Änderung vor.</p>
+    </div>
+    <div class="chat">
+      <div class="bubble user" id="u2"><span id="typed"></span><span class="caret" id="caret"></span></div>
+      <div class="chips" id="chips2"><span class="chip"><i></i>search_products · 6 Treffer</span><span class="chip"><i></i>propose_changes</span></div>
+      <div class="bubble ai" id="a2">6 Kaffees gefunden. Die neuen Preise liegen zur Freigabe bereit.</div>
+    </div>
+  </section>
+
+  <!-- 3 Änderungsset -->
+  <section class="scene light" id="s3">
+    <h2 class="cap" id="c3">Keine Änderung<br><em>ohne deine Freigabe.</em></h2>
+    <div class="card" id="card3">
+      <div class="head"><b>Preise −10 %, gerundet auf ,90</b><span class="tagx">4 von 6 ausgewählt</span></div>
+      <table><tbody>
+        <tr class="r"><td><i class="chk"></i></td><td class="nm">Espresso „Hafenblick“, 500 g</td><td class="old">16,90 €</td><td class="new">14,90 €</td><td class="pct">−11,8 %</td></tr>
+        <tr class="r"><td><i class="chk"></i></td><td class="nm">Filterkaffee „Morgenwache“, 500 g</td><td class="old">18,50 €</td><td class="new">16,90 €</td><td class="pct">−8,6 %</td></tr>
+        <tr class="r"><td><i class="chk"></i></td><td class="nm">Crema „Leuchtfeuer“, 1 kg</td><td class="old">29,90 €</td><td class="new">26,90 €</td><td class="pct">−10,0 %</td></tr>
+        <tr class="r"><td><i class="chk"></i></td><td class="nm">Probierset „Drei Häfen“, 3 × 250 g</td><td class="old">24,90 €</td><td class="new">22,90 €</td><td class="pct">−8,0 %</td></tr>
+      </tbody></table>
+      <div class="foot"><small>Protokolliert · mit einem Klick rückgängig</small><span class="btn" id="rej3">Ablehnen</span><span class="btn ok" id="ok3">Anwenden</span></div>
+    </div>
+    <svg class="cursor" id="cur3" viewBox="0 0 24 24"><path d="M4 2l16 9-7 2-3 7z" fill="#2E2E38" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
+  </section>
+
+  <!-- 4 Echtes Produkt -->
+  <section class="scene light" id="s4">
+    <h2 class="cap" id="c4">Einkaufswelten als <em>Entwurf</em>, mit deinen Produkten und Farben.</h2>
+    <div class="frame" id="f4"><div class="bar"><i></i><i></i><i></i><span>localhost:3333</span></div><img class="shot" id="shot4" src="shots/workspace.png" alt=""></div>
+    <p class="note" id="n4">Demo-Shop mit fiktiver Marke · Fotos: Unsplash</p>
+  </section>
+
+  <!-- 4b Möglichkeiten -->
+  <section class="scene light" id="s8">
+    <h2 class="cap" id="c8">Was du damit <em>machen</em> kannst</h2>
+    <ul>
+      <li><b>Preise und Aktionen</b><q>Senke alle Kaffees um 10 % und runde auf ,90.</q></li>
+      <li><b>Produkttexte</b><q>Schreib Beschreibungen für die drei neuen Kaffees.</q></li>
+      <li><b>SEO</b><q>Ergänze Meta-Titel für alle Kategorien ohne Titel.</q></li>
+      <li><b>Einkaufswelten</b><q>Bau die Startseite neu, mit großem Coverbild.</q></li>
+      <li><b>Bilder</b><q>Lade die Fotos hoch und ordne sie den Produkten zu.</q></li>
+      <li><b>Qualitäts-Check</b><q>Was fehlt dieser Seite für Google und Conversion?</q></li>
+    </ul>
+  </section>
+
+  <!-- 5 Sicherheit -->
+  <section class="scene dark" id="s5">
+    <h2 class="cap" id="c5">Kein Zugriff auf<br><em>Kundendaten</em>.</h2>
+    <ul>
+      <li id="p1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/></svg><b>Freigabe nötig.</b><span>Ohne deinen Klick wird nichts gespeichert. Jede Änderung wird protokolliert.</span></li>
+      <li id="p2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><b>Gesperrt.</b><span>Kunden, Bestellungen und Zahlungen kann die KI weder lesen noch ändern.</span></li>
+      <li id="p3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg><b>Rückgängig.</b><span>Jede Änderung lässt sich mit einem Klick zurücksetzen.</span></li>
+      <li id="p4"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></svg><b>Bei dir.</b><span>Läuft auf deinem Server. Zugangsdaten liegen verschlüsselt bei dir.</span></li>
+    </ul>
+  </section>
+
+  <!-- 7 Outro -->
+  <section class="scene dark" id="s7">
+    <canvas class="contours" width="1920" height="1080"></canvas>
+    <div class="center">
+      <div class="lock" id="lock7">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#3A3A46"/><circle cx="32" cy="32" r="21" fill="none" stroke="#FFF3E2" stroke-opacity=".3" stroke-width="2"/><path d="M32 8.5v4M32 51.5v4M8.5 32h4M51.5 32h4" stroke="#FFF3E2" stroke-opacity=".55" stroke-width="2.4" stroke-linecap="round"/><path d="M47 17 36.2 36.2 27.8 27.8Z" fill="#FF786D"/><path d="M17 47 27.8 27.8 36.2 36.2Z" fill="#7EBBAE"/><circle cx="32" cy="32" r="3.4" fill="#FFF3E2"/></svg>
+        <div class="word">lotse<b>.</b></div>
+      </div>
+      <p class="line" id="l7">KI-Assistent für Shopware 6</p>
+      <p class="url" id="u7">Coming soon</p>
+    </div>
+    <div class="by" id="by7"><img src="../public/logo.svg" alt="">Ein Produkt von <b>CODING 9</b></div>
+  </section>
+</div>
+
+<script>
+// ---- Zeitachse (Sekunden) ----
+const SCENES = [['s1', 0, 4.6], ['s2', 4.4, 10.4], ['s3', 10.2, 17.4], ['s4', 17.2, 24.8], ['s8', 24.6, 30.6], ['s5', 30.4, 37.2], ['s7', 37.0, 42.4]];
+const DURATION = 42.4;
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const easeOut = x => 1 - Math.pow(1 - x, 3);
+const easeInOut = x => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const back = x => { const c = 1.6; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+const $ = id => document.getElementById(id);
+const show = (el, p, dy = 30) => { el.style.opacity = p; el.style.transform = `translateY(${(1 - p) * dy}px)`; };
+
+// Tiefenlinien (Seekarte) wie auf der Landingpage
+function contours(cv, t) {
+  const cx = cv.getContext('2d'), w = cv.width, h = cv.height; cx.clearRect(0, 0, w, h);
+  for (let i = 0; i < 16; i++) {
+    cx.beginPath(); const base = h * (i / 15), amp = 26 + i * 3;
+    for (let x = -30; x <= w + 30; x += 18) { const y = base + Math.sin(x / 260 + i * .7 + t * .25) * amp + Math.cos(x / 110 - i * .4 + t * .15) * 9; x === -30 ? cx.moveTo(x, y) : cx.lineTo(x, y); }
+    cx.strokeStyle = i % 4 === 0 ? 'rgba(126,187,174,.30)' : 'rgba(255,243,226,.06)'; cx.lineWidth = i % 4 === 0 ? 2 : 1.4; cx.stroke();
+  }
+}
+
+const PROMPT = 'Senke alle Kaffees um 10 % und runde auf ,90.';
+
+window.render = function (t) {
+  for (const [id, a, b] of SCENES) {
+    const el = $(id), vis = t >= a && t <= b;
+    el.style.opacity = vis ? Math.min(seg(t, a, a + .45), 1 - seg(t, b - .45, b)) : 0;
+    el.style.visibility = vis ? 'visible' : 'hidden';
+  }
+  // 1 Intro
+  if (t < 5) {
+    contours(document.querySelector('#s1 canvas'), t);
+    $('ring').setAttribute('stroke-dashoffset', 132 * (1 - easeOut(seg(t, .2, 1.4))));
+    $('ticks').setAttribute('opacity', easeOut(seg(t, .9, 1.5)));
+    const r = -140 + 140 * back(seg(t, .5, 2.0));
+    $('needle').setAttribute('transform', `rotate(${r} 32 32)`);
+    const w = easeOut(seg(t, 1.5, 2.4)); $('w1').style.opacity = w; $('w1').style.transform = `translateX(${(1 - w) * -40}px)`;
+    show($('t1'), easeOut(seg(t, 2.3, 3.1)), 20);
+  }
+  // 2 Claim + Chat
+  if (t > 4 && t < 11) {
+    const l = t - 4.4;
+    show($('c2'), easeOut(seg(l, .3, 1.1)), 40); show($('sub2'), easeOut(seg(l, .8, 1.6)), 24);
+    const n = Math.round(PROMPT.length * seg(l, 1.4, 3.6)); $('typed').textContent = PROMPT.slice(0, n);
+    $('u2').style.opacity = l > 1.2 ? 1 : 0; $('caret').style.opacity = n < PROMPT.length && Math.floor(l * 3) % 2 === 0 ? 1 : 0;
+    show($('chips2'), easeOut(seg(l, 3.9, 4.4)), 16); show($('a2'), easeOut(seg(l, 4.5, 5.1)), 16);
+  }
+  // 3 Änderungsset
+  if (t > 10 && t < 18) {
+    const l = t - 10.2;
+    show($('c3'), easeOut(seg(l, .2, 1)), 30); show($('card3'), easeOut(seg(l, .6, 1.4)), 50);
+    document.querySelectorAll('#s3 tr.r').forEach((tr, i) => show(tr, easeOut(seg(l, 1.2 + i * .2, 1.7 + i * .2)), 14));
+    // Cursor fährt zu „Anwenden“ und klickt
+    const okR = $('ok3').getBoundingClientRect(), p = easeInOut(seg(l, 3.0, 4.4));
+    const x0 = 1500, y0 = 1060, x1 = okR.left + okR.width * .55, y1 = okR.top + okR.height * .6;
+    const cur = $('cur3'); cur.style.opacity = l > 2.8 ? 1 : 0; cur.style.transform = `translate(${x0 + (x1 - x0) * p}px,${y0 + (y1 - y0) * p}px) scale(${l > 4.5 && l < 4.75 ? .85 : 1})`;
+    const done = l > 4.65;
+    $('ok3').textContent = done ? '✓ Angewendet' : 'Anwenden'; $('ok3').style.background = done ? 'var(--green)' : ''; $('ok3').style.borderColor = done ? 'var(--green)' : '';
+    $('rej3').textContent = done ? 'Rückgängig' : 'Ablehnen';
+  }
+  // 4 Echtes Produkt: langsamer Kamerafahrt-Effekt über den echten Screenshot
+  if (t > 17 && t < 25) {
+    const l = t - 17.2;
+    show($('c4'), easeOut(seg(l, .2, 1)), 30); show($('f4'), easeOut(seg(l, .5, 1.4)), 60);
+    const z = 1 + .14 * easeInOut(seg(l, 1.8, 7.2)), shot = $('shot4');
+    const panX = -170 * easeInOut(seg(l, 1.8, 7.2)), panY = -40 * easeInOut(seg(l, 1.8, 7.2));
+    shot.style.transform = `translate(${panX}px,${panY}px) scale(${z})`;
+  }
+  // 4b Möglichkeiten
+  if (t > 24 && t < 31) {
+    const l = t - 24.6;
+    show($('c8'), easeOut(seg(l, .2, 1)), 30);
+    document.querySelectorAll('#s8 li').forEach((li, i) => show(li, easeOut(seg(l, .8 + i * .3, 1.4 + i * .3)), 20));
+  }
+  // 5 Sicherheit
+  if (t > 30 && t < 38) {
+    const l = t - 30.4;
+    show($('c5'), easeOut(seg(l, .3, 1.1)), 30);
+    ['p1', 'p2', 'p3', 'p4'].forEach((id, i) => show($(id), easeOut(seg(l, 1.3 + i * .55, 2.0 + i * .55)), 24));
+  }
+  // 7 Outro
+  if (t > 36.9) {
+    const l = t - 37.0;
+    contours(document.querySelector('#s7 canvas'), t);
+    const p = easeOut(seg(l, .3, 1.2)); $('lock7').style.opacity = p; $('lock7').style.transform = `scale(${.92 + .08 * p})`;
+    show($('l7'), easeOut(seg(l, 1.0, 1.7)), 20); show($('u7'), easeOut(seg(l, 1.5, 2.2)), 16); show($('by7'), easeOut(seg(l, 2.0, 2.7)), 12);
+  }
+};
+window.DURATION = DURATION;
+render(0);
+</script>
+</body>
+</html>

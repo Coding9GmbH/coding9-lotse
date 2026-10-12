@@ -1,0 +1,3 @@
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 10px; flex: none; }
+.chips button { font-size: 12px; border-radius: 99px; color: var(--mute); padding: 4px 11px; background: var(--panel); }
+.chips button:hover { color: var(--ink); }

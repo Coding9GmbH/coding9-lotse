@@ -1,0 +1,11 @@
+.q { border: 1px solid var(--green); border-radius: var(--r); background: var(--panel); padding: 13px 14px; flex-shrink: 0; }
+.qt :global(p) { margin: 0 0 .5em; }
+.qt :global(p:last-child) { margin: 0; }
+.qo { display: flex; flex-wrap: wrap; gap: 8px; margin: 11px 0 8px; align-items: flex-start; }
+.opt { display: inline-flex; flex-direction: column; gap: 3px; max-width: 100%; }
+.opt small { color: var(--mute); font-size: 11.5px; padding: 0 2px; max-width: 260px; }
+.qf { display: flex; gap: 6px; }
+.qf input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: var(--bg); outline: none; }
+.qf input:focus { border-color: var(--green); }
+.qa { margin-top: 8px; color: var(--green-d); font-weight: 600; }
+.lbl { font: 600 11px var(--body); letter-spacing: .07em; text-transform: uppercase; color: var(--green-d); margin-bottom: 5px; }

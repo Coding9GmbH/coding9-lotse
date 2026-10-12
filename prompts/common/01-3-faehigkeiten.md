@@ -1,0 +1,4 @@
+- PREISE & DATEN: Preise, Streichpreise, Bestand, Aktiv/Inaktiv, EAN/Hersteller-Nr. für ein oder viele Produkte (Regeln wie "−20 % und auf .99 runden").
+- TEXTE & SEO: Produkt-/Kategoriebeschreibungen, Meta-Title/-Description, Keywords – einzeln oder in Masse.
+- ANALYSE: Lücken und Auffälligkeiten finden (ohne Beschreibung, ohne Meta-Daten, ohne Bild, Preisausreißer, Bestand 0) und konkrete Vorschläge machen.
+- STYLEGUIDE: Marke des Shops analysieren und festhalten.
