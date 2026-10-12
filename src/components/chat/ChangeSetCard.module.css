@@ -23,8 +23,8 @@
 .lb { font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 2px; }
 .lb .badge { margin-left: 8px; }
 .diff { display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
-.old { color: var(--mute); text-decoration: line-through; }
-.new { color: var(--green-d); font-weight: 600; }
+.old { color: var(--mute); text-decoration: line-through; overflow-wrap: anywhere; }
+.new { color: var(--green-d); font-weight: 600; overflow-wrap: anywhere; }
 .fl { color: var(--mute); flex: 0 0 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 600px) { .fl { flex-basis: 100%; } }
 .off { color: var(--mute); }

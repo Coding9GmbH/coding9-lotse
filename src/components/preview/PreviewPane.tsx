@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Annotation } from '@/lib/annotations';
 import { markKeySelects } from '@/lib/a11y';
+import { popoverLeft } from '@/lib/popover';
 import { scoreClass } from '@/lib/audit';
 import type { DraftView, PreviewTab } from '@/lib/chat-state';
 import { Button } from '@/components/ui/Button';
@@ -49,7 +50,8 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
     const vr = viewRef.current?.getBoundingClientRect();
     const fr = f?.getBoundingClientRect();
     setText('');
-    const left = fr && vr ? Math.min(Math.max(8, fr.left - vr.left + p.x - 20), vr.width - 340) : 16;
+    const width = vr ? Math.min(320, Math.max(0, vr.width - 16)) : 320;
+    const left = fr && vr ? popoverLeft(fr.left - vr.left + p.x - 20, width, vr.width) : 16;
     const top = fr && vr ? Math.min(fr.top - vr.top + p.y + 14, vr.height - 190) : 48;
     setPick({ ...p, left, top });
   };

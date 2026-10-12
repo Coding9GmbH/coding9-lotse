@@ -1,10 +1,10 @@
 .right { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-.bar { display: flex; gap: 8px; align-items: center; padding: 0 14px; height: 48px; background: var(--panel); border-bottom: 1px solid var(--line); flex: none; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 14px; min-height: 48px; height: auto; background: var(--panel); border-bottom: 1px solid var(--line); flex: none; }
 .ttl { font-family: var(--display); font-weight: 700; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ttl small { color: var(--mute); font-weight: 400; margin-left: 8px; font-family: var(--body); }
-.seg { margin: 0; width: 250px; flex: none; }
+.seg { margin: 0; flex: 1 1 180px; width: auto; min-width: 140px; max-width: 250px; }
 .vp { flex: none; }
-.close { flex: none; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--ink); cursor: pointer; }
+.close { flex: none; display: grid; place-items: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--ink); cursor: pointer; }
 .close:hover { background: var(--bg); }
 @media (max-width: 640px) {
   .bar { flex-wrap: wrap; height: auto; min-height: 48px; padding: 6px 10px; }
@@ -35,7 +35,7 @@
 .markOn { background: var(--coral); border-color: var(--coral); color: var(--dark); }
 .marking .frame { outline: 2px dashed var(--coral); outline-offset: 3px; }
 .markHint { position: absolute; z-index: 3; top: 24px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; font: 500 13px var(--body); padding: 8px 14px; border-radius: 99px; pointer-events: none; box-shadow: var(--shadow-pop); }
-.pop { position: absolute; z-index: 4; width: 320px; display: grid; gap: 6px; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-pop); }
+.pop { position: absolute; z-index: 4; width: min(320px, calc(100% - 16px)); display: grid; gap: 6px; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-pop); }
 .pop b { font: 600 13.5px var(--body); }
 .pop small { color: var(--mute); font-size: 12px; margin-top: -4px; }
 .pop textarea { resize: none; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font: inherit; background: var(--bg); outline: none; }
