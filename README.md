@@ -11,11 +11,11 @@ Einkaufswelten, Preise, Texte & SEO per Chat. Die KI liest nur, geschrieben wird
 
 ## Screenshots
 
-| Arbeitsfläche mit Shop-Check | Kontext wählen | Seite als Entwurf mit Live-Vorschau |
+| Arbeitsfläche mit Shop-Check | Kontext wählen | KI-Zugriff je Bereich |
 |---|---|---|
-| <img src="docs/screenshots/app.png" alt="Arbeitsfläche" width="300"> | <img src="docs/screenshots/app-context.png" alt="Kontext-Auswahl" width="300"> | <img src="docs/screenshots/entwurf-vorschau.png" alt="Entwurf mit Live-Vorschau" width="300"> |
+| <img src="docs/screenshots/app.png" alt="Arbeitsfläche" width="300"> | <img src="docs/screenshots/app-context.png" alt="Kontext-Auswahl" width="300"> | <img src="docs/screenshots/ki-zugriff.png" alt="KI-Zugriff: Bereiche des Shops einzeln freigeben" width="300"> |
 
-<sub>Demo-Shop mit fiktiver Marke, Fotos von Unsplash.</sub>
+<sub>Screenshots aus dem Demo-Shop (Dockware). Das Video zeigt einen Beispiel-Entwurf mit fiktiver Marke und eigenen Illustrationen.</sub>
 
 ## Schnellstart (Docker)
 
