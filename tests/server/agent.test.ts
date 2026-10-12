@@ -22,6 +22,16 @@ test('recordEvent: nur-live-Ereignisse fehlen im Verlauf, Text wird zusammengefa
   assert.ok(drafts.every(d => d.spec), 'Specs bleiben (für refreshDraftPreview und reuse)');
 });
 
+test('Werkzeug-Vorschau schwärzt ein Geheimnis, das redact entfernt', async () => {
+  const { updateSettings } = await import('../../src/server/settings');
+  const { previewToolResult } = await import('../../src/server/agent');
+  updateSettings({ shopware: { url: 'http://shop', user: 'admin', password: 'geheimes-passwort' } });
+  const preview = previewToolResult([{ type: 'text', text: 'Login geheimes-passwort und Bearer eyJhbGciOiJIUzI1NiJ9.abcdefghijklmnop' }]);
+  assert.equal(preview.includes('geheimes-passwort'), false);
+  assert.equal(preview.includes('eyJhbGciOiJIUzI1NiJ9'), false);
+  assert.match(preview, /Bearer •••/);
+});
+
 test('Speicher-Snapshot und gespeicherter Chat enthalten dieselben Entwürfe (nur eine Vorschau)', () => {
   const s = getSession('agent-draft');
   for (const ev of [{ t: 'user', text: 'Seite' } as ChatEvent, draft(1), draft(2)]) recordEvent(s.events, ev);
