@@ -1,4 +1,5 @@
 import type { ChatDetail } from '@/lib/protocol';
+import { clearMcpToken } from '@/server/codex';
 import { chatDelete } from '@/server/db';
 import { jsonError } from '@/server/http';
 import { chatSnapshot, dropSession, peekSession } from '@/server/sessions';
@@ -15,6 +16,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  chatDelete(id); dropSession(id);
+  chatDelete(id); dropSession(id); clearMcpToken(id);
   return Response.json({ ok: true });
 }

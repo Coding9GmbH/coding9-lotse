@@ -37,6 +37,19 @@ test('MCP für Codex: ohne gültiges Token abgewiesen, mit Token genau die Shop-
   assert.match(res.result.content[0].text, /Kein Styleguide/);
 });
 
+test('Chat löschen invalidiert das MCP-Token', async () => {
+  const { mcpTokenFor, mcpTokenValid } = await import('../../src/server/codex');
+  const { DELETE } = await import('../../src/app/api/chats/[id]/route');
+  const alt = mcpTokenFor('chat-1');
+  const old = mcpTokenFor('chat-weg');
+  assert.equal(mcpTokenValid('chat-weg', `Bearer ${old}`), true);
+  const r = await DELETE(new Request('http://127.0.0.1/api/chats/chat-weg', { method: 'DELETE' }), { params: Promise.resolve({ id: 'chat-weg' }) });
+  assert.equal(r.status, 200);
+  assert.equal(mcpTokenValid('chat-weg', `Bearer ${old}`), false);
+  assert.notEqual(mcpTokenFor('chat-weg'), old);
+  assert.equal(mcpTokenValid('chat-1', `Bearer ${alt}`), true, 'anderes Chat-Token bleibt');
+});
+
 test('Shop-Check: Prüfungen aus Shop-Check, Recht und Search Console sind registriert (Alt-Texte nur einmal)', async () => {
   await import('../../src/server/features');
   const { listChecks } = await import('../../src/server/checks');

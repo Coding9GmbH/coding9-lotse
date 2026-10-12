@@ -66,7 +66,7 @@ export const wissen: Feature = {
           const { links, missing } = await resolveLinks(lookup, a);
           const what = x.fileName ? `${x.fileName}, ${fmtSize(x.size)}${x.pages ? `, ${x.pages} Seiten` : ''}` : 'Text';
           const answer = await session.askUser({
-            question: `Ich nehme **${a.title}** in die Wissensbasis auf (nur lokal in Lotse, nicht im Shop): ${what}, ca. ${chars.toLocaleString('de-DE')} Zeichen.`
+            question: `Ich nehme **${a.title}** in die Wissensbasis auf (lokal in Lotse, nicht im Shop; Auszüge gehen an Anthropic oder OpenAI): ${what}, ca. ${chars.toLocaleString('de-DE')} Zeichen.`
               + `${links.length ? `\nVerknüpft mit: ${linkText(links)}.` : ''}${a.tags?.length ? `\nSchlagworte: ${a.tags.join(', ')}.` : ''}${missing.length ? `\nNicht gefunden (wird nicht verknüpft): ${missing.join(', ')}.` : ''}\nStimmt das?`,
             options: [{ label: 'Ja, aufnehmen' }, { label: 'Nein, abbrechen' }],
           });

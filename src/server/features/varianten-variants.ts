@@ -212,7 +212,11 @@ export async function buildVariantsChangeSet(ro: ShopReader, a: VariantsArgs): P
 }
 
 // ================= Executor =================
-const priceArr = (p: VariantsPayload, gross: number, list: number | null) => [{ currencyId: p.currencyId, gross, net: net(gross, p.taxRate), linked: true, ...(list != null ? { listPrice: { currencyId: p.currencyId, gross: list, net: net(list, p.taxRate), linked: true } } : {}) }];
+const keepMoney = (m: SwEntity | null | undefined) => (m && m.gross != null ? { currencyId: m.currencyId, gross: m.gross, net: m.net, linked: m.linked ?? true } : undefined);
+const priceArr = (p: VariantsPayload, gross: number, list: number | null, regulation?: SwEntity | null) => {
+  const regulationPrice = keepMoney(regulation);
+  return [{ currencyId: p.currencyId, gross, net: net(gross, p.taxRate), linked: true, ...(list != null ? { listPrice: { currencyId: p.currencyId, gross: list, net: net(list, p.taxRate), linked: true } } : {}), ...(regulationPrice ? { regulationPrice } : {}) }];
+};
 
 const KEEP = ['parentId', 'productNumber', 'stock', 'active', 'price', 'purchasePrices', 'ean', 'manufacturerNumber', 'weight', 'width', 'height', 'length', 'minPurchase', 'maxPurchase', 'purchaseSteps', 'isCloseout', 'shippingFree', 'markAsTopseller',
   'deliveryTimeId', 'restockTime', 'releaseDate', 'taxId', 'manufacturerId', 'unitId', 'coverId', 'purchaseUnit', 'referenceUnit', 'cmsPageId', 'featureSetId'];
@@ -284,7 +288,7 @@ export async function applyVariants(swW: Shopware, cs: ChangeSet, payload: Varia
         else {
           const gross = (pi ? pi.afterRaw : base.gross) as number | undefined; if (gross == null) throw new Error('Kein Preis vorhanden');
           const lp = (li ? li.afterRaw : base.listPrice?.gross) as number | null | undefined;
-          data.price = [{ ...priceArr({ ...payload, taxRate, currencyId: base.currencyId ?? payload.currencyId }, gross, lp ?? null)[0] }, ...(cur.price ?? []).slice(1)];
+          data.price = [{ ...priceArr({ ...payload, taxRate, currencyId: base.currencyId ?? payload.currencyId }, gross, lp ?? null, base.regulationPrice)[0] }, ...(cur.price ?? []).slice(1)];
         }
         back.price = cur.price ?? null;
       }

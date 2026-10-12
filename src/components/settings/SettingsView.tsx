@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { PublicSettings, ScopeKey, TestResult } from '@/lib/protocol';
 import { PLATFORM_KINDS, PLATFORM_SETTINGS, type PlatformField, type PlatformKind } from '@/lib/platforms';
-import { AI_MODELS, authOf, buildPatch, fieldValue, formFromSettings, hasSecret, isDirty, platformAvailable, savedConfigured, secretState, withAuth, withFieldValue, withSecret, type SecretKey, type SettingsForm } from '@/lib/settings-form';
+import { AI_MODELS, authOf, buildPatch, connectionTestBlock, fieldValue, formFromSettings, hasSecret, isDirty, platformAvailable, savedConfigured, secretState, withAuth, withFieldValue, withSecret, type SecretKey, type SettingsForm } from '@/lib/settings-form';
 import { useShell } from '@/components/shell/ShellProvider';
 import { Button } from '@/components/ui/Button';
 import { Segmented } from '@/components/ui/Segmented';
@@ -56,12 +56,10 @@ export function SettingsView() {
   };
 
   const test = async (target: TestTarget) => {
+    if (connectionTestBlock(dirty)) return;
     setTests(t => ({ ...t, [target]: { running: true, result: null } }));
     let result: TestResult;
-    if (dirty && !(await save())) result = { ok: false, message: 'Bitte zuerst die Eingaben korrigieren und speichern.' };
-    else {
-      try { result = await api.testSettings(target); } catch (e) { result = { ok: false, message: errorText(e) }; }
-    }
+    try { result = await api.testSettings(target); } catch (e) { result = { ok: false, message: errorText(e) }; }
     setTests(t => ({ ...t, [target]: { running: false, result } }));
     refreshHealth();
   };
@@ -98,7 +96,7 @@ export function SettingsView() {
           {form && saved && (
             <form onSubmit={e => { e.preventDefault(); void save(); }} noValidate>
               {/* ---- Shop ---- */}
-              <ShopSection form={form} saved={saved} set={set} test={tests.shop} onTest={() => void test('shop')} saving={saving} />
+              <ShopSection form={form} saved={saved} set={set} test={tests.shop} onTest={() => void test('shop')} saving={saving} dirty={dirty} />
 
               {/* ---- KI ---- */}
               <section id="ai" className={styles.card} aria-labelledby="ai-h">
@@ -131,7 +129,7 @@ export function SettingsView() {
                     <p className={styles.hint}>Codex bekommt in Lotse nur die Shop-Werkzeuge: keine Befehle, kein Dateizugriff, keine Websuche. Kunden- und Bestelldaten bleiben wie bei Claude gesperrt.</p>
                   </>
                 )}
-                <TestRow state={tests.ai} onTest={() => void test('ai')} disabled={saving || (form.ai.provider === 'codex' && !saved.ai.codexLoggedIn)} />
+                <TestRow state={tests.ai} onTest={() => void test('ai')} disabled={saving || dirty || (form.ai.provider === 'codex' && !saved.ai.codexLoggedIn)} title={connectionTestBlock(dirty) ?? undefined} />
               </section>
 
               {/* ---- Bild-KI ---- */}
@@ -193,7 +191,7 @@ export function SettingsView() {
 }
 
 /** Shop verbinden: Plattform wählen (Shopware / Shopify / Magento / OpenMage), dann deren Felder laut lib/platforms.ts. */
-function ShopSection({ form, saved, set, test, onTest, saving }: { form: SettingsForm; saved: PublicSettings; set: (fn: (f: SettingsForm) => SettingsForm) => void; test: TestState; onTest: () => void; saving: boolean }) {
+function ShopSection({ form, saved, set, test, onTest, saving, dirty }: { form: SettingsForm; saved: PublicSettings; set: (fn: (f: SettingsForm) => SettingsForm) => void; test: TestState; onTest: () => void; saving: boolean; dirty: boolean }) {
   const kind = form.platform, d = PLATFORM_SETTINGS[kind], available = platformAvailable(saved, kind);
   const mode = d.auth.find(m => m.key === authOf(form, kind)) ?? d.auth[0];
   const input = (f: PlatformField) => f.secret
@@ -228,7 +226,7 @@ function ShopSection({ form, saved, set, test, onTest, saving }: { form: Setting
       )}
       {mode.hint && <p className={styles.hint}>{rich(mode.hint)}</p>}
       <div className={styles.grid}>{mode.fields.map(input)}</div>
-      <TestRow state={test} onTest={onTest} disabled={saving || !available} />
+      <TestRow state={test} onTest={onTest} disabled={saving || !available || dirty} title={connectionTestBlock(dirty) ?? undefined} />
     </section>
   );
 }
@@ -250,10 +248,10 @@ function State({ ok }: { ok: boolean }) {
   return <span className={`${styles.state} ${ok ? styles.stateOk : styles.stateNo}`}>{ok ? 'eingerichtet' : 'nicht eingerichtet'}</span>;
 }
 
-function TestRow({ state, onTest, disabled }: { state: TestState; onTest: () => void; disabled: boolean }) {
+function TestRow({ state, onTest, disabled, title }: { state: TestState; onTest: () => void; disabled: boolean; title?: string }) {
   return (
     <div className={styles.testRow}>
-      <Button onClick={onTest} busy={state.running} disabled={disabled}>{state.running ? 'Teste …' : 'Verbindung testen'}</Button>
+      <Button onClick={onTest} busy={state.running} disabled={disabled} title={title}>{state.running ? 'Teste …' : 'Verbindung testen'}</Button>
       {state.result && (
         <span className={state.result.ok ? styles.ok : styles.bad} role="status">{state.result.ok ? '✓' : '✗'} {state.result.message}</span>
       )}

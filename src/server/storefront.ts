@@ -107,7 +107,60 @@ export async function resolveCmsTarget(sw: ShopReader, url: string): Promise<Cms
 export function assertShopUrl(url: string, allowedOrigins: string[]): URL {
   let u: URL; try { u = new URL(url); } catch { throw new Error('Keine gültige URL.'); }
   if (!/^https?:$/.test(u.protocol)) throw new Error('Nur http(s)-URLs.');
+  if (u.username || u.password) throw new Error('URLs mit Benutzer oder Passwort sind nicht erlaubt.');
   const origins = new Set(allowedOrigins.map(o => { try { return new URL(o).origin; } catch { return ''; } }).filter(Boolean));
   if (!origins.has(u.origin)) throw new Error(`read_page liest nur Seiten des eigenen Shops (${[...origins].join(', ') || 'keine Domain konfiguriert'}). „${u.origin}“ gehört nicht dazu.`);
   return u;
+}
+
+const stripTrail = (s: string) => s.trim().replace(/\/+$/, '');
+
+/**
+ * Öffentliche Shop-URL auf die interne Basis legen (Docker: der Browser kennt https://shop/de, Lotse holt http://172.17.0.2).
+ * Nur wenn der Rest leer ist oder mit /, ? oder # beginnt. Sonst bleibt die öffentliche URL: ein angehängtes @ oder ein
+ * weiterer Hostname darf aus der internen Basis keinen anderen Host machen. Zusammensetzen über origin + Pfad, nicht über
+ * `new URL(rest, basis)` – ein Rest `//fremd` würde sonst den Host wechseln.
+ */
+export function mapPublicToInternal(publicUrl: string, internalBase: string, pageHref: string): string {
+  const pub = stripTrail(publicUrl), baseRaw = stripTrail(internalBase);
+  if (!pub || !baseRaw || pub === baseRaw || !pageHref.startsWith(pub)) return pageHref;
+  const rest = pageHref.slice(pub.length);
+  if (rest !== '' && rest[0] !== '/' && rest[0] !== '?' && rest[0] !== '#') return pageHref;
+  let b: URL;
+  try { b = new URL(baseRaw); } catch { return pageHref; }
+  if (b.username || b.password || !/^https?:$/.test(b.protocol)) return pageHref;
+  let out: URL;
+  try { out = new URL(b.origin + b.pathname.replace(/\/+$/, '') + rest); } catch { return pageHref; }
+  if (out.origin !== b.origin || out.username || out.password) return pageHref;
+  return out.href;
+}
+
+const REDIRECT = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * Seite des eigenen Shops laden. Die öffentliche Adresse wird vorher auf die interne Basis gelegt.
+ * Weiterleitungen folgen manuell (höchstens drei): jedes Ziel muss wieder eine erlaubte Shop-Adresse sein
+ * und wird erneut intern gelegt, bevor es abgerufen wird.
+ */
+export async function fetchShopPage(pageHref: string, allowed: string[], opts: {
+  publicUrl?: string; internalBase?: string;
+  fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>;
+  maxHops?: number;
+} = {}): Promise<Response> {
+  const fetchImpl = opts.fetchImpl ?? fetch, max = opts.maxHops ?? 3;
+  const pub = opts.publicUrl ?? '', internal = opts.internalBase ?? '';
+  const place = (href: string) => (pub && internal ? mapPublicToInternal(pub, internal, href) : href);
+  let cur = place(pageHref);
+  assertShopUrl(cur, allowed);
+  for (let hop = 0; ; hop++) {
+    const r = await fetchImpl(cur, { redirect: 'manual' });
+    if (!REDIRECT.has(r.status)) return r;
+    const loc = r.headers.get('location');
+    await r.body?.cancel().catch(() => {});
+    if (!loc || hop >= max) throw new Error('Zu viele Weiterleitungen.');
+    const next = new URL(loc, cur).href;
+    assertShopUrl(next, allowed);
+    cur = place(next);
+    assertShopUrl(cur, allowed);
+  }
 }

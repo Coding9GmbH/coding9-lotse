@@ -29,6 +29,8 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      - name: OpenMage-Modul (Unit, ohne Shop)
+        run: php integrations/openmage/tests/unit.php
       - run: npm run build
       - name: Smoke-Test (Standalone-Server startet, Healthcheck & Seite antworten)
         run: |

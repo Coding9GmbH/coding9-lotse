@@ -325,6 +325,8 @@ async function applyEntity(swW: Shopware, entity: string, entityId: string, item
       const entry: Record<string, unknown> = { currencyId, gross, net: net(gross, rate), linked: true };
       const lp = (li ? li.afterRaw : cp.listPrice?.gross) as number | null | undefined;
       if (lp != null) entry.listPrice = { currencyId, gross: lp, net: net(lp, rate), linked: true };
+      const reg = cp.regulationPrice as SwEntity | undefined;
+      if (reg?.gross != null) entry.regulationPrice = { currencyId: reg.currencyId, gross: reg.gross, net: reg.net, linked: reg.linked ?? true };
       data.price = [entry, ...prices.slice(1)];
     }
     undo.price = cur.price ?? null;
