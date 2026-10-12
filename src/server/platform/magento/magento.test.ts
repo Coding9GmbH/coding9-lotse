@@ -216,6 +216,47 @@ test('Produkte: Texte (global bzw. Store-View mit eigenem Wert), Preis mit Strei
   assert.match(bad.error, /Keine Änderung nötig bzw\. nichts anwendbar/); assert.match(bad.error, /Einzelprodukten/);
 });
 
+test('Bestand schlägt fehl: geschriebene Felder bleiben gültig und rückgängig machbar', async () => {
+  const { reg, undoMagento } = await import('./write');
+  const before = fake.snapshot(), c = new MagentoClient({ url: fake.base, accessToken: fake.token });
+  const orig = c.req.bind(c);
+  c.req = (async (method: string, path: string, body?: unknown, o?: { store?: string }) => {
+    if (method === 'POST' && path.includes('/inventory/source-items') && !path.includes('delete')) throw new Error('Bestand nicht schreibbar');
+    return orig(method, path, body, o);
+  }) as typeof c.req;
+  const cs = { id: 'cs-stock', kind: 'products', entity: 'product', title: 't', reason: null, skipped: [], atomic: false, items: [
+    { id: '1:name', entity: 'product', entityId: '1', label: 'Vase', field: 'name', fieldLabel: 'Name', before: 'Vase', after: 'Vase neu', afterRaw: 'Vase neu', warn: [] },
+    { id: '1:stock', entity: 'product', entityId: '1', label: 'Vase', field: 'stock', fieldLabel: 'Bestand', before: '10', after: '7', afterRaw: { source: 'default', quantity: 7 }, warn: [] },
+  ] };
+  const r = await reg.apply(c, cs, { store: 'default', skus: { 1: 'VASE' } }, new Set(['1:name', '1:stock']));
+  const by = Object.fromEntries(r.results.map(x => [x.itemId, x]));
+  assert.equal(by['1:name'].ok, true, JSON.stringify(r.results));
+  assert.equal(by['1:stock'].ok, false);
+  assert.match(by['1:stock'].error ?? '', /Bestand/);
+  assert.equal(prodVals('VASE')[0].name, 'Vase neu');
+  assert.equal(fake.sourceItems.find(x => x.sku === 'VASE')!.quantity, 10);
+  assert.ok(r.undo.length > 0, 'geschriebene Felder bleiben rückgängig machbar');
+  assert.ok((await undoMagento(c, r.undo)).every(x => x.ok), 'Rückgängig');
+  assert.equal(fake.snapshot(), before);
+});
+
+test('writeScoped: ein späterer Store-View-Fehler behält den Undo des ersten PUT', async () => {
+  const { writeScoped, undoMagento } = await import('./write');
+  const before = fake.snapshot(), c = new MagentoClient({ url: fake.base, accessToken: fake.token, storeCode: 'en' });
+  const orig = c.req.bind(c);
+  c.req = (async (method: string, path: string, body?: unknown, o?: { store?: string }) => {
+    if (method === 'PUT' && path.startsWith('/en/')) throw new Error('View nicht schreibbar');
+    return orig(method, path, body, o);
+  }) as typeof c.req;
+  const err = await writeScoped(c, 'product', 'VASE', 'en', { name: 'Vase EN' }, { weight: 2 }).then(() => null, (e: Error & { undo?: { path?: string }[] }) => e);
+  assert.ok(err); assert.match(err.message, /View nicht schreibbar/);
+  assert.equal(prodVals('VASE')[0].weight, 2, 'Gewicht ist geschrieben');
+  assert.equal(prodVals('VASE')[0].name, 'Vase', 'Name der View wurde nicht geschrieben');
+  assert.ok(err.undo?.some(op => String(op.path).includes('/all/')), `Undo fehlt: ${JSON.stringify(err.undo)}`);
+  assert.ok((await undoMagento(c, err.undo!)).every(x => x.ok));
+  assert.equal(fake.snapshot(), before);
+});
+
 test('Andere Store-View als die Haupt-View: geerbte Texte werden dort gespeichert, nicht global; Rückgängig = wieder erben', async () => {
   const { reg } = await import('./write');
   const before = fake.snapshot(), c = new MagentoClient({ url: fake.base, accessToken: fake.token, storeCode: 'en' });

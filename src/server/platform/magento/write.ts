@@ -21,6 +21,12 @@ export async function putEnt(c: MagentoClient, e: Ent, ref: string, store: strin
   return body;
 }
 export const reqOp = (entity: string, id: string, method: string, path: string, body?: unknown): UndoOp => ({ op: 'req', entity, id, method, path, ...(body !== undefined ? { body } : {}) });
+/** Fehler weiterreichen und schon erfolgreiche Schritte dranhängen (ein späterer PUT darf sie nicht verschlucken). */
+const failWithUndo = (e: unknown, undo: UndoOp[]): never => {
+  const prev = (e as { undo?: UndoOp[] }).undo;
+  const merged = !prev?.length || prev === undo ? undo : [...undo, ...prev];
+  throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: merged });
+};
 const undoPut = (e: Ent, ref: string, store: string, values: Record<string, unknown>, extra: Record<string, unknown> = {}): UndoOp =>
   reqOp(e, ref, 'PUT', restPath(e, ref, store), wrap(e, ref, writeBody({ ...values, ...extra })));
 
@@ -32,7 +38,8 @@ export async function writeScoped(c: MagentoClient, e: Ent, ref: string, store: 
   // Nicht die Haupt-Store-View (z. B. eine Sprach-View): Texte nur dort schreiben, nie global (sonst ändern sich alle Views)
   if (store !== 'all' && Object.keys(scoped).length && store !== await mainStoreCode(c)) {
     const undo = Object.keys(global).length || Object.keys(extra).length ? await writeScoped(c, e, ref, 'all', {}, global) : [];
-    return [...undo, ...await writeStore(c, e, ref, store, scoped, extra)];
+    try { return [...undo, ...await writeStore(c, e, ref, store, scoped, extra)]; }
+    catch (e2) { failWithUndo(e2, undo); }
   }
   const [cur, glob] = await Promise.all([store === 'all' ? null : getEnt(c, e, ref, store), getEnt(c, e, ref, 'all')]);
   if (!glob || (store !== 'all' && !cur)) throw new MagentoError(`${e === 'product' ? 'Produkt' : 'Kategorie'} ${ref} nicht mehr vorhanden`, 404);
@@ -43,15 +50,17 @@ export async function writeScoped(c: MagentoClient, e: Ent, ref: string, store: 
     else { allW[k] = v; allU[k] = attr(glob, k) ?? null; }
   }
   const undo: UndoOp[] = [];
-  if (Object.keys(allW).length) { await putEnt(c, e, ref, 'all', allW, extra); undo.push(undoPut(e, ref, 'all', allU, extra)); }
-  if (Object.keys(stW).length) { await putEnt(c, e, ref, store, stW, extra); fixCategoryUndo(e, stU, glob); undo.push(undoPut(e, ref, store, stU, extra)); }
-  const check = Object.keys(scoped).filter(k => k in allW);
-  if (store !== 'all' && check.length) {
-    const after = await getEnt(c, e, ref, store), fix: Record<string, unknown> = {}, fixU: Record<string, unknown> = {};
-    for (const k of check) if (!sameValue(attr(after, k), allW[k])) { fix[k] = allW[k]; fixU[k] = attr(cur, k) ?? null; }
-    if (Object.keys(fix).length) { await putEnt(c, e, ref, store, fix, extra); fixCategoryUndo(e, fixU, glob); undo.push(undoPut(e, ref, store, fixU, extra)); }
-  }
-  return undo;
+  try {
+    if (Object.keys(allW).length) { await putEnt(c, e, ref, 'all', allW, extra); undo.push(undoPut(e, ref, 'all', allU, extra)); }
+    if (Object.keys(stW).length) { await putEnt(c, e, ref, store, stW, extra); fixCategoryUndo(e, stU, glob); undo.push(undoPut(e, ref, store, stU, extra)); }
+    const check = Object.keys(scoped).filter(k => k in allW);
+    if (store !== 'all' && check.length) {
+      const after = await getEnt(c, e, ref, store), fix: Record<string, unknown> = {}, fixU: Record<string, unknown> = {};
+      for (const k of check) if (!sameValue(attr(after, k), allW[k])) { fix[k] = allW[k]; fixU[k] = attr(cur, k) ?? null; }
+      if (Object.keys(fix).length) { await putEnt(c, e, ref, store, fix, extra); fixCategoryUndo(e, fixU, glob); undo.push(undoPut(e, ref, store, fixU, extra)); }
+    }
+    return undo;
+  } catch (e2) { failWithUndo(e2, undo); }
 }
 
 /** Werte gezielt in einer Store-View schreiben (Übersetzungen). Rückgängig: vorheriger eigener Wert bzw. null (= wieder erben) */

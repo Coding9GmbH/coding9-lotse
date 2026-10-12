@@ -222,6 +222,47 @@ test('Produkte: Texte (global bzw. Store-View mit eigenem Wert), Preis mit Strei
   assert.match(bad.error, /Keine Änderung nötig bzw\. nichts anwendbar/); assert.match(bad.error, /Einzelprodukten/);
 });
 
+test('Bestand schlägt fehl: geschriebene Felder bleiben gültig und rückgängig machbar', async () => {
+  const { reg, undoOpenmage } = await import('./write');
+  const before = fake.snapshot(), c = new OmClient({ url: fake.base, token: fake.token });
+  const orig = c.req.bind(c);
+  c.req = (async (method: string, path: string, body?: unknown, o?: { store?: string }) => {
+    if (method === 'PUT' && path.includes('/stock')) throw new Error('Bestand nicht schreibbar');
+    return orig(method, path, body, o);
+  }) as typeof c.req;
+  const cs = { id: 'cs-stock', kind: 'products', entity: 'product', title: 't', reason: null, skipped: [], atomic: false, items: [
+    { id: '1:name', entity: 'product', entityId: '1', label: 'Vase', field: 'name', fieldLabel: 'Name', before: 'Vase', after: 'Vase neu', afterRaw: 'Vase neu', warn: [] },
+    { id: '1:stock', entity: 'product', entityId: '1', label: 'Vase', field: 'stock', fieldLabel: 'Bestand', before: '10', after: '7', afterRaw: { quantity: 7 }, warn: [] },
+  ] };
+  const r = await reg.apply(c, cs, { store: 'default', skus: { 1: 'VASE' } }, new Set(['1:name', '1:stock']));
+  const by = Object.fromEntries(r.results.map(x => [x.itemId, x]));
+  assert.equal(by['1:name'].ok, true, JSON.stringify(r.results));
+  assert.equal(by['1:stock'].ok, false);
+  assert.match(by['1:stock'].error ?? '', /Bestand/);
+  assert.equal(prodVals('VASE')[0].name, 'Vase neu');
+  assert.equal(fake.products.find(p => p.sku === 'VASE')!.stock.qty, 10);
+  assert.ok(r.undo.length > 0, 'geschriebene Felder bleiben rückgängig machbar');
+  assert.ok((await undoOpenmage(c, r.undo)).every(x => x.ok));
+  assert.equal(fake.snapshot(), before);
+});
+
+test('writeScoped: ein späterer Store-View-Fehler behält den Undo des ersten PATCH', async () => {
+  const { writeScoped, undoOpenmage } = await import('./write');
+  const before = fake.snapshot(), c = new OmClient({ url: fake.base, token: fake.token, storeCode: 'en' });
+  const orig = c.req.bind(c);
+  c.req = (async (method: string, path: string, body?: unknown, o?: { store?: string }) => {
+    if (method === 'PATCH' && o?.store === 'en') throw new Error('View nicht schreibbar');
+    return orig(method, path, body, o);
+  }) as typeof c.req;
+  const err = await writeScoped(c, 'product', 'VASE', 'en', { name: 'Vase EN' }, { weight: 2 }).then(() => null, (e: Error & { undo?: unknown[] }) => e);
+  assert.ok(err); assert.match(err.message, /View nicht schreibbar/);
+  assert.equal(prodVals('VASE')[0].weight, 2);
+  assert.equal(prodVals('VASE')[0].name, 'Vase');
+  assert.ok(err.undo?.length, 'Undo des globalen PATCH fehlt');
+  assert.ok((await undoOpenmage(c, err.undo as never)).every(x => x.ok));
+  assert.equal(fake.snapshot(), before);
+});
+
 test('Andere Store-View als die Haupt-View: geerbte Texte werden dort gespeichert, nicht global; Rückgängig = wieder erben', async () => {
   const { reg, undoOpenmage } = await import('./write');
   const before = fake.snapshot(), c = new OmClient({ url: fake.base, token: fake.token, storeCode: 'en' });
