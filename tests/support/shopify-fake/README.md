@@ -12,7 +12,7 @@ Executor sind in `graphql.ts` selbst geschrieben, denn im Repo gibt es kein `gra
 
 ```bash
 # als Server (Standard-Port 3601)
-npx tsx test-support/shopify-fake/server.ts --port 3601
+npx tsx tests/support/shopify-fake/server.ts --port 3601
 npm run shopify-fake            # dasselbe
 
 # Optionen
@@ -26,7 +26,7 @@ Header: `X-Shopify-Access-Token: shpat_fake_haus_holm_00000000000000000000`
 Einbindung in `node:test`:
 
 ```ts
-import { startFakeShopify } from '../test-support/shopify-fake/server';
+import { startFakeShopify } from '../tests/support/shopify-fake/server';
 
 const fake = await startFakeShopify({ port: 0 });   // { url, graphqlUrl, token, state, close, … }
 const res = await fake.graphql('{ shop { name } }'); // Hilfsfunktion; normaler fetch geht auch
@@ -186,10 +186,10 @@ Diese Unterschiede sind bekannt, und es gibt sicher weitere:
 
 ```bash
 npm run test:shopify-fake   # nur der Fake
-npm test                    # src/** und test-support/**
+npm test                    # src/** und tests/support/**
 ```
 
-Die Tests liegen in `test-support/shopify-fake/*.test.ts`: Protokoll, Validierung, Throttling und
+Die Tests liegen in `tests/support/shopify-fake/*.test.ts`: Protokoll, Validierung, Throttling und
 Datenschutz in `protocol.test.ts`, Produkte, Medien, Kollektionen und Bulk in `products.test.ts`, Seiten,
 Metafelder, Übersetzungen, Rabatte, Themes und Redirects in `content.test.ts`.
 

@@ -158,8 +158,8 @@ src/
     └── db.ts / settings.ts    SQLite, verschlüsselte Zugangsdaten
 prompts/                  System-Prompt als versioniertes Markdown: common/ (alle Plattformen) + shopware/, shopify/, magento/, openmage/
 integrations/openmage/    OpenMage-Modul Lotse_Connector (JSON-API, openapi.yaml, Tests, package.sh)
-tests/                    alle Tests (node:test), Struktur wie src/; tests/support/ = Tests der Fake-Server aus test-support/
-test-support/             Fake-Shops (Shopify, OpenMage) und Live-Prüfskripte, keine Tests
+tests/                    alle Tests (node:test), Struktur wie src/
+└── support/              Fake-Shops (Shopify, OpenMage) samt Tests und Live-Prüfskripte
 ```
 
 Neue Blocktypen: in `BLOCKS` (`src/server/cms.ts`) ergänzen (+ Vorschau-Renderer) – der Agent bekommt den Katalog automatisch.

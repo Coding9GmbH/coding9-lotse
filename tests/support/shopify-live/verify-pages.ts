@@ -3,10 +3,10 @@
 // die Storefront, nimmt alles mit Rückgängig zurück und vergleicht den Ausgangszustand.
 //
 //   Lokal gegen den Fake (Standard, startet ihn selbst):
-//     npx tsx --conditions=react-server test-support/shopify-live/verify-pages.ts
+//     npx tsx --conditions=react-server tests/support/shopify-live/verify-pages.ts
 //   Gegen einen Entwicklungs-Shop (eigene Testdaten!):
 //     SHOPIFY_STORE_DOMAIN=mein-dev.myshopify.com SHOPIFY_ACCESS_TOKEN=shpat_… LOTSE_COLLECTION=<id> LOTSE_PRODUCTS=<id>,<id> \
-//       npx tsx --conditions=react-server test-support/shopify-live/verify-pages.ts
+//       npx tsx --conditions=react-server tests/support/shopify-live/verify-pages.ts
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,12 +15,12 @@ import type { ChatEvent } from '@/lib/protocol';
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-verify-pages-'));
 const realShop = !!process.env.SHOPIFY_STORE_DOMAIN;
 const fake = realShop ? null : await (await import('../shopify-fake/server')).startFakeShopify({ port: 0 });
-const { updateSettings } = await import('../../src/server/settings');
-const { getSession, decideChange } = await import('../../src/server/sessions');
-const { buildTools } = await import('../../src/server/tools');
-const { getPlatform, reconfigureAll } = await import('../../src/server/platform/index');
-const { shopifyClient } = await import('../../src/server/platform/shopify/index');
-const { mainTheme, readThemeFiles } = await import('../../src/server/platform/shopify/theme');
+const { updateSettings } = await import('../../../src/server/settings');
+const { getSession, decideChange } = await import('../../../src/server/sessions');
+const { buildTools } = await import('../../../src/server/tools');
+const { getPlatform, reconfigureAll } = await import('../../../src/server/platform/index');
+const { shopifyClient } = await import('../../../src/server/platform/shopify/index');
+const { mainTheme, readThemeFiles } = await import('../../../src/server/platform/shopify/theme');
 
 const domain = realShop ? process.env.SHOPIFY_STORE_DOMAIN! : fake!.url;
 updateSettings({ platform: 'shopify', shopify: { storeDomain: domain, accessToken: process.env.SHOPIFY_ACCESS_TOKEN ?? fake!.token, apiVersion: process.env.SHOPIFY_API_VERSION ?? '' } });

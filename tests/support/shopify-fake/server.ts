@@ -1,7 +1,7 @@
 /**
  * Local fake of the Shopify Admin GraphQL API.
  *
- *   npx tsx test-support/shopify-fake/server.ts --port 3601
+ *   npx tsx tests/support/shopify-fake/server.ts --port 3601
  *
  * or in tests:
  *
@@ -18,7 +18,7 @@ import { pathToFileURL } from 'node:url';
 import { calculateRequestedCost, SINGLE_QUERY_MAX_COST, ThrottleBucket } from './cost';
 import type { Ctx, FakeOptions } from './context';
 import { buildSchema, Engine, GraphQLError, type ScalarCoercer } from './graphql';
-import { buildResolvers, DEFAULT_ACCESS_SCOPES } from './resolvers';
+import { buildResolvers, DEFAULT_ACCESS_SCOPES } from '../../../tests/support/shopify-fake/resolvers';
 import { SDL } from './schema';
 import { FakeShopifyState } from './state';
 
@@ -503,7 +503,7 @@ function parseArgs(argv: string[]): StartFakeShopifyOptions {
     else if (a === '--auto-publish') out.autoPublish = true;
     else if (a === '--quiet') out.log = false;
     else if (a === '--help' || a === '-h') {
-      console.log('Usage: npx tsx test-support/shopify-fake/server.ts [--port 3601] [--host 127.0.0.1] [--token shpat_...] [--no-seed] [--scopes a,b] [--media-immediate] [--auto-publish] [--quiet]');
+      console.log('Usage: npx tsx tests/support/shopify-fake/server.ts [--port 3601] [--host 127.0.0.1] [--token shpat_...] [--no-seed] [--scopes a,b] [--media-immediate] [--auto-publish] [--quiet]');
       process.exit(0);
     }
   }
