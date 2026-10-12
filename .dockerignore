@@ -9,4 +9,3 @@
 !prompts/
 !docker/entrypoint.sh
 !docker/add-native.sh
-src/**/*.test.ts
