@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { PublicSettings, ScopeKey, TestResult } from '@/lib/protocol';
 import { PLATFORM_KINDS, PLATFORM_SETTINGS, scopeDisplay, type PlatformField, type PlatformKind } from '@/lib/platforms';
 import { EGRESS_NOTICE } from '@/lib/privacy-copy';
-import { AI_MODELS, authOf, buildPatch, connectionTestBlock, fieldValue, formFromSettings, hasSecret, isDirty, platformAvailable, savedConfigured, secretState, withAuth, withFieldValue, withSecret, type SecretKey, type SettingsForm } from '@/lib/settings-form';
+import { AI_MODELS, authOf, autosaveDirty, autosavePatch, connectionTestBlock, fieldValue, formFromSettings, hasSecret, platformAvailable, platformPending, savedConfigured, secretState, withAuth, withFieldValue, withSecret, type SecretKey, type SettingsForm } from '@/lib/settings-form';
 import { useShell } from '@/components/shell/ShellProvider';
 import { Button } from '@/components/ui/Button';
 import { Segmented } from '@/components/ui/Segmented';
@@ -39,22 +39,38 @@ export function SettingsView() {
     return () => { off = true; };
   }, []);
 
-  const dirty = !!form && !!saved && isDirty(form, saved);
+  const dirty = !!form && !!saved && autosaveDirty(form, saved);
+  const pending = !!form && !!saved && platformPending(form, saved);
 
-  const save = async (): Promise<boolean> => {
-    if (!form) return false;
+  // Automatisch speichern: kurz nach der letzten Eingabe. In einem Geheimnis-Feld erst beim Verlassen
+  // (sonst landet ein halb eingetippter Schlüssel im Speicher und das Feld leert sich mitten im Tippen).
+  const formRef = useRef<HTMLFormElement>(null);
+  const inFlight = useRef(false);
+  const [kick, setKick] = useState(0);
+  const save = useCallback(async (sent: SettingsForm, base: PublicSettings) => {
+    inFlight.current = true;
     setSaving(true); setNotice(null);
     try {
-      const s = await api.saveSettings(buildPatch(form));
-      setSaved(s); setForm(formFromSettings(s));
-      setNotice({ ok: true, text: 'Gespeichert ✓' });
+      const s = await api.saveSettings(autosavePatch(sent, base));
+      setSaved(s);
+      // Nur zurücksetzen, wenn seither nichts mehr eingegeben wurde; gewählte Plattform und KI bleiben (auch wenn sie noch nicht aktiv sind)
+      setForm(cur => { if (cur !== sent) return cur; const next = formFromSettings(s); return { ...next, platform: sent.platform, ai: { ...next.ai, provider: sent.ai.provider } }; });
+      setNotice({ ok: true, text: 'Gespeichert' });
       refreshHealth();
-      return true;
     } catch (e) {
-      setNotice({ ok: false, text: `Speichern fehlgeschlagen: ${errorText(e)}` });
-      return false;
-    } finally { setSaving(false); }
-  };
+      setNotice({ ok: false, text: `Nicht gespeichert: ${errorText(e)}` });
+    } finally { inFlight.current = false; setSaving(false); }
+  }, [refreshHealth]);
+
+  useEffect(() => {
+    if (!form || !saved || !dirty || saving || notice?.ok === false) return;
+    const t = setTimeout(() => {
+      const active = document.activeElement;
+      if (inFlight.current || (active instanceof HTMLInputElement && active.type === 'password' && formRef.current?.contains(active))) return;
+      void save(form, saved);
+    }, 700);
+    return () => clearTimeout(t);
+  }, [form, saved, dirty, saving, notice, kick, save]);
 
   const test = async (target: TestTarget) => {
     if (connectionTestBlock(dirty)) return;
@@ -65,7 +81,7 @@ export function SettingsView() {
     refreshHealth();
   };
 
-  const set = (fn: (f: SettingsForm) => SettingsForm) => { setForm(f => (f ? fn(f) : f)); setNotice(null); };
+  const set = (fn: (f: SettingsForm) => SettingsForm) => { setForm(f => (f ? fn(f) : f)); setNotice(n => (n?.ok ? n : null)); };
   const setSecret = (k: SecretKey, v: { value: string; remove: boolean }) => set(f => ({ ...f, secrets: { ...f.secrets, [k]: v } }));
   const setAi = (patch: Partial<SettingsForm['ai']>) => set(f => ({ ...f, ai: { ...f.ai, ...patch } }));
   // Nach ChatGPT-An-/Abmeldung nur den Anmeldestatus übernehmen (ungespeicherte Eingaben bleiben erhalten)
@@ -78,27 +94,30 @@ export function SettingsView() {
     <div className={styles.page}>
 
       <div className={styles.wrap}>
-        <nav className={styles.toc} aria-label="Abschnitte">
-          <a href="#shop">Shop verbinden</a>
-          <a href="#ai">KI verbinden</a>
-          <a href="#image">Bild-KI</a>
-          <a href="#scopes">KI-Zugriff</a>
-          <a href="#gsc">Search Console</a>
-          <a href="#protokolle">Protokolle</a>
-        </nav>
+        <Toc items={[
+          { id: 'shop', label: 'Shop verbinden', state: saved ? (savedConfigured(saved, saved.platform ?? 'shopware') ? 'ok' : 'todo') : undefined },
+          { id: 'ai', label: 'KI verbinden', state: saved ? ((saved.ai.provider === 'codex' ? saved.ai.codexLoggedIn : saved.ai.hasApiKey || saved.ai.viaEnv) ? 'ok' : 'todo') : undefined },
+          { id: 'image', label: 'Bild-KI', note: 'optional' },
+          { id: 'scopes', label: 'KI-Zugriff' },
+          { id: 'gsc', label: 'Search Console', note: 'optional' },
+          { id: 'protokolle', label: 'Protokolle' },
+        ]} />
 
         <main className={styles.content}>
-          <h1 className={styles.h1}>Einstellungen</h1>
-          <p className={styles.lead}>Zugangsdaten werden verschlüsselt lokal gespeichert und nie an die KI weitergegeben. Gespeicherte Schlüssel werden hier nicht angezeigt.</p>
+          <div className={styles.titleRow}>
+            <h1 className={styles.h1}>Einstellungen</h1>
+            {form && saved && <SaveState saving={saving} dirty={dirty} notice={notice} onRetry={() => { setNotice(null); void save(form, saved); }} />}
+          </div>
+          <p className={styles.lead}>Änderungen werden automatisch gespeichert. Zugangsdaten werden verschlüsselt lokal gespeichert und nie an die KI weitergegeben. Gespeicherte Schlüssel werden hier nicht angezeigt.</p>
           <p className={styles.lead}>{EGRESS_NOTICE}</p>
 
           {loadError && <div className={styles.alert} role="alert">Einstellungen konnten nicht geladen werden: {loadError}</div>}
           {!form && !loadError && <p className={styles.lead}>Lade …</p>}
 
           {form && saved && (
-            <form onSubmit={e => { e.preventDefault(); void save(); }} noValidate>
+            <form ref={formRef} onSubmit={e => e.preventDefault()} onBlur={() => setKick(k => k + 1)} noValidate>
               {/* ---- Shop ---- */}
-              <ShopSection form={form} saved={saved} set={set} test={tests.shop} onTest={() => void test('shop')} saving={saving} dirty={dirty} />
+              <ShopSection form={form} saved={saved} set={set} test={tests.shop} onTest={() => void test('shop')} saving={saving} dirty={dirty} pending={pending} />
 
               {/* ---- KI ---- */}
               <section id="ai" className={styles.card} aria-labelledby="ai-h">
@@ -108,7 +127,7 @@ export function SettingsView() {
                 </div>
                 <Segmented label="KI-Anbieter" className={`${styles.authSeg} ${styles.providerSeg}`} value={form.ai.provider} onChange={provider => setAi({ provider })}
                   options={[{ value: 'claude', label: 'Claude (API-Schlüssel)' }, { value: 'codex', label: 'ChatGPT-Abo' }]} />
-                {form.ai.provider !== saved.ai.provider && <p className={styles.info}>Wird nach dem Speichern für neue Nachrichten verwendet.</p>}
+                {form.ai.provider !== saved.ai.provider && <p className={styles.info}>{form.ai.provider === 'codex' ? 'Nach der Anmeldung' : 'Sobald der API-Schlüssel hinterlegt ist'} wird diese KI für neue Nachrichten verwendet.</p>}
 
                 {form.ai.provider === 'claude' ? (
                   <>
@@ -170,13 +189,6 @@ export function SettingsView() {
                 <p className={styles.locked}>🔒 Kunden-, Bestell- und Zahlungsdaten sowie Zugangsdaten sind immer gesperrt, unabhängig von diesen Schaltern.</p>
               </section>
 
-              <div className={styles.savebar}>
-                <span className={notice ? (notice.ok ? styles.ok : styles.bad) : styles.muted} role="status">
-                  {notice?.text ?? (dirty ? 'Ungespeicherte Änderungen' : 'Alles gespeichert')}
-                </span>
-                <Button onClick={() => { setForm(formFromSettings(saved)); setNotice(null); }} disabled={!dirty || saving}>Verwerfen</Button>
-                <Button type="submit" variant="primary" busy={saving} disabled={!dirty}>Speichern</Button>
-              </div>
             </form>
           )}
 
@@ -193,7 +205,7 @@ export function SettingsView() {
 }
 
 /** Shop verbinden: Plattform wählen (Shopware / Shopify / Magento / OpenMage), dann deren Felder laut lib/platforms.ts. */
-function ShopSection({ form, saved, set, test, onTest, saving, dirty }: { form: SettingsForm; saved: PublicSettings; set: (fn: (f: SettingsForm) => SettingsForm) => void; test: TestState; onTest: () => void; saving: boolean; dirty: boolean }) {
+function ShopSection({ form, saved, set, test, onTest, saving, dirty, pending }: { form: SettingsForm; saved: PublicSettings; set: (fn: (f: SettingsForm) => SettingsForm) => void; test: TestState; onTest: () => void; saving: boolean; dirty: boolean; pending: boolean }) {
   const kind = form.platform, d = PLATFORM_SETTINGS[kind], available = platformAvailable(saved, kind);
   const mode = d.auth.find(m => m.key === authOf(form, kind)) ?? d.auth[0];
   const input = (f: PlatformField) => f.secret
@@ -215,7 +227,7 @@ function ShopSection({ form, saved, set, test, onTest, saving, dirty }: { form: 
       </div>
       <Segmented<PlatformKind> label="Shop-Plattform" className={`${styles.authSeg} ${styles.providerSeg} ${PLATFORM_KINDS.length > 3 ? styles.authSegLong : ''}`} value={kind} onChange={platform => set(f => ({ ...f, platform }))}
         options={PLATFORM_KINDS.map(k => ({ value: k, label: PLATFORM_SETTINGS[k].label, title: PLATFORM_SETTINGS[k].product }))} />
-      {kind !== (saved.platform ?? 'shopware') && <p className={styles.info}>Nach dem Speichern ist {d.label} der verbundene Shop. Es ist immer genau ein Shop verbunden.</p>}
+      {pending && <p className={styles.info}>Sobald die Zugangsdaten vollständig sind, ist {d.label} der verbundene Shop. Bis dahin bleibt {PLATFORM_SETTINGS[saved.platform ?? 'shopware'].label} verbunden. Es ist immer genau ein Shop verbunden.</p>}
       {!available && <p className={styles.info}>Die {d.label}-Anbindung ist in Vorbereitung. Du kannst die Zugangsdaten schon hinterlegen; die Werkzeuge für {d.label} folgen.</p>}
       <div className={styles.grid}>{d.fields.map(input)}</div>
 
@@ -228,7 +240,7 @@ function ShopSection({ form, saved, set, test, onTest, saving, dirty }: { form: 
       )}
       {mode.hint && <p className={styles.hint}>{rich(mode.hint)}</p>}
       <div className={styles.grid}>{mode.fields.map(input)}</div>
-      <TestRow state={test} onTest={onTest} disabled={saving || !available || dirty} title={connectionTestBlock(dirty) ?? undefined} />
+      <TestRow state={test} onTest={onTest} disabled={saving || !available || dirty || pending} title={pending ? 'Erst die Zugangsdaten vollständig eingeben.' : connectionTestBlock(dirty) ?? undefined} />
     </section>
   );
 }
@@ -243,6 +255,56 @@ function Field({ label, hint, children }: { label: string; hint?: React.ReactNod
       {children}
       {hint && <small className={styles.fieldHint}>{hint}</small>}
     </label>
+  );
+}
+
+type TocItem = { id: string; label: string; state?: 'ok' | 'todo'; note?: string };
+
+/** Abschnitte links: markiert den sichtbaren Abschnitt und zeigt, was eingerichtet ist und was noch fehlt. */
+function Toc({ items }: { items: TocItem[] }) {
+  const [current, setCurrent] = useState(items[0]?.id);
+  const ids = items.map(i => i.id).join(',');
+  useEffect(() => {
+    const read = () => { const h = window.location.hash.slice(1); if (h) setCurrent(h); };
+    read();
+    const els = ids.split(',').map(id => document.getElementById(id)).filter((e): e is HTMLElement => !!e);
+    const root = els[0]?.closest(`.${styles.page}`) ?? null;
+    // Der Abschnitt, dessen Kopf zuletzt über die obere Bildschirmhälfte gewandert ist
+    const io = new IntersectionObserver(() => {
+      const top = root?.getBoundingClientRect().top ?? 0;
+      let best: string | undefined = els[0]?.id;
+      for (const el of els) if (el.getBoundingClientRect().top - top < 160) best = el.id;
+      const page = root as HTMLElement | null;
+      if (page && page.scrollTop + page.clientHeight >= page.scrollHeight - 4) best = els.at(-1)?.id; // ganz unten: letzter Abschnitt
+      if (best) setCurrent(best);
+    }, { root, threshold: [0, 0.25, 0.5, 0.75, 1], rootMargin: '0px 0px -40% 0px' });
+    els.forEach(el => io.observe(el));
+    window.addEventListener('hashchange', read);
+    return () => { io.disconnect(); window.removeEventListener('hashchange', read); };
+  }, [ids]);
+  return (
+    <nav className={styles.toc} aria-label="Abschnitte">
+      <span className={styles.tocHead}>Auf dieser Seite</span>
+      {items.map(i => (
+        <a key={i.id} href={`#${i.id}`} aria-current={current === i.id ? 'true' : undefined} onClick={() => setCurrent(i.id)}>
+          <span>{i.label}</span>
+          {i.state === 'ok' && <i className={styles.tocOk} aria-label="eingerichtet" />}
+          {i.state === 'todo' && <i className={styles.tocTodo} aria-label="fehlt noch" />}
+          {i.note && !i.state && <small>{i.note}</small>}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+/** Speicherstand oben neben der Überschrift: speichert … / gespeichert / Fehler mit „Erneut versuchen“. */
+function SaveState({ saving, dirty, notice, onRetry }: { saving: boolean; dirty: boolean; notice: { ok: boolean; text: string } | null; onRetry: () => void }) {
+  const failed = notice && !notice.ok;
+  return (
+    <span className={`${styles.saveState} ${failed ? styles.saveBad : saving || dirty ? '' : styles.saveOk}`} role="status" aria-live="polite">
+      {failed ? <>{notice.text}<button type="button" onClick={onRetry}>Erneut versuchen</button></>
+        : saving || dirty ? 'Speichert …' : 'Alles gespeichert'}
+    </span>
   );
 }
 

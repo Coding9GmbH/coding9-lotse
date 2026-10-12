@@ -18,7 +18,7 @@ export interface WorkspaceBridge {
   openStyleguide: () => void;
 }
 /** Auftrag an die Arbeitsfläche, wenn die Navigation von einer anderen Seite aus genutzt wird. */
-export type WorkspaceIntent = { type: 'new' } | { type: 'open'; id: string } | { type: 'context' } | { type: 'styleguide' };
+export type WorkspaceIntent = { type: 'new' } | { type: 'new-context' } | { type: 'open'; id: string } | { type: 'context' } | { type: 'styleguide' };
 
 interface Shell {
   health: Health | null;
@@ -49,7 +49,7 @@ interface Shell {
   registerWorkspace: (bridge: WorkspaceBridge | null) => void;
   /** Holt (und löscht) einen vorgemerkten Auftrag – die Arbeitsfläche ruft das beim Start auf. */
   takeIntent: () => WorkspaceIntent | null;
-  nav: { newChat: () => void; openChat: (id: string) => void; deleteChat: (id: string) => void; openContext: () => void; openStyleguide: () => void };
+  nav: { newChat: () => void; newChatWithContext: () => void; openChat: (id: string) => void; deleteChat: (id: string) => void; openContext: () => void; openStyleguide: () => void };
 }
 
 const ShellContext = createContext<Shell | null>(null);
@@ -142,6 +142,8 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
       takeIntent: () => { const i = intent.current; intent.current = null; return i; },
       nav: {
         newChat: () => via(b => b.newChat(), { type: 'new' }),
+        // Neuer Chat und gleich den Kontext wählen (sonst findet Lotse ihn selbst aus der Nachricht)
+        newChatWithContext: () => via(b => { b.newChat(); b.openContext(); }, { type: 'new-context' }),
         openChat: id => via(b => b.openChat(id), { type: 'open', id }),
         openContext: () => via(b => b.openContext(), { type: 'context' }),
         openStyleguide: () => via(b => b.openStyleguide(), { type: 'styleguide' }),

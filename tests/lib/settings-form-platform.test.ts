@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { PublicSettings } from '../../src/lib/protocol';
-import { authOf, buildPatch, fieldValue, formFromSettings, hasSecret, isDirty, platformAvailable, savedConfigured, secretState, withAuth, withFieldValue, withSecret } from '../../src/lib/settings-form';
+import { aiPending, authOf, autosaveDirty, autosavePatch, buildPatch, fieldValue, formFromSettings, hasSecret, isDirty, platformAvailable, platformPending, savedConfigured, secretState, withAuth, withFieldValue, withSecret } from '../../src/lib/settings-form';
 
 const saved: PublicSettings = {
   shopware: { url: 'https://shop.test', publicUrl: '', user: 'admin', clientId: '', hasPassword: true, hasClientSecret: false, configured: true },
@@ -58,4 +58,24 @@ test('Ältere Server ohne Plattform-Angaben: Shopware als Standard', () => {
   assert.equal(f.platform, 'shopware');
   assert.equal(fieldValue(f, 'shopify', 'storeDomain'), '');
   assert.equal(platformAvailable(old, 'shopware'), true);
+});
+
+test('Automatisch speichern: Plattform- und KI-Wechsel erst, wenn das Ziel eingerichtet ist', () => {
+  // Magento hat keine Zugangsdaten → Felder werden gespeichert, verbunden bleibt Shopware
+  let f = withFieldValue({ ...formFromSettings(saved), platform: 'magento' }, 'magento', 'url', 'https://mage.test');
+  assert.equal(platformPending(f, saved), true);
+  assert.equal(autosavePatch(f, saved).platform, 'shopware');
+  assert.equal(autosavePatch(f, saved).magento?.url, 'https://mage.test');
+  assert.equal(autosaveDirty(f, saved), true);
+  // Nur den Reiter wechseln ist keine Änderung (sonst Speicherschleife)
+  assert.equal(autosaveDirty({ ...formFromSettings(saved), platform: 'magento' }, saved), false);
+  // Shopify ist eingerichtet → Wechsel greift sofort
+  f = { ...formFromSettings(saved), platform: 'shopify' };
+  assert.equal(platformPending(f, saved), false);
+  assert.equal(autosavePatch(f, saved).platform, 'shopify');
+  // ChatGPT ohne Anmeldung: Claude bleibt aktiv
+  f = { ...formFromSettings(saved), ai: { ...formFromSettings(saved).ai, provider: 'codex' } };
+  assert.equal(aiPending(f, saved), true);
+  assert.equal(autosavePatch(f, saved).ai?.provider, 'claude');
+  assert.equal(aiPending(f, { ...saved, ai: { ...saved.ai, codexLoggedIn: true } }), false);
 });

@@ -1,14 +1,21 @@
-.page { height: 100%; overflow-y: auto; scroll-behavior: smooth; scroll-padding-top: 20px; }
+.page { height: 100%; overflow-y: auto; scroll-behavior: smooth; scroll-padding-top: 92px; }
 
 .wrap { display: grid; grid-template-columns: 200px minmax(0, 820px); gap: 28px; justify-content: center; padding: 28px 18px 60px; }
-.toc { position: sticky; top: 28px; align-self: start; display: flex; flex-direction: column; gap: 2px; }
-.toc a { color: var(--mute); padding: 6px 10px; border-radius: 8px; font-size: 13px; text-decoration: none; }
-.toc a:hover { color: var(--ink); background: var(--panel); text-decoration: none; }
+.toc { position: sticky; top: 28px; align-self: start; display: flex; flex-direction: column; border-left: 1px solid var(--line); }
+.tocHead { padding: 0 0 8px 16px; font-size: 11.5px; font-weight: 600; color: var(--mute); }
+.toc a { position: relative; display: flex; align-items: center; gap: 8px; margin-left: -1px; padding: 6px 10px 6px 16px; border-left: 2px solid transparent; color: var(--mute); font-size: 13.5px; text-decoration: none; transition: color .12s, border-color .12s; }
+.toc a span { flex: 1; min-width: 0; }
+.toc a:hover { color: var(--ink); text-decoration: none; }
+.toc a[aria-current="true"] { color: var(--ink); font-weight: 600; border-left-color: var(--green-d); }
+.toc a small { font-size: 11px; color: var(--mute); opacity: .7; font-weight: 400; }
+.tocOk, .tocTodo { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+.tocOk { background: var(--green); }
+.tocTodo { background: var(--coral); box-shadow: 0 0 0 3px var(--coral-bg); }
 .content { min-width: 0; }
 .h1 { font-size: 28px; margin: 0 0 4px; }
 .lead { color: var(--mute); margin: 0 0 20px; }
 
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px; margin-bottom: 16px; scroll-margin-top: 24px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px; margin-bottom: 16px; scroll-margin-top: 92px; }
 .cardHead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .cardHead h2 { font-size: 18px; margin: 0; flex: 1; }
 .opt { font: 500 12px var(--body); color: var(--mute); margin-left: 6px; }
@@ -63,8 +70,15 @@
 .scope input:focus-visible + .switch { outline: 2px solid var(--coral); outline-offset: 2px; }
 .locked { margin: 0; font-size: 13px; background: var(--cream); border-radius: 8px; padding: 8px 12px; }
 
-.savebar { position: sticky; bottom: 12px; z-index: 4; display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin: 0 0 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-pop); }
-.savebar > span { margin-right: auto; }
+/* Speicherstand: oben neben der Überschrift, bleibt beim Scrollen sichtbar */
+.titleRow { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: -28px 0 4px; padding: 28px 0 8px; background: var(--bg); }
+.titleRow .h1 { margin: 0; }
+.saveState { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--mute); }
+.saveState::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .6; }
+.saveOk { color: var(--green-d); }
+.saveOk::before { opacity: 1; }
+.saveBad { color: var(--warn); }
+.saveState button { border: 0; background: none; padding: 0; font: inherit; color: var(--ink); text-decoration: underline; cursor: pointer; }
 
 .logBar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
 .logSeg { width: min(360px, 100%); }
@@ -104,7 +118,11 @@
 
 @media (max-width: 860px) {
   .wrap { grid-template-columns: 1fr; padding-top: 18px; }
-  .toc { position: static; flex-direction: row; flex-wrap: wrap; }
+  .titleRow { margin-top: -18px; padding-top: 18px; }
+  .toc { position: static; flex-direction: row; flex-wrap: wrap; gap: 4px; border-left: 0; }
+  .tocHead { display: none; }
+  .toc a { margin: 0; padding: 5px 10px; border: 1px solid var(--line); border-radius: 99px; background: var(--panel); }
+  .toc a[aria-current="true"] { border-color: var(--green-d); }
   .grid { grid-template-columns: 1fr; }
 }
 

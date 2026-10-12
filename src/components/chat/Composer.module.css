@@ -1,8 +1,11 @@
-.form { display: flex; gap: 8px; padding: 12px; background: var(--panel); border-top: 1px solid var(--line); align-items: flex-end; flex: none; }
-.form textarea { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--bg); min-height: 44px; height: 44px; max-height: 140px; outline: none; line-height: 1.55; }
+.form { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; background: var(--panel); border-top: 1px solid var(--line); align-items: flex-end; flex: none; }
+.form textarea { flex: 1; min-width: 0; resize: none; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--bg); min-height: 44px; height: 44px; max-height: 140px; outline: none; line-height: 1.55; }
 .form textarea:focus { border-color: var(--green); }
 .attach { height: 44px; width: 44px; padding: 0; font-size: 18px; flex: none; }
 .send { height: 44px; flex: none; }
+/* Zeile unter dem Textfeld (Kontext): beginnt bündig mit dem Textfeld, nicht mit dem Anhängen-Knopf */
+.extra { flex: 1 0 100%; display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 52px; }
+.home .extra { margin-top: -2px; }
 
 .home { margin: 0 16px; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-pop); padding: 12px; }
 .home textarea { min-height: 56px; height: 56px; padding-block: 16px; background: var(--panel); border: 0; }
@@ -26,4 +29,5 @@
   .home { margin: 0 12px; padding: 8px; gap: 6px; }
   .home textarea { padding-inline: 4px; }
   .home .send { padding-inline: 14px; }
+  .extra { padding-left: 50px; }
 }

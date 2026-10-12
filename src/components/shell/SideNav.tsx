@@ -2,12 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ago, groupByDay, hostOf, swatches } from '@/lib/format';
 import { catalogState, shellFlags } from '@/lib/load-state';
 import { chatDeleteQuestion } from '@/lib/privacy-copy';
 import type { ChatStatus, ChatSummary, Health } from '@/lib/protocol';
-import { IconBook, IconChat, IconClose, IconHistory, IconLog, IconPalette, IconPanel, IconPlus, IconSearch, IconSettings, IconTarget, IconTrash } from '@/components/ui/icons';
+import { IconBook, IconChat, IconClose, IconHistory, IconPalette, IconPanel, IconPlus, IconSearch, IconSettings, IconTarget, IconTrash } from '@/components/ui/icons';
 import { useShell } from './ShellProvider';
 import styles from './SideNav.module.css';
 
@@ -32,25 +32,21 @@ function status(h: Health | null, healthFailed: boolean) {
   return { shop, ai, flags };
 }
 
-/** Linke Navigation: Neuer Chat, Bereiche, Verlauf, Status. Einklappbar (Strg/⌘ + B), mobil als Schublade. */
+/** Linke Navigation: Neuer Chat (+ mit Kontext), Bereiche, Verlauf, Einstellungen mit Status. Einklappbar (Strg/⌘ + B), mobil als Schublade.
+ * Solange Shop oder KI fehlen, ist nur die Einrichtung erreichbar: alles, was beides braucht, bleibt gesperrt. */
 export function SideNav() {
   const s = useShell();
   const path = usePathname();
   const [filter, setFilter] = useState('');
   const [confirmId, setConfirmId] = useState<string | null>(null);
-  const [hash, setHash] = useState('');
   const collapsed = s.collapsed && !s.mobileOpen;
-  const railName = (label: string) => (collapsed ? label : undefined);
+  const tip = (label: string) => (collapsed ? label : undefined);
   const st = status(s.health, s.healthFailed);
   const chatView = catalogState(s.chats == null ? s.chatError : null, s.chats);
   const colors = swatches(s.styleguide?.colors, 4);
-
-  useEffect(() => {
-    const read = () => setHash(window.location.hash);
-    read();
-    window.addEventListener('hashchange', read);
-    return () => window.removeEventListener('hashchange', read);
-  }, [path]);
+  // Unbekannter Stand (noch kein Status): nicht sperren – der Server liefert ihn praktisch immer gleich mit
+  const ready = !s.setup || (s.setup.shopware && s.setup.ai);
+  const locked = ready ? undefined : 'Erst Shop und KI verbinden';
 
   const groups = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -64,95 +60,97 @@ export function SideNav() {
   const railTip = `Verlauf (${s.chats?.length ?? 0})${live.length ? ` · ${live.length} ${live.length === 1 ? 'läuft' : 'laufen'}` : ''}${s.doneIds.size ? ` · ${s.doneIds.size} fertig` : ''}`;
 
   const onWorkspace = path === '/';
-  const onSettings = path === '/settings' && hash !== '#protokolle';
-  const onLogs = path === '/settings' && hash === '#protokolle';
   const close = () => s.setMobileOpen(false);
+  const warn = st.flags.shop === 'unloaded' || st.flags.ai === 'unloaded' || st.flags.shop === 'disconnected' || st.flags.ai === 'disconnected' || st.shop.tone === 'err';
 
   return (
     <nav className={cx(styles.nav, collapsed && styles.collapsed, s.mobileOpen && styles.drawerOpen)} aria-label="Hauptnavigation" id="lotse-nav">
       <div className={styles.top}>
         <Link href="/" className={styles.brand} onClick={close} aria-label="Lotse: Arbeitsfläche">
           {/* eslint-disable-next-line @next/next/no-img-element -- kleines SVG-Logo */}
-          <img src="/lotse-mark.svg" alt="" width={34} height={34} />
-          <span className={styles.word}>Lotse<small>by CODING 9</small></span>
+          <img src="/lotse-mark.svg" alt="" width={28} height={28} />
+          <span className={styles.word}>Lotse</span>
         </Link>
         <button type="button" className={cx(styles.iconBtn, styles.collapseBtn)} onClick={s.toggleCollapsed}
           aria-label={s.collapsed ? 'Navigation ausklappen' : 'Navigation einklappen'} aria-expanded={!s.collapsed} aria-controls="lotse-nav"
           data-tip={s.collapsed ? 'Ausklappen · Strg+B' : undefined} title={s.collapsed ? undefined : 'Einklappen (Strg/⌘ + B)'}>
-          <IconPanel />
+          <IconPanel size={18} />
         </button>
         <button type="button" className={cx(styles.iconBtn, styles.closeBtn)} onClick={close} aria-label="Navigation schließen"><IconClose /></button>
       </div>
 
-      <button type="button" className={styles.newChat} onClick={s.nav.newChat} aria-label={railName('Neuer Chat')} data-tip={collapsed ? 'Neuer Chat' : undefined}>
-        <IconPlus size={18} /><span className={styles.label}>Neuer Chat</span>
-      </button>
+      <div className={styles.start}>
+        <button type="button" className={styles.newChat} onClick={s.nav.newChat} disabled={!ready} title={locked}
+          aria-label={tip('Neuer Chat')} data-tip={tip(locked ?? 'Neuer Chat')}>
+          <IconPlus size={16} /><span className={styles.label}>Neuer Chat</span>
+        </button>
+        <button type="button" id="lotse-context" className={styles.withContext} onClick={s.nav.newChatWithContext} disabled={!ready}
+          aria-label="Neuer Chat mit Kontext: Kategorie, Produkt oder Landingpage wählen" title={locked ?? 'Neuer Chat mit Kontext (Kategorie, Produkt, Landingpage)'}>
+          <IconTarget size={16} />
+        </button>
+      </div>
+
+      {!ready && s.setup && (
+        <Link href="/settings" className={styles.setup} onClick={close} aria-label={tip('Einrichtung abschließen')} data-tip={tip('Einrichtung abschließen')}>
+          <span className={styles.setupHead}><b>Einrichtung</b><span>{Number(s.setup.shopware) + Number(s.setup.ai)} von 2</span></span>
+          <span className={cx(styles.setupStep, s.setup.shopware && styles.setupDone)}>Shop verbinden</span>
+          <span className={cx(styles.setupStep, s.setup.ai && styles.setupDone)}>KI verbinden</span>
+        </Link>
+      )}
 
       <ul className={styles.items}>
         <li>
-          <Link href="/" className={styles.item} aria-current={onWorkspace ? 'page' : undefined} onClick={close} aria-label={railName('Arbeitsfläche')} data-tip={collapsed ? 'Arbeitsfläche' : undefined}>
-            <IconChat /><span className={styles.label}>Arbeitsfläche</span>
+          <Link href="/" className={styles.item} aria-current={onWorkspace ? 'page' : undefined} onClick={close} aria-label={tip('Arbeitsfläche')} data-tip={tip('Arbeitsfläche')}>
+            <IconChat size={18} /><span className={styles.label}>Arbeitsfläche</span>
+            {s.contextName && onWorkspace && <span className={styles.ctx} title={`Kontext: ${s.contextName}`}>{s.contextName}</span>}
           </Link>
         </li>
         <li>
-          <button type="button" id="lotse-context" className={styles.item} onClick={s.nav.openContext} aria-label={railName(`Kontext${s.contextName ? `: ${s.contextName}` : ''}`)} data-tip={collapsed ? (s.contextName ? `Kontext: ${s.contextName}` : 'Kontext wählen') : undefined}>
-            <IconTarget />
-            <span className={styles.label}>Kontext{s.contextName && <small className={styles.sub}>{s.contextName}</small>}</span>
-            {s.contextName && <i className={styles.pip} aria-label="Kontext gewählt" />}
-          </button>
-        </li>
-        <li>
-          <button type="button" className={styles.item} onClick={s.nav.openStyleguide} aria-label={railName(s.styleguide ? 'Styleguide' : 'Styleguide einrichten')} data-tip={collapsed ? (s.styleguide ? 'Styleguide' : 'Styleguide einrichten') : undefined}>
-            <IconPalette />
+          <button type="button" className={styles.item} onClick={s.nav.openStyleguide} disabled={!ready}
+            aria-label={tip(s.styleguide ? 'Styleguide' : 'Styleguide einrichten')} data-tip={tip(locked ?? (s.styleguide ? 'Styleguide' : 'Styleguide einrichten'))} title={collapsed ? undefined : locked}>
+            <IconPalette size={18} />
             <span className={styles.label}>Styleguide</span>
-            {colors.length ? (
+            {ready && (colors.length ? (
               <span className={styles.swatches} aria-hidden="true">{colors.map(c => <i key={c} style={{ background: c }} />)}</span>
-            ) : s.styleguide === null && <span className={styles.badge}>einrichten</span>}
+            ) : s.styleguide === null && <span className={styles.hint}>anlegen</span>)}
           </button>
         </li>
         <li>
-          <Link href="/wissen" className={styles.item} aria-current={path === '/wissen' ? 'page' : undefined} onClick={close} aria-label={railName('Wissen')} data-tip={collapsed ? 'Wissen' : undefined}>
-            <IconBook /><span className={styles.label}>Wissen</span>
-          </Link>
-        </li>
-        <li>
-          <Link href="/settings" className={styles.item} aria-current={onSettings ? 'page' : undefined} onClick={() => { setHash(''); close(); }} aria-label={railName('Einstellungen')} data-tip={collapsed ? 'Einstellungen' : undefined}>
-            <IconSettings /><span className={styles.label}>Einstellungen</span>
-            {(st.flags.shop === 'unloaded' || st.flags.ai === 'unloaded' || st.flags.shop === 'disconnected' || st.flags.ai === 'disconnected') && (
-              <i className={cx(styles.pip, styles.pipWarn)} aria-label={st.flags.shop === 'unloaded' || st.flags.ai === 'unloaded' ? 'Status nicht geladen' : 'Einrichtung unvollständig'} />
-            )}
-          </Link>
-        </li>
-        <li>
-          <Link href="/settings#protokolle" className={styles.item} aria-current={onLogs ? 'page' : undefined} onClick={() => { setHash('#protokolle'); close(); }} aria-label={railName('Protokolle')} data-tip={collapsed ? 'Protokolle' : undefined}>
-            <IconLog /><span className={styles.label}>Protokolle</span>
-          </Link>
+          {ready ? (
+            <Link href="/wissen" className={styles.item} aria-current={path === '/wissen' ? 'page' : undefined} onClick={close} aria-label={tip('Wissen')} data-tip={tip('Wissen')}>
+              <IconBook size={18} /><span className={styles.label}>Wissen</span>
+            </Link>
+          ) : (
+            <button type="button" className={styles.item} disabled aria-label={tip('Wissen')} data-tip={tip(locked ?? 'Wissen')} title={collapsed ? undefined : locked}>
+              <IconBook size={18} /><span className={styles.label}>Wissen</span>
+            </button>
+          )}
         </li>
       </ul>
 
       {collapsed ? (
         <div className={styles.railFill}>
           <button type="button" className={styles.item} onClick={s.toggleCollapsed} data-tip={railTip} aria-label="Verlauf anzeigen">
-            <IconHistory />
+            <IconHistory size={18} />
             {railState && <i className={cx(styles.pip, railState === 'waiting' && styles.pipWarn, railState === 'running' && styles.pipLive)} aria-label={STATE_LABEL[railState]} />}
           </button>
         </div>
       ) : (
         <section className={styles.history} aria-label="Verlauf">
           <div className={styles.histHead}>
-            <span>Verlauf</span>
+            <h2>Verlauf</h2>
             {!!s.chats?.length && <span className={styles.count}>{s.chats.length}</span>}
           </div>
           {(s.chats?.length ?? 0) > 6 && (
             <label className={styles.search}>
-              <IconSearch size={15} />
-              <input type="search" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Chats durchsuchen" aria-label="Chats durchsuchen" />
+              <IconSearch size={14} />
+              <input type="search" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Suchen" aria-label="Chats durchsuchen" />
             </label>
           )}
           <div className={styles.histList}>
             {chatView === 'loading' && <p className={styles.note}>Lade …</p>}
             {chatView === 'error' && <p className={styles.note}>Verlauf nicht geladen.</p>}
-            {chatView === 'empty' && <p className={styles.note}>Noch keine Chats. Starte oben mit „Neuer Chat“.</p>}
+            {chatView === 'empty' && <p className={styles.note}>{ready ? 'Noch keine Chats. Starte oben mit „Neuer Chat“.' : 'Noch keine Chats. Nach der Einrichtung geht es los.'}</p>}
             {chatView === 'ready' && groups.length === 0 && <p className={styles.note}>Kein Treffer.</p>}
             {groups.map(g => (
               <div key={g.label} className={styles.group}>
@@ -171,9 +169,17 @@ export function SideNav() {
       )}
 
       <footer className={styles.foot}>
-        <Link href="/settings" className={styles.status} onClick={close} aria-label={railName(`${st.shop.text}. ${st.ai.text}`)} data-tip={collapsed ? `${st.shop.text} · ${st.ai.text}` : undefined}>
-          <span className={styles.statusRow}><i className={cx(styles.dot, st.shop.tone && styles[st.shop.tone])} /><span className={styles.label}>{st.shop.text}</span></span>
-          <span className={styles.statusRow}><i className={cx(styles.dot, st.ai.tone && styles[st.ai.tone])} /><span className={styles.label}>{st.ai.text}</span></span>
+        <Link href="/settings" className={styles.settings} aria-current={path === '/settings' ? 'page' : undefined} onClick={close}
+          aria-label={`Einstellungen. ${st.shop.text}. ${st.ai.text}`} data-tip={tip(`Einstellungen · ${st.shop.text} · ${st.ai.text}`)}>
+          <span className={styles.gear}><IconSettings size={18} />{warn && collapsed && <i className={cx(styles.pip, styles.pipWarn)} />}</span>
+          <span className={styles.label}>
+            Einstellungen
+            <small className={styles.sub} suppressHydrationWarning>{st.shop.text}</small>
+          </span>
+          <span className={styles.dots} aria-hidden="true" title={`${st.shop.text} · ${st.ai.text}`}>
+            <i className={cx(styles.dot, st.shop.tone && styles[st.shop.tone])} />
+            <i className={cx(styles.dot, st.ai.tone && styles[st.ai.tone])} />
+          </span>
         </Link>
       </footer>
     </nav>

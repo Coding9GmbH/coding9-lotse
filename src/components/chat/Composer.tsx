@@ -21,12 +21,14 @@ interface Props {
   onFiles: (files: File[]) => void;
   onRemoveAtt: (key: string) => void;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  /** Zeile unter dem Textfeld, bündig mit ihm (z. B. der Kontext) */
+  extra?: React.ReactNode;
 }
 
 const MAX_H = 140;
 
 /** Eingabe: wachsendes Textfeld, Enter sendet (Umschalt+Enter = Zeilenumbruch), Bilder per Knopf/Einfügen. */
-export function Composer({ value, onChange, onSubmit, onStop, writing, busy, placeholder, home, atts, onFiles, onRemoveAtt, inputRef }: Props) {
+export function Composer({ value, onChange, onSubmit, onStop, writing, busy, placeholder, home, atts, onFiles, onRemoveAtt, inputRef, extra }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const stop = stopControl(!!writing);
 
@@ -66,6 +68,7 @@ export function Composer({ value, onChange, onSubmit, onStop, writing, busy, pla
         {busy && onStop
           ? <Button className={styles.send} onClick={stop.stops ? onStop : undefined} disabled={!stop.stops} title={stop.title}>{stop.label}</Button>
           : <Button type="submit" variant="primary" busy={busy} className={styles.send}>{busy ? 'Läuft …' : 'Senden'}</Button>}
+        {extra && <div className={styles.extra}>{extra}</div>}
       </form>
     </>
   );

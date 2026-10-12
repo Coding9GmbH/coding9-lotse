@@ -15,7 +15,7 @@ import { singleton } from './state';
 export const STALE_MS = 6 * 3600_000;
 const KEY = 'shopcheck_run';
 interface Cached { sig: string; run: CheckRun }
-const st = () => singleton('shopcheck', () => ({ running: null as Promise<CheckRun> | null, error: null as string | null }));
+const st = () => singleton('shopcheck', () => ({ running: null as Promise<CheckRun> | null, error: null as string | null, again: false }));
 
 // Ergebnis gilt nur für denselben Shop und dieselben freigegebenen Bereiche (sonst könnte ein gesperrter Bereich sichtbar bleiben)
 const signature = () => { const g = getSettings(); return JSON.stringify(g.platform === 'shopware' ? [g.shopware.url, g.scopes] : [g.platform, g[g.platform].url || g[g.platform].storeDomain, g.scopes]); };
@@ -47,6 +47,22 @@ export function startShopCheck(reader?: ShopReader): Promise<CheckRun> {
     return run;
   })().catch(e => { s.error = errMsg(e); throw e; }).finally(() => { s.running = null; });
   return s.running;
+}
+
+/**
+ * Nach angewendeten Änderungen neu prüfen: Behobene Punkte verschwinden, ohne dass jemand „Neu prüfen“ klickt.
+ * Läuft gerade ein Durchlauf, hat er womöglich noch den alten Stand gelesen → direkt danach noch einmal.
+ */
+export function recheckShopCheck(): void {
+  const p = activePlatform(), s = st();
+  // Ohne bisheriges Ergebnis nichts anstoßen: die Startseite prüft dann ohnehin beim nächsten Besuch
+  if (!p.configured() || !p.settings.available || (!s.running && !cachedRun())) return;
+  if (s.running) { s.again = true; return; }
+  startShopCheck().catch(() => {}).finally(() => {
+    if (!s.again) return;
+    s.again = false;
+    recheckShopCheck();
+  });
 }
 
 /** Stand für die Startseite; veraltet/fehlend → Hintergrundlauf anstoßen. */

@@ -69,9 +69,36 @@ export function buildPatch(f: SettingsForm): SettingsPatch {
 export const isDirty = (f: SettingsForm, saved: PublicSettings): boolean =>
   JSON.stringify(buildPatch(f)) !== JSON.stringify(buildPatch(formFromSettings(saved)));
 
+// ---- Automatisch speichern ----
+// Ein Plattformwechsel wird erst wirksam, wenn die gewählte Plattform eingerichtet ist (Zugangsdaten gespeichert) –
+// sonst wäre der Shop schon beim bloßen Umschalten des Reiters getrennt. Bis dahin speichert Lotse nur deren Felder.
+
+/** Gewählte Plattform wartet noch auf ihre Zugangsdaten, verbunden bleibt die gespeicherte. */
+export const platformPending = (f: SettingsForm, saved: PublicSettings): boolean =>
+  f.platform !== (saved.platform ?? 'shopware') && !savedConfigured(saved, f.platform);
+
+/** Gewählter KI-Anbieter ist noch nicht angemeldet bzw. hat keinen Schlüssel: die bisherige KI bleibt aktiv. */
+export const aiPending = (f: SettingsForm, saved: PublicSettings): boolean =>
+  f.ai.provider !== saved.ai.provider
+  && !(f.ai.provider === 'codex' ? saved.ai.codexLoggedIn : saved.ai.hasApiKey || saved.ai.viaEnv || !!f.secrets.apiKey.value.trim());
+
+/** Was automatisch gespeichert wird: wie buildPatch, nur ohne einen noch nicht einsatzbereiten Plattform- oder KI-Wechsel. */
+export function autosavePatch(f: SettingsForm, saved: PublicSettings): SettingsPatch {
+  const p = buildPatch(f);
+  return {
+    ...p,
+    ...(platformPending(f, saved) ? { platform: saved.platform ?? 'shopware' } : {}),
+    ...(aiPending(f, saved) && p.ai ? { ai: { ...p.ai, provider: saved.ai.provider } } : {}),
+  };
+}
+
+/** Gibt es etwas automatisch zu speichern? */
+export const autosaveDirty = (f: SettingsForm, saved: PublicSettings): boolean =>
+  JSON.stringify(autosavePatch(f, saved)) !== JSON.stringify(buildPatch(formFromSettings(saved)));
+
 /** null = Test erlaubt. Sonst der Hinweis: ungespeicherte Eingaben, auch ein Plattformwechsel, werden nicht mitgeschrieben. */
 export const connectionTestBlock = (dirty: boolean): string | null =>
-  (dirty ? 'Zuerst speichern. Getestet wird nur, was gespeichert ist.' : null);
+  (dirty ? 'Einen Moment: Speichern läuft automatisch. Getestet wird nur, was gespeichert ist.' : null);
 
 export const AI_MODELS: { value: string; label: string }[] = [
   { value: '', label: 'Standard (empfohlen)' },

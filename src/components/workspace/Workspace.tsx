@@ -13,6 +13,7 @@ import { CHAT_COOKIE } from '@/lib/nav';
 import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, Health, Target } from '@/lib/protocol';
 import { liveSrc, withBust } from '@/lib/urls';
 import { useShell, type WorkspaceBridge } from '@/components/shell/ShellProvider';
+import { ContextChip } from '@/components/context/ContextChip';
 import { ContextPanel } from '@/components/context/ContextPanel';
 import { ChatLog } from '@/components/chat/ChatLog';
 import { Chips } from '@/components/chat/Chips';
@@ -122,7 +123,12 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     let conflict = false;
     dispatch({ type: 'run_start', text: message });
     await stream.run({ chatId: id, message, target: extra.chatId ? null : pickTarget(target), onboarding: extra.onboarding }, {
-      onEvent: event => { if (gen === runGen.current) liveEvent(event); },
+      onEvent: event => {
+        if (gen !== runGen.current) return;
+        liveEvent(event);
+        // Der Chat ist ab jetzt gespeichert: sofort links im Verlauf zeigen (als „läuft“), nicht erst nach der Runde
+        if (event.t === 'start') loadHistory();
+      },
       onError: (msg, status) => { if (gen !== runGen.current) return; if (status === 409) conflict = true; else dispatch({ type: 'error', text: msg }); },
     });
     if (gen !== runGen.current) return; // inzwischen anderer Chat – die Runde läuft dort im Hintergrund weiter
@@ -287,6 +293,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     const h = handlers.current;
     if (!h) return;
     if (intent.type === 'new') h.newChat();
+    else if (intent.type === 'new-context') { h.newChat(); h.openContext(); }
     else if (intent.type === 'open') h.openChat(intent.id);
     else if (intent.type === 'context') h.openContext();
     else h.openStyleguide();
@@ -316,9 +323,11 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const mode = home ? 'home' : pv ? 'pv' : 'work';
   const overlay = pv && previewOpen; // schmaler Viewport: Vorschau über dem Chat (Desktop zeigt sie ohnehin rechts)
 
+  const contextChip = <ContextChip target={target} onPick={() => setContextOpen(true)} onClear={() => selectTarget(null)} />;
   const composer = (
     <Composer value={input} onChange={setInput} onSubmit={() => send()} onStop={stop} writing={writeInFlight(state)} busy={busy} placeholder={placeholder} home={home}
-      atts={attachments.atts} onFiles={f => void attachments.addFiles(f)} onRemoveAtt={attachments.remove} inputRef={inputRef} />
+      atts={attachments.atts} onFiles={f => void attachments.addFiles(f)} onRemoveAtt={attachments.remove} inputRef={inputRef}
+      extra={(home || !target) && contextChip} />
   );
   const status = <div className={styles.statusRow}><StatusLine text={state.status} /></div>;
 
