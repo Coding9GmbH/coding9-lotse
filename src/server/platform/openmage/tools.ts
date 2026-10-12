@@ -6,7 +6,7 @@ import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { viewedImages } from '../../features/bilder';
 import type { Session } from '../../sessions';
 import { fail, guard, ok, type AnyTool } from '../../tool-kit';
-import { assertShopUrl, parseStorefront } from '../../storefront';
+import { assertShopUrl, fetchShopPage, parseStorefront } from '../../storefront';
 import { MAX_ITEMS } from './kit';
 import { basisWord, isActive, money, omAttr, omStr, plain, priceOf, FROM_KIDS, VISIBILITY, type OmCategory, type OmProduct, type OmRecord } from './map';
 import { LIST_FIELDS, OmReader, type ProductQuery } from './reader';
@@ -129,9 +129,9 @@ export function openmageTools(session: Session): AnyTool[] {
     tool('read_page', 'Liest eine Seite des EIGENEN Shops per Storefront-URL (Startseite, Kategorie, Produkt, CMS-Seite): Titel, Meta-Description, Überschriften, Text, Bilder, interne Links und welche Entität dahinter steht (Produkt, Kategorie, CMS-Seite). Nur URLs des Shops, kein freies Internet. Ändert nichts.',
       { url: z.string().url() }, guard(async ({ url }) => {
         const base = await ro().storefrontBase().catch(() => ro().publicUrl);
-        const u = assertShopUrl(url, [base, ro().publicUrl, ro().base].filter(Boolean));
-        const fetchUrl = ro().publicUrl && ro().base && ro().publicUrl !== ro().base && u.href.startsWith(ro().publicUrl) ? ro().base + u.href.slice(ro().publicUrl.length) : u.href;
-        const r = await (session.storefrontFetch ?? fetch)(fetchUrl, { redirect: 'follow' });
+        const allowed = [base, ro().publicUrl, ro().base].filter(Boolean);
+        const u = assertShopUrl(url, allowed);
+        const r = await fetchShopPage(u.href, allowed, { publicUrl: ro().publicUrl, internalBase: ro().base, fetchImpl: (href, init) => (session.storefrontFetch ?? fetch)(href, init) });
         if (!r.ok) return fail(`Seite antwortet mit HTTP ${r.status}`);
         const page = parseStorefront((await r.text()).slice(0, 2_500_000), u.href);
         const target = await ro().resolveUrl(u.pathname.replace(/^\/+/, '')).catch(() => null);
