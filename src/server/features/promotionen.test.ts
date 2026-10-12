@@ -365,3 +365,33 @@ test('Ändern: Fehler mitten im Set rollt bereits Geschriebenes zurück', async 
   assert.equal(db.promotion[0].name, 'Herbst', 'Name zurückgesetzt');
   assert.deepEqual(db['promotion-sales-channel'].map(s => s.salesChannelId), ['sf'], 'gelöschter Kanal wieder da');
 });
+
+test('Ändern: scheitert das Zurückrollen, bleiben die offenen Schritte als Rückgängig', async () => {
+  const db: Record<string, SwEntity[]> = baseDb();
+  db.promotion.push({ id: 'p1', name: 'Herbst', active: true, useCodes: true, code: 'ALT', useIndividualCodes: false, orderCount: 0, priority: 1, discounts: [], salesChannels: [{ salesChannelId: 'sf' }] });
+  db['promotion-sales-channel'] = [{ id: 'ps1', promotionId: 'p1', salesChannelId: 'sf', priority: 1 }];
+  const { cs, payload } = await buildPromotionChangeSet(fakeReader(db), { id: 'p1', name: 'Herbst neu', salesChannelIds: ['api'] }, { now: NOW, id: seq() });
+  const shop = fakeShop(db), create = shop.sw.create, update = shop.sw.update;
+  let updates = 0;
+  shop.sw.create = async (e: string, d: SwEntity) => { if (e === 'promotion-sales-channel' && d.salesChannelId === 'api') throw new Error('Kanal gesperrt'); return create(e, d); };
+  shop.sw.update = async (e: string, id: string, d: SwEntity) => { if (++updates > 1) throw new Error('Name lässt sich nicht zurücksetzen'); return update(e, id, d); };
+  const res = await applyChangeSet(shop.sw, cs, payload, all(cs));
+  assert.match(res.error ?? '', /Kanal gesperrt/);
+  assert.match(res.error ?? '', /Zurückrollen unvollständig/);
+  assert.equal(db.promotion[0].name, 'Herbst neu', 'der Name bleibt, weil das Zurücksetzen scheiterte');
+  assert.deepEqual(db['promotion-sales-channel'].map(s => s.salesChannelId), ['sf']);
+  assert.equal(res.undo.length, 1); assert.equal(res.undo[0].op, 'patch');
+  assert.deepEqual(res.undo[0].data, { name: 'Herbst' });
+});
+
+test('Anlegen: scheitert das Zurückrollen, bleibt der offene Löschschritt als Rückgängig', async () => {
+  const db: Record<string, SwEntity[]> = baseDb();
+  const { cs, payload } = await buildPromotionChangeSet(fakeReader(db), { name: 'Codes', active: true, validUntil: '2026-12-31', code: { mode: 'individual', pattern: 'C-%s%s%d%d', count: 1500 }, discounts: [{ type: 'percentage', value: 10, categoryIds: ['cat'] }] }, { now: NOW });
+  const shop = fakeShop(db, { failSyncAt: 2 }), req = shop.sw.req.bind(shop.sw);
+  shop.sw.req = async (m: string, p: string, body?: never) => { if (m === 'DELETE' && p.startsWith('/promotion/')) throw new Error('Promotion lässt sich nicht löschen'); return req(m, p, body); };
+  const res = await applyChangeSet(shop.sw, cs, payload, all(cs));
+  assert.match(res.error ?? '', /Sync fehlgeschlagen/);
+  assert.match(res.error ?? '', /Rückabwicklung unvollständig/);
+  assert.equal(db.promotion.length, 1);
+  assert.deepEqual(res.undo.map(u => `${u.op} ${u.entity}`), ['delete promotion']);
+});

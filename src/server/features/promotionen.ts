@@ -500,7 +500,10 @@ async function applyCreate(swW: Shopware, cs: ChangeSet, p: CreatePayload, ctx?:
     for (const r of p.rules) { await swW.create('rule', ruleEntity(r)); undo.push({ op: 'delete', entity: 'rule', id: r.id }); }
     await swW.create('promotion', promotionEntity(p)); undo.push({ op: 'delete', entity: 'promotion', id });
     if (p.codeCount) await insertCodes(swW, id, p.promotion.individualCodePattern!, p.codeCount); // Codes hängen per Cascade an der Promotion
-  } catch (e) { await undoOps(swW, undo); return { results: [], undo: [], error: errMsg(e) }; }
+  } catch (e) {
+    const error = errMsg(e), back = await undoOps(swW, undo), rest = undo.filter((_, i) => !back[undo.length - 1 - i]?.ok);
+    return { results: [], undo: rest, error: rest.length ? `${error} (Rückabwicklung unvollständig: ${back.find(b => !b.ok)?.error})` : error };
+  }
   // Rückwärts ausgeführt: erst Promotion (samt Rabatten, Codes, Kanälen), dann ihre Regeln
   return { results: cs.items.map(i => ({ itemId: i.id, ok: true })), undo: [promotionRulesDelete(id), { op: 'delete', entity: 'promotion', id }] };
 }
@@ -542,8 +545,8 @@ async function applyUpdate(swW: Shopware, cs: ChangeSet, promotionId: string, se
     const cPart = parts.find(p => p.codeCount);
     if (cPart) await insertCodes(swW, promotionId, cPart.codePattern!, cPart.codeCount!, undo);
   } catch (e) {
-    const rb = await undoOps(swW, undo);
-    return { results: its.map(i => ({ itemId: i.id, ok: false, error: errMsg(e) })), undo: [], error: `${errMsg(e)}${rb.every(r => r.ok) ? '; nichts geändert (zurückgerollt)' : '; Zurückrollen unvollständig, bitte prüfen'}` };
+    const error = errMsg(e), back = await undoOps(swW, undo), rest = undo.filter((_, i) => !back[undo.length - 1 - i]?.ok);
+    return { results: its.map(i => ({ itemId: i.id, ok: false, error })), undo: rest, error: rest.length ? `${error}; Zurückrollen unvollständig, bitte prüfen (${back.find(b => !b.ok)?.error})` : `${error}; nichts geändert (zurückgerollt)` };
   }
   return { results: its.map(i => ({ itemId: i.id, ok: true })), undo };
 }

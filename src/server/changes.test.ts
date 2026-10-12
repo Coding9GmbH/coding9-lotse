@@ -101,6 +101,19 @@ test('applyChangeSet: Preis + Streichpreis → ein PATCH mit brutto/netto (19 %)
   assert.deepEqual(r.undo, [{ op: 'patch', entity: 'product', id: 'p1', data: { name: null, price: old } }]);
 });
 
+test('applyChangeSet: Preis-PATCH behält den Grundpreis (regulationPrice)', async () => {
+  const { applyChangeSet } = await import('./changes');
+  const reg = { currencyId: 'eur', gross: 12, net: 10.084, linked: false, apiAlias: 'price' };
+  const old = [{ currencyId: 'eur', gross: 20, net: 16.8067, linked: true, regulationPrice: reg }];
+  const f = fakeShopware({ product: [{ id: 'p1', price: [{ ...old[0], regulationPrice: { ...reg } }], tax: { taxRate: 19 } }] });
+  const cs = { id: 'cs', kind: 'products', entity: 'product', title: 't', reason: null, atomic: false, skipped: [], items: [item('p1', 'price', 17.99), item('p1', 'listPrice', 24.99)] };
+  const r = await applyChangeSet(f.sw, cs, undefined, all(cs));
+  assert.ok(r.results.every(x => x.ok));
+  const entry = (f.calls[0].data as { price: { gross: number; listPrice?: { gross: number }; regulationPrice?: Record<string, unknown> }[] }).price[0];
+  assert.equal(entry.gross, 17.99); assert.equal(entry.listPrice?.gross, 24.99);
+  assert.deepEqual(entry.regulationPrice, { currencyId: 'eur', gross: 12, net: 10.084, linked: false });
+});
+
 test('applyChangeSet: Variante ohne eigenen Preis nimmt Basis/Steuer vom Hauptprodukt, Rückgängig stellt die Vererbung (price null) wieder her', async () => {
   const { applyChangeSet } = await import('./changes');
   const f = fakeShopware({ product: [{ id: 'v1', parentId: 'p', price: null, tax: null }, { id: 'p', price: [{ currencyId: 'eur', gross: 89, listPrice: { currencyId: 'eur', gross: 99 } }], tax: { taxRate: 7 } }] });
