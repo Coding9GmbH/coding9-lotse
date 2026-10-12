@@ -1,0 +1,4 @@
+# modman-Abbildung für Lotse_Connector (OpenMage / Magento 1)
+app/code/community/Lotse/Connector       app/code/community/Lotse/Connector
+app/etc/modules/Lotse_Connector.xml      app/etc/modules/Lotse_Connector.xml
+shell/lotse.php                          shell/lotse.php

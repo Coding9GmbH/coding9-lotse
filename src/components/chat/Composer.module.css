@@ -1,0 +1,29 @@
+.form { display: flex; gap: 8px; padding: 12px; background: var(--panel); border-top: 1px solid var(--line); align-items: flex-end; flex: none; }
+.form textarea { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--bg); min-height: 44px; height: 44px; max-height: 140px; outline: none; line-height: 1.55; }
+.form textarea:focus { border-color: var(--green); }
+.attach { height: 44px; width: 44px; padding: 0; font-size: 18px; flex: none; }
+.send { height: 44px; flex: none; }
+
+.home { margin: 0 16px; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-pop); padding: 12px; }
+.home textarea { min-height: 56px; height: 56px; padding-block: 16px; background: var(--panel); border: 0; }
+/* Startbildschirm: Knöpfe bleiben auf Höhe der ersten Zeile, der Text wächst nach unten */
+.home { align-items: flex-start; }
+.home .attach, .home .send { margin-top: 6px; }
+.home textarea:focus { border: 0; }
+
+.atts { display: flex; gap: 8px; padding: 0 12px 8px; flex-wrap: wrap; flex: none; }
+.att { position: relative; width: 56px; height: 56px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--sand); }
+.att img { width: 100%; height: 100%; object-fit: cover; }
+.up { opacity: .5; }
+.att button { position: absolute; top: 1px; right: 1px; padding: 0 5px; border-radius: 50%; line-height: 16px; font-size: 12px; background: #fffd; }
+
+/* Platzhalter einzeilig mit … (das leere Feld wächst nicht mit) */
+.form textarea:placeholder-shown { white-space: nowrap; overflow: hidden; }
+.form textarea::placeholder { text-overflow: ellipsis; }
+.doc { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; font-size: 20px; }
+.doc small { font-size: 9px; max-width: 52px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) {
+  .home { margin: 0 12px; padding: 8px; gap: 6px; }
+  .home textarea { padding-inline: 4px; }
+  .home .send { padding-inline: 14px; }
+}

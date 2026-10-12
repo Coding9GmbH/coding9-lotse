@@ -1,0 +1,80 @@
+import 'server-only';
+// Shopware-6-Adapter: hüllt den bestehenden Code (shopware.ts, changes.ts, runtime.ts, features/*) in den Plattform-Vertrag.
+import type { CategoryRow, ProductRow } from '@/lib/protocol';
+import { PLATFORM_SETTINGS } from '@/lib/platforms';
+import { applyChangeSet, undoOps } from '../../changes';
+import { accessAdd } from '../../db';
+import { createGuard } from '../../policy';
+import { applyRuntime, shop, storefrontBase, storefrontFetch, themeCss } from '../../runtime';
+import { getSettings, shopConfigured } from '../../settings';
+import { ReadOnlyShopware, type ShopReader } from '../../shopware';
+import type { PlatformAdapter } from '../types';
+import { shopwareLookup } from './lookup';
+import { shopwarePages } from './pages';
+import { SHOPWARE_TOOL_NAMES, shopwareTools } from './tools';
+
+/** Geschützter Lese-Client wie im Chat: Freigabeliste (policy.ts), Bereiche aus den Einstellungen, Zugriffsprotokoll unter chat. */
+export const shopwareReader = (chat: string) => new ReadOnlyShopware(shop(), createGuard({ getScopes: () => getSettings().scopes, onAccess: a => accessAdd({ chat, ...a }) }));
+
+export const shopware: PlatformAdapter = {
+  kind: 'shopware',
+  label: 'Shopware',
+  settings: PLATFORM_SETTINGS.shopware,
+  capabilities: { pageTypes: ['landingpage', 'product_list', 'product_detail'], publishTargets: ['category', 'product', 'landingpage'], blocks: 'all', pageFormat: 'cms', reuse: true },
+  promptVars: { shop: 'Shopware-6-Shop', platform: 'Shopware', htmlElement: 'Shopware-HTML-Element', shopcheckTools: ' (seo_audit, find_image_gaps, get_product_details …)' },
+  configured: () => shopConfigured('shopware'),
+  reconfigure: applyRuntime,
+
+  async testConnection() {
+    const sw = shop(); await sw.auth();
+    const v = await sw.req('GET', '/_info/version');
+    return { ok: true, message: `Verbunden mit Shopware ${v.version}` };
+  },
+  async health() {
+    const sw = shop(), out: { url: string; ok: boolean; error?: string } = { url: sw.publicUrl || sw.base, ok: false };
+    try { await sw.auth(); out.ok = true; } catch (e) { out.error = e instanceof Error ? e.message : String(e); }
+    return out;
+  },
+  async urls() {
+    const sw = shop();
+    let storefront = sw.publicUrl;
+    try { storefront = await storefrontBase(); } catch {}
+    return { admin: sw.publicUrl, storefront, paths: { adminCategory: '/admin#/sw/category/index/{id}', adminProduct: '/admin#/sw/product/detail/{id}/base', adminCms: '/admin#/sw/cms/detail/{id}', category: '/navigation/{id}', product: '/detail/{id}' } };
+  },
+
+  openSession(chat) {
+    const reader = shopwareReader(chat); // privilegierter Client bleibt im Server, wird NIE an die KI gegeben
+    return { reader, lookup: shopwareLookup(reader), storefrontFetch, themeCss };
+  },
+  lookup: reader => shopwareLookup(reader as ShopReader),
+  toolNames: SHOPWARE_TOOL_NAMES,
+  tools: shopwareTools,
+  loadChecks: async () => { await import('../../features'); },
+
+  apply: (cs, payload, selected, ctx) => applyChangeSet(shop(), cs, payload, selected, ctx),
+  undo: ops => undoOps(shop(), ops),
+  pages: shopwarePages,
+
+  context: {
+    // Kontext-Auswahl der Oberfläche (Mensch, nicht KI): wie bisher über den privilegierten Client
+    async categories() {
+      const out: CategoryRow[] = []; // seitenweise: große Shops haben weit mehr als 500 Kategorien
+      for (let page = 1; page <= 40; page++) {
+        const r = await shop().search('category', { limit: 500, page, sort: [{ field: 'level', order: 'ASC' }, { field: 'name', order: 'ASC' }], associations: { cmsPage: {} } });
+        out.push(...r.data.map((c): CategoryRow => ({ id: c.id, name: c.translated?.name ?? c.name, parentId: c.parentId, active: c.active, type: c.type, cmsPage: c.cmsPage?.name ?? null })));
+        if (r.data.length < 500) break;
+      }
+      return out;
+    },
+    async products({ term, categoryId }) {
+      const r = await shop().search('product', {
+        limit: 30, ...(term ? { term } : {}),
+        filter: [{ type: 'equals', field: 'parentId', value: null }, ...(categoryId ? [{ type: 'equals', field: 'categoriesRo.id', value: categoryId }] : [])],
+        associations: { cover: { associations: { media: {} } }, cmsPage: {} },
+      });
+      return r.data.map((p): ProductRow => ({ id: p.id, name: p.translated?.name ?? p.name, number: p.productNumber, img: p.cover?.media?.url, cmsPage: p.cmsPage?.name ?? null }));
+    },
+  },
+
+  storefront: { base: storefrontBase, fetch: (u, i) => shop().storefrontFetch(u, i) },
+};

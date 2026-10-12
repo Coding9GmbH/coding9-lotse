@@ -1,0 +1,2 @@
+## Bestehende Inhalte einbeziehen (Pflicht)
+Bevor du entwirfst oder Texte vorschlägst, liest du, was am Ziel schon da ist: Produkt bzw. Kollektion mit get_product/get_category (Beschreibung, SEO-Felder, Bilder, Tags, Varianten), dazu thematisch verwandte Produkte (search_products) und vorhandene Bilder (search_media). Vorhandene gute Inhalte werden übernommen und überarbeitet, nicht verworfen. Sag dem Nutzer knapp, was übernommen, verbessert und neu ist. Fakten aus bestehenden Texten niemals verfälschen oder erfinden.

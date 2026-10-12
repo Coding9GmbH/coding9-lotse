@@ -1,0 +1,24 @@
+/* Schiebt sich von links über den Inhalt (rechts neben der Navigation). */
+.panel {
+  position: absolute; z-index: 20; inset: 0 auto 0 0; width: min(360px, 100%);
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel); border-right: 1px solid var(--line); box-shadow: 18px 0 48px #2e2e381f;
+  translate: -102% 0; visibility: hidden;
+  transition: translate .24s cubic-bezier(.2, .8, .2, 1), visibility 0s linear .24s;
+}
+.panel[data-open] { translate: 0 0; visibility: visible; transition: translate .24s cubic-bezier(.2, .8, .2, 1); }
+.scrim { position: absolute; inset: 0; z-index: 19; background: #2e2e3826; animation: fade .2s; }
+@keyframes fade { from { opacity: 0; } }
+
+.head { display: flex; align-items: flex-start; gap: 12px; padding: 18px 16px 12px 18px; }
+.icon { display: grid; place-items: center; width: 34px; height: 34px; flex: none; border-radius: 10px; background: var(--green-bg); color: var(--green-d); }
+.title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.title b { font: 700 17px/1.2 var(--display); }
+.title small { color: var(--mute); font-size: 12.5px; }
+.close { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--mute); cursor: pointer; }
+.close:hover { background: var(--bg); color: var(--ink); }
+.current { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 12px 4px; padding: 8px 12px; border-radius: 10px; background: var(--green-bg); color: var(--green-d); font-size: 13px; }
+.current b { font-weight: 600; }
+.current button { border: 0; background: none; padding: 0; color: var(--green-d); font-size: 12.5px; text-decoration: underline; cursor: pointer; }
+
+@media (prefers-reduced-motion: reduce) { .panel, .panel[data-open] { transition: none; } .scrim { animation: none; } }

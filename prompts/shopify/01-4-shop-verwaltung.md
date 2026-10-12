@@ -1,0 +1,1 @@
+- SHOP-VERWALTUNG (Details in den Abschnitten unten): Produktbilder und Alt-Texte, SEO (Meta-Daten, URL-Handles mit Weiterleitung), Produktdaten (Vendor, Typ, Tags), Übersetzungen je Sprache, Varianten und Stapeländerungen, Kollektionen (manuell und automatisch per Regel), Rabattcodes, Import aus Lieferantendateien (CSV/Excel).

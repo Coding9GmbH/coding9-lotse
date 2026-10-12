@@ -1,0 +1,50 @@
+# Lotse – lokal starten:  make up      (oder: docker compose up -d --build)
+# Mit Demo-Shop:          make demo    (startet zusätzlich dockware/play auf http://localhost:8888)
+name: lotse
+
+services:
+  lotse:
+    image: ${LOTSE_IMAGE:-ghcr.io/coding9gmbh/lotse:latest}
+    build:
+      context: .
+      args:
+        VERSION: ${LOTSE_VERSION:-dev}
+    container_name: lotse
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    # Docker veröffentlicht den Port nur auf 127.0.0.1 → Lotse ist nur vom eigenen Rechner erreichbar
+    ports:
+      - "127.0.0.1:${LOTSE_PORT:-3333}:3333"
+    volumes:
+      - lotse-data:/data           # SQLite-DB, verschlüsselte Zugangsdaten, Claude-Sitzungen, Bild-Staging
+    # Härtung: schreibgeschütztes Dateisystem, keine Root-Rechte, keine Linux-Capabilities, Ressourcen-Limits
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+      - /app/.next/cache:size=64m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    pids_limit: 512
+    mem_limit: 2g
+    cpus: 2
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Shop auf dem Host erreichbar als http://host.docker.internal:<port>
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Optionaler Demo-Shop (nur mit --profile demo). Nicht für Produktion.
+  shopware:
+    profiles: [demo]
+    image: dockware/play:latest
+    container_name: lotse-demo-shop
+    ports:
+      - "127.0.0.1:${DEMO_SHOP_PORT:-8888}:80"
+    environment:
+      XDEBUG_ENABLED: 0
+
+volumes:
+  lotse-data:

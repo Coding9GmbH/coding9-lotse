@@ -1,0 +1,18 @@
+.msg { max-width: 94%; padding: 9px 13px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: break-word; flex-shrink: 0; }
+.user { align-self: flex-end; background: var(--dark); color: #fff; border-bottom-right-radius: 4px; animation: pop .18s ease-out; }
+.ai { align-self: flex-start; white-space: normal; background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.thumbs { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.thumbs img { width: 54px; height: 54px; object-fit: cover; border-radius: 8px; }
+
+.ai :global(p), .md :global(p) { margin: 0 0 .6em; }
+.ai :global(p:last-child), .ai :global(ul:last-child), .md :global(p:last-child) { margin-bottom: 0; }
+.ai :global(ul), .md :global(ul) { margin: .2em 0 .6em; padding-left: 1.2em; }
+.ai :global(code), .md :global(code) { background: var(--bg); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+.ai :global(.md-scroll), .md :global(.md-scroll) { overflow: auto; }
+.ai :global(.mdt), .md :global(.mdt) { border-collapse: collapse; font-size: 12px; margin: .3em 0; }
+.ai :global(.mdt th), .ai :global(.mdt td), .md :global(.mdt th), .md :global(.mdt td) { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
+.ai :global(.mdt th), .md :global(.mdt th) { background: var(--bg); }
+
+@keyframes pop { from { opacity: 0; transform: translateY(6px); } }
+.files { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.files span { font-size: 12.5px; padding: 3px 9px; border-radius: 8px; background: #ffffff1f; border: 1px solid #ffffff33; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

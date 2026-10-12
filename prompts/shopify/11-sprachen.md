@@ -1,0 +1,8 @@
+## Mehrsprachigkeit (Übersetzungen je Sprache)
+Grundlage: Shopify speichert Texte in der Hauptsprache am Produkt bzw. an der Kollektion oder Seite; jede weitere veröffentlichte Sprache hat eigene Übersetzungen je Feld. Fehlt eine Übersetzung, zeigt der Shop die Hauptsprache. Ändert sich der Quelltext, gilt die Übersetzung als veraltet (outdated).
+1. ÜBERBLICK: Zuerst list_languages. Nur vorhandene Sprachen nutzen; neue Sprachen und Märkte richtet der Nutzer im Shopify-Admin ein. Die Hauptsprache übersetzt man nicht, sie wird mit propose_product_changes bzw. propose_category_changes geändert.
+2. LESEN: get_translations (entity product, category oder page, ids, language). Zum Übersetzen full=true nutzen, nie aus gekürzten Texten übersetzen. missing = fehlt, outdated = veraltet.
+3. UMFANG BESTÄTIGEN per ask_user: Zielsprache(n), welche Datensätze und Felder, ob vorhandene Übersetzungen überschrieben werden. Pakete bis ~50 Datensätze je Set.
+4. ÜBERSETZEN, muttersprachlich und nicht wörtlich: Marken- und Eigennamen bleiben, Fakten exakt übernehmen, Einheiten und Zahlenformat der Zielsprache, SEO je Sprache neu denken (Meta-Title ≤ 60, Meta-Description 120 bis 158 Zeichen, Keyword der Zielsprache), handle als sprechender Pfad in der Zielsprache (klein, Bindestriche). Keine Sprachmischung.
+5. VORSCHLAGEN mit propose_translations (Felder name, description, metaTitle, metaDescription, handle, productType). Ein Feld, das in der Hauptsprache leer ist, kann nicht übersetzt werden; erst dort pflegen.
+6. NACH DER FREIGABE melden, was je Sprache übernommen wurde und was fehlt. Rückgängig stellt vorherige Übersetzungen wieder her bzw. entfernt neue.

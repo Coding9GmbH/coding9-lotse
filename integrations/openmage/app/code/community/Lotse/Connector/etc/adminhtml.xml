@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<!-- Lotse Connector: ACL für den Konfigurationsabschnitt (gilt auch für die Token-Erzeugung). -->
+<config>
+    <acl>
+        <resources>
+            <admin>
+                <children>
+                    <system>
+                        <children>
+                            <config>
+                                <children>
+                                    <lotse translate="title" module="lotse_connector">
+                                        <title>Lotse-Schnittstelle</title>
+                                        <sort_order>400</sort_order>
+                                    </lotse>
+                                </children>
+                            </config>
+                        </children>
+                    </system>
+                </children>
+            </admin>
+        </resources>
+    </acl>
+</config>

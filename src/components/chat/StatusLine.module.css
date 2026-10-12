@@ -1,0 +1,4 @@
+.status { display: flex; align-items: center; gap: 10px; margin: 0 12px 8px; padding: 8px 14px; border-radius: 99px; background: var(--panel); border: 1px solid var(--line); font-size: 13px; color: var(--mute); align-self: flex-start; box-shadow: 0 2px 8px #2e2e3812; width: fit-content; flex: none; }
+.status[hidden] { display: none; }
+.status i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--coral); animation: spin .8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }

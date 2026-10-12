@@ -1,0 +1,9 @@
+.steps { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--mute); list-style: none; margin: 0; padding: 0; flex-shrink: 0; }
+.step button { display: flex; gap: 7px; align-items: baseline; padding: 1px 0; border: 0; background: none; color: inherit; text-align: left; border-radius: 4px; }
+.step button:hover { color: var(--ink); }
+.step i { width: 8px; height: 8px; border-radius: 50%; background: var(--coral); flex: none; }
+.done i { background: var(--green); }
+.bad i { background: var(--coral-d); outline: 2px solid var(--coral-bg); }
+.run i { animation: pulse 1s infinite; }
+.step code { display: block; white-space: pre-wrap; word-break: break-all; font-size: 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px; margin: 3px 0 3px 15px; }
+@keyframes pulse { 50% { opacity: .3; } }

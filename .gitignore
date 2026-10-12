@@ -1,0 +1,15 @@
+node_modules/
+data/
+.env
+.env.*
+!.env.example
+.idea/
+.DS_Store
+*.log
+backups/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# Promo-Videos (Quellen und Export) liegen nicht im Repository
+video/

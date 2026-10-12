@@ -1,0 +1,1389 @@
+openapi: 3.1.0
+info:
+  title: Lotse Connector API für OpenMage (Magento 1)
+  version: 1.2.0
+  description: |
+    Token-gesicherte JSON-API des OpenMage-Moduls `Lotse_Connector` unter `/lotse-api/v1`.
+    Zustandslos (keine Session, keine Cookies). Store-Scope über `?store=<code>` oder Header `X-Lotse-Store`
+    (leer, `admin` oder `0` = globaler Scope, Store 0). Beim Schreiben im Store-View-Scope bedeutet `null`
+    „Standardwert verwenden“ (Store-Wert wird gelöscht); im globalen Scope ist `null` nicht erlaubt (`""` leert).
+    Jede Schreibantwort enthält den vollständigen neuen Stand des Objekts.
+    Es gibt keine Endpunkte für Kunden, Bestellungen, Warenkörbe, Rechnungen, Benutzer, Zahlungen oder Newsletter.
+servers:
+  - url: https://shop.example/lotse-api
+security:
+  - bearer: []
+tags:
+  - name: info
+  - name: products
+  - name: images
+  - name: categories
+  - name: cms
+  - name: salesrules
+  - name: urlrewrites
+
+paths:
+  /v1/info:
+    get:
+      tags: [info]
+      summary: Shop-, Store- und Indexer-Informationen
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Info' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/products:
+    get:
+      tags: [products]
+      summary: Produkte auflisten
+      parameters:
+        - $ref: '#/components/parameters/store'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: sort
+          in: query
+          schema: { type: string, enum: [entity_id, sku, name, price, updated_at, created_at, status], default: entity_id }
+        - name: dir
+          in: query
+          schema: { type: string, enum: [asc, desc], default: asc }
+        - { name: sku, in: query, description: Teilstring (LIKE), schema: { type: string } }
+        - { name: skus, in: query, description: Exakte SKUs, kommagetrennt, schema: { type: string } }
+        - { name: ids, in: query, description: Produkt-IDs, kommagetrennt, schema: { type: string } }
+        - { name: name, in: query, description: Teilstring (LIKE), schema: { type: string } }
+        - { name: term, in: query, description: Teilstring (LIKE) in Name ODER SKU (ab 1.2.0), schema: { type: string } }
+        - { name: category_id, in: query, description: Direkte Zuordnung (ohne Anker-Vererbung), schema: { type: integer } }
+        - { name: status, in: query, schema: { type: integer, enum: [1, 2] } }
+        - { name: visibility, in: query, description: Kommagetrennt (1 nicht sichtbar, 2 Katalog, 3 Suche, 4 beides), schema: { type: string } }
+        - { name: type, in: query, description: type_id, kommagetrennt (simple, configurable, virtual, bundle, grouped, downloadable), schema: { type: string } }
+        - { name: attribute_set_id, in: query, schema: { type: integer } }
+        - { name: price_from, in: query, schema: { type: number } }
+        - { name: price_to, in: query, schema: { type: number } }
+        - { name: updated_from, in: query, description: '`updated_at >= wert` (UTC, `YYYY-MM-DD HH:MM:SS`)', schema: { type: string } }
+        - { name: website_id, in: query, schema: { type: integer } }
+        - { name: fields, in: query, description: 'Weitere Attribute je Eintrag (kommagetrennt, z. B. description,meta_title,meta_description), Antwort unter `attributes`; Galerie-/Staffelpreis-Attribute nicht erlaubt (400)', schema: { type: string } }
+        - { name: with, in: query, description: '`images` = Galerie je Eintrag (wie im Detail) unter `images`', schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ProductListItem' }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+    post:
+      tags: [products]
+      summary: Produkt anlegen (simple, virtual, configurable), immer global
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductCreate' }
+      responses:
+        '201': { $ref: '#/components/responses/Product' }
+        '400': { $ref: '#/components/responses/Validation' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/products/attributes:
+    get:
+      tags: [products]
+      summary: Attributsets und Produktattribute mit Optionen
+      parameters:
+        - $ref: '#/components/parameters/store'
+        - { name: options, in: query, description: '`0` ohne Optionslisten', schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      attribute_sets:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: integer }
+                            name: { type: string }
+                            is_default: { type: boolean }
+                            attribute_codes: { type: array, items: { type: string } }
+                      attributes:
+                        type: array
+                        items: { $ref: '#/components/schemas/Attribute' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+
+  /v1/products/{sku}:
+    parameters:
+      - $ref: '#/components/parameters/sku'
+      - $ref: '#/components/parameters/store'
+    get:
+      tags: [products]
+      summary: Produktdetail
+      responses:
+        '200': { $ref: '#/components/responses/Product' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [products]
+      summary: Attribute schreiben (Store-Scope, null = Standardwert verwenden)
+      description: |
+        Schreibt über `catalog/product_action::updateAttributes` (Indexer wie im Admin). `url_key` wird formatiert und
+        `catalog_url` für das Produkt aufgefrischt; `_write.rewrites_added` nennt dabei neu entstandene 301-Rewrites
+        („Save Rewrites History“), die ein exaktes Rückgängig zusätzlich löscht (`DELETE /v1/urlrewrites/{id}`).
+        Auswahlattribute akzeptieren Options-ID oder Label, Multiselect eine Liste. `custom_layout_update` wird wie im
+        Admin geprüft (keine "../"-Template-Pfade, helper=-Attribute, setTemplate, gesperrte Blöcke; sonst 400).
+        `null` bei Website-Attributen (z. B. price bei Preis-Scope Website) löscht den Wert in allen Store-Views der Website.
+        Nicht schreibbar: sku, type_id, attribute_set_id, media_gallery, tier_price, group_price, category_ids, website_ids,
+        created_at, updated_at, has_options, required_options.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [attributes]
+              properties:
+                attributes:
+                  type: object
+                  additionalProperties: { nullable: true }
+                  example: { name: "Vase „Kiesel“", meta_description: null, special_price: 39.9, color: "Sand" }
+      responses:
+        '200': { $ref: '#/components/responses/Product' }
+        '400': { $ref: '#/components/responses/Validation' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [products]
+      summary: Wie PATCH
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                attributes: { type: object, additionalProperties: { nullable: true } }
+      responses:
+        '200': { $ref: '#/components/responses/Product' }
+    delete:
+      tags: [products]
+      summary: Produkt löschen (Rückgängig einer Anlage)
+      responses:
+        '200':
+          description: Gelöscht; `before` enthält den letzten Stand
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      deleted: { type: boolean }
+                      id: { type: integer }
+                      sku: { type: string }
+                      before: { $ref: '#/components/schemas/Product' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/products/{sku}/stock:
+    parameters:
+      - $ref: '#/components/parameters/sku'
+    get:
+      tags: [products]
+      summary: Bestand
+      responses:
+        '200': { $ref: '#/components/responses/Stock' }
+    put:
+      tags: [products]
+      summary: Bestand setzen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                qty: { type: number }
+                is_in_stock: { type: boolean }
+                manage_stock: { type: boolean, nullable: true, description: null = Konfiguration verwenden }
+      responses:
+        '200': { $ref: '#/components/responses/Stock' }
+
+  /v1/products/{sku}/categories:
+    parameters:
+      - $ref: '#/components/parameters/sku'
+      - $ref: '#/components/parameters/store'
+    get:
+      tags: [products]
+      summary: Kategoriezuordnungen mit Position
+      responses:
+        '200': { $ref: '#/components/responses/CategoryAssignments' }
+    put:
+      tags: [products]
+      summary: Zuordnungen ändern (add/remove/set_position)
+      description: Über das Kategoriemodell (Indexer wie im Admin). Beim Entfernen werden die Produkt-Rewrites der verlassenen Kategorie gelöscht.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                add:
+                  type: array
+                  items:
+                    oneOf:
+                      - { type: integer }
+                      - { type: object, properties: { id: { type: integer }, position: { type: integer } }, required: [id] }
+                remove: { type: array, items: { type: integer } }
+                set_position:
+                  type: array
+                  items: { type: object, properties: { id: { type: integer }, position: { type: integer } }, required: [id, position] }
+      responses:
+        '200': { $ref: '#/components/responses/CategoryAssignments' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/products/{sku}/images:
+    parameters:
+      - $ref: '#/components/parameters/sku'
+      - $ref: '#/components/parameters/store'
+    get:
+      tags: [images]
+      summary: Galerie
+      responses:
+        '200': { $ref: '#/components/responses/Images' }
+    post:
+      tags: [images]
+      summary: Bild hinzufügen (Base64 oder URL), immer global
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                base64: { type: string, description: Rohdaten Base64 (auch data-URI) }
+                url: { type: string, description: 'http(s)-URL, vom Shop-Server aus erreichbar. Nur öffentliche Adressen: Loopback, private (10/8, 172.16/12, 192.168/16), Link-Local (169.254/16, fe80::/10), fc00::/7 usw. werden auch als Weiterleitungsziel abgelehnt (400)' }
+                filename: { type: string }
+                label: { type: string }
+                position: { type: integer }
+                types: { type: array, items: { type: string, enum: [image, small_image, thumbnail] } }
+                disabled: { type: boolean, default: false }
+      responses:
+        '201':
+          description: Angelegt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      image: { $ref: '#/components/schemas/Image' }
+                      images: { type: array, items: { $ref: '#/components/schemas/Image' } }
+        '400': { $ref: '#/components/responses/Validation' }
+
+  /v1/media/{sku}:
+    parameters:
+      - $ref: '#/components/parameters/sku'
+      - $ref: '#/components/parameters/store'
+    get:
+      tags: [images]
+      summary: Alias für GET /v1/products/{sku}/images
+      responses:
+        '200': { $ref: '#/components/responses/Images' }
+
+  /v1/products/{sku}/images/{id}:
+    parameters:
+      - $ref: '#/components/parameters/sku'
+      - { name: id, in: path, required: true, description: Galerie-ID (value_id), schema: { type: integer } }
+      - $ref: '#/components/parameters/store'
+    patch:
+      tags: [images]
+      summary: Label, Position, Rollen, Sichtbarkeit
+      description: |
+        `label`/`position` sind je Store-View überschreibbar (`null` = Standardwert, nur Store > 0); `disabled` ist je
+        Galerie-Zeile ein fester Wert. Geschrieben wird genau die Zeile (value_id, store_id) ohne Produkt-Save, eine
+        Store-Zeile ohne eigenen Wert wird entfernt; andere Attribute und Bilder bekommen keine Store-Kopien (ab 1.1.1).
+        `types` ist die exakte Rollenliste dieses Bildes; nicht genannte Rollen, die auf dieses Bild zeigen, werden auf
+        `no_selection` gesetzt. Rollen sind Store-scoped Produktattribute (image, small_image, thumbnail); im Scope werden
+        nur geänderte Rollen geschrieben.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: { type: string, nullable: true }
+                position: { type: integer, nullable: true }
+                disabled: { type: boolean }
+                types: { type: array, items: { type: string, enum: [image, small_image, thumbnail] } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      image: { $ref: '#/components/schemas/Image' }
+                      images: { type: array, items: { $ref: '#/components/schemas/Image' } }
+                      _write: { type: object, properties: { changed: { type: array, items: { type: string } } } }
+    delete:
+      tags: [images]
+      summary: Bild ausblenden (Standard) oder löschen
+      parameters:
+        - { name: mode, in: query, schema: { type: string, enum: [disable, delete], default: disable } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      mode: { type: string }
+                      before: { $ref: '#/components/schemas/Image' }
+                      file_deleted: { type: boolean }
+                      images: { type: array, items: { $ref: '#/components/schemas/Image' } }
+
+  /v1/categories:
+    get:
+      tags: [categories]
+      summary: Kategoriebaum
+      parameters:
+        - $ref: '#/components/parameters/store'
+        - { name: root, in: query, description: Teilbaum unterhalb dieser Kategorie, schema: { type: integer } }
+        - { name: depth, in: query, schema: { type: integer } }
+        - { name: flat, in: query, description: '`1` = Liste statt Baum', schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/CategoryNode' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+
+  /v1/categories/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+      - $ref: '#/components/parameters/store'
+    get:
+      tags: [categories]
+      summary: Kategoriedetail
+      responses:
+        '200': { $ref: '#/components/responses/Category' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [categories]
+      summary: Attribute schreiben (Store-Scope, null = Standardwert verwenden)
+      description: Über das Kategoriemodell. Im Store-Scope werden nur die angefragten Attribute Store-Werte, alle anderen geerbten Attribute bleiben wie im Admin auf „Standardwert verwenden“ (`store_overrides` wächst genau um die angefragten Codes, ab 1.1.1). `landing_page` muss eine CMS-Block-ID sein, `display_mode` PRODUCTS, PAGE oder PRODUCTS_AND_PAGE, `custom_layout_update` wird wie im Admin geprüft (sonst 400). Nicht schreibbar sind Strukturfelder (parent_id, path, level, position, url_path).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [attributes]
+              properties:
+                attributes:
+                  type: object
+                  additionalProperties: { nullable: true }
+                  example: { name: "Wohnaccessoires", description: "<p>…</p>", meta_title: "…", url_key: "wohnaccessoires", is_active: true, display_mode: PRODUCTS_AND_PAGE, landing_page: 4 }
+      responses:
+        '200': { $ref: '#/components/responses/Category' }
+        '400': { $ref: '#/components/responses/Validation' }
+
+  /v1/cms/pages:
+    get:
+      tags: [cms]
+      summary: CMS-Seiten (ohne Inhalt)
+      description: Ohne `store` alle Seiten (auch nur einzelnen Store-Views zugeordnete; `stores`/`store_ids` je Eintrag), mit `store` nur die in dieser View sichtbaren.
+      parameters:
+        - $ref: '#/components/parameters/store'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: sort, in: query, schema: { type: string, enum: [page_id, identifier, title, update_time, creation_time, sort_order] } }
+        - { name: dir, in: query, schema: { type: string, enum: [asc, desc] } }
+        - { name: identifier, in: query, schema: { type: string } }
+        - { name: title, in: query, schema: { type: string } }
+        - { name: term, in: query, description: Teilstring in Titel ODER identifier (ab 1.2.0), schema: { type: string } }
+        - { name: is_active, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/CmsPage' } }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+    post:
+      tags: [cms]
+      summary: Seite anlegen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CmsPageWrite' }
+      responses:
+        '201': { $ref: '#/components/responses/CmsPage' }
+        '400': { $ref: '#/components/responses/Validation' }
+        '422': { $ref: '#/components/responses/Magento' }
+
+  /v1/cms/pages/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [cms]
+      summary: Seite mit Inhalt
+      responses:
+        '200': { $ref: '#/components/responses/CmsPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [cms]
+      summary: Seite ändern (nur gesendete Felder; ohne `stores` bleibt die Zuordnung)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CmsPageWrite' }
+      responses:
+        '200': { $ref: '#/components/responses/CmsPage' }
+        '422': { $ref: '#/components/responses/Magento' }
+    put:
+      tags: [cms]
+      summary: Wie PATCH
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CmsPageWrite' }
+      responses:
+        '200': { $ref: '#/components/responses/CmsPage' }
+    delete:
+      tags: [cms]
+      summary: Seite löschen
+      responses:
+        '200': { $ref: '#/components/responses/DeletedCmsPage' }
+
+  /v1/cms/blocks:
+    get:
+      tags: [cms]
+      summary: CMS-Blöcke (ohne Inhalt)
+      description: Ohne `store` alle Blöcke (auch nur einzelnen Store-Views zugeordnete), mit `store` nur die in dieser View sichtbaren.
+      parameters:
+        - $ref: '#/components/parameters/store'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: sort, in: query, schema: { type: string, enum: [block_id, identifier, title, update_time, creation_time] } }
+        - { name: dir, in: query, schema: { type: string, enum: [asc, desc] } }
+        - { name: identifier, in: query, schema: { type: string } }
+        - { name: title, in: query, schema: { type: string } }
+        - { name: term, in: query, description: Teilstring in Titel ODER identifier (ab 1.2.0), schema: { type: string } }
+        - { name: is_active, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/CmsBlock' } }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+    post:
+      tags: [cms]
+      summary: Block anlegen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CmsBlockWrite' }
+      responses:
+        '201': { $ref: '#/components/responses/CmsBlock' }
+
+  /v1/cms/blocks/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [cms]
+      summary: Block mit Inhalt
+      responses:
+        '200': { $ref: '#/components/responses/CmsBlock' }
+    patch:
+      tags: [cms]
+      summary: Block ändern
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CmsBlockWrite' }
+      responses:
+        '200': { $ref: '#/components/responses/CmsBlock' }
+    put:
+      tags: [cms]
+      summary: Wie PATCH
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CmsBlockWrite' }
+      responses:
+        '200': { $ref: '#/components/responses/CmsBlock' }
+    delete:
+      tags: [cms]
+      summary: Block löschen
+      responses:
+        '200':
+          description: Gelöscht
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      deleted: { type: boolean }
+                      id: { type: integer }
+                      before: { $ref: '#/components/schemas/CmsBlock' }
+
+  /v1/salesrules:
+    get:
+      tags: [salesrules]
+      summary: Warenkorb-Preisregeln
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: sort, in: query, schema: { type: string, enum: [rule_id, name, sort_order, from_date, to_date, is_active] } }
+        - { name: dir, in: query, schema: { type: string, enum: [asc, desc] } }
+        - { name: is_active, in: query, schema: { type: integer } }
+        - { name: name, in: query, schema: { type: string } }
+        - { name: coupon_code, in: query, schema: { type: string } }
+        - { name: website_id, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK (ohne Bedingungsbäume)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/SalesRule' } }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+    post:
+      tags: [salesrules]
+      summary: Regel anlegen
+      description: Standard ist `is_active` 1, alle Websites, alle Kundengruppen, `coupon_type` 1 (ohne Gutschein; `coupon_code` setzt 2).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SalesRuleWrite' }
+      responses:
+        '201': { $ref: '#/components/responses/SalesRule' }
+        '400': { $ref: '#/components/responses/Validation' }
+
+  /v1/salesrules/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [salesrules]
+      summary: Regel mit Bedingungsbäumen
+      responses:
+        '200': { $ref: '#/components/responses/SalesRule' }
+    patch:
+      tags: [salesrules]
+      summary: Regel ändern (nur gesendete Felder)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SalesRuleWrite' }
+      responses:
+        '200': { $ref: '#/components/responses/SalesRule' }
+    put:
+      tags: [salesrules]
+      summary: Wie PATCH
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SalesRuleWrite' }
+      responses:
+        '200': { $ref: '#/components/responses/SalesRule' }
+    delete:
+      tags: [salesrules]
+      summary: Regel löschen (inkl. Gutscheine)
+      responses:
+        '200':
+          description: Gelöscht
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      deleted: { type: boolean }
+                      id: { type: integer }
+                      before: { $ref: '#/components/schemas/SalesRule' }
+
+  /v1/salesrules/{id}/coupons:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+      - $ref: '#/components/parameters/page'
+      - $ref: '#/components/parameters/limit'
+    get:
+      tags: [salesrules]
+      summary: Gutscheine der Regel (nur Zähler, kein Kundenbezug)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Coupon' } }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+
+  /v1/urlrewrites:
+    get:
+      tags: [urlrewrites]
+      summary: URL-Rewrites (Filter nötig)
+      parameters:
+        - $ref: '#/components/parameters/store'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: sku, in: query, schema: { type: string } }
+        - { name: product_id, in: query, schema: { type: integer } }
+        - { name: category_id, in: query, schema: { type: integer } }
+        - { name: request_path, in: query, schema: { type: string } }
+        - { name: id_path, in: query, schema: { type: string } }
+        - { name: is_system, in: query, schema: { type: integer } }
+        - { name: all, in: query, description: '`1` erlaubt eine Liste ohne Filter', schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/UrlRewrite' } }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+        '400': { $ref: '#/components/responses/Validation' }
+    post:
+      tags: [urlrewrites]
+      summary: Eigenen Rewrite anlegen (Store-View nötig)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [request_path]
+              properties:
+                request_path: { type: string }
+                store: { type: string, description: Store-Code }
+                store_id: { type: integer }
+                sku: { type: string }
+                product_id: { type: integer }
+                category_id: { type: integer, description: Mit product_id = Produkt in Kategorie, allein = Kategorie }
+                target_path: { type: string, description: Nur ohne sku/product_id/category_id }
+                options: { type: string, enum: [R, RP], nullable: true, description: R = 302, RP = 301, null = interner Rewrite }
+                id_path: { type: string }
+                description: { type: string }
+      responses:
+        '201': { $ref: '#/components/responses/UrlRewrite' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/urlrewrites/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [urlrewrites]
+      summary: Rewrite
+      responses:
+        '200': { $ref: '#/components/responses/UrlRewrite' }
+    delete:
+      tags: [urlrewrites]
+      summary: Rewrite löschen
+      parameters:
+        - { name: force, in: query, description: '`1` erlaubt das Löschen von System-Rewrites', schema: { type: string } }
+      responses:
+        '200':
+          description: Gelöscht
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      deleted: { type: boolean }
+                      id: { type: integer }
+                      before: { $ref: '#/components/schemas/UrlRewrite' }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: 'Authorization: Bearer <token> (Token aus System > Konfiguration > Lotse oder shell/lotse.php)'
+  parameters:
+    store:
+      name: store
+      in: query
+      description: Store-View-Code; alternativ Header `X-Lotse-Store`. Leer, `admin` oder `0` = global (Store 0).
+      schema: { type: string }
+    sku:
+      name: sku
+      in: path
+      required: true
+      description: SKU (URL-kodiert) oder `id:<produkt-id>`
+      schema: { type: string }
+    page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+  responses:
+    Unauthorized:
+      description: 'Token fehlt oder ist falsch (Header `WWW-Authenticate: Bearer`)'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Nicht gefunden (auch für alle nicht existierenden Bereiche wie customers, orders)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Validation:
+      description: Ungültige Eingabe
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Konflikt (z. B. SKU oder request_path belegt)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Magento:
+      description: Von OpenMage abgelehnt (Mage_Core_Exception), z. B. doppelter CMS-Identifier
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Product:
+      description: Produkt
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { $ref: '#/components/schemas/Product' }
+              meta: { $ref: '#/components/schemas/Meta' }
+    Stock:
+      description: Bestand
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { $ref: '#/components/schemas/Stock' }
+    CategoryAssignments:
+      description: Zuordnungen
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { type: array, items: { $ref: '#/components/schemas/CategoryAssignment' } }
+    Images:
+      description: Galerie
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { type: array, items: { $ref: '#/components/schemas/Image' } }
+    Category:
+      description: Kategorie
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { $ref: '#/components/schemas/Category' }
+    CmsPage:
+      description: CMS-Seite
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { $ref: '#/components/schemas/CmsPage' }
+    DeletedCmsPage:
+      description: Gelöscht
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                type: object
+                properties:
+                  deleted: { type: boolean }
+                  id: { type: integer }
+                  before: { $ref: '#/components/schemas/CmsPage' }
+    CmsBlock:
+      description: CMS-Block
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { $ref: '#/components/schemas/CmsBlock' }
+    SalesRule:
+      description: Preisregel
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { $ref: '#/components/schemas/SalesRule' }
+    UrlRewrite:
+      description: Rewrite
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { $ref: '#/components/schemas/UrlRewrite' }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, enum: [unauthorized, ip_not_allowed, disabled, not_found, method_not_allowed, validation, conflict, magento, internal, io, encoding] }
+            message: { type: string, description: Bei internal generisch; Klasse, Meldung und Pfade stehen nur in var/log/exception.log }
+            details: { type: object }
+    Meta:
+      type: object
+      properties:
+        store: { type: string, description: Code des Scopes oder `admin` }
+        store_id: { type: integer }
+        duration_ms: { type: integer }
+    ListMeta:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          properties:
+            page: { type: integer }
+            limit: { type: integer }
+            total: { type: integer }
+            pages: { type: integer }
+    StoreView:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        name: { type: string }
+        website_id: { type: integer }
+        group_id: { type: integer }
+        is_active: { type: boolean }
+        is_default: { type: boolean }
+        locale: { type: string, example: de_DE }
+        currency: { type: string, example: EUR }
+        base_currency: { type: string }
+        base_url: { type: string }
+        link_url: { type: string }
+        media_url: { type: string }
+        root_category_id: { type: integer }
+        store_in_url: { type: boolean }
+        title_prefix: { type: string, description: design/head/title_prefix der Store-View (das Theme stellt ihn jedem Seitentitel voran; ab 1.1.2) }
+        title_suffix: { type: string, description: design/head/title_suffix der Store-View (das Theme hängt ihn an jeden Seitentitel an, z. B. „ | Haus Holm“; ab 1.1.2) }
+    Info:
+      type: object
+      properties:
+        platform: { type: string, const: openmage }
+        version: { type: string, description: OpenMage-Version }
+        magento_version: { type: string }
+        edition: { type: string }
+        php_version: { type: string }
+        module_version: { type: string }
+        shop_name: { type: string }
+        default_store_view: { type: string }
+        price_includes_tax: { type: boolean, description: tax/calculation/price_includes_tax (Preisbasis brutto/netto) }
+        catalog_price_scope: { type: string, enum: [global, website] }
+        save_rewrites_history: { type: boolean }
+        product_url_suffix: { type: string }
+        category_url_suffix: { type: string }
+        indexers:
+          type: array
+          items:
+            type: object
+            properties:
+              code: { type: string }
+              mode: { type: string, enum: [real_time, manual] }
+              status: { type: string }
+        websites:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer }
+              code: { type: string }
+              name: { type: string }
+              is_default: { type: boolean }
+              default_group_id: { type: integer }
+              base_currency: { type: string }
+              groups:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: integer }
+                    name: { type: string }
+                    root_category_id: { type: integer }
+                    default_store_id: { type: integer }
+                    store_views: { type: array, items: { $ref: '#/components/schemas/StoreView' } }
+        store_views: { type: array, items: { $ref: '#/components/schemas/StoreView' } }
+    Attribute:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        label: { type: string }
+        store_label: { type: string }
+        input: { type: string, description: text, textarea, select, multiselect, boolean, price, date, media_image, weight, gallery }
+        backend_type: { type: string, enum: [static, varchar, int, decimal, text, datetime] }
+        scope: { type: string, enum: [global, website, store] }
+        is_required: { type: boolean }
+        is_user_defined: { type: boolean }
+        is_unique: { type: boolean }
+        is_configurable: { type: boolean }
+        is_visible: { type: boolean }
+        is_searchable: { type: boolean }
+        is_filterable: { type: boolean }
+        used_in_product_listing: { type: boolean }
+        apply_to: { type: array, items: { type: string } }
+        default_value: { nullable: true }
+        writable: { type: boolean }
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              value: { description: Options-ID (int) oder Wert }
+              label: { type: string }
+    ProductListItem:
+      type: object
+      properties:
+        id: { type: integer }
+        sku: { type: string }
+        type_id: { type: string }
+        attribute_set_id: { type: integer }
+        name: { type: string }
+        status: { type: integer, description: 1 aktiv, 2 inaktiv }
+        visibility: { type: integer }
+        price: { type: number, nullable: true }
+        special_price: { type: number, nullable: true }
+        special_from_date: { type: string, nullable: true }
+        special_to_date: { type: string, nullable: true }
+        tax_class_id: { type: integer, nullable: true }
+        weight: { type: number, nullable: true }
+        url_key: { type: string, nullable: true }
+        image: { type: string, nullable: true }
+        qty: { type: number, nullable: true }
+        is_in_stock: { type: boolean, nullable: true }
+        category_ids: { type: array, items: { type: integer } }
+        website_ids: { type: array, items: { type: integer } }
+        created_at: { type: string, nullable: true }
+        updated_at: { type: string, nullable: true }
+        attributes: { type: object, description: Nur mit `?fields=`, additionalProperties: true }
+        images: { type: array, description: Nur mit `?with=images`, items: { $ref: '#/components/schemas/Image' } }
+    Product:
+      allOf:
+        - $ref: '#/components/schemas/ProductListItem'
+        - type: object
+          properties:
+            store_id: { type: integer }
+            cost: { type: number, nullable: true }
+            url_path: { type: string, nullable: true }
+            url: { type: string, nullable: true, description: Produkt-URL in der Store-View (System-Rewrite) }
+            attributes:
+              type: object
+              description: Alle Attribute des Attributsets, Code => Wert (Zahlen typisiert, Multiselect als Liste)
+              additionalProperties: true
+            attribute_labels:
+              type: object
+              description: Labels von Auswahlattributen im Scope
+              additionalProperties: true
+            store_overrides:
+              type: array
+              items: { type: string }
+              description: Attributcodes mit eigenem Wert in der angefragten Store-View (leer im globalen Scope)
+            stock: { $ref: '#/components/schemas/Stock' }
+            categories: { type: array, items: { $ref: '#/components/schemas/CategoryAssignment' } }
+            images: { type: array, items: { $ref: '#/components/schemas/Image' } }
+            tier_prices:
+              type: array
+              items:
+                type: object
+                properties:
+                  website_id: { type: integer }
+                  all_groups: { type: boolean }
+                  customer_group_id: { type: integer }
+                  qty: { type: number }
+                  price: { type: number }
+            configurable:
+              type: object
+              description: Nur bei type_id configurable
+              properties:
+                attributes:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id: { type: integer }
+                      attribute_id: { type: integer }
+                      code: { type: string }
+                      label: { type: string }
+                      position: { type: integer }
+                      options: { type: array, items: { type: object, properties: { value: {}, label: { type: string } } } }
+                children:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id: { type: integer }
+                      sku: { type: string }
+                      name: { type: string }
+                      status: { type: integer }
+                      price: { type: number, nullable: true }
+                      attributes: { type: object, additionalProperties: { type: integer, nullable: true } }
+                      qty: { type: number }
+                      is_in_stock: { type: boolean }
+            parent_ids: { type: array, items: { type: integer }, description: Nur bei simple }
+            _write:
+              type: object
+              description: Nur nach PATCH
+              properties:
+                updated: { type: array, items: { type: string } }
+                reverted: { type: array, items: { type: string } }
+                reindexed: { type: array, items: { type: string } }
+                rewrites_added: { type: array, items: { type: integer } }
+    ProductCreate:
+      type: object
+      required: [sku, attributes]
+      properties:
+        sku: { type: string }
+        type_id: { type: string, enum: [simple, virtual, configurable], default: simple }
+        attribute_set_id: { type: integer, description: Standard = Default-Set }
+        website_ids: { type: array, items: { type: integer }, description: Standard = Website der Default-Store-View }
+        attributes:
+          type: object
+          description: Mindestens name und (außer configurable) price; Standard status 1, visibility 4, tax_class_id 0
+          additionalProperties: true
+        stock:
+          type: object
+          properties:
+            qty: { type: number }
+            is_in_stock: { type: boolean }
+            manage_stock: { type: boolean }
+        categories:
+          type: array
+          items:
+            oneOf:
+              - { type: integer }
+              - { type: object, properties: { id: { type: integer }, position: { type: integer } } }
+        configurable:
+          type: object
+          properties:
+            attribute_codes: { type: array, items: { type: string }, description: Globale select-Attribute mit is_configurable }
+            children: { type: array, items: { type: string }, description: SKUs oder `id:<n>` vorhandener Einzelprodukte }
+    Stock:
+      type: object
+      properties:
+        item_id: { type: integer, nullable: true }
+        qty: { type: number }
+        is_in_stock: { type: boolean }
+        manage_stock: { type: boolean }
+        use_config_manage_stock: { type: boolean }
+        min_qty: { type: number }
+        backorders: { type: integer }
+        min_sale_qty: { type: number }
+        max_sale_qty: { type: number }
+    CategoryAssignment:
+      type: object
+      properties:
+        id: { type: integer }
+        position: { type: integer }
+        name: { type: string, nullable: true }
+        path: { type: string, nullable: true }
+    Image:
+      type: object
+      properties:
+        id: { type: integer, description: Galerie-ID (value_id) }
+        file: { type: string, example: /v/a/vase-kiesel.jpg }
+        url: { type: string }
+        label: { type: string }
+        position: { type: integer }
+        disabled: { type: boolean }
+        types: { type: array, items: { type: string, enum: [image, small_image, thumbnail] } }
+        label_use_default: { type: boolean }
+        position_use_default: { type: boolean }
+        has_store_values: { type: boolean, description: Eigene Zeile in der angefragten Store-View }
+    CategoryNode:
+      type: object
+      properties:
+        id: { type: integer }
+        parent_id: { type: integer }
+        path: { type: string }
+        level: { type: integer }
+        position: { type: integer }
+        name: { type: string }
+        is_active: { type: boolean }
+        include_in_menu: { type: boolean }
+        is_anchor: { type: boolean }
+        url_key: { type: string, nullable: true }
+        url_path: { type: string, nullable: true }
+        display_mode: { type: string, nullable: true }
+        landing_page: { type: integer, nullable: true }
+        product_count: { type: integer, description: Direkte Zuordnungen }
+        children_count: { type: integer }
+        updated_at: { type: string, nullable: true }
+        children: { type: array, items: { $ref: '#/components/schemas/CategoryNode' } }
+    Category:
+      allOf:
+        - $ref: '#/components/schemas/CategoryNode'
+        - type: object
+          properties:
+            store_id: { type: integer }
+            description: { type: string, nullable: true }
+            meta_title: { type: string, nullable: true }
+            meta_keywords: { type: string, nullable: true }
+            meta_description: { type: string, nullable: true }
+            image_url: { type: string, nullable: true }
+            url: { type: string, nullable: true }
+            landing_page_block:
+              type: object
+              nullable: true
+              properties:
+                id: { type: integer }
+                identifier: { type: string }
+                title: { type: string }
+                is_active: { type: boolean }
+            custom_design: { type: string, nullable: true }
+            page_layout: { type: string, nullable: true }
+            attributes: { type: object, additionalProperties: true }
+            store_overrides: { type: array, items: { type: string } }
+            child_ids: { type: array, items: { type: integer } }
+            _write:
+              type: object
+              properties:
+                updated: { type: array, items: { type: string } }
+                reverted: { type: array, items: { type: string } }
+    StoreRef:
+      type: object
+      properties:
+        id: { type: integer, description: 0 = alle Store-Views }
+        code: { type: string, nullable: true }
+        name: { type: string, nullable: true }
+    CmsPage:
+      type: object
+      properties:
+        id: { type: integer }
+        identifier: { type: string }
+        title: { type: string }
+        content_heading: { type: string, nullable: true }
+        root_template: { type: string }
+        meta_keywords: { type: string, nullable: true }
+        meta_description: { type: string, nullable: true }
+        is_active: { type: boolean }
+        sort_order: { type: integer }
+        stores: { type: array, items: { $ref: '#/components/schemas/StoreRef' } }
+        store_ids: { type: array, items: { type: integer } }
+        creation_time: { type: string, nullable: true }
+        update_time: { type: string, nullable: true }
+        url: { type: string }
+        content: { type: string, description: Nur im Detail }
+        layout_update_xml: { type: string, nullable: true }
+        custom_theme: { type: string, nullable: true }
+        custom_root_template: { type: string, nullable: true }
+        custom_layout_update_xml: { type: string, nullable: true }
+        custom_theme_from: { type: string, nullable: true }
+        custom_theme_to: { type: string, nullable: true }
+    CmsPageWrite:
+      type: object
+      properties:
+        title: { type: string }
+        identifier: { type: string, description: Buchstaben, Ziffern, "-", "_", ".", "/" }
+        content: { type: string }
+        content_heading: { type: string }
+        root_template: { type: string, description: 'z. B. empty, one_column, two_columns_left, two_columns_right, three_columns (page/source_layout)' }
+        meta_keywords: { type: string }
+        meta_description: { type: string }
+        is_active: { type: boolean }
+        sort_order: { type: integer }
+        layout_update_xml: { type: string, description: 'Wird wie im Admin geprüft (adminhtml/layoutUpdate_validator): keine Template-Pfade mit "../", keine helper=-Attribute, kein setTemplate, keine gesperrten Blöcke; sonst 400 validation mit details.messages' }
+        custom_theme: { type: string }
+        custom_root_template: { type: string }
+        custom_layout_update_xml: { type: string, description: Gleiche Prüfung wie layout_update_xml }
+        custom_theme_from: { type: string }
+        custom_theme_to: { type: string }
+        stores:
+          type: array
+          items: { oneOf: [{ type: string }, { type: integer }] }
+          description: Store-Codes oder -IDs; `admin`/0 = alle. Beim Anlegen Standard [0]
+    CmsBlock:
+      type: object
+      properties:
+        id: { type: integer }
+        identifier: { type: string }
+        title: { type: string }
+        is_active: { type: boolean }
+        stores: { type: array, items: { $ref: '#/components/schemas/StoreRef' } }
+        store_ids: { type: array, items: { type: integer } }
+        creation_time: { type: string, nullable: true }
+        update_time: { type: string, nullable: true }
+        content: { type: string, description: Nur im Detail }
+    CmsBlockWrite:
+      type: object
+      properties:
+        title: { type: string }
+        identifier: { type: string }
+        content: { type: string }
+        is_active: { type: boolean }
+        stores: { type: array, items: { oneOf: [{ type: string }, { type: integer }] } }
+    Condition:
+      type: object
+      description: Bedingungsknoten (Format von Mage_Rule_Model_Condition_Combine::asArray, Kinder immer unter `conditions`)
+      properties:
+        type: { type: string, description: 'salesrule/rule_condition_combine, salesrule/rule_condition_product_found, salesrule/rule_condition_product_subselect, salesrule/rule_condition_address, salesrule/rule_condition_product, salesrule/rule_condition_product_combine' }
+        attribute: { type: string, nullable: true, example: category_ids }
+        operator: { type: string, nullable: true, example: '()' }
+        value: { nullable: true }
+        aggregator: { type: string, enum: [all, any] }
+        conditions: { type: array, items: { $ref: '#/components/schemas/Condition' } }
+    SalesRule:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        is_active: { type: boolean }
+        from_date: { type: string, nullable: true }
+        to_date: { type: string, nullable: true }
+        coupon_type: { type: integer, description: 1 ohne Gutschein, 2 fester Code, 3 automatisch }
+        coupon_code: { type: string, nullable: true }
+        uses_per_coupon: { type: integer, nullable: true }
+        uses_per_customer: { type: integer }
+        times_used: { type: integer, description: Nur Zähler }
+        simple_action: { type: string, enum: [by_percent, by_fixed, cart_fixed, buy_x_get_y] }
+        discount_amount: { type: number }
+        discount_qty: { type: number, nullable: true }
+        discount_step: { type: integer }
+        apply_to_shipping: { type: boolean }
+        simple_free_shipping: { type: integer }
+        stop_rules_processing: { type: boolean }
+        sort_order: { type: integer }
+        website_ids: { type: array, items: { type: integer } }
+        customer_group_ids: { type: array, items: { type: integer } }
+        primary_coupon: { allOf: [{ $ref: '#/components/schemas/Coupon' }], nullable: true }
+        coupon_count: { type: integer }
+        conditions: { $ref: '#/components/schemas/Condition' }
+        actions: { $ref: '#/components/schemas/Condition' }
+    SalesRuleWrite:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        is_active: { type: boolean }
+        from_date: { type: string, nullable: true, description: YYYY-MM-DD, null löscht }
+        to_date: { type: string, nullable: true }
+        coupon_code: { type: string, description: Setzt coupon_type 2, wenn coupon_type fehlt }
+        coupon_type: { type: integer, enum: [1, 2, 3] }
+        uses_per_coupon: { type: integer, nullable: true }
+        uses_per_customer: { type: integer }
+        simple_action: { type: string, enum: [by_percent, by_fixed, cart_fixed, buy_x_get_y] }
+        discount_amount: { type: number }
+        discount_qty: { type: number, nullable: true }
+        discount_step: { type: integer }
+        apply_to_shipping: { type: boolean }
+        stop_rules_processing: { type: boolean }
+        sort_order: { type: integer }
+        simple_free_shipping: { type: integer }
+        website_ids: { type: array, items: { type: integer } }
+        customer_group_ids: { type: array, items: { type: integer } }
+        store_labels: { type: object, additionalProperties: { type: string }, description: Store-ID => Label }
+        conditions: { $ref: '#/components/schemas/Condition' }
+        actions: { $ref: '#/components/schemas/Condition' }
+        product_filter:
+          type: object
+          description: Vereinfachte Bedingung „Artikel im Warenkorb aus Kategorie/SKU“ (ersetzt conditions)
+          properties:
+            category_ids: { type: array, items: { type: integer } }
+            skus: { type: array, items: { type: string } }
+        apply_to_matching: { type: boolean, description: true = Rabatt nur auf passende Artikel (setzt actions), false = auf alle }
+    Coupon:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        usage_limit: { type: integer, nullable: true }
+        usage_per_customer: { type: integer, nullable: true }
+        times_used: { type: integer }
+        expiration_date: { type: string, nullable: true }
+        is_primary: { type: boolean }
+        type: { type: integer, nullable: true }
+    UrlRewrite:
+      type: object
+      properties:
+        id: { type: integer }
+        store_id: { type: integer }
+        id_path: { type: string }
+        request_path: { type: string }
+        target_path: { type: string }
+        is_system: { type: boolean }
+        options: { type: string, nullable: true, enum: [R, RP, null] }
+        description: { type: string, nullable: true }
+        category_id: { type: integer, nullable: true }
+        product_id: { type: integer, nullable: true }

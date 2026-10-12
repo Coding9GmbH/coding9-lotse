@@ -1,0 +1,12 @@
+# Nur das Nötigste in den Build-Kontext
+*
+!package.json
+!package-lock.json
+!next.config.ts
+!tsconfig.json
+!src/
+!public/
+!prompts/
+!docker/entrypoint.sh
+!docker/add-native.sh
+src/**/*.test.ts
