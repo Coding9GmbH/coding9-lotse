@@ -151,6 +151,10 @@ integrations/openmage/    OpenMage-Modul Lotse_Connector (JSON-API, openapi.yaml
 Neue Blocktypen: in `BLOCKS` (`src/server/cms.ts`) ergänzen (+ Vorschau-Renderer) – der Agent bekommt den Katalog automatisch.
 Neue Shop-Plattform: Vertrag, Konventionen und Checkliste in [`docs/platform.md`](docs/platform.md).
 
+## Haftungsausschluss
+
+Lotse wird ohne Gewährleistung bereitgestellt, die Nutzung erfolgt auf eigene Verantwortung. KI-Ergebnisse können falsch sein und müssen vor der Freigabe geprüft werden; neue Abläufe zuerst im Staging-Shop testen und vorher ein Backup anlegen. Für die Übermittlung von Shop-Inhalten an den KI-Anbieter bist du als Betreiber verantwortlich. Alle Hinweise: [DISCLAIMER.md](DISCLAIMER.md).
+
 ## Lizenz
 
 [MIT](LICENSE) © CODING 9 GmbH
