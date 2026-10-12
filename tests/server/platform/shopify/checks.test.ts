@@ -9,7 +9,7 @@ import type { CheckFinding } from '@/lib/protocol';
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-shopify-checks-'));
 delete process.env.SHOP_PLATFORM;
 
-const { startFakeShopify } = await import('../../../../test-support/shopify-fake/server');
+const { startFakeShopify } = await import('../../../support/shopify-fake/server');
 const fake = await startFakeShopify({ port: 0 });
 after(() => fake.close());
 const { updateSettings } = await import('../../../../src/server/settings');

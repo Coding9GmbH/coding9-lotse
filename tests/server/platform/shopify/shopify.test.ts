@@ -1,4 +1,4 @@
-// Shopify-Adapter gegen den lokalen Admin-GraphQL-Fake (test-support/shopify-fake): Client, geschützter Reader, Werkzeuge,
+// Shopify-Adapter gegen den lokalen Admin-GraphQL-Fake (tests/support/shopify-fake): Client, geschützter Reader, Werkzeuge,
 // Änderungssets (anwenden + Rückgängig stellt den Fake-Zustand exakt wieder her), Lookup.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +10,7 @@ import type { ChatEvent, UndoOp } from '@/lib/protocol';
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-shopify-'));
 delete process.env.SHOP_PLATFORM;
 
-const { startFakeShopify } = await import('../../../../test-support/shopify-fake/server');
+const { startFakeShopify } = await import('../../../support/shopify-fake/server');
 const fake = await startFakeShopify({ port: 0 });
 after(() => fake.close());
 

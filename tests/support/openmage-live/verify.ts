@@ -3,7 +3,7 @@
 // (Vorschlag → Freigabe → Schreiben → Rückgängig), Seiten veröffentlichen mit Storefront-HTML-Prüfung, Shop-Check, Import.
 // Am Ende muss der Shop-Zustand (Produkte, Kategorien, CMS, Preisregeln, URL-Rewrites) dem Ausgangszustand entsprechen.
 //
-//   OPENMAGE_URL=http://127.0.0.1:8891 OPENMAGE_TOKEN=… npx tsx --conditions=react-server test-support/openmage-live/verify.ts
+//   OPENMAGE_URL=http://127.0.0.1:8891 OPENMAGE_TOKEN=… npx tsx --conditions=react-server tests/support/openmage-live/verify.ts
 //   Optional: OPENMAGE_STORE_CODE (Standard: Standard-Store-View), LOTSE_OUT=<Ordner> für die Storefront-HTML-Dateien.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -14,15 +14,15 @@ process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-openmage-li
 const URL_ = (process.env.OPENMAGE_URL ?? '').replace(/\/+$/, ''), TOKEN = process.env.OPENMAGE_TOKEN ?? '';
 if (!URL_ || !TOKEN) { console.error('OPENMAGE_URL und OPENMAGE_TOKEN setzen'); process.exit(2); }
 const OUT = process.env.LOTSE_OUT;
-const { updateSettings } = await import('../../src/server/settings');
-const { getSession, decideChange, undoChangeSet } = await import('../../src/server/sessions');
-const { buildTools } = await import('../../src/server/tools');
-const { reconfigureAll } = await import('../../src/server/platform/index');
-const { openmage, openmageReaderFor } = await import('../../src/server/platform/openmage/index');
-const { listChecks } = await import('../../src/server/checks');
-const { runChecks } = await import('../../src/server/shopcheck-run');
-const { stageImage } = await import('../../src/server/media');
-const { saveFile } = await import('../../src/server/files');
+const { updateSettings } = await import('../../../src/server/settings');
+const { getSession, decideChange, undoChangeSet } = await import('../../../src/server/sessions');
+const { buildTools } = await import('../../../src/server/tools');
+const { reconfigureAll } = await import('../../../src/server/platform/index');
+const { openmage, openmageReaderFor } = await import('../../../src/server/platform/openmage/index');
+const { listChecks } = await import('../../../src/server/checks');
+const { runChecks } = await import('../../../src/server/shopcheck-run');
+const { stageImage } = await import('../../../src/server/media');
+const { saveFile } = await import('../../../src/server/files');
 
 updateSettings({ platform: 'openmage', openmage: { url: URL_, token: TOKEN, storeCode: process.env.OPENMAGE_STORE_CODE ?? '' } });
 reconfigureAll();
