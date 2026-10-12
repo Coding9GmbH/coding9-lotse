@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { PublicSettings } from '../../src/lib/protocol';
-import { buildPatch, connectionTestBlock, formFromSettings, isDirty } from '../../src/lib/settings-form';
+import { buildPatch, connectionTestBlock, formFromSettings, gscKeyComplete, isDirty } from '../../src/lib/settings-form';
 
 const saved: PublicSettings = {
   shopware: { url: 'https://shop.test', publicUrl: '', user: '', clientId: 'SWIA1', hasPassword: false, hasClientSecret: true, configured: true },
@@ -46,4 +46,16 @@ test('Bereiche und Klartextfelder', () => {
   const p = buildPatch(f);
   assert.equal(p.scopes?.shop, true);
   assert.equal(p.shopware?.url, 'https://neu.test');
+});
+
+test('Search-Console-Schlüssel: automatisch gespeichert wird erst ein vollständiges Service-Konto-JSON', () => {
+  const key = JSON.stringify({ type: 'service_account', client_email: 'lotse@projekt.iam.gserviceaccount.com', private_key: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n' });
+  assert.equal(gscKeyComplete(key), true);
+  assert.equal(gscKeyComplete(key.slice(0, -10)), false, 'halb eingefügt');
+  assert.equal(gscKeyComplete(''), false);
+  assert.equal(gscKeyComplete('null'), false);
+  assert.equal(gscKeyComplete('[]'), false);
+  assert.equal(gscKeyComplete(JSON.stringify({ client_email: 'x@y' })), false, 'ohne privaten Schlüssel');
+  assert.equal(gscKeyComplete(JSON.stringify({ private_key: 'k', client_email: '' })), false, 'leere E-Mail');
+  assert.equal(gscKeyComplete(JSON.stringify({ private_key: 1, client_email: 'x@y' })), false);
 });

@@ -7,10 +7,10 @@ import { api, ApiError, errorText } from '@/lib/api';
 import { approveError } from '@/lib/approve-error';
 import { annotationMessage, type Annotation } from '@/lib/annotations';
 import { attachmentMessage, parseAttachments } from '@/lib/attachments';
-import { fixForChat, loadFixes, rememberFix, type FixMap } from '@/lib/fixes';
+import { fixForChat, loadFixes, rememberFix, sentFix, type FixMap } from '@/lib/fixes';
 import { chatReducer, initialChatState, isHome, isStillRunning, pendingQuestion, showPreview, stopControl, writeInFlight } from '@/lib/chat-state';
 import { DEFAULT_PLACEHOLDER, placeholderFor, SUGGESTIONS } from '@/lib/labels';
-import { CHAT_COOKIE } from '@/lib/nav';
+import { CHAT_COOKIE, setupReady } from '@/lib/nav';
 import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, CheckFinding, Health, Target } from '@/lib/protocol';
 import { liveSrc, withBust } from '@/lib/urls';
 import { useShell, type WorkspaceBridge } from '@/components/shell/ShellProvider';
@@ -91,7 +91,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
 
   const { target, busy, styleguide: sg } = state;
   // Solange Shop oder KI fehlen, gibt es nichts zu senden (unbekannter Stand oder Ladefehler: nicht sperren)
-  const locked = !shell.healthFailed && !!setup && !(setup.shopware && setup.ai);
+  const locked = !shell.healthFailed && !setupReady(setup);
   // Für die Einrichtungs-Karte genügt „eingerichtet ja/nein“ – das kennt der Server schon beim ersten Rendern
   const homeHealth: Health | null = shell.healthFailed ? null : (health ?? (setup && { shopware: { url: '', ok: false, configured: setup.shopware }, ai: { configured: setup.ai } }));
 
@@ -183,7 +183,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     if (attachments.uploading) { dispatch({ type: 'status', text: 'Anhänge werden noch hochgeladen …' }); return; }
     // Auftrag aus dem Shop-Check: Befund mit diesem Chat verknüpfen („in Arbeit“ auf der Startseite)
     const fix = pendingFix.current;
-    if (fix && chatId && message.includes(fix.prompt.slice(0, 40))) setFixes(m => rememberFix(m, fix.id, { chatId, title: fix.title, at: new Date().toISOString() }));
+    if (fix && chatId && sentFix(fix.prompt, message)) setFixes(m => rememberFix(m, fix.id, { chatId, title: fix.title, at: new Date().toISOString() }));
     pendingFix.current = null;
     const full = attachmentMessage(message, attachments.done, attachments.files);
     attachments.clear();

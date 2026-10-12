@@ -53,16 +53,18 @@ export function startShopCheck(reader?: ShopReader): Promise<CheckRun> {
  * Nach angewendeten Änderungen neu prüfen: Behobene Punkte verschwinden, ohne dass jemand „Neu prüfen“ klickt.
  * Läuft gerade ein Durchlauf, hat er womöglich noch den alten Stand gelesen → direkt danach noch einmal.
  */
-export function recheckShopCheck(): void {
+export async function recheckShopCheck(reader?: ShopReader): Promise<void> {
   const p = activePlatform(), s = st();
   // Ohne bisheriges Ergebnis nichts anstoßen: die Startseite prüft dann ohnehin beim nächsten Besuch
   if (!p.configured() || !p.settings.available || (!s.running && !cachedRun())) return;
-  if (s.running) { s.again = true; return; }
-  startShopCheck().catch(() => {}).finally(() => {
-    if (!s.again) return;
+  if (s.running) {
+    if (s.again) return; // ein Nachlauf ist schon vorgemerkt
+    s.again = true;
+    await s.running.catch(() => {});
     s.again = false;
-    recheckShopCheck();
-  });
+    return recheckShopCheck(reader);
+  }
+  await startShopCheck(reader).catch(() => {});
 }
 
 /** Stand für die Startseite; veraltet/fehlend → Hintergrundlauf anstoßen. */

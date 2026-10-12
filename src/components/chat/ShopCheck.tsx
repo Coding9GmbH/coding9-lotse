@@ -5,7 +5,7 @@ import { api, errorText } from '@/lib/api';
 import { ago } from '@/lib/format';
 import type { FixMap } from '@/lib/fixes';
 import type { CheckFinding, ShopCheckState } from '@/lib/protocol';
-import { countText, runHealth, SEVERITY_LABEL, summaryText } from '@/lib/shopcheck';
+import { countText, findingsView, groupByArea, runHealth, SEVERITY_LABEL, summaryText } from '@/lib/shopcheck';
 import { Button } from '@/components/ui/Button';
 import { IconCheck } from '@/components/ui/icons';
 import styles from './ShopCheck.module.css';
@@ -14,13 +14,6 @@ const COLLAPSED = 3;
 // Einmal je Bereich statt in jedem Befund
 const AREA_NOTE: Record<string, string> = { Recht: 'Technische Prüfung, keine Rechtsberatung', Barrierefreiheit: 'Technische Prüfung, keine Rechtsberatung' };
 const checkedText = (iso: string) => { const a = ago(iso); return /^(vor|gerade)/.test(a) ? `geprüft ${a}` : `geprüft am ${a}`; };
-
-/** Befunde nach Bereich gruppieren; Reihenfolge der Bereiche = wichtigster Befund zuerst (Liste ist schon sortiert). */
-function groupByArea(list: CheckFinding[]) {
-  const m = new Map<string, CheckFinding[]>();
-  for (const f of list) m.set(f.area, [...(m.get(f.area) ?? []), f]);
-  return [...m.entries()];
-}
 
 interface Props {
   /** „Als Auftrag ins Feld“: füllt nur das Eingabefeld, es wird nichts gesendet */
@@ -51,9 +44,7 @@ export function ShopCheck({ onFix, fixes = {}, onOpenChat }: Props) {
   if (st && !st.enabled) return null;
   const run = st?.run ?? null;
   const findings = run?.findings ?? [];
-  const areas = groupByArea(findings).map(([a, l]) => [a, l.length] as const);
-  const inArea = area && areas.some(([a]) => a === area) ? findings.filter(f => f.area === area) : findings;
-  const shown = all ? inArea : inArea.slice(0, COLLAPSED);
+  const view = findingsView(findings, area, all, COLLAPSED), shown = view.shown;
   const failed = run?.errors.length ?? 0;
   const health = run ? runHealth(run) : 'ok';
   const fatal = !run && !running && (err || st?.error);
@@ -103,11 +94,11 @@ export function ShopCheck({ onFix, fixes = {}, onOpenChat }: Props) {
         </div>
       )}
 
-      {areas.length > 1 && (
+      {view.tabs.length > 0 && (
         <div className={styles.tabs} role="tablist" aria-label="Bereiche">
-          <button type="button" role="tab" aria-selected={!area} onClick={() => { setArea(null); setAll(false); }}>Alle <span>{findings.length}</span></button>
-          {areas.map(([a, n]) => (
-            <button key={a} type="button" role="tab" aria-selected={area === a} onClick={() => { setArea(a); setAll(false); }}>{a} <span>{n}</span></button>
+          <button type="button" role="tab" aria-selected={!view.area} onClick={() => { setArea(null); setAll(false); }}>Alle <span>{findings.length}</span></button>
+          {view.tabs.map(t => (
+            <button key={t.area} type="button" role="tab" aria-selected={view.area === t.area} onClick={() => { setArea(t.area); setAll(false); }}>{t.area} <span>{t.count}</span></button>
           ))}
         </div>
       )}
@@ -144,9 +135,9 @@ export function ShopCheck({ onFix, fixes = {}, onOpenChat }: Props) {
         </div>
       ))}
 
-      {(inArea.length > COLLAPSED || (health === 'teilweise' && findings.length > 0)) && (
+      {(view.more || (health === 'teilweise' && findings.length > 0)) && (
         <footer className={styles.foot}>
-          {inArea.length > COLLAPSED && <button type="button" className={styles.more} onClick={() => setAll(!all)}>{all ? 'Weniger zeigen' : `Alle ${inArea.length} Punkte zeigen`}</button>}
+          {view.more && <button type="button" className={styles.more} onClick={() => setAll(!all)}>{all ? 'Weniger zeigen' : `Alle ${view.total} Punkte zeigen`}</button>}
           {health === 'teilweise' && findings.length > 0 && <small title={errTitle}>{failed === 1 ? '1 Prüfung' : `${failed} Prüfungen`} ohne Ergebnis</small>}
         </footer>
       )}

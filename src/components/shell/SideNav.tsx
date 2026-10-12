@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { ago, groupByDay, hostOf, swatches } from '@/lib/format';
 import { catalogState, shellFlags } from '@/lib/load-state';
+import { filterHistory, historyContexts, setupReady } from '@/lib/nav';
 import { chatDeleteQuestion } from '@/lib/privacy-copy';
 import type { ChatStatus, ChatSummary, Health } from '@/lib/protocol';
 import { IconBook, IconChat, IconClose, IconHistory, IconPalette, IconPanel, IconPlus, IconSearch, IconSettings, IconTarget, IconTrash } from '@/components/ui/icons';
@@ -45,18 +46,12 @@ export function SideNav() {
   const st = status(s.health, s.healthFailed);
   const chatView = catalogState(s.chats == null ? s.chatError : null, s.chats);
   const colors = swatches(s.styleguide?.colors, 4);
-  // Unbekannter Stand (noch kein Status): nicht sperren – der Server liefert ihn praktisch immer gleich mit
-  const ready = !s.setup || (s.setup.shopware && s.setup.ai);
+  const ready = setupReady(s.setup);
   const locked = ready ? undefined : 'Erst Shop und KI verbinden';
 
-  // Kontexte im Verlauf (neueste zuerst); Filter erst ab zwei verschiedenen
-  const contexts = useMemo(() => [...new Set((s.chats ?? []).flatMap(c => (c.target?.name ? [c.target.name] : [])))].slice(0, 6), [s.chats]);
+  const contexts = useMemo(() => historyContexts(s.chats ?? []), [s.chats]);
   const activeCtx = ctx && contexts.includes(ctx) ? ctx : null;
-  const groups = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    const list = (s.chats ?? []).filter(c => (!activeCtx || c.target?.name === activeCtx) && (!q || c.title.toLowerCase().includes(q) || c.target?.name?.toLowerCase().includes(q)));
-    return groupByDay(list);
-  }, [s.chats, filter, activeCtx]);
+  const groups = useMemo(() => groupByDay(filterHistory(s.chats ?? [], filter, activeCtx)), [s.chats, filter, activeCtx]);
 
   // Eingeklappt: ein Punkt am Verlauf-Symbol – wartet (wichtigster) > läuft > fertig
   const live = s.chats?.filter(c => c.status) ?? [];
@@ -151,7 +146,7 @@ export function SideNav() {
               <input type="search" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Suchen" aria-label="Chats durchsuchen" />
             </label>
           )}
-          {contexts.length > 1 && (
+          {contexts.length > 0 && (
             <div className={styles.ctxFilter} role="group" aria-label="Verlauf nach Kontext filtern">
               <button type="button" aria-pressed={!activeCtx} onClick={() => setCtx(null)}>Alle</button>
               {contexts.map(n => <button key={n} type="button" aria-pressed={activeCtx === n} onClick={() => setCtx(activeCtx === n ? null : n)} title={n}>{n}</button>)}

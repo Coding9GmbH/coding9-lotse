@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import { GSC_QUERY_NOTICE } from '@/lib/privacy-copy';
-import { connectionTestBlock } from '@/lib/settings-form';
+import { connectionTestBlock, gscKeyComplete as keyComplete } from '@/lib/settings-form';
 import type { GscPublic, GscTestResult } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
 import styles from './Settings.module.css';
@@ -132,12 +132,6 @@ export function GscSettings() {
       </div>
     </Card>
   );
-}
-
-/** Schlüssel vollständig? Erst dann speichern (sonst landet ein halb eingefügtes JSON im Speicher). */
-function keyComplete(key: string): boolean {
-  try { const k = JSON.parse(key) as { private_key?: unknown; client_email?: unknown }; return !!k && typeof k.private_key === 'string' && typeof k.client_email === 'string'; }
-  catch { return false; }
 }
 
 function Card({ connected, children }: { connected: boolean | null; children: React.ReactNode }) {

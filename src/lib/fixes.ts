@@ -24,3 +24,9 @@ export function rememberFix(map: FixMap, findingId: string, link: FixLink): FixM
 /** Zu welchem Befund gehört dieser Chat? */
 export const fixForChat = (map: FixMap, chatId: string | null): FixLink | null =>
   (chatId && Object.values(map).find(l => l.chatId === chatId)) || null;
+
+/** Geht die gesendete Nachricht auf den Auftrag aus dem Shop-Check zurück? (Er darf ergänzt oder gekürzt sein, der Anfang bleibt.) */
+export const sentFix = (prompt: string, message: string): boolean => {
+  const head = prompt.trim().slice(0, 40);
+  return !!head && message.includes(head);
+};

@@ -139,3 +139,12 @@ export function hasSecret(saved: PublicSettings, kind: PlatformKind, key: string
 export const savedConfigured = (saved: PublicSettings, kind: PlatformKind): boolean => (kind === 'shopware' ? saved.shopware.configured : !!saved.platforms?.[kind]?.configured);
 /** Anbindung fertig (sonst Vorschau) */
 export const platformAvailable = (saved: PublicSettings, kind: PlatformKind): boolean => saved.platforms?.[kind]?.available ?? PLATFORM_SETTINGS[kind].available;
+
+/** Search-Console-Schlüssel vollständig (Service-Konto-JSON mit E-Mail und privatem Schlüssel)? Erst dann automatisch speichern –
+ *  sonst landet ein halb eingefügtes JSON im Speicher. */
+export function gscKeyComplete(key: string): boolean {
+  try {
+    const k = JSON.parse(key) as { private_key?: unknown; client_email?: unknown } | null;
+    return !!k && typeof k === 'object' && typeof k.private_key === 'string' && !!k.private_key && typeof k.client_email === 'string' && !!k.client_email;
+  } catch { return false; }
+}

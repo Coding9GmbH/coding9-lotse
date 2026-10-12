@@ -21,7 +21,7 @@ import type { Feature } from './types';
 export const SCAN_MAX = 2500, SCAN_PAGE = 250, PAGES_MAX = 200;
 
 // Freigegebene Änderung angewendet (z. B. ein Befund über „Als Auftrag ins Feld“ behoben) → Shop-Check im Hintergrund neu
-onApplied('shopcheck', () => recheckShopCheck());
+onApplied('shopcheck', () => { void recheckShopCheck(); });
 
 // Pro Durchlauf nur einmal lesen (runChecks gibt jedem Durchlauf ein eigenes Lese-Client-Objekt, siehe perRun), auch wenn mehrere Prüfungen dieselben Daten brauchen
 const memos = new WeakMap<ShopReader, Map<string, Promise<unknown>>>();
