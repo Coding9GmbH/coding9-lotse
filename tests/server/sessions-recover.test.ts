@@ -14,7 +14,7 @@ delete process.env.SHOP_PLATFORM;
 
 const { updateSettings } = await import('../../src/server/settings');
 const { ADAPTERS } = await import('../../src/server/platform');
-const { getSession, decideChange, dropSession, peekSession, persist, chatSnapshot, undoChangeSet, stopChat } = await import('../../src/server/sessions');
+const { getSession, decideChange, dropSession, peekSession, persist, chatSnapshot, undoChangeSet, stopChat, setRunClockForTests } = await import('../../src/server/sessions');
 const { auditList, chatGet, chatPut, chatDelete, runPut, runsOpen } = await import('../../src/server/db');
 const { trackedUndo } = await import('../../src/server/changes');
 
@@ -56,39 +56,55 @@ test('Anwenden: Audit „started“ vor dem Schreiben, Lauf-Zeile verschwindet e
 });
 
 test('B1: Absturz mitten im Anwenden: Zwischenstand gebündelt in der DB, Neuaufbau liefert Teilergebnis mit Rückgängig + Audit', async () => {
-  const s = start('c-crash');
-  apply = async (_set, _sel, ctx) => {
-    const results: ApplyResult['results'] = [{ itemId: 'i1', ok: true }], undo = [op('p1')];
-    ctx?.progress?.(1, 3, { results, undo }); // erstes Element geschrieben
-    results.push({ itemId: 'i2', ok: false, error: 'Timeout' }); ctx?.progress?.(2, 3, { results, undo }); // kurz danach: wird gebündelt
-    return new Promise(() => {}); // „Absturz“: der Prozess kommt nie zurück
-  };
-  void s.requestChange(cs('cs-crash')); await tick();
-  decideChange('c-crash', approvalIdOf(s.events), true); await tick();
-  assert.equal(auditList(10).find(a => a.changeSet === 'cs-crash')?.status, 'started');
-  let run = runsOpen('c-crash');
-  assert.equal(run.length, 1); assert.equal(run[0].results.length, 1, 'erster Tick sofort gesichert');
-  await tick(300);
-  run = runsOpen('c-crash');
-  assert.equal(run[0].results.length, 2, 'zweiter Tick gebündelt nachgeschrieben');
-  assert.deepEqual(run[0].undo, [{ ...op('p1'), platform: 'shopware' }], 'Rückgängig-Schritt mit Plattform');
+  let now = 1_700_000_000_000;
+  const queued: { at: number; fn: () => void; dead: boolean }[] = [];
+  setRunClockForTests({
+    now: () => now,
+    later(fn, ms) {
+      const t = { at: now + ms, fn, dead: false };
+      queued.push(t);
+      return { cancel() { t.dead = true; } };
+    },
+  });
+  try {
+    const s = start('c-crash');
+    apply = async (_set, _sel, ctx) => {
+      const results: ApplyResult['results'] = [{ itemId: 'i1', ok: true }], undo = [op('p1')];
+      ctx?.progress?.(1, 3, { results, undo }); // erstes Element geschrieben
+      results.push({ itemId: 'i2', ok: false, error: 'Timeout' }); ctx?.progress?.(2, 3, { results, undo }); // kurz danach: wird gebündelt
+      return new Promise(() => {}); // „Absturz“: der Prozess kommt nie zurück
+    };
+    void s.requestChange(cs('cs-crash')); await tick();
+    decideChange('c-crash', approvalIdOf(s.events), true); await tick();
+    assert.equal(auditList(10).find(a => a.changeSet === 'cs-crash')?.status, 'started');
+    let run = runsOpen('c-crash');
+    assert.equal(run.length, 1); assert.equal(run[0].results.length, 1, 'erster Tick sofort gesichert');
+    const waiting = queued.filter(t => !t.dead);
+    assert.equal(waiting.length, 1, 'zweiter Tick wartet auf die Bündelung');
+    assert.equal(waiting[0].at - now, 250, 'Bündelung nach 250 ms');
+    now = waiting[0].at;
+    for (const t of queued) if (!t.dead && t.at <= now) { t.dead = true; t.fn(); }
+    run = runsOpen('c-crash');
+    assert.equal(run[0].results.length, 2, 'zweiter Tick gebündelt nachgeschrieben');
+    assert.deepEqual(run[0].undo, [{ ...op('p1'), platform: 'shopware' }], 'Rückgängig-Schritt mit Plattform');
 
-  dropSession('c-crash'); // „Neustart“: Speicher weg, Verlauf nur noch in der DB
-  assert.equal(peekSession('c-crash'), null);
-  const res = lastResult(chatSnapshot('c-crash')?.events); // wie initialChat / GET /api/chat danach
-  assert.ok(res, 'Ergebnis ergänzt');
-  assert.equal(res.status, 'partial'); assert.deepEqual(res.counts, { applied: 1, failed: 1 }); assert.match(res.error ?? '', /Neustart/);
-  assert.match(res.error ?? '', /ob weitere Elemente noch geschrieben wurden, ist unbekannt/, '2 von 3 gezählt: der Rest ist offen, nicht „nicht geschrieben“');
-  assert.deepEqual(res.undo, [{ ...op('p1'), platform: 'shopware' }]);
-  assert.equal(runsOpen('c-crash').length, 0, 'Lauf abgeschlossen');
-  const audit = auditList(10).find(a => a.changeSet === 'cs-crash' && a.status === 'partial');
-  assert.equal(audit?.interrupted, true); assert.equal(audit?.applied, 1); assert.equal(audit?.failed, 1);
-  assert.equal(chatSnapshot('c-crash')?.events.filter(e => e.t === 'changeset_result').length, 1, 'zweiter Aufruf ändert nichts');
+    dropSession('c-crash'); // „Neustart“: Speicher weg, Verlauf nur noch in der DB
+    assert.equal(peekSession('c-crash'), null);
+    const res = lastResult(chatSnapshot('c-crash')?.events); // wie initialChat / GET /api/chat danach
+    assert.ok(res, 'Ergebnis ergänzt');
+    assert.equal(res.status, 'partial'); assert.deepEqual(res.counts, { applied: 1, failed: 1 }); assert.match(res.error ?? '', /Neustart/);
+    assert.match(res.error ?? '', /ob weitere Elemente noch geschrieben wurden, ist unbekannt/, '2 von 3 gezählt: der Rest ist offen, nicht „nicht geschrieben“');
+    assert.deepEqual(res.undo, [{ ...op('p1'), platform: 'shopware' }]);
+    assert.equal(runsOpen('c-crash').length, 0, 'Lauf abgeschlossen');
+    const audit = auditList(10).find(a => a.changeSet === 'cs-crash' && a.status === 'partial');
+    assert.equal(audit?.interrupted, true); assert.equal(audit?.applied, 1); assert.equal(audit?.failed, 1);
+    assert.equal(chatSnapshot('c-crash')?.events.filter(e => e.t === 'changeset_result').length, 1, 'zweiter Aufruf ändert nichts');
 
-  const u = await undoChangeSet('c-crash', 'cs-crash'); // Rückgängig mit den gesicherten Schritten
-  assert.equal(u?.ok, true);
-  assert.deepEqual(undoCalls.at(-1), [{ ...op('p1'), platform: 'shopware' }]);
-  assert.equal(lastResult(chatGet('c-crash')?.events)?.undone, true);
+    const u = await undoChangeSet('c-crash', 'cs-crash'); // Rückgängig mit den gesicherten Schritten
+    assert.equal(u?.ok, true);
+    assert.deepEqual(undoCalls.at(-1), [{ ...op('p1'), platform: 'shopware' }]);
+    assert.equal(lastResult(chatGet('c-crash')?.events)?.undone, true);
+  } finally { setRunClockForTests(null); }
 });
 
 test('S1: teilweises Rückgängig merkt sich den Ausgang je Schritt; zweiter Klick wiederholt nur die fehlgeschlagenen', async () => {

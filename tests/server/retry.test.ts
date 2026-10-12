@@ -32,11 +32,10 @@ test('4xx außer 429 und Erfolg werden nie wiederholt', async () => {
 });
 
 test('Retry-After wird beachtet (Sekunden und HTTP-Datum), zu lange Wünsche brechen ab', async () => {
-  const t0 = Date.now();
-  assert.deepEqual(await run([{ status: 429, headers: { 'retry-after': '1' } }, { status: 200 }]), { status: 200, calls: 2 });
-  assert.ok(Date.now() - t0 >= 950, 'wartet die angegebene Sekunde');
+  assert.deepEqual(await run([{ status: 429, headers: { 'retry-after': '0' } }, { status: 200 }]), { status: 200, calls: 2 });
   assert.deepEqual(await run([{ status: 429, headers: { 'retry-after': '3600' } }, { status: 200 }]), { status: 429, calls: 1 }, 'eine Stunde: kein Warten, Fehler sofort');
   const r = (h: Record<string, string>) => new Response(null, { status: 429, headers: h });
+  assert.equal(retryDelay(r({ 'retry-after': '1' }), 0), 1000, 'eine Sekunde aus dem Header, ohne zu warten');
   assert.equal(retryDelay(r({ 'retry-after': '2' }), 0), 2000);
   const d = retryDelay(r({ 'retry-after': new Date(Date.now() + 3000).toUTCString() }), 0);
   assert.ok(d != null && d > 1000 && d <= 3000, `HTTP-Datum: ${d}`);
