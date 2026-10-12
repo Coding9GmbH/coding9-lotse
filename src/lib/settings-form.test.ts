@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { PublicSettings } from './protocol';
-import { buildPatch, formFromSettings, isDirty } from './settings-form';
+import { buildPatch, connectionTestBlock, formFromSettings, isDirty } from './settings-form';
 
 const saved: PublicSettings = {
   shopware: { url: 'https://shop.test', publicUrl: '', user: '', clientId: 'SWIA1', hasPassword: false, hasClientSecret: true, configured: true },
@@ -29,6 +29,14 @@ test('Geheimnisse: leer = unverändert, Entfernen = null, Eingabe = Wert', () =>
   assert.equal(p.shopware?.clientSecret, null);
   assert.equal(p.ai?.apiKey, 'sk-ant-x');
   assert.equal(isDirty(f, saved), true);
+});
+
+test('Verbindung testen: ungespeicherte Eingaben blockieren den Test und werden nicht mitgeschrieben', () => {
+  assert.equal(connectionTestBlock(false), null);
+  const hint = connectionTestBlock(true);
+  assert.ok(hint);
+  assert.match(hint, /speichern/i);
+  assert.match(hint, /gespeichert/i);
 });
 
 test('Bereiche und Klartextfelder', () => {

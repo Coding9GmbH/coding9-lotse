@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef } from 'react';
 import type { PendingAttachment } from '@/hooks/useAttachments';
+import { stopControl } from '@/lib/chat-state';
 import { Button } from '@/components/ui/Button';
 import styles from './Composer.module.css';
 
@@ -11,6 +12,8 @@ interface Props {
   onSubmit: () => void;
   /** Laufende Runde abbrechen */
   onStop?: () => void;
+  /** Freigabe ist raus: der Shop-Schreibvorgang läuft und lässt sich nicht abbrechen */
+  writing?: boolean;
   busy: boolean;
   placeholder: string;
   home: boolean;
@@ -23,8 +26,9 @@ interface Props {
 const MAX_H = 140;
 
 /** Eingabe: wachsendes Textfeld, Enter sendet (Umschalt+Enter = Zeilenumbruch), Bilder per Knopf/Einfügen. */
-export function Composer({ value, onChange, onSubmit, onStop, busy, placeholder, home, atts, onFiles, onRemoveAtt, inputRef }: Props) {
+export function Composer({ value, onChange, onSubmit, onStop, writing, busy, placeholder, home, atts, onFiles, onRemoveAtt, inputRef }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const stop = stopControl(!!writing);
 
   useLayoutEffect(() => {
     const t = inputRef.current;
@@ -60,7 +64,7 @@ export function Composer({ value, onChange, onSubmit, onStop, busy, placeholder,
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSubmit(); } }}
           onPaste={e => { const f = [...(e.clipboardData?.files ?? [])]; if (f.length) { e.preventDefault(); onFiles(f); } }} />
         {busy && onStop
-          ? <Button className={styles.send} onClick={onStop} title="Laufende Anfrage abbrechen. Es wird nichts geschrieben.">Stoppen</Button>
+          ? <Button className={styles.send} onClick={stop.stops ? onStop : undefined} disabled={!stop.stops} title={stop.title}>{stop.label}</Button>
           : <Button type="submit" variant="primary" busy={busy} className={styles.send}>{busy ? 'Läuft …' : 'Senden'}</Button>}
       </form>
     </>

@@ -6,7 +6,7 @@ import { useChatStream } from '@/hooks/useChatStream';
 import { api, errorText } from '@/lib/api';
 import { annotationMessage, type Annotation } from '@/lib/annotations';
 import { attachmentMessage, parseAttachments } from '@/lib/attachments';
-import { chatReducer, initialChatState, isHome, isStillRunning, pendingQuestion, showPreview } from '@/lib/chat-state';
+import { chatReducer, initialChatState, isHome, isStillRunning, pendingQuestion, showPreview, stopControl, writeInFlight } from '@/lib/chat-state';
 import { DEFAULT_PLACEHOLDER, placeholderFor, SUGGESTIONS } from '@/lib/labels';
 import { CHAT_COOKIE } from '@/lib/nav';
 import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, Health, Target } from '@/lib/protocol';
@@ -139,6 +139,10 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
 
   const stop = () => {
     if (!chatId) return;
+    if (writeInFlight(state)) {
+      dispatch({ type: 'status', text: stopControl(true).title });
+      return;
+    }
     dispatch({ type: 'status', text: 'Wird abgebrochen …' });
     api.stop(chatId).catch(e => reportError(`Abbrechen fehlgeschlagen: ${errorText(e)}`));
   };
@@ -302,7 +306,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const overlay = pv && previewOpen; // schmaler Viewport: Vorschau über dem Chat (Desktop zeigt sie ohnehin rechts)
 
   const composer = (
-    <Composer value={input} onChange={setInput} onSubmit={() => send()} onStop={stop} busy={busy} placeholder={placeholder} home={home}
+    <Composer value={input} onChange={setInput} onSubmit={() => send()} onStop={stop} writing={writeInFlight(state)} busy={busy} placeholder={placeholder} home={home}
       atts={attachments.atts} onFiles={f => void attachments.addFiles(f)} onRemoveAtt={attachments.remove} inputRef={inputRef} />
   );
   const status = <div className={styles.statusRow}><StatusLine text={state.status} /></div>;

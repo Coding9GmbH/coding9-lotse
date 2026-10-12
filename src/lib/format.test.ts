@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { groupByDay } from './format';
+import { groupByDay, sampleSummary } from './format';
 
 test('groupByDay: Heute, Gestern, Letzte 7 Tage, Älter – leere Gruppen entfallen', () => {
   const now = new Date(2026, 9, 9, 15, 0);
@@ -13,4 +13,9 @@ test('groupByDay: Heute, Gestern, Letzte 7 Tage, Älter – leere Gruppen entfal
     ['Älter', ['30-12', 'kaputt']],
   ]);
   assert.deepEqual(groupByDay([], now), []);
+});
+
+test('sampleSummary: Freigabe gilt für die Gruppen, die Liste ist nur eine Stichprobe', () => {
+  const text = sampleSummary(50, 10_000);
+  assert.equal(text, 'Stichprobe: 50 von 10.000. Die Freigabe gilt für die angehakten Gruppen, nicht für jede einzelne Zeile.');
 });

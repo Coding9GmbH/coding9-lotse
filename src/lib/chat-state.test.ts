@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { chatReducer, initialChatState, isHome, isStillRunning, pendingQuestion, showPreview, type ChatState } from './chat-state';
+import { chatReducer, initialChatState, isHome, isStillRunning, pendingQuestion, showPreview, stopControl, writeInFlight, type ChatState } from './chat-state';
 import type { ChangeSet, ChatDetail, ChatEvent } from './protocol';
 
 const cs: ChangeSet = {
@@ -77,6 +77,15 @@ test('offene Rückfrage/Änderungsset: live bedienbar, im Replay nicht', () => {
   const c = live.items[1];
   assert.ok(c.kind === 'changeset' && !c.interactive && c.sent?.allow && c.sent.selected?.[0] === 'a');
   assert.equal(live.status, 'Wendet Änderungen an …');
+  assert.equal(writeInFlight(live), true);
+  const writing = stopControl(true);
+  assert.equal(writing.stops, false);
+  assert.match(writing.title, /läuft weiter/);
+  assert.doesNotMatch(writing.title, /nichts geschrieben/);
+  live = chatReducer(live, { type: 'event', event: { t: 'changeset_result', csId: 'cs1', status: 'applied', results: [] } });
+  assert.equal(writeInFlight(live), false);
+  assert.equal(stopControl(false).stops, true);
+  assert.match(stopControl(false).title, /nichts geschrieben/);
 
   const rep = replay(evs);
   assert.ok(rep.items.every(i => !('interactive' in i) || !i.interactive));
