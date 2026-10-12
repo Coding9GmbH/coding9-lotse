@@ -18,7 +18,7 @@
   --warn-bg: #fff1d6;
   --r: 12px;
   --shadow-pop: 0 10px 36px #2e2e3814;
-  --display: "Satoshi", var(--font-inter), "Inter", system-ui, sans-serif;
+  --display: var(--font-satoshi), var(--font-inter), "Inter", system-ui, sans-serif;
   --body: var(--font-inter), "Inter", system-ui, -apple-system, sans-serif;
   color-scheme: light;
 }

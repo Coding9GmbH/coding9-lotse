@@ -7,8 +7,16 @@ import { NAV_COOKIE } from '@/lib/nav';
 import { shellInitial } from '@/server/initial';
 import './globals.css';
 
-// Inter liegt als Variable-Font im Repo (src/app/fonts, SIL OFL) – der Build braucht kein Netz. Satoshi kommt (wie bisher) von Fontshare.
+// Inter und Satoshi liegen im Repo (src/app/fonts). Der Build braucht dafür kein Netz.
 const inter = localFont({ src: './fonts/inter-latin-wght-normal.woff2', weight: '100 900', display: 'swap', variable: '--font-inter' });
+const satoshi = localFont({
+  src: [
+    { path: './fonts/satoshi-500.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/satoshi-700.woff2', weight: '700', style: 'normal' },
+  ],
+  display: 'swap',
+  variable: '--font-satoshi',
+});
 
 export const metadata: Metadata = {
   title: { default: 'Lotse', template: '%s · Lotse' },
@@ -21,11 +29,7 @@ export const viewport: Viewport = { width: 'device-width', initialScale: 1, them
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const navCollapsed = (await cookies()).get(NAV_COOKIE)?.value === 'collapsed';
   return (
-    <html lang="de" className={inter.variable}>
-      <head>
-        <link rel="preconnect" href="https://api.fontshare.com" crossOrigin="" />
-        <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@500,700&display=swap" />
-      </head>
+    <html lang="de" className={`${inter.variable} ${satoshi.variable}`}>
       <body>
         <ShellProvider initialCollapsed={navCollapsed} initial={shellInitial()}>
           <AppShell>{children}</AppShell>
