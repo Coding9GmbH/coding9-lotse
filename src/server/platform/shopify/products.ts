@@ -308,6 +308,11 @@ export const productIdsByTitle = (client: ShopifyClient, title: string) => idsWh
  * nachgelesen). Wirft beim ersten Fehler.
  */
 export async function createProduct(client: ShopifyClient, p: NewProductPayload, undo: UndoOp[]): Promise<void> {
+  const sku = p.sku?.trim();
+  if (sku) {
+    const taken = await client.gql<Json>('query SkuTaken($first: Int!, $query: String) { productVariants(first: $first, query: $query) { nodes { sku } } }', { first: 10, query: `sku:"${sku.replace(/"/g, '')}"` });
+    if ((taken.productVariants?.nodes ?? []).some((v: Json) => v.sku === sku)) throw new Error(`SKU ${sku} ist schon vergeben`);
+  }
   const media: Json[] = [], files: string[] = [];
   for (const m of p.images) {
     if (m.startsWith('staged:')) { const up = await uploadStagedImage(client, m.slice(7)); media.push({ originalSource: up.originalSource, mediaContentType: 'IMAGE', alt: up.alt }); }

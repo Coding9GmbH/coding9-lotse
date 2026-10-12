@@ -337,7 +337,7 @@ async function applyEntity(swW: Shopware, entity: string, entityId: string, item
     undo.price = cur.price ?? null;
   }
   await swW.update(entity, entityId, data);
-  return { undo: { op: 'patch', entity, id: entityId, data: undo }, stale };
+  return { undo: { op: 'patch', entity, id: entityId, data: undo, wrote: data }, stale };
 }
 
 /** counts: Gesamtzahlen, wenn results gekürzt ist (Stapelverarbeitung: Gruppen + Stichprobe + Fehler statt Tausender Zeilen) */
@@ -448,10 +448,22 @@ async function dropSeoUrls(swW: Shopware, foreignKey: string) {
 
 const isDelete = (op: UndoOp) => op.op === 'delete' || (op.op === 'req' && (op.method ?? 'DELETE') === 'DELETE');
 
+const MOVED = 'Feld inzwischen geändert, Rückgängig übersprungen';
+async function patchMoved(swW: Shopware, op: UndoOp): Promise<boolean> {
+  if (!op.wrote) return false;
+  const cur = await swW.get(op.entity, op.id).catch(() => null);
+  if (!cur) return false;
+  return Object.keys(op.wrote).some(k => {
+    const live = cur[k] ?? null;
+    return normValue(live) !== normValue(op.wrote?.[k]) && normValue(live) !== normValue(op.data?.[k]);
+  });
+}
+
 export async function undoOps(swW: Shopware, undo: UndoOp[]) {
   const r: { ok: boolean; error?: string }[] = [];
   for (const op of [...undo].reverse()) {
     try {
+      if (op.op === 'patch' && await patchMoved(swW, op)) { r.push({ ok: false, error: MOVED }); continue; }
       if (op.op === 'patch') await swW.update(op.entity, op.id, op.data);
       else if (op.op === 'create') await swW.create(op.entity, { id: op.id, ...op.data });
       else if (op.op === 'req') await swW.req(op.method ?? 'DELETE', op.path!, op.body);

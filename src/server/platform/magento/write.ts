@@ -27,8 +27,8 @@ const failWithUndo = (e: unknown, undo: UndoOp[]): never => {
   const merged = !prev?.length || prev === undo ? undo : [...undo, ...prev];
   throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: merged });
 };
-const undoPut = (e: Ent, ref: string, store: string, values: Record<string, unknown>, extra: Record<string, unknown> = {}): UndoOp =>
-  reqOp(e, ref, 'PUT', restPath(e, ref, store), wrap(e, ref, writeBody({ ...values, ...extra })));
+const undoPut = (e: Ent, ref: string, store: string, before: Record<string, unknown>, wrote: Record<string, unknown>, extra: Record<string, unknown> = {}): UndoOp =>
+  ({ ...reqOp(e, ref, 'PUT', restPath(e, ref, store), wrap(e, ref, writeBody({ ...before, ...extra }))), ...(Object.keys(wrote).length ? { wrote } : {}) });
 
 /**
  * Werte in der Store-View `store` schreiben (scoped: eigener Wert der View → View, sonst global) plus globale Werte (global).
@@ -51,13 +51,13 @@ export async function writeScoped(c: MagentoClient, e: Ent, ref: string, store: 
   }
   const undo: UndoOp[] = [];
   try {
-    if (Object.keys(allW).length) { await putEnt(c, e, ref, 'all', allW, extra); undo.push(undoPut(e, ref, 'all', allU, extra)); }
-    if (Object.keys(stW).length) { await putEnt(c, e, ref, store, stW, extra); fixCategoryUndo(e, stU, glob); undo.push(undoPut(e, ref, store, stU, extra)); }
+    if (Object.keys(allW).length) { await putEnt(c, e, ref, 'all', allW, extra); undo.push(undoPut(e, ref, 'all', allU, allW, extra)); }
+    if (Object.keys(stW).length) { await putEnt(c, e, ref, store, stW, extra); fixCategoryUndo(e, stU, glob); undo.push(undoPut(e, ref, store, stU, stW, extra)); }
     const check = Object.keys(scoped).filter(k => k in allW);
     if (store !== 'all' && check.length) {
       const after = await getEnt(c, e, ref, store), fix: Record<string, unknown> = {}, fixU: Record<string, unknown> = {};
       for (const k of check) if (!sameValue(attr(after, k), allW[k])) { fix[k] = allW[k]; fixU[k] = attr(cur, k) ?? null; }
-      if (Object.keys(fix).length) { await putEnt(c, e, ref, store, fix, extra); fixCategoryUndo(e, fixU, glob); undo.push(undoPut(e, ref, store, fixU, extra)); }
+      if (Object.keys(fix).length) { await putEnt(c, e, ref, store, fix, extra); fixCategoryUndo(e, fixU, glob); undo.push(undoPut(e, ref, store, fixU, fix, extra)); }
     }
     return undo;
   } catch (e2) { return failWithUndo(e2, undo); }
@@ -71,7 +71,7 @@ export async function writeStore(c: MagentoClient, e: Ent, ref: string, store: s
   for (const k of Object.keys(values)) back[k] = sameValue(attr(cur, k), attr(glob, k)) ? null : attr(cur, k) ?? null; // gleich wie global = geerbt
   await putEnt(c, e, ref, store, values, extra);
   fixCategoryUndo(e, back, glob);
-  return [undoPut(e, ref, store, back, extra)];
+  return [undoPut(e, ref, store, back, values, extra)];
 }
 
 /**
@@ -99,11 +99,20 @@ function fixCategoryUndo(e: Ent, undo: Record<string, unknown>, glob: MRecord) {
 }
 
 const isDelete = (op: UndoOp) => op.op === 'delete' || (op.op === 'req' && (op.method ?? 'DELETE') === 'DELETE');
+const MOVED = 'Feld inzwischen geändert, Rückgängig übersprungen';
+function valueMoved(c: MagentoClient, op: UndoOp): Promise<boolean> {
+  if (!op.wrote || (op.method !== 'PUT' && op.method !== 'PATCH') || (op.entity !== 'product' && op.entity !== 'category')) return Promise.resolve(false);
+  const store = /^\/([a-z][a-z0-9_]*)\/V1\//.exec(op.path ?? '')?.[1] ?? 'all';
+  const body = op.body as { product?: MRecord; category?: MRecord } | undefined;
+  const before = body?.product ?? body?.category;
+  return getEnt(c, op.entity, op.id, store).then(cur => !!cur && Object.keys(op.wrote!).some(k => !sameValue(attr(cur, k), op.wrote![k]) && !sameValue(attr(cur, k), attr(before, k))));
+}
 /** Rückgängig-Schritte in umgekehrter Reihenfolge; Löschen von schon Gelöschtem (404) gilt als erledigt */
 export async function undoMagento(c: MagentoClient, ops: UndoOp[]): Promise<{ ok: boolean; error?: string }[]> {
   const out: { ok: boolean; error?: string }[] = [];
   for (const op of [...ops].reverse()) {
     try {
+      if (await valueMoved(c, op)) { out.push({ ok: false, error: MOVED }); continue; }
       if (op.op === 'req' || op.op === 'delete') {
         if (!op.path) throw new Error('Rückgängig-Schritt ohne Pfad');
         await c.req(op.op === 'delete' ? 'DELETE' : op.method ?? 'DELETE', op.path, op.body);

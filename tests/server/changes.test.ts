@@ -98,7 +98,8 @@ test('applyChangeSet: Preis + Streichpreis → ein PATCH mit brutto/netto (19 %)
   assert.equal(body.price.length, 2); assert.equal(body.price[1].currencyId, 'usd');
   assert.equal(body.price[0].gross, 17.99); assert.equal(body.price[0].net, 15.1176); assert.equal(body.price[0].linked, true);
   assert.equal(body.price[0].listPrice?.gross, 24.99); assert.equal(body.price[0].listPrice?.net, 21.0);
-  assert.deepEqual(r.undo, [{ op: 'patch', entity: 'product', id: 'p1', data: { name: null, price: old } }]);
+  assert.deepEqual(r.undo[0].data, { name: null, price: old });
+  assert.deepEqual(r.undo[0].wrote, body);
 });
 
 test('applyChangeSet: Preis-PATCH behält den Grundpreis (regulationPrice)', async () => {
@@ -122,7 +123,8 @@ test('applyChangeSet: Variante ohne eigenen Preis nimmt Basis/Steuer vom Hauptpr
   assert.equal(r.results[0].ok, true);
   const body = f.calls[0].data as { price: { gross: number; net: number; listPrice: { gross: number; net: number } }[] };
   assert.equal(body.price[0].gross, 89); assert.equal(body.price[0].net, 83.1776); assert.equal(body.price[0].listPrice.gross, 120);
-  assert.deepEqual(r.undo[0], { op: 'patch', entity: 'product', id: 'v1', data: { price: null } });
+  assert.deepEqual(r.undo[0].data, { price: null });
+  assert.deepEqual(r.undo[0].wrote, body);
   const back = fakeShopware({ product: [{ id: 'v1', parentId: 'p', price: [{ gross: 89 }] }] });
   const cs2 = { ...cs, items: [item('v1', 'price', null)] };
   await applyChangeSet(back.sw, cs2, undefined, all(cs2));
@@ -140,7 +142,8 @@ test('applyChangeSet: nur ausgewählte Elemente, Fehler je Entität (andere lauf
   assert.equal(f.calls.filter(c => c.m === 'PATCH').length, 1, 'c nicht ausgewählt, b fehlgeschlagen');
   const body = f.calls[0].data as { stock: number; customFields: { aicb_blocks: { x: number; faq: unknown; faq_html: string } } };
   assert.equal(body.stock, 5); assert.equal(body.customFields.aicb_blocks.x, 1); assert.deepEqual(body.customFields.aicb_blocks.faq, faq.items); assert.match(body.customFields.aicb_blocks.faq_html, /A\?/);
-  assert.deepEqual(r.undo, [{ op: 'patch', entity: 'product', id: 'a', data: { stock: 1, customFields: { aicb_blocks: { x: 1 } } } }]);
+  assert.deepEqual(r.undo[0].data, { stock: 1, customFields: { aicb_blocks: { x: 1 } } });
+  assert.deepEqual(r.undo[0].wrote, body);
 });
 
 // ---- Stale-Write-Guard: inzwischen geänderte Felder werden nicht geschrieben, die übrigen schon ----
@@ -172,7 +175,8 @@ test('Stale-Write-Guard Produkt: Preis/Text/FAQ inzwischen geändert → nur die
   ]);
   assert.equal(f.calls.filter(c => c.m === 'PATCH').length, 1);
   assert.deepEqual(f.calls[0].data, { name: 'Neu', description: '<p>neu</p>' }, 'Preis und FAQ nicht geschrieben');
-  assert.deepEqual(r.undo, [{ op: 'patch', entity: 'product', id: 'p1', data: { name: 'Alt', description: '<p>alt</p>' } }]);
+  assert.deepEqual(r.undo[0].data, { name: 'Alt', description: '<p>alt</p>' });
+  assert.deepEqual(r.undo[0].wrote, { name: 'Neu', description: '<p>neu</p>' });
   // alle Felder der Entität stale → kein Schreibzugriff, kein Rückgängig-Schritt
   const g = fakeShopware({ product: [{ id: 'p1', price: [{ currencyId: 'eur', gross: 22 }], tax: { taxRate: 19 } }] });
   const cs2 = setOf('products', [gi('p1', 'price', 17.99, 20, 'Preis (brutto)'), gi('p1', 'listPrice', 29, null, 'Streichpreis (brutto)')]);
@@ -353,4 +357,22 @@ test('undoOps: schon gelöschte Ziele (404) gelten als rückgängig gemacht, and
     { op: 'delete', entity: 'product-cross-selling', id: 'gone' },
   ]);
   assert.deepEqual(r.map(x => x.ok), [true, true, false, false]);
+});
+
+test('undoOps: ohne gespeicherten Nachher-Wert wie bisher; mit Nachher-Wert nur, wenn der Shop noch den geschriebenen oder den vorherigen Wert hat', async () => {
+  const old = fakeShopware({ product: [{ id: 'p1', name: 'Von Hand' }] });
+  const kept = await undoOps(old.sw, [{ op: 'patch', entity: 'product', id: 'p1', data: { name: 'Alt' } }]);
+  assert.equal(kept[0].ok, true);
+  assert.equal(old.db.product[0].name, 'Alt', 'Altbestand ohne Nachher-Wert schreibt weiter');
+
+  const moved = fakeShopware({ product: [{ id: 'p1', name: 'Von Hand' }] });
+  const skipped = await undoOps(moved.sw, [{ op: 'patch', entity: 'product', id: 'p1', data: { name: 'Alt' }, wrote: { name: 'Neu' } }]);
+  assert.equal(moved.db.product[0].name, 'Von Hand');
+  assert.equal(moved.calls.filter(c => c.m === 'PATCH').length, 0);
+  assert.match(skipped[0].error ?? '', /inzwischen geändert/);
+
+  const fresh = fakeShopware({ product: [{ id: 'p1', name: 'Neu' }] });
+  const back = await undoOps(fresh.sw, [{ op: 'patch', entity: 'product', id: 'p1', data: { name: 'Alt' }, wrote: { name: 'Neu' } }]);
+  assert.equal(back[0].ok, true);
+  assert.equal(fresh.db.product[0].name, 'Alt');
 });

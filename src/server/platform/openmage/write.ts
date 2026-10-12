@@ -33,8 +33,8 @@ export async function patchAttrs(c: OmClient, e: Ent, ref: string, store: string
   const attributes = isGlobal(store) ? Object.fromEntries(Object.entries(values).map(([k, v]) => [k, globalEmpty(v)])) : values;
   return c.req('PATCH', entPath(e, ref), { attributes }, { store });
 }
-const undoPatch = (e: Ent, ref: string, store: string, values: Record<string, unknown>): UndoOp =>
-  reqOp(e, ref, 'PATCH', storePath(entPath(e, ref), store), { attributes: isGlobal(store) ? Object.fromEntries(Object.entries(values).map(([k, v]) => [k, globalEmpty(v)])) : values });
+const undoPatch = (e: Ent, ref: string, store: string, before: Record<string, unknown>, wrote: Record<string, unknown> = {}): UndoOp =>
+  ({ ...reqOp(e, ref, 'PATCH', storePath(entPath(e, ref), store), { attributes: isGlobal(store) ? Object.fromEntries(Object.entries(before).map(([k, v]) => [k, globalEmpty(v)])) : before }), ...(Object.keys(wrote).length ? { wrote } : {}) });
 /** Nach einem url_key-Schreiben angelegte 301-Rewrites („Save Rewrites History“): beim Rückgängig löschen */
 export const rewriteUndo = (res: OmRecord | null | undefined): UndoOp[] => ((res?._write?.rewrites_added ?? []) as number[]).map(id => reqOp('url-rewrite', String(id), 'DELETE', `/v1/urlrewrites/${Number(id)}`));
 
@@ -60,14 +60,14 @@ export async function writeScoped(c: OmClient, e: Ent, ref: string, store: strin
   }
   const undo: UndoOp[] = [];
   try {
-    if (Object.keys(allW).length) { const r = await patchAttrs(c, e, ref, 'admin', allW); undo.push(undoPatch(e, ref, 'admin', allU), ...rewriteUndo(r)); }
-    if (Object.keys(stW).length) { const r = await patchAttrs(c, e, ref, store, stW); undo.push(undoPatch(e, ref, store, stU), ...rewriteUndo(r)); }
+    if (Object.keys(allW).length) { const r = await patchAttrs(c, e, ref, 'admin', allW); undo.push(undoPatch(e, ref, 'admin', allU, allW), ...rewriteUndo(r)); }
+    if (Object.keys(stW).length) { const r = await patchAttrs(c, e, ref, store, stW); undo.push(undoPatch(e, ref, store, stU, stW), ...rewriteUndo(r)); }
     // Global geschrieben, aber in der Store-View durch einen eigenen Wert verdeckt (z. B. alter Sonderpreis)? Dann auch dort setzen
     const check = Object.keys(allW);
     if (cur && check.length) {
       const after = await getEnt(c, e, ref, store), fix: Record<string, unknown> = {}, fixU: Record<string, unknown> = {};
       for (const k of check) if (after && !same(omAttr(after, k), allW[k])) { fix[k] = allW[k]; fixU[k] = hasOverride(after, k) ? omAttr(after, k) ?? null : null; }
-      if (Object.keys(fix).length) { const r = await patchAttrs(c, e, ref, store, fix); undo.push(undoPatch(e, ref, store, fixU), ...rewriteUndo(r)); }
+      if (Object.keys(fix).length) { const r = await patchAttrs(c, e, ref, store, fix); undo.push(undoPatch(e, ref, store, fixU, fix), ...rewriteUndo(r)); }
     }
     return undo;
   } catch (e2) { return failWithUndo(e2, undo); }
@@ -80,15 +80,23 @@ export async function writeStore(c: OmClient, e: Ent, ref: string, store: string
   const back: Record<string, unknown> = {};
   for (const k of Object.keys(values)) back[k] = hasOverride(cur, k) ? omAttr(cur, k) ?? null : null;
   const r = await patchAttrs(c, e, ref, store, values);
-  return [undoPatch(e, ref, store, back), ...rewriteUndo(r)];
+  return [undoPatch(e, ref, store, back, values), ...rewriteUndo(r)];
 }
 
 const isDelete = (op: UndoOp) => op.op === 'delete' || (op.op === 'req' && (op.method ?? 'DELETE') === 'DELETE');
+const MOVED = 'Feld inzwischen geändert, Rückgängig übersprungen';
+function valueMoved(c: OmClient, op: UndoOp): Promise<boolean> {
+  if (!op.wrote || (op.method !== 'PUT' && op.method !== 'PATCH') || (op.entity !== 'product' && op.entity !== 'category')) return Promise.resolve(false);
+  const store = new URLSearchParams((op.path ?? '').split('?')[1] ?? '').get('store') || 'admin';
+  const before = (op.body as { attributes?: Record<string, unknown> } | undefined)?.attributes ?? {};
+  return getEnt(c, op.entity, op.id, store).then(cur => !!cur && Object.keys(op.wrote!).some(k => !same(omAttr(cur, k), op.wrote![k]) && !same(omAttr(cur, k), before[k])));
+}
 /** Rückgängig-Schritte in umgekehrter Reihenfolge; Löschen von schon Gelöschtem (404) gilt als erledigt */
 export async function undoOpenmage(c: OmClient, ops: UndoOp[]): Promise<{ ok: boolean; error?: string }[]> {
   const out: { ok: boolean; error?: string }[] = [];
   for (const op of [...ops].reverse()) {
     try {
+      if (await valueMoved(c, op)) { out.push({ ok: false, error: MOVED }); continue; }
       if (op.op === 'req' || op.op === 'delete') {
         if (!op.path) throw new Error('Rückgängig-Schritt ohne Pfad');
         const r = await c.req(op.op === 'delete' ? 'DELETE' : op.method ?? 'DELETE', op.path, op.body) as OmRecord | null;
