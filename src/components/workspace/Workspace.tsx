@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useAttachments } from '@/hooks/useAttachments';
 import { useChatStream } from '@/hooks/useChatStream';
-import { api, errorText } from '@/lib/api';
+import { api, ApiError, errorText } from '@/lib/api';
+import { approveError } from '@/lib/approve-error';
 import { annotationMessage, type Annotation } from '@/lib/annotations';
 import { attachmentMessage, parseAttachments } from '@/lib/attachments';
 import { chatReducer, initialChatState, isHome, isStillRunning, pendingQuestion, showPreview, stopControl, writeInFlight } from '@/lib/chat-state';
@@ -58,6 +59,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const [notes, setNotes] = useState<Annotation[]>([]); // Änderungswünsche aus der Vorschau
   const [previewOpen, setPreviewOpen] = useState(false); // schmaler Viewport: Vorschau über dem Chat
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sentApprovals = useRef(new Set<string>());
   const runGen = useRef(0);
   const busyRef = useRef(false);
   const lastRunEnd = useRef(0);
@@ -177,8 +179,16 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
 
   const decide = (approvalId: string, allow: boolean, selected?: string[]) => {
     if (!chatId) return;
+    const alreadySent = sentApprovals.current.has(approvalId) || writeInFlight(state);
+    if (sentApprovals.current.has(approvalId)) return;
+    sentApprovals.current.add(approvalId);
     dispatch({ type: 'decide', approvalId, allow, selected });
-    api.approve(chatId, approvalId, allow, selected).catch(e => reportError(`Freigabe konnte nicht gesendet werden: ${errorText(e)}`));
+    api.approve(chatId, approvalId, allow, selected).catch(e => {
+      const status = e instanceof ApiError ? e.status : 0;
+      const text = approveError(status, alreadySent);
+      if (!text) return;
+      reportError(status === 404 ? text : `${text}: ${errorText(e)}`);
+    });
   };
 
   const undo = async (csId: string) => {
@@ -338,7 +348,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
               {target && <TargetCard target={target} cfg={cfg} onClear={() => selectTarget(null)} />}
               <ChatLog items={state.items} cfg={cfg} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} />
               {status}
-              <Chips items={chips} onPick={s => send(s)} />
+              <Chips items={chips} onPick={s => { setInput(s); inputRef.current?.focus(); }} />
               {composer}
             </>
           )}

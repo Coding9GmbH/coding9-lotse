@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { TestResult } from '@/lib/protocol';
+import { isShopLoginFailure, shopLoginMessage } from '@/lib/shop-login';
 import { pingAi } from '@/server/agent';
 import { errMsg, parseJson } from '@/server/http';
 import { activePlatform } from '@/server/platform';
@@ -17,5 +18,12 @@ export async function POST(req: Request) {
     if (target === 'shop' || target === 'shopware') return result(await activePlatform().testConnection()); // 'shopware' = Altbestand
     if (target === 'ai') { const text = await pingAi(); return result({ ok: true, message: `KI antwortet: ${String(text).slice(0, 40)}` }); }
     return result({ ok: false, message: 'unbekanntes Ziel' }, 400);
-  } catch (e) { return result({ ok: false, message: errMsg(e).replace(/\s+/g, ' ').slice(0, 300) }); }
+  } catch (e) {
+    const raw = errMsg(e).replace(/\s+/g, ' ').trim();
+    if (isShopLoginFailure(raw)) {
+      const status = Number(/fehlgeschlagen \((\d+)\)/.exec(raw)?.[1] ?? 0);
+      return result({ ok: false, message: shopLoginMessage(status, raw) });
+    }
+    return result({ ok: false, message: raw.slice(0, 300) });
+  }
 }

@@ -14,6 +14,7 @@ export function GscSettings() {
   const [replace, setReplace] = useState(false);
   const [property, setProperty] = useState('');
   const [busy, setBusy] = useState<'save' | 'test' | 'off' | null>(null);
+  const [confirmOff, setConfirmOff] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [test, setTest] = useState<GscTestResult | null>(null);
   const file = useRef<HTMLInputElement>(null);
@@ -83,8 +84,18 @@ export function GscSettings() {
             <span className={styles.savedTag}>Schlüssel gespeichert</span>
           </span>
           <span className={styles.keyBtns}>
-            <Button size="sm" onClick={() => setReplace(true)}>Ersetzen</Button>
-            <Button size="sm" variant="danger" busy={busy === 'off'} onClick={() => void disconnect()}>Trennen</Button>
+            {confirmOff ? (
+              <>
+                <span className={styles.fieldHint}>Schlüssel trennen? Er lässt sich hier nicht wieder anzeigen.</span>
+                <Button size="sm" variant="danger" busy={busy === 'off'} onClick={() => void disconnect()}>Trennen</Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirmOff(false)}>Abbrechen</Button>
+              </>
+            ) : (
+              <>
+                <Button size="sm" onClick={() => setReplace(true)}>Ersetzen</Button>
+                <Button size="sm" variant="danger" onClick={() => setConfirmOff(true)}>Trennen</Button>
+              </>
+            )}
           </span>
         </div>
       )}

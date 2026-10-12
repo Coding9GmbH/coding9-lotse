@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { PublicSettings, ScopeKey, TestResult } from '@/lib/protocol';
-import { PLATFORM_KINDS, PLATFORM_SETTINGS, type PlatformField, type PlatformKind } from '@/lib/platforms';
+import { PLATFORM_KINDS, PLATFORM_SETTINGS, scopeDisplay, type PlatformField, type PlatformKind } from '@/lib/platforms';
 import { AI_MODELS, authOf, buildPatch, connectionTestBlock, fieldValue, formFromSettings, hasSecret, isDirty, platformAvailable, savedConfigured, secretState, withAuth, withFieldValue, withSecret, type SecretKey, type SettingsForm } from '@/lib/settings-form';
 import { useShell } from '@/components/shell/ShellProvider';
 import { Button } from '@/components/ui/Button';
@@ -105,7 +105,7 @@ export function SettingsView() {
                   <State ok={saved.ai.provider === 'codex' ? saved.ai.codexLoggedIn : saved.ai.hasApiKey || saved.ai.viaEnv} />
                 </div>
                 <Segmented label="KI-Anbieter" className={`${styles.authSeg} ${styles.providerSeg}`} value={form.ai.provider} onChange={provider => setAi({ provider })}
-                  options={[{ value: 'claude', label: 'Claude (API-Schlüssel)' }, { value: 'codex', label: 'ChatGPT-Abo (Codex)' }]} />
+                  options={[{ value: 'claude', label: 'Claude (API-Schlüssel)' }, { value: 'codex', label: 'ChatGPT-Abo' }]} />
                 {form.ai.provider !== saved.ai.provider && <p className={styles.info}>Wird nach dem Speichern für neue Nachrichten verwendet.</p>}
 
                 {form.ai.provider === 'claude' ? (
@@ -153,7 +153,7 @@ export function SettingsView() {
                 <p className={styles.hint}>Welche Bereiche des Shops darf die KI <b>lesen</b>? Geschrieben wird ohnehin nur nach deiner Freigabe.</p>
                 <ul className={styles.scopes}>
                   {SCOPE_ORDER.filter(k => k in form.scopes).map(k => {
-                    const info = saved.scopeInfo?.[k] ?? { label: k, hint: '' };
+                    const info = scopeDisplay(form.platform, k, saved.scopeInfo?.[k] ?? { label: k, hint: '' });
                     return (
                       <li key={k}>
                         <label className={styles.scope}>

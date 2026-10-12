@@ -21,7 +21,7 @@ function groupByArea(list: CheckFinding[]) {
   return [...m.entries()];
 }
 
-/** Startseite: was im Shop gerade nicht stimmt, je Punkt mit „Beheben“ (füllt den Auftrag für einen neuen Chat vor). */
+/** Startseite: was im Shop gerade nicht stimmt. „Als Auftrag ins Feld“ füllt nur das Eingabefeld, es wird nichts gesendet. */
 export function ShopCheck({ onFix }: { onFix: (prompt: string) => void }) {
   const [st, setSt] = useState<ShopCheckState | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -107,7 +107,7 @@ export function ShopCheck({ onFix }: { onFix: (prompt: string) => void }) {
                   </details>
                 )}
               </div>
-              <Button size="sm" variant={f === findings[0] ? 'primary' : undefined} className={styles.fix} onClick={() => onFix(f.fixPrompt)} title={f.fixPrompt}>Beheben</Button>
+              <Button size="sm" variant={f === findings[0] ? 'primary' : undefined} className={styles.fix} onClick={() => onFix(f.fixPrompt)} title="Legt den Auftrag ins Feld. Senden bleibt ein eigener Klick.">Als Auftrag ins Feld</Button>
             </div>
           ))}
         </div>

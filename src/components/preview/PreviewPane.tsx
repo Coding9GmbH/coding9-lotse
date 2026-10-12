@@ -87,10 +87,9 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
             </>
           ) : 'Vorschau'}
         </div>
-        <Segmented label="Ansicht" className={styles.seg} value={tab} onChange={onTab} options={[
+        <Segmented label="Ansicht" className={styles.seg} value={tab === 'spec' ? 'prev' : tab} onChange={onTab} options={[
           { value: 'live', label: 'Aktuell', title: 'Die echte Seite im Shop' },
           { value: 'prev', label: 'Entwurf', title: 'Entwurf mit dem Theme des Shops' },
-          { value: 'spec', label: 'JSON' },
         ]} />
         <Button size="sm" className={`${styles.mark} ${marking ? styles.markOn : ''}`} aria-pressed={marking} disabled={!canMark && !marking}
           title="Elemente in der Vorschau anklicken und notieren, was anders sein soll. Gesammelt an Lotse senden."
@@ -142,12 +141,11 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
           <div className={styles.empty}>
             {tab === 'live'
               ? <div><b>Noch keine Seite</b>Wähle ein Ziel, dann siehst du hier die echte Seite aus dem Shop.</div>
-              : <div><b>Noch kein Entwurf</b>Der Entwurf baut sich hier live auf, während der Agent schreibt.</div>}
+              : <div><b>Noch kein Entwurf</b>Der Entwurf baut sich hier live auf, während Lotse schreibt.</div>}
           </div>
         )}
         {liveUrl && <iframe className={styles.frame} src={liveUrl} hidden={tab !== 'live'} data-kind="live" title="Aktuelle Seite im Shop" sandbox={PREVIEW_SANDBOX} />}
-        <DraftFrame draft={draft} className={styles.frame} hidden={tab !== 'prev' || !draft} />
-        {tab === 'spec' && <pre className={styles.spec}>{draft?.spec ? JSON.stringify(draft.spec, null, 2) : ''}</pre>}
+        <DraftFrame draft={draft} className={styles.frame} hidden={(tab !== 'prev' && tab !== 'spec') || !draft} />
       </div>
     </section>
   );

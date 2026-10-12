@@ -84,6 +84,7 @@ export function KnowledgeView() {
 
 function DocRow({ doc, onChange, onDelete }: { doc: KnowledgeDoc; onChange: (d: KnowledgeDoc) => void; onDelete: () => void }) {
   const [mode, setMode] = useState<'view' | 'rename' | 'link' | 'confirm'>('view');
+  const [unlink, setUnlink] = useState<string | null>(null);
   const [title, setTitle] = useState(doc.title);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -108,7 +109,15 @@ function DocRow({ doc, onChange, onDelete }: { doc: KnowledgeDoc; onChange: (d: 
             {doc.links.map(l => (
               <span key={l.kind + l.id} className={styles.chip} title={l.kind === 'product' ? 'Verknüpftes Produkt' : 'Verknüpfte Kategorie'}>
                 <span className={styles.chipName}>{l.kind === 'category' && 'Kategorie '}{l.name ?? l.id}</span>{l.number && <em>{l.number}</em>}
-                <button type="button" aria-label={`Verknüpfung mit ${l.name ?? l.id} lösen`} disabled={busy} onClick={() => setLinks(doc.links.filter(x => x !== l))}><IconClose size={12} /></button>
+                {unlink === l.kind + l.id ? (
+                  <>
+                    <span className={styles.confirmText}>Löschen?</span>
+                    <Button size="sm" variant="danger" busy={busy} onClick={() => { setUnlink(null); setLinks(doc.links.filter(x => x !== l)); }}>Löschen</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setUnlink(null)}>Abbrechen</Button>
+                  </>
+                ) : (
+                  <button type="button" aria-label={`Verknüpfung mit ${l.name ?? l.id} lösen`} disabled={busy} onClick={() => setUnlink(l.kind + l.id)}><IconClose size={12} /></button>
+                )}
               </span>
             ))}
             {doc.tags.map(t => <span key={t} className={`${styles.chip} ${styles.tag}`}>#{t}</span>)}
