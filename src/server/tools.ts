@@ -100,8 +100,8 @@ function coreTools(session: Session, p: PlatformAdapter): AnyTool[] {
       logoUrl: z.string().optional(), imagery: z.string().describe('Bildstil/-motive'),
       tone: z.object({ formality: z.enum(['Du', 'Sie']), voice: z.string(), dos: z.array(z.string()), donts: z.array(z.string()), examples: z.array(z.string()).describe('2–4 Beispielsätze im Markenton') }),
       layoutNotes: z.string().optional().describe('Rhythmus, Weißraum, typische Seitenmuster (Abschnittsfolge der Startseite/Kategorien/Produktseiten)'),
-      components: z.object({ buttons: z.string().optional(), headings: z.string().optional(), cards: z.string().optional(), sections: z.string().optional(), notes: z.string().optional() }).optional().describe('Wie Buttons, Überschriften, Karten/Produktboxen und Abschnitte im Shop WIRKLICH aussehen (aus get_brand_signals: pages, componentClasses, CSS-Regeln) – damit neue Seiten wie bestehende wirken'),
-      existingBlocks: z.array(z.string()).optional().describe('Blöcke/Elemente, die der Shop auf seinen Seiten verwendet, je "blocktyp: wofür/wo" (aus get_brand_signals.blockUsage/pages) – neue Seiten übernehmen diese per reuse statt sie nachzubauen'),
+      components: z.object({ buttons: z.string().optional(), headings: z.string().optional(), cards: z.string().optional(), sections: z.string().optional(), notes: z.string().optional() }).optional().describe('Lokale Notiz zu Buttons, Überschriften, Karten und Abschnitten. Wird nur im Styleguide gespeichert, zusammen mit Farben, Typografie und Tonalität.'),
+      existingBlocks: z.array(z.string()).optional().describe('Lokale Notizen zu wiederkehrenden Seitenelementen. Werden nur im Styleguide gespeichert, zusammen mit Farben, Typografie und Tonalität.'),
     }, guard(async (sg: Styleguide) => { const saved = saveStyleguide(sg); if (saved) emit({ t: 'styleguide', sg: saved }); return ok('Styleguide gespeichert.'); })),
 
     tool('draft_page', `Erstellt/ersetzt den Seitenentwurf und zeigt ihn dem Nutzer sofort in der Vorschau. Noch NICHTS in ${p.label} geschrieben. Beliebig oft aufrufbar zum Iterieren – immer die komplette Spec senden.`,
