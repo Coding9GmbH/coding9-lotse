@@ -27,10 +27,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const nav = document.getElementById('lotse-nav');
     if (!nav) return;
     const release = inertExcept(nav);
+    const menu = menuRef.current;
     nav.querySelector<HTMLElement>('a, button')?.focus();
     return () => {
       release();
-      menuRef.current?.focus();
+      menu?.focus();
     };
   }, [mobileOpen]);
 

@@ -38,7 +38,12 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
   const [marking, setMarking] = useState(false);
   const [pick, setPick] = useState<(Pick & { left: number; top: number }) | null>(null);
   const [targets, setTargets] = useState<FrameTarget[]>([]);
+  const [wasMarking, setWasMarking] = useState(false);
   const [text, setText] = useState('');
+  if (marking !== wasMarking) {
+    setWasMarking(marking);
+    if (!marking) setTargets([]);
+  }
   const viewRef = useRef<HTMLDivElement>(null);
   const canMark = (tab === 'prev' && !!draft && !draft.partial) || (tab === 'live' && !!liveUrl);
   const where = tab === 'live' ? 'live' : 'draft';
@@ -57,7 +62,7 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
   };
 
   useEffect(() => {
-    if (!marking) { setTargets([]); return; }
+    if (!marking) return;
     const f = canMark ? frame() : null;
     if (!f) return;
     return attachAnnotator(f, place, setTargets);

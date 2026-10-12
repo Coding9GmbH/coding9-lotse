@@ -20,8 +20,8 @@ test('applyHint sagt bei jedem offenen Set, dass der Klick in den Shop schreibt'
 });
 
 test('undoPlanned: Zeilen, die keine reinen Hinweise sind, lassen sich auf vorherige Werte stellen', () => {
-  assert.equal(undoPlannedFor({ items: [{ entity: 'product', before: '10 €' }] }), true);
-  assert.equal(undoPlannedFor({ items: [{ entity: 'info', before: '' }] }), false);
+  assert.equal(undoPlannedFor({ items: [{ entity: 'product' }] }), true);
+  assert.equal(undoPlannedFor({ items: [{ entity: 'info' }] }), false);
   assert.equal(undoPlannedFor({ items: [] }), false);
 });
 

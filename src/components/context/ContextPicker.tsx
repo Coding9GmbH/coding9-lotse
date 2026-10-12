@@ -18,8 +18,7 @@ export function ContextPicker({ id, categories, categoryError = null, target, on
   const [kind, setKind] = useState<TargetKind>('category');
   const [q, setQ] = useState('');
   const [collapsed, setCollapsed] = useState<ReadonlySet<string> | null>(null); // null: noch nicht aus dem Baum abgeleitet
-  const [products, setProducts] = useState<ProductRow[] | null>(null);
-  const [prodError, setProdError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState<{ q: string; products: ProductRow[]; error: string | null } | null>(null);
   const reqNo = useRef(0);
   // Shopify: Kollektionen statt Kategorien (Name je Plattform aus lib/platforms.ts)
   const kindOf = useShell().health?.platform?.kind, noun = (kindOf && PLATFORM_SETTINGS[kindOf].categoryNoun) || { one: 'Kategorie', many: 'Kategorien' };
@@ -27,14 +26,16 @@ export function ContextPicker({ id, categories, categoryError = null, target, on
   useEffect(() => {
     if (kind !== 'product') return;
     const my = ++reqNo.current;
-    setProdError(null);
-    setProducts(null);
+    const query = q;
     const t = setTimeout(() => {
-      api.products(q.trim()).then(l => { if (my === reqNo.current) setProducts(l); }).catch(() => { if (my === reqNo.current) setProdError('nicht geladen'); });
-    }, q ? 250 : 0);
+      api.products(query.trim()).then(l => { if (my === reqNo.current) setLoaded({ q: query, products: l, error: null }); }).catch(() => { if (my === reqNo.current) setLoaded({ q: query, products: [], error: 'nicht geladen' }); });
+    }, query ? 250 : 0);
     return () => clearTimeout(t);
   }, [kind, q]);
 
+  const fresh = kind === 'product' && loaded?.q === q ? loaded : null;
+  const products = fresh && !fresh.error ? fresh.products : null;
+  const prodError = fresh?.error ?? null;
   const catView = catalogState(categoryError, categories);
   const prodView = catalogState(prodError, products);
   const folded = useMemo(() => collapsed ?? (categories ? initialCollapsed(categories) : new Set<string>()), [collapsed, categories]);
@@ -72,7 +73,7 @@ export function ContextPicker({ id, categories, categoryError = null, target, on
                       ? <button type="button" className={styles.tw} aria-label={open ? `${c.name} einklappen` : `${c.name} ausklappen`} onClick={() => toggle(c.id)}>{open ? '▾' : '▸'}</button>
                       : <span className={styles.tw} aria-hidden="true" />}
                     <button type="button" className={styles.pick}
-                      onClick={() => onSelect({ kind: 'category', id: c.id, name: c.name, cmsPage: c.cmsPage, path: categoryPath(categories, c) })}>
+                      onClick={() => { if (!categories) return; onSelect({ kind: 'category', id: c.id, name: c.name, cmsPage: c.cmsPage, path: categoryPath(categories, c) }); }}>
                       <span className={styles.nm}>{c.name}</span>
                       {c.cmsPage && <span className={styles.tag} title={`Layout: ${c.cmsPage}`}>Layout</span>}
                     </button>

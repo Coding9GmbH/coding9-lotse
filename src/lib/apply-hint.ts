@@ -1,5 +1,3 @@
-import type { ChangeItem, ChangeSet } from './protocol';
-
 const WRITE_ROWS = 'Der Klick schreibt die ausgewählten Zeilen in den verbundenen Shop.';
 const WRITE_SHOP = 'Der Klick schreibt in den verbundenen Shop.';
 const UNDO_YES = 'Rückgängig stellt die geschriebenen Zeilen auf die vorherigen Werte.';
@@ -11,6 +9,6 @@ export function applyHint({ selectable, undoPlanned }: { selectable: boolean; un
 }
 
 /** Vor dem Ergebnis bekannt: Zeilen, die keine reinen Hinweise sind, stellt Rückgängig auf die vorherigen Werte. Sonst ist Undo nicht zuverlässig bekannt. */
-export function undoPlannedFor(cs: Pick<ChangeSet, 'items'>): boolean {
-  return cs.items.some((i: ChangeItem) => i.entity !== 'info');
+export function undoPlannedFor(cs: { items: { entity: string }[] }): boolean {
+  return cs.items.some(i => i.entity !== 'info');
 }

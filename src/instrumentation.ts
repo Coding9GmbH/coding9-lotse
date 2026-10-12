@@ -1,7 +1,17 @@
 const LOOPBACK_BIND = new Set(['127.0.0.1', 'localhost', '::1']);
 
+/** Die Felder, die die Startwarnung liest. Ein Teilobjekt reicht, der Test muss kein volles ProcessEnv bauen. */
+export type BindEnv = {
+  AICB_DOCKER?: string;
+  LOTSE_BIND?: string;
+  HOSTNAME?: string;
+  HOST?: string;
+  LOTSE_PASSWORD?: string;
+  [key: string]: string | undefined;
+};
+
 /** Warnung, kein Startabbruch: außerhalb von Docker bei offenem Bind ohne Passwort, im Container wenn LOTSE_BIND fehlt oder nicht Loopback ist. */
-export function bindWarning(env: NodeJS.ProcessEnv): string | null {
+export function bindWarning(env: BindEnv): string | null {
   if (env.AICB_DOCKER === '1') {
     const bind = (env.LOTSE_BIND ?? '').trim();
     if (LOOPBACK_BIND.has(bind)) return null;

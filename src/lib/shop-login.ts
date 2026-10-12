@@ -1,5 +1,7 @@
 /** Fester Satz für eine abgelehnte Shop-Anmeldung. Der Rohbody der Gegenstelle kommt nie in die Oberfläche. */
-export function shopLoginMessage(_status: number, _body: string): string {
+export function shopLoginMessage(status: number, body: string): string {
+  void status;
+  void body;
   return 'Zugang abgelehnt. Prüfe die Zugangsdaten und versuche es erneut.';
 }
 
