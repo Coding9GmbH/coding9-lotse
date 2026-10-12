@@ -22,7 +22,17 @@ export async function GET(req: NextRequest) {
     const b = await sf.base();
     const r = await sf.fetch(b + url, { redirect: 'manual', headers: { accept: req.headers.get('accept') || '*/*', 'accept-language': 'de-DE,de' } });
     const loc = r.headers.get('location');
-    if (loc) return new Response(null, { status: r.status, headers: { location: storefrontRewrite(new URL(loc, b).href, b) } });
+    if (loc) {
+      // Nur dieselbe Herkunft wie die Shop-Basis, ohne Zugangsdaten in der URL. Fremde Location nicht folgen und nicht durchreichen.
+      let target: string | null = null;
+      try {
+        const baseUrl = new URL(b);
+        const abs = new URL(loc, baseUrl);
+        if (abs.origin === baseUrl.origin && !abs.username && !abs.password) target = storefrontRewrite(abs.href, b);
+      } catch { target = null; }
+      if (!target) return new Response('Weiterleitung außerhalb des Shops', { status: 502, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+      return new Response(null, { status: r.status, headers: { location: target } });
+    }
     const ct = r.headers.get('content-type') || 'application/octet-stream';
     const html = /text\/html/.test(ct);
     // Nur Vorschau: kein Shop-/Drittanbieter-JS in Lotses Herkunft (zusätzlich zur iframe-Sandbox ohne allow-scripts).

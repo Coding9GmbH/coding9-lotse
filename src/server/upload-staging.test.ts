@@ -71,6 +71,32 @@ const png = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000
 const tick = () => new Promise(r => setTimeout(r, 5));
 let staged: { mediaId: string; url: string; fileName: string };
 
+test('POST /api/upload: SVG mit Script wird abgelehnt und nicht gespeichert', async () => {
+  const dir = path.join(process.env.AICB_DATA!, 'staging');
+  const before = new Set(fs.existsSync(dir) ? fs.readdirSync(dir) : []);
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>';
+  const r = await upload(new NextRequest('http://127.0.0.1/api/upload?name=boese', { method: 'POST', headers: { 'content-type': 'image/svg+xml' }, body: svg }));
+  assert.equal(r.status, 400);
+  assert.match(await r.text(), /SVG abgelehnt/);
+  const after = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+  for (const f of after) {
+    if (before.has(f) || !f.endsWith('.svg')) continue;
+    assert.doesNotMatch(fs.readFileSync(path.join(dir, f), 'utf8'), /<script/i);
+  }
+});
+
+test('POST /api/upload: sauberes SVG bekommt xmlns und bleibt ohne Script', async () => {
+  const svg = '<svg viewBox="0 0 1 1"><rect width="1" height="1"/></svg>';
+  const r = await upload(new NextRequest('http://127.0.0.1/api/upload?name=quadrat', { method: 'POST', headers: { 'content-type': 'image/svg+xml' }, body: svg }));
+  assert.equal(r.status, 200);
+  const staged = await r.json() as { fileName: string };
+  const file = stagedFile([staged.fileName]);
+  assert.ok(file, 'Vorschau-Datei vorhanden');
+  const text = fs.readFileSync(file!.path, 'utf8');
+  assert.match(text, /xmlns=/);
+  assert.doesNotMatch(text, /<script/i);
+});
+
 test('POST /api/upload (Shopware): Bild wird nur vorgemerkt, kein Zugriff auf den Shop', async () => {
   const r = await upload(new NextRequest(`http://127.0.0.1/api/upload?name=${encodeURIComponent('Becher Foto.png')}`, { method: 'POST', headers: { 'content-type': 'image/png' }, body: png }));
   assert.equal(r.status, 200);
