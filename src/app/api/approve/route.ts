@@ -10,6 +10,6 @@ export async function POST(req: Request) {
   const body = await parseJson(req, schema);
   if (!body.ok) return body.res;
   const { chatId, approvalId, allow, selected } = body.data;
-  if (!decideChange(chatId, approvalId, allow, selected)) return jsonError(404, 'unknown approval');
+  if (!decideChange(chatId, approvalId, allow, selected)) return jsonError(404, 'Diese Freigabe gibt es nicht mehr.');
   return Response.json({ ok: true });
 }

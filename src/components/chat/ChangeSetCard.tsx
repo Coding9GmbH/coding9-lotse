@@ -3,6 +3,7 @@
 import { useId, useMemo, useState } from 'react';
 import type { ChangesetResultEvent, UndoPhase } from '@/lib/chat-state';
 import type { ChangeItem, ChangeSet } from '@/lib/protocol';
+import { applyHint, undoPlannedFor } from '@/lib/apply-hint';
 import { plural, sampleSummary } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import styles from './ChangeSetCard.module.css';
@@ -45,6 +46,7 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
   const real = useMemo(() => cs.items.filter(i => i.entity !== 'info'), [cs]); // Hinweiszeilen zählen und wählen nicht mit
   const selectable = real.length > 0;
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(real.map(i => i.id)));
+  const [clickLocked, setClickLocked] = useState(false);
   const allId = useId();
   const n = selected.size;
   const entities = new Set(real.map(i => i.entityId)).size;
@@ -65,6 +67,11 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
   };
   const bulkSel = bulk ? real.filter(i => !isOff(i)).reduce((m, i) => m + groupCount(i), 0) : 0;
 
+  const choose = (allow: boolean) => {
+    if (clickLocked) return;
+    setClickLocked(true);
+    onDecide(allow, allow && selectable ? cs.items.filter(i => selected.has(i.id)).map(i => i.id) : undefined);
+  };
   const toggle = (id: string, on: boolean) => setSelected(prev => { const s = new Set(prev); if (on) s.add(id); else s.delete(id); return s; });
   const toggleAll = (on: boolean) => setSelected(on ? new Set(real.map(i => i.id)) : new Set());
 
@@ -126,8 +133,8 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
                   <details>
                     <summary>Text vergleichen</summary>
                     <div className={styles.cmp}>
-                      <div aria-label="Vorher">{i.html.before || <span className={styles.none}>(leer)</span>}</div>
-                      <div aria-label="Nachher">{i.html.after}</div>
+                      <div role="region" aria-label="Vorher">{i.html.before || <span className={styles.none}>(leer)</span>}</div>
+                      <div role="region" aria-label="Nachher">{i.html.after}</div>
                     </div>
                   </details>
                 )}
@@ -176,13 +183,13 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
             {bulk ? <>{fmt(bulkSel)} von {fmt(cs.total!)} ausgewählt</> : <>alle <span>{n}</span> ausgewählt</>}{warns > 0 && <> · <span className={styles.wn}>{warns}× Warnung</span></>}
           </label>
         )}
-        {interactive && !selectable && <span className={styles.res}>Es wird erst nach deiner Freigabe geschrieben.</span>}
+        {interactive && <span className={styles.res}>{applyHint({ selectable, undoPlanned: undoPlannedFor(cs) })}</span>}
         {interactive && (
           <>
-            <Button variant="primary" disabled={selectable && (bulk ? !bulkSel : !n)} onClick={() => onDecide(true, selectable ? cs.items.filter(i => selected.has(i.id)).map(i => i.id) : undefined)}>
+            <Button variant="primary" disabled={clickLocked || (selectable && (bulk ? !bulkSel : !n))} onClick={() => choose(true)}>
               {bulk ? `${fmt(bulkSel)} ${plural(bulkSel, cs.noun?.one ?? 'Datensatz', cs.noun?.many ?? 'Datensätze')} ändern` : cs.applyLabel ? cs.applyLabel : cs.kind === 'new-products' ? `${n} ${plural(n, 'Produkt', 'Produkte')} anlegen` : selectable ? `${n} ${plural(n, 'Änderung', 'Änderungen')} anwenden` : 'Freigeben & veröffentlichen'}
             </Button>
-            <Button onClick={() => onDecide(false)}>Ablehnen</Button>
+            <Button disabled={clickLocked} onClick={() => choose(false)}>Ablehnen</Button>
           </>
         )}
         {res && <span className={styles.res} role="status">{res}</span>}

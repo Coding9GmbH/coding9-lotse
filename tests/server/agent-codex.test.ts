@@ -32,6 +32,20 @@ test('Codex-Lauf: keine eigenen Werkzeuge, Sandbox nur lesend, Netz aus', async 
   assert.equal(codexThreadOptions(cfg.workingDirectory).model, undefined);
 });
 
+test('runCodex und pingCodex geben das MCP-Token am Ende der Runde frei', async () => {
+  const { mcpTokenFor, mcpTokenValid } = await import('../../src/server/codex');
+  const { runCodex, pingCodex } = await import('../../src/server/agent-codex');
+  const id = 'chat-codex-round';
+  const token = mcpTokenFor(id);
+  const end = await runCodex({ id } as never, 'hi', new AbortController().signal, () => {});
+  assert.match(end.error ?? '', /nicht mit ChatGPT angemeldet/);
+  assert.equal(mcpTokenValid(id, `Bearer ${token}`), false, 'nach runCodex');
+
+  const ping = mcpTokenFor('ping');
+  await assert.rejects(() => pingCodex(), /angemeldet/);
+  assert.equal(mcpTokenValid('ping', `Bearer ${ping}`), false, 'nach pingCodex');
+});
+
 test('Codex-Runde: Befehl, Datei und Websuche brechen ab; Text, Shop-Tool, Überlegung und Plan nicht', async () => {
   const { onCodexItem } = await import('../../src/server/agent-codex');
   const events: ChatEvent[] = [];

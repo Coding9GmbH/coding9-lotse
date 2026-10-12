@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { categoryPath, categoryRows, initialCollapsed, MAX_ROWS } from '@/lib/categories';
+import { catalogState } from '@/lib/load-state';
 import type { CategoryRow, ProductRow, Target, TargetKind } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
 import { Segmented } from '@/components/ui/Segmented';
@@ -10,14 +11,14 @@ import { useShell } from '@/components/shell/ShellProvider';
 import { PLATFORM_SETTINGS } from '@/lib/platforms';
 import styles from './List.module.css';
 
-interface Props { id: string; categories: CategoryRow[] | null; target: Target | null; onSelect: (t: Target) => void }
+interface Props { id: string; categories: CategoryRow[] | null; categoryError?: string | null; target: Target | null; onSelect: (t: Target) => void }
 
 /** Kontext wählen: Kategorie (Baum), Produkt (Suche) oder freie Landingpage. */
-export function ContextPicker({ id, categories, target, onSelect }: Props) {
+export function ContextPicker({ id, categories, categoryError = null, target, onSelect }: Props) {
   const [kind, setKind] = useState<TargetKind>('category');
   const [q, setQ] = useState('');
   const [collapsed, setCollapsed] = useState<ReadonlySet<string> | null>(null); // null: noch nicht aus dem Baum abgeleitet
-  const [products, setProducts] = useState<ProductRow[] | null>(null);
+  const [loaded, setLoaded] = useState<{ q: string; products: ProductRow[]; error: string | null } | null>(null);
   const reqNo = useRef(0);
   // Shopify: Kollektionen statt Kategorien (Name je Plattform aus lib/platforms.ts)
   const kindOf = useShell().health?.platform?.kind, noun = (kindOf && PLATFORM_SETTINGS[kindOf].categoryNoun) || { one: 'Kategorie', many: 'Kategorien' };
@@ -25,12 +26,18 @@ export function ContextPicker({ id, categories, target, onSelect }: Props) {
   useEffect(() => {
     if (kind !== 'product') return;
     const my = ++reqNo.current;
+    const query = q;
     const t = setTimeout(() => {
-      api.products(q.trim()).then(l => { if (my === reqNo.current) setProducts(l); }).catch(() => { if (my === reqNo.current) setProducts([]); });
-    }, q ? 250 : 0);
+      api.products(query.trim()).then(l => { if (my === reqNo.current) setLoaded({ q: query, products: l, error: null }); }).catch(() => { if (my === reqNo.current) setLoaded({ q: query, products: [], error: 'nicht geladen' }); });
+    }, query ? 250 : 0);
     return () => clearTimeout(t);
   }, [kind, q]);
 
+  const fresh = kind === 'product' && loaded?.q === q ? loaded : null;
+  const products = fresh && !fresh.error ? fresh.products : null;
+  const prodError = fresh?.error ?? null;
+  const catView = catalogState(categoryError, categories);
+  const prodView = catalogState(prodError, products);
   const folded = useMemo(() => collapsed ?? (categories ? initialCollapsed(categories) : new Set<string>()), [collapsed, categories]);
   const all = useMemo(() => (categories ? categoryRows(categories, q, folded) : []), [categories, q, folded]);
   const rows = all.length > MAX_ROWS ? all.slice(0, MAX_ROWS) : all; // große Bäume: nicht tausende Zeilen rendern
@@ -54,7 +61,8 @@ export function ContextPicker({ id, categories, target, onSelect }: Props) {
           </div>
         )}
 
-        {kind === 'category' && (categories === null ? <div className={styles.note}>Lade …</div>
+        {kind === 'category' && (catView === 'error' ? <div className={styles.note}>{noun.many} nicht geladen.</div>
+          : catView === 'loading' ? <div className={styles.note}>Lade …</div>
           : rows.length === 0 ? <div className={styles.note}>Keine Treffer.</div>
             : (
               <ul className={styles.ul} role="tree" aria-label={noun.many}>
@@ -65,7 +73,7 @@ export function ContextPicker({ id, categories, target, onSelect }: Props) {
                       ? <button type="button" className={styles.tw} aria-label={open ? `${c.name} einklappen` : `${c.name} ausklappen`} onClick={() => toggle(c.id)}>{open ? '▾' : '▸'}</button>
                       : <span className={styles.tw} aria-hidden="true" />}
                     <button type="button" className={styles.pick}
-                      onClick={() => onSelect({ kind: 'category', id: c.id, name: c.name, cmsPage: c.cmsPage, path: categoryPath(categories, c) })}>
+                      onClick={() => { if (!categories) return; onSelect({ kind: 'category', id: c.id, name: c.name, cmsPage: c.cmsPage, path: categoryPath(categories, c) }); }}>
                       <span className={styles.nm}>{c.name}</span>
                       {c.cmsPage && <span className={styles.tag} title={`Layout: ${c.cmsPage}`}>Layout</span>}
                     </button>
@@ -75,8 +83,9 @@ export function ContextPicker({ id, categories, target, onSelect }: Props) {
               </ul>
             ))}
 
-        {kind === 'product' && (products === null ? <div className={styles.note}>Lade …</div>
-          : products.length === 0 ? <div className={styles.note}>Keine Treffer.</div>
+        {kind === 'product' && (prodView === 'error' ? <div className={styles.note}>Produkte nicht geladen.</div>
+          : prodView !== 'ready' && prodView !== 'empty' ? <div className={styles.note}>Lade …</div>
+          : !products?.length ? <div className={styles.note}>Keine Treffer.</div>
             : (
               <ul className={styles.ul} aria-label="Produkte">
                 {products.map(p => (

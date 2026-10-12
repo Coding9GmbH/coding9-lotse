@@ -138,8 +138,17 @@ export function mcpTokenFor(chatId: string): string {
   if (!t) { t = crypto.randomBytes(32).toString('hex'); tokens.set(chatId, t); }
   return t;
 }
-/** Token weg, sobald der Chat gelöscht ist. Nicht bei dropSession: Reset und Neustart behalten den Chat. */
+/** Token weg, wenn die Runde endet oder der Chat gelöscht wird. Nicht bei dropSession: Reset behält den Chat, die laufende Runde räumt selbst ab. */
 export function clearMcpToken(chatId: string): void { tokens.delete(chatId); }
+
+/** Token bleibt in `run` gültig (auch beim Warten auf eine Freigabe) und wird danach immer entfernt. */
+export async function bindRoundToken<T>(chatId: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } finally {
+    clearMcpToken(chatId);
+  }
+}
 /** Prüft das Bearer-Token in konstanter Zeit. */
 export function mcpTokenValid(chatId: string, header: string | null): boolean {
   const want = tokens.get(chatId), got = header?.match(/^Bearer\s+(.+)$/)?.[1];

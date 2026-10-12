@@ -15,7 +15,7 @@
 .title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .title b { font: 700 17px/1.2 var(--display); }
 .title small { color: var(--mute); font-size: 12.5px; }
-.close { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--mute); cursor: pointer; }
+.close { display: grid; place-items: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--mute); cursor: pointer; }
 .close:hover { background: var(--bg); color: var(--ink); }
 .current { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 12px 4px; padding: 8px 12px; border-radius: 10px; background: var(--green-bg); color: var(--green-d); font-size: 13px; }
 .current b { font-weight: 600; }

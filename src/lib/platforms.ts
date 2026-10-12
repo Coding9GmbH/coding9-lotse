@@ -51,7 +51,6 @@ export interface PlatformSettingsDescriptor {
 }
 
 const B = '**';
-const SHOPIFY_SCOPES_HINT = `für Produkte, Dateien, Inhalte (Seiten), Übersetzungen und Sprachen, Rabatte, Veröffentlichungen, Weiterleitungen (Navigation) und Themes (für Kollektions- und Produktvorlagen), jeweils lesen und schreiben (aber ${B}keine${B} Kunden- oder Bestellrechte)`;
 export const PLATFORM_SETTINGS: Record<PlatformKind, PlatformSettingsDescriptor> = {
   shopware: {
     kind: 'shopware', label: 'Shopware', product: 'Shopware 6', available: true,
@@ -87,13 +86,13 @@ export const PLATFORM_SETTINGS: Record<PlatformKind, PlatformSettingsDescriptor>
     authLabel: 'Art des Zugangs',
     auth: [
       { key: 'app', label: 'App aus dem Dev Dashboard (für neue Apps)',
-        hint: `Lege im ${B}Shopify Dev Dashboard${B} (dev.shopify.com) eine App an. Wähle in der App-Version die Admin-API-Berechtigungen ${SHOPIFY_SCOPES_HINT}, gib die Version frei und installiere die App in deinem Shop. Kopiere dann Client-ID und Client-Secret aus den Einstellungen der App hierher. Wichtig: App und Shop müssen zur ${B}selben Shopify-Organisation${B} gehören. Lotse holt damit selbst ein Zugriffstoken (gilt 24 Stunden) und erneuert es automatisch.`,
+        hint: `Kopiere Client-ID und Client-Secret aus den Einstellungen der App im ${B}Shopify Dev Dashboard${B} (dev.shopify.com), nachdem du die App in deinem Shop installiert hast.`,
         fields: [
           { key: 'clientId', label: 'Client-ID', env: 'SHOPIFY_CLIENT_ID', autoComplete: 'off' },
           { key: 'clientSecret', label: 'Client-Secret', secret: true, env: 'SHOPIFY_CLIENT_SECRET' },
         ] },
       { key: 'token', label: 'Admin-API-Token (bestehende eigene App)',
-        hint: `Für eigene Apps, die schon unter ${B}Einstellungen → Apps und Vertriebskanäle → Apps entwickeln${B} angelegt sind: Sie funktionieren weiter, neue lassen sich dort seit 1. Januar 2026 aber nicht mehr anlegen (dann die App aus dem Dev Dashboard nutzen). Die App braucht die Admin-API-Berechtigungen ${SHOPIFY_SCOPES_HINT}. Kopiere das Admin-API-Zugriffstoken hierher.`,
+        hint: `Kopiere das Admin-API-Zugriffstoken aus der eigenen App unter ${B}Einstellungen → Apps und Vertriebskanäle → Apps entwickeln${B}.`,
         fields: [{ key: 'accessToken', label: 'Admin-API-Zugriffstoken', secret: true, placeholder: 'shpat_…', env: 'SHOPIFY_ACCESS_TOKEN' }] },
     ],
   },
@@ -131,7 +130,7 @@ export const PLATFORM_SETTINGS: Record<PlatformKind, PlatformSettingsDescriptor>
     ],
     auth: [
       { key: 'token', label: 'API-Token',
-        hint: `Im OpenMage-Admin unter ${B}System → Konfiguration → Lotse → API${B} die Schnittstelle aktivieren und mit „Token erzeugen“ einen Token anlegen (wird nur einmal angezeigt; alternativ php shell/lotse.php --generate-token). Kopiere ihn hierher. Brutto/netto liest Lotse aus der Steuerkonfiguration des Shops.`,
+        hint: `Kopiere den Token aus dem OpenMage-Admin unter ${B}System → Konfiguration → Lotse → API${B}, wo er nur einmal angezeigt wird.`,
         fields: [{ key: 'token', label: 'API-Token', secret: true, placeholder: 'lotse_…', env: 'OPENMAGE_TOKEN' }] },
     ],
   },
@@ -148,6 +147,34 @@ export const storefrontPrefix = (pathname: string): string | null => STOREFRONT_
 /** Kopfzeile, mit der proxy.ts der /shop-Route den umgeleiteten Präfix mitgibt */
 export const STOREFRONT_PREFIX_HEADER = 'x-lotse-storefront-prefix';
 export const isStorefrontPathOf = (kind: PlatformKind, prefix: string) => PLATFORM_SETTINGS[kind].storefrontPaths.includes(prefix);
+
+const SCOPE_FACE: Record<Exclude<PlatformKind, 'shopware'>, Record<string, { label: string; hint: string }>> = {
+  shopify: {
+    cms: { label: 'Seiten', hint: 'Seiten, Kollektionen und Produktvorlagen' },
+    products: { label: 'Produkte', hint: 'Name, Nr., Preise, Bestand, Texte, Bilder, Varianten und Tags' },
+    categories: { label: 'Kollektionen', hint: 'Struktur, Texte und SEO-Felder' },
+    shop: { label: 'Shop-Grunddaten', hint: 'Domains, Sprachen, Währungen und Theme' },
+  },
+  magento: {
+    cms: { label: 'CMS-Seiten', hint: 'Seiten und Blöcke' },
+    products: { label: 'Produkte', hint: 'Name, Nr., Preise, Bestand, Texte, Bilder und Eigenschaften' },
+    shop: { label: 'Shop-Grunddaten', hint: 'Store-Views, Sprachen und Währungen' },
+  },
+  openmage: {
+    cms: { label: 'CMS-Seiten', hint: 'Seiten und Blöcke' },
+    products: { label: 'Produkte', hint: 'Name, Nr., Preise, Bestand, Texte, Bilder und Eigenschaften' },
+    shop: { label: 'Shop-Grunddaten', hint: 'Store-Views, Sprachen und Währungen' },
+  },
+};
+
+/** Sichtbarer Bereichsname. Shopware behält Einkaufswelten; die anderen Plattformen nicht. */
+export function scopeDisplay(kind: PlatformKind, key: string, info: { label: string; hint: string }): { label: string; hint: string } {
+  if (kind === 'shopware') return info;
+  return SCOPE_FACE[kind][key] ?? {
+    label: info.label.replace(/Einkaufswelten-Layouts/g, 'Seiten'),
+    hint: info.hint.replace(/Produktstreams/g, 'Gruppen').replace(/Verkaufskanäle(?: & Domains)?/g, 'Vertrieb'),
+  };
+}
 
 export const platformLabel = (kind: PlatformKind) => PLATFORM_SETTINGS[kind].label;
 /** Alle Felder einer Plattform (allgemein + alle Zugangsarten, ohne Doppelte) */

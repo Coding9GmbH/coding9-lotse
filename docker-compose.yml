@@ -14,6 +14,8 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      LOTSE_BIND: 127.0.0.1
     # Docker veröffentlicht den Port nur auf 127.0.0.1 → Lotse ist nur vom eigenen Rechner erreichbar
     ports:
       - "127.0.0.1:${LOTSE_PORT:-3333}:3333"

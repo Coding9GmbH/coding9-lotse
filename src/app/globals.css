@@ -18,7 +18,7 @@
   --warn-bg: #fff1d6;
   --r: 12px;
   --shadow-pop: 0 10px 36px #2e2e3814;
-  --display: "Satoshi", var(--font-inter), "Inter", system-ui, sans-serif;
+  --display: var(--font-satoshi), var(--font-inter), "Inter", system-ui, sans-serif;
   --body: var(--font-inter), "Inter", system-ui, -apple-system, sans-serif;
   color-scheme: light;
 }
@@ -32,6 +32,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   min-height: 100vh;
+  min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -51,7 +52,7 @@ button:hover { border-color: var(--dark); }
 button:disabled { opacity: .45; cursor: default; }
 button:disabled:hover { border-color: var(--line); }
 
-a { color: var(--green-d); text-decoration: none; }
+a { color: var(--green-d); text-decoration: underline; text-underline-offset: 2px; }
 a:hover { text-decoration: underline; }
 
 :focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; }

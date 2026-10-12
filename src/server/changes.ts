@@ -223,19 +223,24 @@ export async function buildNewProductsChangeSet(ro: ShopReader, { title, reason,
 }
 
 async function createProduct(swW: Shopware, p: NewProductPayload): Promise<UndoOp> {
+  const taken = (await swW.search('product', { limit: 1, filter: [{ type: 'equals', field: 'productNumber', value: p.productNumber }] })).data[0];
+  if (taken) throw new Error(`Produktnummer ${p.productNumber} ist schon vergeben`);
   const id = newId(), media = [];
   for (const [i, m] of p.images.entries()) media.push({ id: newId(), mediaId: m.startsWith('staged:') ? await uploadStaged(swW, m.slice(7)) : m, position: i });
   const channels = (await swW.salesChannels()).filter(s => s.domains?.length);
   const manufacturer = p.manufacturer ? ((await swW.search('product-manufacturer', { limit: 1, filter: [{ type: 'equals', field: 'name', value: p.manufacturer }] })).data[0]?.id ?? null) : null;
-  await swW.create('product', {
-    id, name: p.name, productNumber: p.productNumber, description: p.description, stock: p.stock, active: p.active, taxId: p.taxId,
-    price: [{ currencyId: DEFAULT_CURRENCY, gross: p.price, net: net(p.price, p.taxRate), linked: true }],
-    ...(p.metaTitle ? { metaTitle: p.metaTitle } : {}), ...(p.metaDescription ? { metaDescription: p.metaDescription } : {}), ...(p.keywords ? { keywords: p.keywords } : {}), ...(p.ean ? { ean: p.ean } : {}),
-    ...(manufacturer ? { manufacturerId: manufacturer } : p.manufacturer ? { manufacturer: { name: p.manufacturer } } : {}),
-    categories: p.categoryIds.map(c => ({ id: c })), visibilities: channels.map(s => ({ salesChannelId: s.id, visibility: 30 })),
-    ...(media.length ? { media, coverId: media[0].id } : {}),
-  });
-  return { op: 'delete', entity: 'product', id };
+  const undo: UndoOp = { op: 'delete', entity: 'product', id };
+  try {
+    await swW.create('product', {
+      id, name: p.name, productNumber: p.productNumber, description: p.description, stock: p.stock, active: p.active, taxId: p.taxId,
+      price: [{ currencyId: DEFAULT_CURRENCY, gross: p.price, net: net(p.price, p.taxRate), linked: true }],
+      ...(p.metaTitle ? { metaTitle: p.metaTitle } : {}), ...(p.metaDescription ? { metaDescription: p.metaDescription } : {}), ...(p.keywords ? { keywords: p.keywords } : {}), ...(p.ean ? { ean: p.ean } : {}),
+      ...(manufacturer ? { manufacturerId: manufacturer } : p.manufacturer ? { manufacturer: { name: p.manufacturer } } : {}),
+      categories: p.categoryIds.map(c => ({ id: c })), visibilities: channels.map(s => ({ salesChannelId: s.id, visibility: 30 })),
+      ...(media.length ? { media, coverId: media[0].id } : {}),
+    });
+  } catch (e) { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: [undo] }); }
+  return undo;
 }
 
 // ---- Veröffentlichung einer Seite als Änderungsset ----
@@ -332,7 +337,7 @@ async function applyEntity(swW: Shopware, entity: string, entityId: string, item
     undo.price = cur.price ?? null;
   }
   await swW.update(entity, entityId, data);
-  return { undo: { op: 'patch', entity, id: entityId, data: undo }, stale };
+  return { undo: { op: 'patch', entity, id: entityId, data: undo, wrote: data }, stale };
 }
 
 /** counts: Gesamtzahlen, wenn results gekürzt ist (Stapelverarbeitung: Gruppen + Stichprobe + Fehler statt Tausender Zeilen) */
@@ -412,7 +417,7 @@ export async function applyChangeSet(swW: Shopware, cs: ChangeSet, payload: unkn
     let done = 0;
     await pool(list, WRITE_CONCURRENCY, async it => {
       try { undo.push(await createProduct(swW, it.afterRaw as NewProductPayload)); results.push({ itemId: it.id, ok: true }); }
-      catch (e) { results.push({ itemId: it.id, ok: false, error: errMsg(e) }); }
+      catch (e) { undo.push(...((e as { undo?: UndoOp[] }).undo ?? [])); results.push({ itemId: it.id, ok: false, error: errMsg(e) }); }
       finally { ctx?.progress?.(++done, list.length, { results, undo }); }
     });
     return { results, undo };
@@ -443,10 +448,22 @@ async function dropSeoUrls(swW: Shopware, foreignKey: string) {
 
 const isDelete = (op: UndoOp) => op.op === 'delete' || (op.op === 'req' && (op.method ?? 'DELETE') === 'DELETE');
 
+const MOVED = 'Feld inzwischen geändert, Rückgängig übersprungen';
+async function patchMoved(swW: Shopware, op: UndoOp): Promise<boolean> {
+  if (!op.wrote) return false;
+  const cur = await swW.get(op.entity, op.id).catch(() => null);
+  if (!cur) return false;
+  return Object.keys(op.wrote).some(k => {
+    const live = cur[k] ?? null;
+    return normValue(live) !== normValue(op.wrote?.[k]) && normValue(live) !== normValue(op.data?.[k]);
+  });
+}
+
 export async function undoOps(swW: Shopware, undo: UndoOp[]) {
   const r: { ok: boolean; error?: string }[] = [];
   for (const op of [...undo].reverse()) {
     try {
+      if (op.op === 'patch' && await patchMoved(swW, op)) { r.push({ ok: false, error: MOVED }); continue; }
       if (op.op === 'patch') await swW.update(op.entity, op.id, op.data);
       else if (op.op === 'create') await swW.create(op.entity, { id: op.id, ...op.data });
       else if (op.op === 'req') await swW.req(op.method ?? 'DELETE', op.path!, op.body);

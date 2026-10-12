@@ -286,16 +286,18 @@ export async function buildNewProductsChangeSet(ro: MagentoReader, { title, reas
 }
 
 export async function createProduct(c: MagentoClient, p: NewProductPlan): Promise<UndoOp[]> {
+  if (await getEnt(c, 'product', p.sku, 'all')) throw new Error(`SKU ${p.sku} ist schon vergeben`);
   const gallery = [];
   for (const [i, ref] of p.images.entries()) gallery.push({ media_type: 'image', label: p.name, position: i + 1, disabled: false, types: i === 0 ? [...COVER_TYPES] : [], content: await imageContent(c, ref, p.name) });
   const ca: Record<string, unknown> = { description: p.description, url_key: p.urlKey, tax_class_id: p.taxClassId, ...(p.shortDescription ? { short_description: p.shortDescription } : {}), ...(p.metaTitle ? { meta_title: p.metaTitle } : {}), ...(p.metaDescription ? { meta_description: p.metaDescription } : {}), ...(p.keywords ? { meta_keyword: p.keywords } : {}), ...(p.extra ?? {}) };
-  await c.req('POST', '/V1/products', { product: {
+  const undo = [reqOp('product', p.sku, 'DELETE', `/all/V1/products/${skuPath(p.sku)}`)];
+  try { await c.req('POST', '/V1/products', { product: {
     sku: p.sku, name: p.name, attribute_set_id: p.attributeSetId, price: p.price, status: p.active ? 1 : 2, visibility: 4, type_id: 'simple', ...(p.weight != null ? { weight: p.weight } : {}),
     extension_attributes: { website_ids: p.websiteIds, category_links: p.categoryIds.map((id, k) => ({ category_id: id, position: k })) },
     custom_attributes: Object.entries(ca).map(([attribute_code, value]) => ({ attribute_code, value })),
     ...(gallery.length ? { media_gallery_entries: gallery } : {}),
   } }, { store: 'all' });
-  const undo = [reqOp('product', p.sku, 'DELETE', `/all/V1/products/${skuPath(p.sku)}`)];
+  } catch (e) { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo }); }
   if (p.source) {
     await c.req('POST', '/V1/inventory/source-items', { sourceItems: [{ sku: p.sku, source_code: p.source, quantity: p.stock, status: p.stock > 0 ? 1 : 0 }] }, { store: 'all' }).catch(e => { throw Object.assign(new Error(`Angelegt, aber Bestand nicht gesetzt: ${errMsg(e)}`), { undo }); });
     undo.unshift(sourceItemDelete(p.sku, p.source)); // MSI löscht Lagerbestände gelöschter Produkte nicht selbst

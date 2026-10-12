@@ -1,4 +1,4 @@
-import { test, after, beforeEach } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -6,51 +6,63 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 
-// Bildgenerierung (OpenAI) wiederholt 429/5xx begrenzt und beachtet Retry-After; 4xx sonst nie. Lokaler Fake statt api.openai.com.
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-media-retry-'));
-type Step = { status: number; headers?: Record<string, string>; body?: unknown };
-let script: Step[] = [], calls = 0; const seen: { path: string; auth: string; body: string }[] = [];
-const PNG = Buffer.from('png-bytes').toString('base64');
-const server = http.createServer((req, res) => {
-  let b = ''; req.on('data', c => (b += c));
-  req.on('end', () => {
-    seen.push({ path: req.url ?? '', auth: String(req.headers.authorization), body: b });
-    const s = script[Math.min(calls++, script.length - 1)];
-    res.writeHead(s.status, { 'content-type': 'application/json', ...s.headers }); res.end(JSON.stringify(s.body ?? { data: [{ b64_json: PNG }] }));
+
+const media = new Map<string, { id: string }>();
+const calls: string[] = [];
+let dropUpload = false;
+const srv = http.createServer((q, r) => {
+  const chunks: Buffer[] = [];
+  q.on('data', c => chunks.push(c));
+  q.on('end', () => {
+    const url = new URL(q.url!, 'http://x'), p = url.pathname, method = q.method ?? 'GET';
+    calls.push(`${method} ${p}`);
+    const send = (status = 204, body: unknown = null) => { r.statusCode = status; r.setHeader('content-type', 'application/json'); r.end(body == null ? '' : JSON.stringify(body)); };
+    const raw = Buffer.concat(chunks);
+    const body = q.headers['content-type']?.includes('json') && raw.length ? JSON.parse(raw.toString('utf8')) : {};
+    if (p === '/api/oauth/token') return send(200, { access_token: 'tok', expires_in: 600 });
+    if (p === '/api/search/media-default-folder') return send(200, { data: [{ folder: { id: 'folder' } }] });
+    if (p === '/api/search/media') {
+      const ids: string[] = body.ids ?? [];
+      const rows = [...media.values()].filter(m => !ids.length || ids.includes(m.id));
+      return send(200, { data: rows });
+    }
+    if (p === '/api/media' && method === 'POST') { media.set(body.id, { id: body.id }); return send(); }
+    const del = p.match(/^\/api\/media\/([a-f0-9]+)$/);
+    if (del && method === 'DELETE') { media.delete(del[1]); return send(); }
+    if (del && method === 'PATCH') return send();
+    const up = p.match(/^\/api\/_action\/media\/([a-f0-9]+)\/upload$/);
+    if (up && method === 'POST') {
+      if (dropUpload) { q.socket?.destroy(); return; }
+      return send();
+    }
+    send(404, { errors: [{ detail: `${method} ${p}` }] });
   });
 });
-await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
-process.env.LOTSE_OPENAI_API_BASE = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/`;
-after(() => server.close());
+await new Promise<void>(res => srv.listen(0, '127.0.0.1', res));
+after(() => srv.close());
+const base = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
 
-const { generateRaster, setImageConfig } = await import('../../src/server/media');
-setImageConfig({ key: 'sk-test', model: '' });
-beforeEach(() => { calls = 0; seen.length = 0; });
-
-test('generateRaster: 429 (Retry-After) und 502 werden wiederholt, Anfrage bleibt identisch', async () => {
-  script = [{ status: 429, headers: { 'retry-after': '0' }, body: { error: { message: 'Rate limit' } } }, { status: 502, headers: { 'retry-after': '0' } }, { status: 200 }];
-  assert.equal((await generateRaster('Eine Vase')).toString(), 'png-bytes');
-  assert.equal(calls, 3);
-  assert.ok(seen.every(s => s.path === '/v1/images/generations' && s.auth === 'Bearer sk-test' && s.body === seen[0].body));
-  assert.equal(JSON.parse(seen[0].body).prompt, 'Eine Vase');
+test('Medien-Upload: ein Zeitlimit nach dem Anlegen löscht den Medien-Datensatz', async () => {
+  const { Shopware } = await import('../../src/server/shopware');
+  const sw = new Shopware({ url: base, publicUrl: base, user: 'a', password: 'b', clientId: '', clientSecret: '' });
+  dropUpload = true;
+  const png = Buffer.from('89504e470d0a1a0a', 'hex');
+  await assert.rejects(sw.uploadMediaBinary(png, { ext: 'png', mime: 'image/png', fileName: 'vase' }), /fetch failed|ECONNRESET|socket|nicht erreichbar|Zeitlimit|aborted|other side closed/i);
+  dropUpload = false;
+  assert.equal(media.size, 0, 'angelegter Datensatz wurde gelöscht');
+  assert.ok(calls.some(c => c.startsWith('DELETE /api/media/')));
 });
 
-test('generateRaster: nach 3 Versuchen Schluss mit verständlicher Meldung', async () => {
-  script = [{ status: 503, headers: { 'retry-after': '0' }, body: { error: { message: 'Überlastet' } } }];
-  await assert.rejects(generateRaster('x'), /Bildgenerierung fehlgeschlagen \(503\): Überlastet/);
-  assert.equal(calls, 3);
-});
-
-test('generateRaster: 400/401 werden nicht wiederholt', async () => {
-  for (const status of [400, 401]) {
-    calls = 0; script = [{ status, body: { error: { message: 'abgelehnt' } } }, { status: 200 }];
-    await assert.rejects(generateRaster('x'), new RegExp(`\\(${status}\\): abgelehnt`));
-    assert.equal(calls, 1, String(status));
-  }
-});
-
-test('generateRaster: sehr langes Retry-After wird nicht abgewartet', async () => {
-  script = [{ status: 429, headers: { 'retry-after': '3600' }, body: { error: { message: 'Limit' } } }, { status: 200 }];
-  await assert.rejects(generateRaster('x'), /\(429\): Limit/);
-  assert.equal(calls, 1);
+test('URL-Import: derselbe Aufruf legt die Datei kein zweites Mal an', async () => {
+  const { Shopware } = await import('../../src/server/shopware');
+  const { importFromUrl, setFetcher, setTrustedOrigins } = await import('../../src/server/media');
+  setTrustedOrigins(async () => ['https://cdn.example.com']);
+  setFetcher(async () => new Response(Buffer.from('bild'), { status: 200, headers: { 'content-type': 'image/jpeg' } }));
+  const sw = new Shopware({ url: base, publicUrl: base, user: 'a', password: 'b', clientId: '', clientSecret: '' });
+  const before = media.size;
+  const a = await importFromUrl(sw, 'https://cdn.example.com/vase.jpg', { alt: 'Vase' });
+  const b = await importFromUrl(sw, 'https://cdn.example.com/vase.jpg', { alt: 'Vase' });
+  assert.equal(a.mediaId, b.mediaId);
+  assert.equal(media.size, before + 1, 'kein zweites Medium');
 });

@@ -24,6 +24,10 @@ interface Shell {
   health: Health | null;
   refreshHealth: () => void;
   chats: ChatSummary[] | null;
+  /** Gesetzt, wenn die Chatliste nicht geladen werden konnte und noch keine Liste da ist. */
+  chatError: string | null;
+  /** Statusabruf fehlgeschlagen: Shop und KI nicht als eingerichtet annehmen. */
+  healthFailed: boolean;
   reloadChats: () => void;
   /** Chats, deren Runde im Hintergrund fertig wurde und die noch nicht wieder geöffnet wurden */
   doneIds: ReadonlySet<string>;
@@ -52,7 +56,9 @@ const ShellContext = createContext<Shell | null>(null);
 export function ShellProvider({ children, initialCollapsed = false, initial = null }: { children: React.ReactNode; initialCollapsed?: boolean; initial?: ShellInitial | null }) {
   const router = useRouter();
   const [health, setHealth] = useState<Health | null>(null);
+  const [healthFailed, setHealthFailed] = useState(false);
   const [chats, setChats] = useState<ChatSummary[] | null>(initial?.chats ?? null);
+  const [chatError, setChatError] = useState<string | null>(null);
   const [styleguide, setStyleguideState] = useState<Styleguide | null>(initial?.styleguide ?? null);
   const [styleguideKnown, setStyleguideKnown] = useState(!!initial);
   const [activeChatId, setActiveChatIdState] = useState<string | null>(null);
@@ -71,17 +77,22 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
   const intent = useRef<WorkspaceIntent | null>(null);
 
   const refreshHealth = useCallback(() => {
-    api.health().then(setHealth).catch(e => setHealth({ shopware: { url: '', ok: false, configured: true, error: errorText(e) }, ai: { configured: true } }));
+    api.health().then(h => { setHealth(h); setHealthFailed(false); }).catch(() => { setHealthFailed(true); });
   }, []);
   const reloadChats = useCallback(() => {
     api.chats().then(next => {
+      setChatError(null);
       setChats(prev => {
         // Lief ein Chat eben noch und ruht jetzt, ist er fertig – markieren, wenn er gerade nicht offen ist
         const finished = (prev ?? []).filter(p => p.status && p.id !== activeRef.current && next.some(n => n.id === p.id && !n.status)).map(p => p.id);
         if (finished.length) setDoneIds(d => new Set([...d, ...finished]));
         return next;
       });
-    }).catch(() => setChats(prev => prev ?? [])); // Netzfehler: vorhandenen Verlauf behalten, nicht „Noch keine Chats“ zeigen
+    }).catch(e => setChats(prev => {
+      // Vorhandenen Verlauf behalten. Ohne Liste ist das ein Ladefehler, keine leere Chatliste.
+      if (prev == null) setChatError(errorText(e));
+      return prev;
+    }));
   }, []);
 
   // Solange ein Chat läuft oder wartet: Verlauf regelmäßig auffrischen (Status links aktuell halten)
@@ -125,7 +136,7 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
       else { intent.current = fallback; router.push('/'); }
     };
     return {
-      health, refreshHealth, chats, reloadChats, doneIds, styleguide, styleguideKnown, setup, setStyleguide, activeChatId, setActiveChatId, contextName, setContextName,
+      health, healthFailed, refreshHealth, chats, chatError, reloadChats, doneIds, styleguide, styleguideKnown, setup, setStyleguide, activeChatId, setActiveChatId, contextName, setContextName,
       collapsed, toggleCollapsed, mobileOpen, setMobileOpen,
       registerWorkspace: b => { bridge.current = b; },
       takeIntent: () => { const i = intent.current; intent.current = null; return i; },
@@ -140,7 +151,7 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
         },
       },
     };
-  }, [health, refreshHealth, chats, reloadChats, doneIds, styleguide, styleguideKnown, setup, setStyleguide, activeChatId, contextName, collapsed, toggleCollapsed, mobileOpen, router, setActiveChatId]);
+  }, [health, healthFailed, refreshHealth, chats, chatError, reloadChats, doneIds, styleguide, styleguideKnown, setup, setStyleguide, activeChatId, contextName, collapsed, toggleCollapsed, mobileOpen, router, setActiveChatId]);
 
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

@@ -156,21 +156,29 @@ function recoverChat(c: StoredChat): boolean {
 // Absturzsicherheit beim Anwenden: Zwischenstand (Ergebnisse + Rückgängig-Schritte) gebündelt in die DB, höchstens alle RUN_FLUSH_MS
 // (kein Schreibsturm je Element). finish() erst nach dem Speichern des Ergebnisses: bis dahin gilt der Lauf als unterbrochen.
 const RUN_FLUSH_MS = 250;
+type RunClock = { now(): number; later(fn: () => void, ms: number): { cancel(): void } };
+const realRunClock = (): RunClock => ({
+  now: () => Date.now(),
+  later(fn, ms) { const t = setTimeout(fn, ms); t.unref?.(); return { cancel: () => clearTimeout(t) }; },
+});
+let runClock: RunClock = realRunClock();
+/** Nur Tests: Uhr der gebündelten Lauf-Sicherung. null stellt Date.now und setTimeout wieder her. */
+export function setRunClockForTests(clock: RunClock | null): void { runClock = clock ?? realRunClock(); }
 function trackRun(ss: Session, cs: ChangeSet, kind: PlatformKind, total: number) {
   const run: ChangeRun = { csId: cs.id, chatId: ss.id, kind: cs.kind, title: cs.title, startedAt: new Date().toISOString(), total, results: [], undo: [] };
   runPut(run);
-  let pending: ApplyPartial | null = null, latest: ApplyPartial | null = null, timer: NodeJS.Timeout | null = null, last = 0, done = false;
+  let pending: ApplyPartial | null = null, latest: ApplyPartial | null = null, timer: { cancel(): void } | null = null, last = 0, done = false;
   const snap = (p: ApplyPartial): ApplyPartial => ({ results: [...p.results], undo: p.undo.map(op => ({ ...op, platform: op.platform ?? kind })) });
   const flush = () => {
     timer = null; if (done || !pending) return;
     runPut({ ...run, ...snap(pending) });
-    pending = null; last = Date.now();
+    pending = null; last = runClock.now();
   };
   return {
-    tick(p: ApplyPartial) { pending = latest = p; const wait = RUN_FLUSH_MS - (Date.now() - last); if (wait <= 0) flush(); else if (!timer) { timer = setTimeout(flush, wait); timer.unref?.(); } },
+    tick(p: ApplyPartial) { pending = latest = p; const wait = RUN_FLUSH_MS - (runClock.now() - last); if (wait <= 0) flush(); else if (!timer) timer = runClock.later(flush, wait); },
     /** letzter gemeldeter Zwischenstand: wirft der Executor mittendrin, bleiben die bis dahin gemeldeten Rückgängig-Schritte erhalten */
     latest: () => (latest ? snap(latest) : null),
-    finish() { done = true; if (timer) clearTimeout(timer); runDelete(cs.id); },
+    finish() { done = true; if (timer) timer.cancel(); runDelete(cs.id); },
   };
 }
 

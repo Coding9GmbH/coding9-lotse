@@ -32,7 +32,7 @@ const ASSOC: Record<string, Record<string, string>> = {
   'sales-channel': { domains: 'sales-channel-domain', languages: 'language' }, language: { locale: 'locale' }, theme: { salesChannels: 'sales-channel' }, 'media-default-folder': { folder: 'media-folder' },
 };
 // Lesende Nicht-Such-Endpunkte, die erlaubt sind
-const GET_ALLOW = [/^\/_info\/version$/, /^\/_action\/theme\/[0-9a-f]{32}\/configuration$/];
+export const GET_ALLOW = [/^\/_info\/version$/, /^\/_action\/theme\/[0-9a-f]{32}\/configuration$/];
 // Lesende POST-Endpunkte: der Body wird wie eine Suche auf der Entität geprüft (nur diese Schlüssel, Beziehungen/Filter laut Freigabeliste)
 const POST_READ: { re: RegExp; entity: string }[] = [{ re: /^\/_admin\/product-stream-preview\/[0-9a-f]{32}$/, entity: 'product' }];
 const POST_KEYS = new Set(['filter', 'limit', 'page', 'total-count-mode', 'associations', 'sort']);

@@ -8,7 +8,7 @@ import { idPath, isGlobal, OmClient, skuPath, STORE_RE, type OmInfo, type OmList
 import { categoryPath, parseTarget, productPath, type OmCategory, type OmImage, type OmProduct, type OmRecord, type OmStock, type PriceBasis } from './map';
 
 /** Freigabeliste: GET-Pfad (/v1/…) → Bereich. Alles andere wird abgewiesen. */
-const ALLOW: { re: RegExp; scope: ScopeKey; entity: string }[] = [
+export const ALLOW: { re: RegExp; scope: ScopeKey; entity: string }[] = [
   { re: /^\/v1\/info$/, scope: 'shop', entity: 'shop' },
   { re: /^\/v1\/products$/, scope: 'products', entity: 'product' },
   { re: /^\/v1\/products\/attributes$/, scope: 'products', entity: 'product-attribute' },

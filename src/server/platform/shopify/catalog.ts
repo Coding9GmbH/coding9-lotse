@@ -3,7 +3,7 @@ import 'server-only';
 // Produktbilder, Alt-Texte und Handles (SEO-URLs mit Weiterleitung) – jeweils mit exakten Rückgängig-Schritten.
 import type { ChangeAsset, ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { slugify as slug } from '@/lib/text';
-import { MAX_ITEMS, WRITE_CONCURRENCY, cut, errMsg, partialTicker, pool, type ApplyCtx, type ApplyResult } from '../../changes';
+import { MAX_ITEMS, WRITE_CONCURRENCY, assertFresh, cut, errMsg, partialTicker, pool, type ApplyCtx, type ApplyResult } from '../../changes';
 import { checkAlt } from '../../features/bilder';
 import { stagedMeta } from '../../media';
 import { newId } from '../../shopware';
@@ -51,7 +51,7 @@ export async function buildCollectionChangeSet(q: Q, a: { title: string; reason:
           before = cut(cur); after = cut(raw);
         }
         if (cur === raw || (cur == null && raw === '')) { unchanged++; continue; }
-        items.push({ id: `${id}:${field}`, entity: 'category', entityId: id, label: c.title, field, fieldLabel: def.label, before, after, afterRaw: raw, html: def.kind === 'html' ? { before: String(cur ?? '').slice(0, 4000), after: String(raw).slice(0, 4000) } : undefined, warn });
+        items.push({ id: `${id}:${field}`, entity: 'category', entityId: id, label: c.title, field, fieldLabel: def.label, before, after, afterRaw: raw, beforeRaw: cur ?? null, html: def.kind === 'html' ? { before: String(cur ?? '').slice(0, 4000), after: String(raw).slice(0, 4000) } : undefined, warn });
       } catch (e) { skipped.push({ id, reason: `${field}: ${errMsg(e)}` }); }
     }
   }
@@ -72,8 +72,14 @@ export async function applyCollections(client: ShopifyClient, cs: ChangeSet, sel
     try {
       const [c] = await collectionsByIds((d, v) => client.gql(d, v), [its[0].entityId!]);
       if (!c) throw new Error('Kollektion nicht mehr vorhanden');
+      const freshOf = (it: ChangeItem) => it.field === 'name' ? c.title : it.field === 'description' ? (c.descriptionHtml ?? null) : it.field === 'sortOrder' ? c.sortOrder : it.field === 'metaTitle' ? (c.seo?.title ?? null) : it.field === 'metaDescription' ? (c.seo?.description ?? null) : it.field === 'active' ? !!c.onlineStoreUrl : undefined;
+      const live = its.filter(it => {
+        if (it.beforeRaw === undefined) return true;
+        try { assertFresh(it.fieldLabel, freshOf(it), it.beforeRaw); return true; }
+        catch (e) { results.push({ itemId: it.id, ok: false, error: errMsg(e) }); return false; }
+      });
       const input: Json = { id: c.id }, back: Json = { id: c.id }, upd: ChangeItem[] = [];
-      for (const it of its) {
+      for (const it of live) {
         if (it.field === 'active') continue;
         if (it.field === 'name') { input.title = it.afterRaw; back.title = c.title; }
         else if (it.field === 'description') { input.descriptionHtml = it.afterRaw; back.descriptionHtml = c.descriptionHtml ?? ''; }
@@ -82,7 +88,7 @@ export async function applyCollections(client: ShopifyClient, cs: ChangeSet, sel
         upd.push(it);
       }
       if (upd.length) { try { await runRecording(client, M.collectionUpdate, { input }, undo, reqOp('collection', c.id, M.collectionUpdate, { input: back })); ok(upd); } catch (e) { bad(upd, e); } }
-      const vis = its.find(i => i.field === 'active');
+      const vis = live.find(i => i.field === 'active');
       if (vis) {
         try {
           pub ??= await onlineStorePublication(client);

@@ -17,7 +17,7 @@ export function TargetCard({ target: t, cfg, onClear }: { target: Target; cfg: A
       {!landing && t.id && cfg && (
         <div className={styles.links}>
           <a target="_blank" rel="noopener noreferrer" href={adminUrl(cfg, t.kind === 'category' ? 'category' : 'product', t.id)}>Im Admin öffnen ↗</a>
-          <a target="_blank" rel="noopener noreferrer" href={storefrontUrl(cfg, t)}>Storefront ↗</a>
+          <a target="_blank" rel="noopener noreferrer" href={storefrontUrl(cfg, t)}>Im Shop ansehen ↗</a>
         </div>
       )}
     </section>

@@ -4,7 +4,7 @@ Ziel ist eine Seite, die ein gutes Designstudio für genau DIESEN Shop gebaut h�
 ### 1. Erst das Konzept, dann die Blöcke
 Bevor du draft_page aufrufst, legst du für dich fest (und nennst es dem Nutzer in einem Satz):
 - **Leitidee:** Ein Satz, worum es der Seite geht – aus Sicht des Käufers, mit einem konkreten Detail aus dem Sortiment (Material, Einsatz, Anlass, Problem). Beispiel: „Draußen kochen ohne Kompromisse – vom ersten Funken bis zum letzten Gast.“
-- **Seitentyp → Komposition:** Ratgeber = redaktionell (Text führt, Bilder begleiten, Schritte/Vergleich). Kampagne/Sale = produktgeführt (großes Produktbild, Raster, klare Preise). Marke/Kollektion = Storytelling (wechselnde Bild-Text-Splits, ein Bildband). Kategorie = Orientierung + Listing früh. Wähle bewusst und variiere – nicht jede Seite ist Hero → drei Karten → FAQ → CTA.
+- **Seitentyp → Komposition:** Ratgeber = redaktionell (Text führt, Bilder begleiten, Schritte/Vergleich). Kampagne/Sale = produktgeführt (großes Produktbild, Raster, klare Preise). Marke/Kollektion = Storytelling (wechselnde Bild-Text-Splits, ein Bildband). Kategorie = Orientierung, Produkte früh (ein Listing-Block nur, wo die Seitenregeln einen vorsehen). Wähle bewusst und variiere – nicht jede Seite ist Hero → drei Karten → FAQ → CTA.
 - **Ein Signatur-Moment:** genau EIN starkes, erinnerbares Element pro Seite (z. B. großes Bildband mit kurzer Headline, ein Vergleich, der die Kaufentscheidung wirklich löst, ein ungewöhnlich großes Produktfoto im Split). Alles andere bleibt ruhig.
 
 ### 2. Komposition & Rhythmus

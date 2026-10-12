@@ -1,6 +1,7 @@
 'use client';
 
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { announceAnswer } from '@/lib/a11y';
 import type { LogItem } from '@/lib/chat-state';
 import type { AppConfig } from '@/lib/protocol';
 import { ChangeSetCard } from './ChangeSetCard';
@@ -17,8 +18,19 @@ interface Props {
   onDecide: (approvalId: string, allow: boolean, selected?: string[]) => void;
   onUndo: (csId: string) => void;
   onOpenStyleguide: () => void;
+  /** true, solange eine Runde läuft. Die Ansage kommt erst, wenn sie fertig ist. */
+  busy?: boolean;
   className?: string;
   children?: React.ReactNode;
+}
+
+function AnswerStatus({ busy, hasAnswer }: { busy: boolean; hasAnswer: boolean }) {
+  const [snap, setSnap] = useState({ busy: false, text: null as string | null });
+  if (busy !== snap.busy) {
+    const text = snap.busy && !busy && hasAnswer ? announceAnswer(true) : null;
+    setSnap({ busy, text });
+  }
+  return snap.text ? <p className="visually-hidden" role="status">{snap.text}</p> : null;
 }
 
 const NEAR_END = 140;
@@ -26,7 +38,7 @@ const NEAR_END = 140;
 const FORCE_FOLLOW = new Set<LogItem['kind']>(['user', 'question', 'changeset']);
 
 /** Chat-Verlauf. Bleibt am Ende „kleben“, solange man nicht hochgescrollt hat. */
-export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStyleguide, className, children }: Props) {
+export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStyleguide, busy = false, className, children }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const lastKey = useRef<string | null>(null);
@@ -40,9 +52,13 @@ export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStylegui
     if (stick.current || (isNew && FORCE_FOLLOW.has(last.kind))) { el.scrollTop = el.scrollHeight; stick.current = true; }
   }, [items]);
 
+  const last = items.at(-1);
+  const hasAnswer = last?.kind === 'ai' && !!last.text;
+
   return (
     <div ref={ref} className={[styles.log, className].filter(Boolean).join(' ')} role="log" aria-live="polite" aria-relevant="additions"
       onScroll={e => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_END; }}>
+      <AnswerStatus busy={busy} hasAnswer={hasAnswer} />
       {children}
       {items.map(item => {
         switch (item.kind) {

@@ -112,5 +112,22 @@ foreach (Lotse_Connector_Model_Route::table() as $route) {
 }
 check('jede Route hat 4 Felder', count(array_filter(Lotse_Connector_Model_Route::table(), fn($r) => count($r) !== 4)) === 0);
 
+// --- URL-Rewrite target_path: nur relative Katalog- und CMS-Pfade, keine Schemata und kein // ---
+if (!class_exists('Lotse_Connector_Model_Api_Abstract', false)) {
+    abstract class Lotse_Connector_Model_Api_Abstract {}
+}
+require $base . 'Api/Urlrewrite.php';
+$targetOk = static fn(string $path): bool => Lotse_Connector_Model_Api_Urlrewrite::allowedTargetPath($path);
+check('target https://evil', !$targetOk('https://evil'));
+check('target http://evil', !$targetOk('http://evil.example/phish'));
+check('target //evil', !$targetOk('//evil'));
+check('target //evil mit Katalogpfad', !$targetOk('//evil.example/catalog/product/view/id/1'));
+check('target catalog/product/view/id/1', $targetOk('catalog/product/view/id/1'));
+check('target catalog/product mit Kategorie', $targetOk('catalog/product/view/id/1/category/2'));
+check('target catalog/category/view/id/3', $targetOk('catalog/category/view/id/3'));
+check('target cms/page/view', $targetOk('cms/page/view/page_id/4'));
+check('target javascript-Schema', !$targetOk('javascript:alert(1)'));
+check('target leerer Pfad', !$targetOk('') && !$targetOk('/'));
+
 echo "unit: $passed ok, $failed Fehler\n";
 exit($failed === 0 ? 0 : 1);

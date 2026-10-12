@@ -10,7 +10,7 @@ import { criteriaFields, type Criteria, type Filter } from './criteria';
 import type { MProduct, MCategory, MRecord } from './map';
 
 /** Freigabeliste: Methode + Pfad (ohne /rest/<store>) → Bereich. Alles andere wird abgewiesen. */
-const ALLOW: { re: RegExp; scope: ScopeKey; entity: string; method?: 'GET' | 'POST' }[] = [
+export const ALLOW: { re: RegExp; scope: ScopeKey; entity: string; method?: 'GET' | 'POST' }[] = [
   { re: /^\/V1\/products$/, scope: 'products', entity: 'product' },
   { re: /^\/V1\/products\/attributes\/[a-z][a-z0-9_]{0,59}$/, scope: 'products', entity: 'product-attribute' },
   { re: /^\/V1\/products\/attributes$/, scope: 'products', entity: 'product-attribute' },

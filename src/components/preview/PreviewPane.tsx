@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { Annotation } from '@/lib/annotations';
+import { markKeySelects } from '@/lib/a11y';
+import { popoverLeft } from '@/lib/popover';
 import { scoreClass } from '@/lib/audit';
 import type { DraftView, PreviewTab } from '@/lib/chat-state';
 import { Button } from '@/components/ui/Button';
 import { IconClose, IconPin } from '@/components/ui/icons';
 import { Segmented } from '@/components/ui/Segmented';
-import { attachAnnotator, drawPins, type Pick } from './annotator';
+import { attachAnnotator, drawPins, type FrameTarget, type Pick } from './annotator';
 import { DraftFrame, PREVIEW_SANDBOX } from './DraftFrame';
 import styles from './PreviewPane.module.css';
 
@@ -35,22 +37,36 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
   const [mobile, setMobile] = useState(false);
   const [marking, setMarking] = useState(false);
   const [pick, setPick] = useState<(Pick & { left: number; top: number }) | null>(null);
+  const [targets, setTargets] = useState<FrameTarget[]>([]);
+  const [wasMarking, setWasMarking] = useState(false);
   const [text, setText] = useState('');
+  if (marking !== wasMarking) {
+    setWasMarking(marking);
+    if (!marking) setTargets([]);
+  }
   const viewRef = useRef<HTMLDivElement>(null);
   const canMark = (tab === 'prev' && !!draft && !draft.partial) || (tab === 'live' && !!liveUrl);
   const where = tab === 'live' ? 'live' : 'draft';
   const frame = () => viewRef.current?.querySelector<HTMLIFrameElement>(`iframe[data-kind="${tab}"]`) ?? null;
 
   // Markier-Modus: Element in der Vorschau anklicken → Eingabe „Was soll anders sein?“ an der Klickstelle
+  const place = (p: Pick) => {
+    const f = frame();
+    const vr = viewRef.current?.getBoundingClientRect();
+    const fr = f?.getBoundingClientRect();
+    setText('');
+    const width = vr ? Math.min(320, Math.max(0, vr.width - 16)) : 320;
+    const left = fr && vr ? popoverLeft(fr.left - vr.left + p.x - 20, width, vr.width) : 16;
+    const top = fr && vr ? Math.min(fr.top - vr.top + p.y + 14, vr.height - 190) : 48;
+    setPick({ ...p, left, top });
+  };
+
   useEffect(() => {
-    const f = marking && canMark ? frame() : null;
+    if (!marking) return;
+    const f = canMark ? frame() : null;
     if (!f) return;
-    return attachAnnotator(f, p => {
-      const fr = f.getBoundingClientRect(), vr = viewRef.current!.getBoundingClientRect();
-      setText('');
-      setPick({ ...p, left: Math.min(Math.max(8, fr.left - vr.left + p.x - 20), vr.width - 340), top: Math.min(fr.top - vr.top + p.y + 14, vr.height - 190) });
-    });
-  }, [marking, canMark, tab, draft?.rev, liveUrl]); // eslint-disable-line react-hooks/exhaustive-deps -- frame() liest nur das DOM
+    return attachAnnotator(f, place, setTargets);
+  }, [marking, canMark, tab, draft?.rev, liveUrl]); // eslint-disable-line react-hooks/exhaustive-deps -- frame() und place lesen nur das DOM
 
   // Nummern an den markierten Elementen (auch nach dem Neuladen des Entwurfs)
   useEffect(() => {
@@ -87,10 +103,9 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
             </>
           ) : 'Vorschau'}
         </div>
-        <Segmented label="Ansicht" className={styles.seg} value={tab} onChange={onTab} options={[
+        <Segmented label="Ansicht" className={styles.seg} value={tab === 'spec' ? 'prev' : tab} onChange={onTab} options={[
           { value: 'live', label: 'Aktuell', title: 'Die echte Seite im Shop' },
           { value: 'prev', label: 'Entwurf', title: 'Entwurf mit dem Theme des Shops' },
-          { value: 'spec', label: 'JSON' },
         ]} />
         <Button size="sm" className={`${styles.mark} ${marking ? styles.markOn : ''}`} aria-pressed={marking} disabled={!canMark && !marking}
           title="Elemente in der Vorschau anklicken und notieren, was anders sein soll. Gesammelt an Lotse senden."
@@ -104,12 +119,24 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
         {onClose && <button type="button" className={styles.close} onClick={onClose} aria-label="Vorschau schließen" title="Zurück zum Chat"><IconClose size={18} /></button>}
       </div>
       <div ref={viewRef} className={`${styles.view} ${mobile ? styles.m : ''} ${marking ? styles.marking : ''}`}>
-        {marking && !pick && <div className={styles.markHint}>Klicke auf ein Element, das anders sein soll</div>}
+        {marking && !pick && <div className={styles.markHint}>Klicke auf ein Element oder wähle es aus der Liste</div>}
+        {marking && !pick && targets.length > 0 && (
+          <ul className={styles.targets} aria-label="Elemente in der Vorschau">
+            {targets.map((t, i) => (
+              <li key={`${t.path}-${i}`}>
+                <button type="button" onClick={() => place({ ...t, x: 24, y: 24 })}
+                  onKeyDown={e => { if (!markKeySelects(e.key)) return; e.preventDefault(); place({ ...t, x: 24, y: 24 }); }}>
+                  {t.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         {pick && (
           <form className={styles.pop} style={{ left: pick.left, top: pick.top }} onSubmit={e => { e.preventDefault(); save(); }}>
             <b>{pick.label}</b>
             {pick.section && <small>Abschnitt „{pick.section}“</small>}
-            <textarea autoFocus rows={3} value={text} onChange={e => setText(e.target.value)} placeholder="Was soll anders sein? z. B. „dunkler und größer“"
+            <textarea autoFocus rows={3} value={text} onChange={e => setText(e.target.value)} aria-label="Was soll anders sein?" placeholder="Was soll anders sein? z. B. „dunkler und größer“"
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); } if (e.key === 'Escape') setPick(null); }} />
             <div className={styles.popBtns}>
               <Button size="sm" onClick={() => setPick(null)}>Abbrechen</Button>
@@ -142,12 +169,11 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
           <div className={styles.empty}>
             {tab === 'live'
               ? <div><b>Noch keine Seite</b>Wähle ein Ziel, dann siehst du hier die echte Seite aus dem Shop.</div>
-              : <div><b>Noch kein Entwurf</b>Der Entwurf baut sich hier live auf, während der Agent schreibt.</div>}
+              : <div><b>Noch kein Entwurf</b>Der Entwurf baut sich hier live auf, während Lotse schreibt.</div>}
           </div>
         )}
         {liveUrl && <iframe className={styles.frame} src={liveUrl} hidden={tab !== 'live'} data-kind="live" title="Aktuelle Seite im Shop" sandbox={PREVIEW_SANDBOX} />}
-        <DraftFrame draft={draft} className={styles.frame} hidden={tab !== 'prev' || !draft} />
-        {tab === 'spec' && <pre className={styles.spec}>{draft?.spec ? JSON.stringify(draft.spec, null, 2) : ''}</pre>}
+        <DraftFrame draft={draft} className={styles.frame} hidden={(tab !== 'prev' && tab !== 'spec') || !draft} />
       </div>
     </section>
   );

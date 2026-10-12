@@ -79,8 +79,31 @@ class Lotse_Connector_Model_Api_Urlrewrite extends Lotse_Connector_Model_Api_Abs
     }
 
     /**
+     * Nur relative Katalogpfade und CMS-Seitenpfade, die das Modul als cms/page kennt.
+     * Schemata (http:, https:) und protokoll-relative Ziele (//) sind keine Shop-Pfade.
+     */
+    public static function allowedTargetPath($path)
+    {
+        $path = trim((string) $path);
+        if ($path === '' || strpos($path, '//') !== false || preg_match('#^[a-z][a-z0-9+.\-]*:#i', $path)) {
+            return false;
+        }
+        $path = trim($path, '/');
+        if ($path === '' || strpos($path, ':') !== false || strpos($path, '\\') !== false || strpos($path, '..') !== false) {
+            return false;
+        }
+        foreach (array('catalog/product/view/', 'catalog/category/view/', 'cms/page/view/') as $prefix) {
+            if (strpos($path, $prefix) === 0 && strlen($path) > strlen($prefix) && preg_match('#^[A-Za-z0-9_./\-]+$#', $path)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * POST /v1/urlrewrites: {request_path, target_path | product_id | category_id, store_id?|store?, options? (R|RP|null), description?}
      * target_path bei product_id/category_id: catalog/product/view/id/<id> bzw. catalog/category/view/id/<id>.
+     * Freies target_path nur relativ: catalog/product/view/…, catalog/category/view/…, cms/page/view/….
      */
     public function createRewrite(array $params)
     {
@@ -106,8 +129,12 @@ class Lotse_Connector_Model_Api_Urlrewrite extends Lotse_Connector_Model_Api_Abs
             $categoryId = $this->intParam($body['category_id'], 'category_id');
             $targetPath = 'catalog/category/view/id/' . $categoryId;
         } else {
-            $targetPath = trim((string) $this->requireField($body, 'target_path'), '/');
+            $targetPath = (string) $this->requireField($body, 'target_path');
         }
+        if (!self::allowedTargetPath($targetPath)) {
+            throw Lotse_Connector_Model_Exception::validation('target_path muss ein relativer Katalog- oder CMS-Pfad sein.', ['field' => 'target_path']);
+        }
+        $targetPath = trim($targetPath, '/');
         $options = $body['options'] ?? null;
         if ($options !== null && !in_array($options, ['R', 'RP'], true)) {
             throw Lotse_Connector_Model_Exception::validation('options muss R (302), RP (301) oder null sein.', ['field' => 'options']);
