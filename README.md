@@ -5,6 +5,18 @@ Einkaufswelten, Preise, Texte & SEO per Chat. Die KI liest nur, geschrieben wird
 
 <p align="center"><img src="docs/screenshots/app.png" alt="Lotse Oberfläche" width="820"></p>
 
+## Demo
+
+<p align="center"><a href="docs/media/lotse-demo.mp4"><img src="docs/media/lotse-demo-poster.jpg" alt="Lotse in 46 Sekunden: Preise per Chat ändern, Änderungsset prüfen, Landingpage als Entwurf" width="820"></a><br><sub>46 Sekunden: Preise per Chat, Vergleich prüfen, Seite als Entwurf – Klick öffnet das Video</sub></p>
+
+## Screenshots
+
+| Arbeitsfläche mit Shop-Check | Kontext wählen | KI-Zugriff je Bereich |
+|---|---|---|
+| <img src="docs/screenshots/app.png" alt="Arbeitsfläche" width="300"> | <img src="docs/screenshots/app-context.png" alt="Kontext-Auswahl" width="300"> | <img src="docs/screenshots/ki-zugriff.png" alt="KI-Zugriff: Bereiche des Shops einzeln freigeben" width="300"> |
+
+<sub>Screenshots aus dem Demo-Shop (Dockware). Das Video zeigt einen Beispiel-Entwurf mit fiktiver Marke und eigenen Illustrationen.</sub>
+
 ## Schnellstart (Docker)
 
 ```bash
@@ -146,6 +158,8 @@ src/
     └── db.ts / settings.ts    SQLite, verschlüsselte Zugangsdaten
 prompts/                  System-Prompt als versioniertes Markdown: common/ (alle Plattformen) + shopware/, shopify/, magento/, openmage/
 integrations/openmage/    OpenMage-Modul Lotse_Connector (JSON-API, openapi.yaml, Tests, package.sh)
+tests/                    alle Tests (node:test), Struktur wie src/; tests/support/ = Tests der Fake-Server aus test-support/
+test-support/             Fake-Shops (Shopify, OpenMage) und Live-Prüfskripte, keine Tests
 ```
 
 Neue Blocktypen: in `BLOCKS` (`src/server/cms.ts`) ergänzen (+ Vorschau-Renderer) – der Agent bekommt den Katalog automatisch.

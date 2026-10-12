@@ -49,7 +49,7 @@ Werkzeuge und Fachbereiche (gleiche Namen, wo die Bedeutung passt; ✓ = vorhand
 | Shop-Check (`run_shop_check`) | ✓ | ✓ (`shopify/checks.ts`) | ✓ (`magento/checks.ts`) | ✓ (`openmage/checks.ts`) |
 | Kern: Seiten, Styleguide, Bilder-KI, Wissensbasis, Search Console | ✓ | ✓ | ✓ | ✓ |
 
-Die Werkzeugnamen je Plattform sind eindeutig und haben alle einen Anzeigenamen (`TOOL_LABELS`); beides prüft `platform.test.ts`.
+Die Werkzeugnamen je Plattform sind eindeutig und haben alle einen Anzeigenamen (`TOOL_LABELS`); beides prüft `tests/server/platform/platform.test.ts`.
 
 ---
 
@@ -88,7 +88,7 @@ src/server/platform/shopify/
   pages.ts        PlatformPages (Vorschau-Daten, Veröffentlichen)
   lookup.ts       ShopLookup
   checks.ts       Shop-Prüfungen (registerPlatformCheck)
-  *.test.ts       Tests gegen einen Fake-HTTP-Server
+  (Tests: tests/server/platform/shopify/*.test.ts, gegen einen Fake-HTTP-Server)
 prompts/shopify/  Prompt-Dateien (siehe Abschnitt 9)
 ```
 
@@ -335,7 +335,7 @@ Plätze, die eine Plattform füllt (Shopware-Dateien als Vorlage):
 | `05-4-schreibzugriff-und-seitenaufbau.md` | „Schreibzugriff“ (welche propose_*-Werkzeuge), „Massenänderungen“, „Seitenaufbau-Regeln“ passend zu den Fähigkeiten |
 | `08-…` bis `17-…` | Abschnitte der Fachbereiche (Bilder, SEO, Übersetzungen, Promotionen …), nur was es wirklich gibt |
 
-Die gemeinsamen Dateien bleiben plattform-neutral (Test `prompt.test.ts` prüft: keine Shopware-Begriffe in `common`, keine offenen Platzhalter). Shopify ersetzt zusätzlich `01-3-faehigkeiten.md` und `07-produkte.md`. Der Ziel-Hinweis der Kontext-Auswahl (`target-hint.ts`) unterscheidet `cms`, `html` mit `theme-main` (Shopify) und `html` ohne (Magento).
+Die gemeinsamen Dateien bleiben plattform-neutral (Test `tests/server/prompt.test.ts` prüft: keine Shopware-Begriffe in `common`, keine offenen Platzhalter). Shopify ersetzt zusätzlich `01-3-faehigkeiten.md` und `07-produkte.md`. Der Ziel-Hinweis der Kontext-Auswahl (`target-hint.ts`) unterscheidet `cms`, `html` mit `theme-main` (Shopify) und `html` ohne (Magento).
 
 ---
 
@@ -351,7 +351,7 @@ Die gemeinsamen Dateien bleiben plattform-neutral (Test `prompt.test.ts` prüft:
   4. Veröffentlichen: Seite/Kollektion/Kategorie, Bilder-Upload, Undo.
   5. Prompt: `buildBasePrompt('<kind>')` ohne offene Platzhalter, ohne fremde Plattformbegriffe.
   6. Einstellungen: Felder, `configured`, Geheimnisse verschlüsselt und maskiert.
-- Bestehende Tests: `src/server/platform/platform.test.ts` (Register, Fähigkeiten, Werkzeuge je Plattform ohne doppelte Namen und mit Anzeigenamen, Undo-Verteilung, Shop-Checks, `stubAdapter`) und `session.test.ts` (Sessions je Plattform, Seitentypen und Blöcke). Shopify: `shopify/shopify.test.ts` gegen den GraphQL-Fake `test-support/shopify-fake/`; Magento: `magento/*.test.ts` gegen `magento/fake.ts`.
+- Bestehende Tests: `tests/server/platform/platform.test.ts` (Register, Fähigkeiten, Werkzeuge je Plattform ohne doppelte Namen und mit Anzeigenamen, Undo-Verteilung, Shop-Checks, `stubAdapter`) und `session.test.ts` (Sessions je Plattform, Seitentypen und Blöcke). Shopify: `shopify/shopify.test.ts` gegen den GraphQL-Fake `test-support/shopify-fake/`; Magento: `magento/*.test.ts` gegen `magento/fake.ts`.
 - Live gegen einen echten Testshop nur mit eigenen Testdaten; jede Änderung mit Rückgängig zurücknehmen und den Ausgangszustand prüfen.
 
 ---
