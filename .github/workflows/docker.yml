@@ -5,7 +5,7 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
-  # Image bauen & veröffentlichen vorerst nur von Hand (Actions → Docker-Image → Run workflow)
+  # Image wird bei einem Tag v* automatisch veröffentlicht, sonst nur von Hand (Actions → Docker-Image → Run workflow)
   workflow_dispatch:
 
 permissions:
@@ -41,7 +41,7 @@ jobs:
 
   image:
     needs: check
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
