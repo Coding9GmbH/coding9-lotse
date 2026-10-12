@@ -133,8 +133,8 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
                   <details>
                     <summary>Text vergleichen</summary>
                     <div className={styles.cmp}>
-                      <div aria-label="Vorher">{i.html.before || <span className={styles.none}>(leer)</span>}</div>
-                      <div aria-label="Nachher">{i.html.after}</div>
+                      <div role="region" aria-label="Vorher">{i.html.before || <span className={styles.none}>(leer)</span>}</div>
+                      <div role="region" aria-label="Nachher">{i.html.after}</div>
                     </div>
                   </details>
                 )}

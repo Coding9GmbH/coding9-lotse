@@ -334,7 +334,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
               <HomeHead />
               {composer}
               {status}
-              <ChatLog className={styles.homeLog} items={state.items} cfg={cfg} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)}>
+              <ChatLog className={styles.homeLog} items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)}>
                 <HomeContent health={homeHealth} loadFailed={shell.healthFailed} hasStyleguide={sgLoaded ? !!sg : null} product={exampleProduct} category={exampleCategory}
                   recent={chats ?? []} onExample={t => { setInput(t); inputRef.current?.focus(); }} onOpenChat={id => void openChat(id)} onOnboard={onboard} />
               </ChatLog>
@@ -347,7 +347,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
                 </div>
               )}
               {target && <TargetCard target={target} cfg={cfg} onClear={() => selectTarget(null)} />}
-              <ChatLog items={state.items} cfg={cfg} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} />
+              <ChatLog items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} />
               {status}
               <Chips items={chips} onPick={s => { setInput(s); inputRef.current?.focus(); }} />
               {composer}

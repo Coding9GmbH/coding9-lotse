@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { Annotation } from '@/lib/annotations';
+import { markKeySelects } from '@/lib/a11y';
 import { scoreClass } from '@/lib/audit';
 import type { DraftView, PreviewTab } from '@/lib/chat-state';
 import { Button } from '@/components/ui/Button';
 import { IconClose, IconPin } from '@/components/ui/icons';
 import { Segmented } from '@/components/ui/Segmented';
-import { attachAnnotator, drawPins, type Pick } from './annotator';
+import { attachAnnotator, drawPins, type FrameTarget, type Pick } from './annotator';
 import { DraftFrame, PREVIEW_SANDBOX } from './DraftFrame';
 import styles from './PreviewPane.module.css';
 
@@ -35,6 +36,7 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
   const [mobile, setMobile] = useState(false);
   const [marking, setMarking] = useState(false);
   const [pick, setPick] = useState<(Pick & { left: number; top: number }) | null>(null);
+  const [targets, setTargets] = useState<FrameTarget[]>([]);
   const [text, setText] = useState('');
   const viewRef = useRef<HTMLDivElement>(null);
   const canMark = (tab === 'prev' && !!draft && !draft.partial) || (tab === 'live' && !!liveUrl);
@@ -42,15 +44,22 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
   const frame = () => viewRef.current?.querySelector<HTMLIFrameElement>(`iframe[data-kind="${tab}"]`) ?? null;
 
   // Markier-Modus: Element in der Vorschau anklicken → Eingabe „Was soll anders sein?“ an der Klickstelle
+  const place = (p: Pick) => {
+    const f = frame();
+    const vr = viewRef.current?.getBoundingClientRect();
+    const fr = f?.getBoundingClientRect();
+    setText('');
+    const left = fr && vr ? Math.min(Math.max(8, fr.left - vr.left + p.x - 20), vr.width - 340) : 16;
+    const top = fr && vr ? Math.min(fr.top - vr.top + p.y + 14, vr.height - 190) : 48;
+    setPick({ ...p, left, top });
+  };
+
   useEffect(() => {
-    const f = marking && canMark ? frame() : null;
+    if (!marking) { setTargets([]); return; }
+    const f = canMark ? frame() : null;
     if (!f) return;
-    return attachAnnotator(f, p => {
-      const fr = f.getBoundingClientRect(), vr = viewRef.current!.getBoundingClientRect();
-      setText('');
-      setPick({ ...p, left: Math.min(Math.max(8, fr.left - vr.left + p.x - 20), vr.width - 340), top: Math.min(fr.top - vr.top + p.y + 14, vr.height - 190) });
-    });
-  }, [marking, canMark, tab, draft?.rev, liveUrl]); // eslint-disable-line react-hooks/exhaustive-deps -- frame() liest nur das DOM
+    return attachAnnotator(f, place, setTargets);
+  }, [marking, canMark, tab, draft?.rev, liveUrl]); // eslint-disable-line react-hooks/exhaustive-deps -- frame() und place lesen nur das DOM
 
   // Nummern an den markierten Elementen (auch nach dem Neuladen des Entwurfs)
   useEffect(() => {
@@ -103,12 +112,24 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
         {onClose && <button type="button" className={styles.close} onClick={onClose} aria-label="Vorschau schließen" title="Zurück zum Chat"><IconClose size={18} /></button>}
       </div>
       <div ref={viewRef} className={`${styles.view} ${mobile ? styles.m : ''} ${marking ? styles.marking : ''}`}>
-        {marking && !pick && <div className={styles.markHint}>Klicke auf ein Element, das anders sein soll</div>}
+        {marking && !pick && <div className={styles.markHint}>Klicke auf ein Element oder wähle es aus der Liste</div>}
+        {marking && !pick && targets.length > 0 && (
+          <ul className={styles.targets} aria-label="Elemente in der Vorschau">
+            {targets.map((t, i) => (
+              <li key={`${t.path}-${i}`}>
+                <button type="button" onClick={() => place({ ...t, x: 24, y: 24 })}
+                  onKeyDown={e => { if (!markKeySelects(e.key)) return; e.preventDefault(); place({ ...t, x: 24, y: 24 }); }}>
+                  {t.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         {pick && (
           <form className={styles.pop} style={{ left: pick.left, top: pick.top }} onSubmit={e => { e.preventDefault(); save(); }}>
             <b>{pick.label}</b>
             {pick.section && <small>Abschnitt „{pick.section}“</small>}
-            <textarea autoFocus rows={3} value={text} onChange={e => setText(e.target.value)} placeholder="Was soll anders sein? z. B. „dunkler und größer“"
+            <textarea autoFocus rows={3} value={text} onChange={e => setText(e.target.value)} aria-label="Was soll anders sein?" placeholder="Was soll anders sein? z. B. „dunkler und größer“"
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); } if (e.key === 'Escape') setPick(null); }} />
             <div className={styles.popBtns}>
               <Button size="sm" onClick={() => setPick(null)}>Abbrechen</Button>

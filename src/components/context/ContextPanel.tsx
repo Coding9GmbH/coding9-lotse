@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { inertExcept } from '@/lib/a11y';
 import type { CategoryRow, Target } from '@/lib/protocol';
 import { IconClose, IconTarget } from '@/components/ui/icons';
 import { ContextPicker } from './ContextPicker';
@@ -14,15 +15,22 @@ export function ContextPanel({ open, onClose, categories, categoryError = null, 
 
   useEffect(() => {
     if (!open) return;
-    ref.current?.querySelector<HTMLElement>('input, button')?.focus();
+    const trigger = document.getElementById('lotse-context');
+    const panel = ref.current;
+    panel?.querySelector<HTMLElement>('input, button')?.focus();
+    const release = panel ? inertExcept(panel) : () => {};
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      release();
+      if (trigger instanceof HTMLElement) trigger.focus();
+    };
   }, [open, onClose]);
 
   return (
     <>
-      {open && <div className={styles.scrim} onClick={onClose} aria-hidden="true" />}
+      {open && <div className={styles.scrim} data-dismiss="" onClick={onClose} aria-hidden="true" />}
       <aside ref={ref} className={styles.panel} data-open={open || undefined} aria-label="Kontext wählen" aria-hidden={!open} inert={!open}>
         <div className={styles.head}>
           <span className={styles.icon}><IconTarget size={17} /></span>

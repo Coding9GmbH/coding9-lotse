@@ -9,7 +9,7 @@
 /* Startbildschirm: Knöpfe bleiben auf Höhe der ersten Zeile, der Text wächst nach unten */
 .home { align-items: flex-start; }
 .home .attach, .home .send { margin-top: 6px; }
-.home textarea:focus { border: 0; }
+.home textarea:focus { border: 1px solid var(--green); }
 
 .atts { display: flex; gap: 8px; padding: 0 12px 8px; flex-wrap: wrap; flex: none; }
 .att { position: relative; width: 56px; height: 56px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--sand); }

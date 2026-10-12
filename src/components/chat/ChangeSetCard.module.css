@@ -17,7 +17,7 @@
 .st .bad { white-space: normal; display: block; max-width: 220px; }
 .arrow { color: var(--mute); }
 .badge { font-size: 11px; font-weight: 600; color: var(--green-d); background: var(--green-bg); border-radius: 99px; padding: 0 8px; }
-.badgeOff { color: var(--coral-d); background: var(--coral-bg); }
+.badgeOff { color: var(--warn); background: var(--coral-bg); }
 .row:last-child { border-bottom: 0; }
 .main { min-width: 0; }
 .lb { font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 2px; }
@@ -27,10 +27,10 @@
 .new { color: var(--green-d); font-weight: 600; }
 .fl { color: var(--mute); flex: 0 0 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 600px) { .fl { flex-basis: 100%; } }
-.off { opacity: .45; }
+.off { color: var(--mute); }
 .wn { font-size: 11px; color: var(--warn); background: var(--warn-bg); border-radius: 99px; padding: 0 8px; }
 .ok { color: var(--green-d); }
-.bad { color: var(--coral-d); }
+.bad { color: var(--warn); }
 .row details { width: 100%; }
 .row summary { cursor: pointer; color: var(--green-d); font-size: 12px; }
 .cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }

@@ -2,7 +2,7 @@
 .nav {
   --fg: #fff;
   --fg-2: #ffffffb8;
-  --fg-3: #ffffff7a;
+  --fg-3: #ffffff80;
   --hover: #ffffff0f;
   --active: #7ebbae24;
   --hair: #ffffff14;
@@ -22,7 +22,7 @@
 
 /* ---- Kopf ---- */
 .top { display: flex; align-items: center; gap: 8px; min-height: 40px; margin-bottom: 8px; }
-.brand { display: flex; align-items: center; gap: 11px; flex: 1; min-width: 0; color: var(--fg); padding: 2px; border-radius: 10px; }
+.brand { display: flex; align-items: center; gap: 11px; flex: 1; min-width: 0; color: var(--fg); padding: 2px; border-radius: 10px; text-decoration: none; }
 .brand:hover { text-decoration: none; }
 .brand img { width: 34px; height: 34px; flex: none; }
 .word { display: flex; flex-direction: column; font: 700 20px/1 var(--display); letter-spacing: -.02em; white-space: nowrap; }
@@ -40,7 +40,7 @@
   border: 0; border-radius: 11px; background: var(--coral); color: var(--dark) !important; font-weight: 600 !important;
   cursor: pointer; white-space: nowrap; overflow: hidden; transition: background .12s, transform .12s;
 }
-.newChat:hover { background: var(--coral-d); }
+.newChat:hover { background: var(--coral); }
 .newChat:active { transform: translateY(1px); }
 .newChat svg { flex: none; stroke-width: 2.2; }
 
@@ -49,7 +49,7 @@
 .item {
   position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 40px; padding: 0 12px;
   border: 0; border-radius: 10px; background: transparent; color: var(--fg-2); font-size: 14px; font-weight: 500; text-align: left;
-  cursor: pointer; white-space: nowrap; transition: background .12s, color .12s;
+  cursor: pointer; white-space: nowrap; transition: background .12s, color .12s; text-decoration: none;
 }
 .item:hover { background: var(--hover); color: var(--fg); text-decoration: none; }
 .item[aria-current="page"] { background: var(--active); color: var(--green); }
@@ -96,7 +96,7 @@
 /* ---- Status ---- */
 .railFill { flex: 1; display: flex; flex-direction: column; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--hair); }
 .foot { padding-top: 10px; border-top: 1px solid var(--hair); }
-.status { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-radius: 10px; color: var(--fg-2); font-size: 12.5px; }
+.status { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-radius: 10px; color: var(--fg-2); font-size: 12.5px; text-decoration: none; }
 .status:hover { background: var(--hover); text-decoration: none; color: var(--fg); }
 .statusRow { display: flex; align-items: center; gap: 10px; min-width: 0; white-space: nowrap; }
 .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #8a8a94; margin: 0 5px; }

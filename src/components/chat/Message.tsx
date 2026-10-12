@@ -6,6 +6,7 @@ import styles from './Message.module.css';
 export function UserMessage({ text, attachments, files = [] }: { text: string; attachments: Attachment[]; files?: FileAttachment[] }) {
   return (
     <div className={`${styles.msg} ${styles.user}`}>
+      <span className="visually-hidden">Du</span>
       {text}
       {attachments.length > 0 && (
         <div className={styles.thumbs}>
@@ -25,7 +26,12 @@ export function UserMessage({ text, attachments, files = [] }: { text: string; a
 /** Antwort der KI: Markdown-lite. markdown() maskiert jeden Text, bevor es die wenigen erlaubten Tags erzeugt. */
 export function AiMessage({ text }: { text: string }) {
   const html = useMemo(() => markdown(text), [text]);
-  return <div className={`${styles.msg} ${styles.ai}`} dangerouslySetInnerHTML={{ __html: html }} />;
+  return (
+    <div className={`${styles.msg} ${styles.ai}`}>
+      <span className="visually-hidden">Lotse</span>
+      <div dangerouslySetInnerHTML={{ __html: html }} />
+    </div>
+  );
 }
 
 export function ErrorMessage({ text }: { text: string }) {
