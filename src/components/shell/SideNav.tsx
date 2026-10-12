@@ -39,6 +39,7 @@ export function SideNav() {
   const path = usePathname();
   const [filter, setFilter] = useState('');
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [ctx, setCtx] = useState<string | null>(null); // Verlauf nur für einen Kontext
   const collapsed = s.collapsed && !s.mobileOpen;
   const tip = (label: string) => (collapsed ? label : undefined);
   const st = status(s.health, s.healthFailed);
@@ -48,11 +49,14 @@ export function SideNav() {
   const ready = !s.setup || (s.setup.shopware && s.setup.ai);
   const locked = ready ? undefined : 'Erst Shop und KI verbinden';
 
+  // Kontexte im Verlauf (neueste zuerst); Filter erst ab zwei verschiedenen
+  const contexts = useMemo(() => [...new Set((s.chats ?? []).flatMap(c => (c.target?.name ? [c.target.name] : [])))].slice(0, 6), [s.chats]);
+  const activeCtx = ctx && contexts.includes(ctx) ? ctx : null;
   const groups = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    const list = (s.chats ?? []).filter(c => !q || c.title.toLowerCase().includes(q) || c.target?.name?.toLowerCase().includes(q));
+    const list = (s.chats ?? []).filter(c => (!activeCtx || c.target?.name === activeCtx) && (!q || c.title.toLowerCase().includes(q) || c.target?.name?.toLowerCase().includes(q)));
     return groupByDay(list);
-  }, [s.chats, filter]);
+  }, [s.chats, filter, activeCtx]);
 
   // Eingeklappt: ein Punkt am Verlauf-Symbol – wartet (wichtigster) > läuft > fertig
   const live = s.chats?.filter(c => c.status) ?? [];
@@ -146,6 +150,12 @@ export function SideNav() {
               <IconSearch size={14} />
               <input type="search" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Suchen" aria-label="Chats durchsuchen" />
             </label>
+          )}
+          {contexts.length > 1 && (
+            <div className={styles.ctxFilter} role="group" aria-label="Verlauf nach Kontext filtern">
+              <button type="button" aria-pressed={!activeCtx} onClick={() => setCtx(null)}>Alle</button>
+              {contexts.map(n => <button key={n} type="button" aria-pressed={activeCtx === n} onClick={() => setCtx(activeCtx === n ? null : n)} title={n}>{n}</button>)}
+            </div>
           )}
           <div className={styles.histList}>
             {chatView === 'loading' && <p className={styles.note}>Lade …</p>}

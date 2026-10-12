@@ -10,6 +10,15 @@
 .spin { width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--coral); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Bereiche als Reiter: Alle · SEO · Bilder … */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; border-top: 1px solid var(--line); padding: 10px 0 8px; }
+.tabs button { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border: 1px solid var(--line); border-radius: 99px; background: var(--panel); color: var(--mute); font-size: 12.5px; cursor: pointer; }
+.tabs button:hover { color: var(--ink); border-color: var(--green); }
+.tabs button[aria-selected="true"] { background: var(--dark); border-color: var(--dark); color: #fff; }
+.tabs span { font-size: 11px; opacity: .7; font-variant-numeric: tabular-nums; }
+.fixing { display: inline-flex; align-items: center; gap: 8px; }
+.badge { font: 600 10.5px var(--body); letter-spacing: .04em; text-transform: uppercase; color: var(--green-d); background: var(--green-bg); border-radius: 99px; padding: 2px 9px; white-space: nowrap; }
+
 .group { border-top: 1px solid var(--line); padding: 8px 0 4px; }
 .group h4 { font: 600 11px var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--mute); margin: 2px 0 4px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .group h4 small { font: 500 11.5px var(--body); text-transform: none; letter-spacing: 0; color: var(--mute); opacity: .8; }
@@ -62,5 +71,5 @@
   .row { grid-template-columns: 1fr auto; }
   .sev { grid-column: 1; }
   .body { grid-column: 1 / -1; grid-row: 2; }
-  .fix { grid-column: 2; grid-row: 1; }
+  .fix, .fixing { grid-column: 2; grid-row: 1; }
 }

@@ -21,6 +21,8 @@ interface Props {
   onFiles: (files: File[]) => void;
   onRemoveAtt: (key: string) => void;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  /** Gesperrt (z. B. solange Shop oder KI fehlen) */
+  disabled?: boolean;
   /** Zeile unter dem Textfeld, bündig mit ihm (z. B. der Kontext) */
   extra?: React.ReactNode;
 }
@@ -28,7 +30,7 @@ interface Props {
 const MAX_H = 140;
 
 /** Eingabe: wachsendes Textfeld, Enter sendet (Umschalt+Enter = Zeilenumbruch), Bilder per Knopf/Einfügen. */
-export function Composer({ value, onChange, onSubmit, onStop, writing, busy, placeholder, home, atts, onFiles, onRemoveAtt, inputRef, extra }: Props) {
+export function Composer({ value, onChange, onSubmit, onStop, writing, busy, placeholder, home, atts, onFiles, onRemoveAtt, inputRef, extra, disabled = false }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const stop = stopControl(!!writing);
 
@@ -57,17 +59,17 @@ export function Composer({ value, onChange, onSubmit, onStop, writing, busy, pla
         </div>
       )}
       <form className={`${styles.form} ${home ? styles.home : ''}`} onSubmit={e => { e.preventDefault(); onSubmit(); }}>
-        <Button className={styles.attach} title="Bilder oder Dateien anhängen: CSV, Excel, PDF, Text (auch per Einfügen oder Drag & Drop)" aria-label="Bilder oder Dateien anhängen"
+        <Button className={styles.attach} disabled={disabled} title="Bilder oder Dateien anhängen: CSV, Excel, PDF, Text (auch per Einfügen oder Drag & Drop)" aria-label="Bilder oder Dateien anhängen"
           onClick={() => fileRef.current?.click()}>📎</Button>
         <input ref={fileRef} type="file" accept="image/*,.csv,.tsv,.txt,.md,.json,.xlsx,.xls,.pdf,.docx" multiple hidden
           onChange={e => { const f = [...(e.target.files ?? [])]; e.target.value = ''; if (f.length) onFiles(f); }} />
-        <textarea ref={inputRef} rows={1} value={value} placeholder={placeholder} aria-label="Nachricht an Lotse"
+        <textarea ref={inputRef} rows={1} value={value} placeholder={placeholder} aria-label="Nachricht an Lotse" disabled={disabled}
           onChange={e => onChange(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSubmit(); } }}
           onPaste={e => { const f = [...(e.clipboardData?.files ?? [])]; if (f.length) { e.preventDefault(); onFiles(f); } }} />
         {busy && onStop
           ? <Button className={styles.send} onClick={stop.stops ? onStop : undefined} disabled={!stop.stops} title={stop.title}>{stop.label}</Button>
-          : <Button type="submit" variant="primary" busy={busy} className={styles.send}>{busy ? 'Läuft …' : 'Senden'}</Button>}
+          : <Button type="submit" variant="primary" busy={busy} disabled={disabled} className={styles.send}>{busy ? 'Läuft …' : 'Senden'}</Button>}
         {extra && <div className={styles.extra}>{extra}</div>}
       </form>
     </>
