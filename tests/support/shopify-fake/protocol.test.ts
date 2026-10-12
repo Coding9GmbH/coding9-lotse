@@ -7,8 +7,8 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { data, gql } from '../../../test-support/shopify-fake/helpers.test-util';
-import { startFakeShopify, type FakeShopify } from '../../../test-support/shopify-fake/server';
+import { data, gql } from './helpers.test-util';
+import { startFakeShopify, type FakeShopify } from './server';
 
 let fake: FakeShopify;
 
@@ -298,8 +298,8 @@ describe('privacy', () => {
 });
 
 describe('CLI', () => {
-  it('starts via `npx tsx test-support/shopify-fake/server.ts --port`', async () => {
-    const serverPath = fileURLToPath(new URL('../../../test-support/shopify-fake/server.ts', import.meta.url));
+  it('starts via `npx tsx tests/support/shopify-fake/server.ts --port`', async () => {
+    const serverPath = fileURLToPath(new URL('./server.ts', import.meta.url));
     const child = spawn(process.execPath, ['--import', 'tsx', serverPath, '--port', '0', '--quiet'], { stdio: ['ignore', 'pipe', 'pipe'] });
     try {
       const url = await new Promise<string>((resolve, reject) => {

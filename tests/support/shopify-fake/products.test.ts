@@ -4,8 +4,8 @@
  */
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, describe, it } from 'node:test';
-import { data, gql } from '../../../test-support/shopify-fake/helpers.test-util';
-import { startFakeShopify, type FakeShopify } from '../../../test-support/shopify-fake/server';
+import { data, gql } from './helpers.test-util';
+import { startFakeShopify, type FakeShopify } from './server';
 
 let fake: FakeShopify;
 const VASE = 'gid://shopify/Product/9100000000001';
