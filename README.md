@@ -5,6 +5,18 @@ Einkaufswelten, Preise, Texte & SEO per Chat. Die KI liest nur, geschrieben wird
 
 <p align="center"><img src="docs/screenshots/app.png" alt="Lotse Oberfläche" width="820"></p>
 
+## Demo
+
+<p align="center"><a href="docs/media/lotse-demo.mp4"><img src="docs/media/lotse-demo-poster.jpg" alt="Lotse in 46 Sekunden: Preise per Chat ändern, Änderungsset prüfen, Landingpage als Entwurf" width="820"></a><br><sub>46 Sekunden: Preise per Chat, Vergleich prüfen, Seite als Entwurf – Klick öffnet das Video</sub></p>
+
+## Screenshots
+
+| Arbeitsfläche mit Shop-Check | Kontext wählen | Seite als Entwurf mit Live-Vorschau |
+|---|---|---|
+| <img src="docs/screenshots/app.png" alt="Arbeitsfläche" width="300"> | <img src="docs/screenshots/app-context.png" alt="Kontext-Auswahl" width="300"> | <img src="docs/screenshots/entwurf-vorschau.png" alt="Entwurf mit Live-Vorschau" width="300"> |
+
+<sub>Demo-Shop mit fiktiver Marke, Fotos von Unsplash.</sub>
+
 ## Schnellstart (Docker)
 
 ```bash
