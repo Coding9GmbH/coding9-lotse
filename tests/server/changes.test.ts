@@ -286,6 +286,29 @@ test('Neue Produkte: Änderungsset mit Payload, Standard inaktiv, Preis Pflicht'
   assert.match(cs.skipped[0].reason, /Preis/);
 });
 
+test('Neues Produkt: Zeitlimit nach dem Anlegen lässt einen Löschschritt zurück, ein zweiter Lauf legt nicht noch eins an', async () => {
+  const { applyChangeSet } = await import('../../src/server/changes');
+  const f = fakeShopware({ 'sales-channel': [] });
+  const orig = f.sw.create.bind(f.sw);
+  let n = 0;
+  f.sw.create = (async (entity: string, data: Record<string, unknown>) => {
+    const out = await orig(entity, data);
+    if (entity === 'product' && n++ === 0) throw new Error('Zeitlimit');
+    return out;
+  }) as Shopware['create'];
+  const plan = { name: 'Vase', description: '<p>x</p>', price: 10, productNumber: 'VASE-1', taxId: 't', taxRate: 19, images: [] as string[], categoryIds: [] as string[], stock: 0, active: false };
+  const cs = { id: 'cs', kind: 'new-products', entity: 'product', title: 't', reason: null, atomic: false, skipped: [], items: [{ id: 'neu-1', entity: 'product', label: 'Vase', field: 'create', fieldLabel: 'Neues Produkt', before: '–', after: 'x', afterRaw: plan, warn: [] }] };
+  const r = await applyChangeSet(f.sw, cs as never, undefined, new Set(['neu-1']));
+  assert.equal(r.results[0].ok, false, JSON.stringify(r.results));
+  assert.match(r.results[0].error ?? '', /Zeitlimit/);
+  assert.equal(r.undo[0]?.op, 'delete');
+  assert.equal(r.undo[0]?.entity, 'product');
+  const r2 = await applyChangeSet(f.sw, cs as never, undefined, new Set(['neu-1']));
+  assert.equal(r2.results[0].ok, false, JSON.stringify(r2.results));
+  assert.match(r2.results[0].error ?? '', /schon vergeben/);
+  assert.equal(f.db.product.length, 1, 'kein zweites Produkt');
+});
+
 test('Produktänderung: Preisregel auf Variante mit geerbtem Preis (Basis = Hauptprodukt), null = wieder erben', async () => {
   const { buildProductChangeSet } = await import('../../src/server/changes');
   const parent = { id: 'p', productNumber: 'P', name: 'Plaid', price: [{ currencyId: 'eur', gross: 89, listPrice: { gross: 99 } }], tax: { taxRate: 19 } };
