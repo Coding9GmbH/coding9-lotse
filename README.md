@@ -77,12 +77,12 @@ Alle Variablen mit Erklärung in [`.env.example`](.env.example). In der Oberflä
 
 ## Releases & Image
 
-Images werden nur von Hand gebaut: GitHub → Actions → *Docker-Image* → *Run workflow* (`.github/workflows/docker.yml`). Push und Pull Request führen nur Typecheck, Lint, Tests, Build und Smoke-Test aus, veröffentlichen aber kein Image.
+Ein Tag `vX.Y.Z` veröffentlicht das Image automatisch (`.github/workflows/docker.yml`); außerdem lässt es sich von Hand starten: GitHub → Actions → *Docker-Image* → *Run workflow*. Push auf `main` und Pull Requests führen nur Typecheck, Lint, Tests, Build und Smoke-Test aus, veröffentlichen aber kein Image.
 
-- Lauf von einem Tag `vX.Y.Z`: veröffentlicht `ghcr.io/coding9gmbh/lotse` als `X.Y.Z`, `X.Y` und `latest`.
-- Lauf von `main`: veröffentlicht `edge` und ein Tag mit dem Kurz-Hash des Commits.
+- Tag `vX.Y.Z` (oder manueller Lauf von diesem Tag): veröffentlicht `ghcr.io/coding9gmbh/lotse` als `X.Y.Z`, `X.Y` und `latest`.
+- Manueller Lauf von `main`: veröffentlicht `edge` und ein Tag mit dem Kurz-Hash des Commits.
 
-Gebaut wird für amd64 und arm64, mit SBOM und Provenance. `latest` gibt es deshalb erst nach einem manuell ausgelösten Release-Lauf; vorher bleibt nur der Bau aus dem Quellcode (siehe unten).
+Gebaut wird für amd64 und arm64, mit SBOM und Provenance. `latest` gibt es erst nach dem ersten Release-Tag; vorher bleibt nur der Bau aus dem Quellcode (siehe unten). Neue GHCR-Pakete sind zunächst privat und müssen einmalig in den Paket-Einstellungen auf *Public* gestellt werden.
 
 ## Konzept: AI-first Verwaltung
 Chat statt Formulare. Du schreibst, was passieren soll („Ändere das Layout von Produkt XY“, „Senke alle Preise um 20 %“, „FAQ bei allen Produkten“). Der Agent **versteht → fragt gezielt zurück** (klickbare Antworten) **→ recherchiert (nur lesen) → zeigt Vorschau bzw. Alt→Neu-Vergleich → du gibst frei → der Server schreibt** (Audit-Log, Rückgängig).
