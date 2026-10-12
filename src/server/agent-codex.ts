@@ -20,16 +20,54 @@ const internalUrl = () => (process.env.LOTSE_INTERNAL_URL || `http://127.0.0.1:$
 function client(chatId: string, platform?: PlatformKind) {
   const cfg = codexConfig({ mcpUrl: `${internalUrl()}/api/mcp/${encodeURIComponent(chatId)}`, instructions: buildSystem(platform) + CODEX_NOTE });
   const codex = new Codex({ env: codexEnv({ LOTSE_MCP_TOKEN: mcpTokenFor(chatId) }), config: cfg.config, configOverrides: cfg.configOverrides });
-  const model = getSettings().ai.codexModel;
-  const opts: ThreadOptions = {
-    workingDirectory: cfg.workingDirectory, skipGitRepoCheck: true, sandboxMode: 'read-only', approvalPolicy: 'never',
+  const opts = codexThreadOptions(cfg.workingDirectory, getSettings().ai.codexModel);
+  return { codex, opts };
+}
+
+/** Thread-Optionen jedes Laufs. Sandbox nur lesend, kein Netz, keine Websuche, keine Freigabe-Rückfrage. */
+export function codexThreadOptions(workingDirectory: string, model?: string): ThreadOptions {
+  return {
+    workingDirectory, skipGitRepoCheck: true, sandboxMode: 'read-only', approvalPolicy: 'never',
     networkAccessEnabled: false, webSearchMode: 'disabled', ...(model ? { model } : {}),
   };
-  return { codex, opts };
 }
 
 const resultText = (item: Extract<ThreadItem, { type: 'mcp_tool_call' }>) =>
   item.error?.message ?? (item.result?.content ?? []).map(c => ('text' in c ? c.text : '')).join('');
+
+const CODEX_ABORT = 'Codex wollte ein gesperrtes Werkzeug verwenden (Befehl/Datei/Websuche). Die Runde wurde abgebrochen.';
+
+/** Ein Ereignis der Codex-Runde. Befehl, Dateiänderung und Websuche beenden die Runde. Neue SDK-Typen müssen hier eingeordnet werden. */
+export function onCodexItem(
+  item: ThreadItem,
+  evType: 'item.started' | 'item.updated' | 'item.completed',
+  state: { texts: Map<string, number>; tools: Set<string> },
+  emit: (ev: ChatEvent) => void,
+): { abort?: string } {
+  switch (item.type) {
+    case 'agent_message': {
+      const sent = state.texts.get(item.id);
+      if (sent === undefined) emit({ t: 'text_start' });
+      const delta = item.text.slice(sent ?? 0);
+      if (delta) emit({ t: 'text', text: delta });
+      state.texts.set(item.id, item.text.length);
+      return {};
+    }
+    case 'mcp_tool_call': {
+      if (!state.tools.has(item.id)) { state.tools.add(item.id); emit({ t: 'tool', id: item.id, name: item.tool, input: item.arguments }); }
+      if (evType === 'item.completed') emit({ t: 'tool_result', id: item.id, error: item.status === 'failed' || !!item.error, preview: redact(resultText(item)).slice(0, 300) });
+      return {};
+    }
+    case 'command_execution': case 'file_change': case 'web_search':
+      return { abort: CODEX_ABORT };
+    case 'reasoning': case 'todo_list': case 'error':
+      return {};
+    default: {
+      const uncovered: never = item;
+      return uncovered;
+    }
+  }
+}
 
 /** Eine Chat-Runde mit Codex. Abbruch über `signal` (Client weg). */
 export async function runCodex(s: Session, prompt: string, signal: AbortSignal, emit: (ev: ChatEvent) => void): Promise<RunEnd> {
@@ -49,27 +87,8 @@ export async function runCodex(s: Session, prompt: string, signal: AbortSignal, 
       if (ev.type === 'error') { failed = ev.message; continue; }
       if (ev.type === 'turn.completed') continue;
       if (ev.type !== 'item.started' && ev.type !== 'item.updated' && ev.type !== 'item.completed') continue;
-      const item = ev.item;
-      switch (item.type) {
-        case 'agent_message': {
-          const sent = texts.get(item.id);
-          if (sent === undefined) emit({ t: 'text_start' });
-          const delta = item.text.slice(sent ?? 0);
-          if (delta) emit({ t: 'text', text: delta });
-          texts.set(item.id, item.text.length);
-          break;
-        }
-        case 'mcp_tool_call':
-          if (!tools.has(item.id)) { tools.add(item.id); emit({ t: 'tool', id: item.id, name: item.tool, input: item.arguments }); }
-          if (ev.type === 'item.completed') emit({ t: 'tool_result', id: item.id, error: item.status === 'failed' || !!item.error, preview: redact(resultText(item)).slice(0, 300) });
-          break;
-        case 'command_execution': case 'file_change': case 'web_search':
-          // Eigene Codex-Werkzeuge sind abgeschaltet – taucht doch eines auf, Runde sofort beenden
-          failed = 'Codex wollte ein gesperrtes Werkzeug verwenden (Befehl/Datei/Websuche). Die Runde wurde abgebrochen.';
-          ac.abort();
-          break;
-        default: break;
-      }
+      const stop = onCodexItem(ev.item, ev.type, { texts, tools }, emit);
+      if (stop.abort) { failed = stop.abort; ac.abort(); }
     }
     persist(s);
     return { error: failed };
