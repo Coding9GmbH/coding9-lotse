@@ -8,7 +8,7 @@
     "build": "next build",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "tsx --conditions=react-server --test 'src/**/*.test.ts' 'test-support/**/*.test.ts'",
+    "test": "tsx --conditions=react-server --test 'tests/**/*.test.ts'",
     "test:shopify-fake": "tsx --test 'test-support/shopify-fake/*.test.ts'",
     "shopify-fake": "tsx test-support/shopify-fake/server.ts --port 3601",
     "check": "npm run typecheck && npm run lint && npm run test"
