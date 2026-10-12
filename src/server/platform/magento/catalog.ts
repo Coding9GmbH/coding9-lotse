@@ -176,16 +176,27 @@ async function applyProduct(c: MagentoClient, store: string, sku: string, its: C
   }
   const pi = its.find(i => i.field === 'price'), pw = pi ? (pi.afterRaw as { write: PriceWrite; expect: PriceWrite }) : null;
   if (pw) { await assertPriceUnchanged(c, sku, store, pw.expect); Object.assign(global, pw.write); }
-  if (Object.keys(scoped).length || Object.keys(global).length) undo.push(...await writeScoped(c, 'product', sku, store, scoped, global));
-  if (pw) await assertPriceInView(c, sku, store, pw.write, undo);
+  try {
+    if (Object.keys(scoped).length || Object.keys(global).length) undo.push(...await writeScoped(c, 'product', sku, store, scoped, global));
+    if (pw) await assertPriceInView(c, sku, store, pw.write, undo);
+  } catch (e) {
+    const prev = (e as { undo?: UndoOp[] }).undo;
+    throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: !prev?.length || prev === undo ? undo : [...undo, ...prev] });
+  }
   const si = its.find(i => i.field === 'stock');
   if (si) {
-    const { source, quantity } = si.afterRaw as { source: string; quantity: number };
-    const r = await c.search('/V1/inventory/source-items', { filters: [[{ field: 'sku', value: sku }], [{ field: 'source_code', value: source }]], pageSize: 1 }, { store: 'all' });
-    const cur = r.items[0];
-    await c.req('POST', '/V1/inventory/source-items', { sourceItems: [{ sku, source_code: source, quantity, status: quantity > 0 ? 1 : cur?.status ?? 0 }] }, { store: 'all' });
-    undo.push(cur ? reqOp('source-item', sku, 'POST', '/all/V1/inventory/source-items', { sourceItems: [{ sku, source_code: source, quantity: cur.quantity, status: cur.status }] })
-      : reqOp('source-item', sku, 'POST', '/all/V1/inventory/source-items-delete', { sourceItems: [{ sku, source_code: source }] }));
+    try {
+      const { source, quantity } = si.afterRaw as { source: string; quantity: number };
+      const r = await c.search('/V1/inventory/source-items', { filters: [[{ field: 'sku', value: sku }], [{ field: 'source_code', value: source }]], pageSize: 1 }, { store: 'all' });
+      const cur = r.items[0];
+      await c.req('POST', '/V1/inventory/source-items', { sourceItems: [{ sku, source_code: source, quantity, status: quantity > 0 ? 1 : cur?.status ?? 0 }] }, { store: 'all' });
+      undo.push(cur ? reqOp('source-item', sku, 'POST', '/all/V1/inventory/source-items', { sourceItems: [{ sku, source_code: source, quantity: cur.quantity, status: cur.status }] })
+        : reqOp('source-item', sku, 'POST', '/all/V1/inventory/source-items-delete', { sourceItems: [{ sku, source_code: source }] }));
+    } catch (e) {
+      const prev = (e as { undo?: UndoOp[] }).undo;
+      const okIds = its.filter(i => i.field !== 'stock').map(i => i.id);
+      throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: !prev?.length || prev === undo ? undo : [...undo, ...prev], okIds });
+    }
   }
   return undo;
 }
@@ -198,7 +209,11 @@ async function applyGrouped(cs: ChangeSet, selected: Set<string>, fn: (id: strin
   const results: ApplyResult['results'] = [], undo: UndoOp[] = [], tick = partialTicker(ctx, n, { results, undo });
   await pool([...groups], WRITE_CONCURRENCY, async ([id, its]) => {
     try { undo.push(...await fn(id, its)); its.forEach(i => results.push({ itemId: i.id, ok: true })); }
-    catch (e) { undo.push(...((e as { undo?: UndoOp[] }).undo ?? [])); its.forEach(i => results.push({ itemId: i.id, ok: false, error: errMsg(e) })); } // teilweise geschrieben: Rückgängig-Schritte behalten
+    catch (e) {
+      const extra = (e as { undo?: UndoOp[] }).undo ?? [], okIds = (e as { okIds?: string[] }).okIds, msg = errMsg(e);
+      undo.push(...extra); // teilweise geschrieben: Rückgängig-Schritte behalten; okIds = Zeilen, die schon stehen
+      its.forEach(i => { const ok = !!okIds?.includes(i.id); results.push({ itemId: i.id, ok, ...(ok ? {} : { error: msg }) }); });
+    }
     finally { tick(); }
   });
   return { results, undo };

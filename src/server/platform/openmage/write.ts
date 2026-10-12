@@ -16,6 +16,12 @@ export const entPath = (e: Ent, ref: string) => (e === 'product' ? `/v1/products
 /** Pfad mit Store-Query für gespeicherte Rückgängig-Schritte ('admin' = global, ohne Query) */
 export const storePath = (path: string, store: string) => (isGlobal(store) ? path : `${path}${path.includes('?') ? '&' : '?'}store=${encodeURIComponent(store)}`);
 export const reqOp = (entity: string, id: string, method: string, path: string, body?: unknown): UndoOp => ({ op: 'req', entity, id, method, path, ...(body !== undefined ? { body } : {}) });
+/** Fehler weiterreichen und schon erfolgreiche Schritte dranhängen (ein späterer PATCH darf sie nicht verschlucken). */
+const failWithUndo = (e: unknown, undo: UndoOp[]): never => {
+  const prev = (e as { undo?: UndoOp[] }).undo;
+  const merged = !prev?.length || prev === undo ? undo : [...undo, ...prev];
+  throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: merged });
+};
 
 export const getEnt = (c: OmClient, e: Ent, ref: string, store: string): Promise<OmRecord | null> => c.req('GET', entPath(e, ref), undefined, { store, nullOn404: true });
 export const getProduct = (c: OmClient, sku: string, store = 'admin'): Promise<OmProduct | null> => getEnt(c, 'product', sku, store) as Promise<OmProduct | null>;
@@ -41,7 +47,8 @@ export async function writeScoped(c: OmClient, e: Ent, ref: string, store: strin
   const main = await c.mainStore();
   if (!isGlobal(store) && Object.keys(scoped).length && store !== main) {
     const undo = Object.keys(global).length ? await writeScoped(c, e, ref, 'admin', {}, global) : [];
-    return [...undo, ...await writeStore(c, e, ref, store, scoped)];
+    try { return [...undo, ...await writeStore(c, e, ref, store, scoped)]; }
+    catch (e2) { return failWithUndo(e2, undo); }
   }
   const [cur, glob] = await Promise.all([isGlobal(store) ? null : getEnt(c, e, ref, store), getEnt(c, e, ref, 'admin')]);
   if (!glob || (!isGlobal(store) && !cur)) throw new OmError(`${e === 'product' ? 'Produkt' : 'Kategorie'} ${ref} nicht mehr vorhanden`, 404);
@@ -52,16 +59,18 @@ export async function writeScoped(c: OmClient, e: Ent, ref: string, store: strin
     else { allW[k] = v; allU[k] = omAttr(glob, k) ?? null; }
   }
   const undo: UndoOp[] = [];
-  if (Object.keys(allW).length) { const r = await patchAttrs(c, e, ref, 'admin', allW); undo.push(undoPatch(e, ref, 'admin', allU), ...rewriteUndo(r)); }
-  if (Object.keys(stW).length) { const r = await patchAttrs(c, e, ref, store, stW); undo.push(undoPatch(e, ref, store, stU), ...rewriteUndo(r)); }
-  // Global geschrieben, aber in der Store-View durch einen eigenen Wert verdeckt (z. B. alter Sonderpreis)? Dann auch dort setzen
-  const check = Object.keys(allW);
-  if (cur && check.length) {
-    const after = await getEnt(c, e, ref, store), fix: Record<string, unknown> = {}, fixU: Record<string, unknown> = {};
-    for (const k of check) if (after && !same(omAttr(after, k), allW[k])) { fix[k] = allW[k]; fixU[k] = hasOverride(after, k) ? omAttr(after, k) ?? null : null; }
-    if (Object.keys(fix).length) { const r = await patchAttrs(c, e, ref, store, fix); undo.push(undoPatch(e, ref, store, fixU), ...rewriteUndo(r)); }
-  }
-  return undo;
+  try {
+    if (Object.keys(allW).length) { const r = await patchAttrs(c, e, ref, 'admin', allW); undo.push(undoPatch(e, ref, 'admin', allU), ...rewriteUndo(r)); }
+    if (Object.keys(stW).length) { const r = await patchAttrs(c, e, ref, store, stW); undo.push(undoPatch(e, ref, store, stU), ...rewriteUndo(r)); }
+    // Global geschrieben, aber in der Store-View durch einen eigenen Wert verdeckt (z. B. alter Sonderpreis)? Dann auch dort setzen
+    const check = Object.keys(allW);
+    if (cur && check.length) {
+      const after = await getEnt(c, e, ref, store), fix: Record<string, unknown> = {}, fixU: Record<string, unknown> = {};
+      for (const k of check) if (after && !same(omAttr(after, k), allW[k])) { fix[k] = allW[k]; fixU[k] = hasOverride(after, k) ? omAttr(after, k) ?? null : null; }
+      if (Object.keys(fix).length) { const r = await patchAttrs(c, e, ref, store, fix); undo.push(undoPatch(e, ref, store, fixU), ...rewriteUndo(r)); }
+    }
+    return undo;
+  } catch (e2) { return failWithUndo(e2, undo); }
 }
 
 /** Werte gezielt in einer Store-View schreiben (Übersetzungen). Rückgängig: vorheriger eigener Wert bzw. null (= wieder „Standardwert verwenden“) */

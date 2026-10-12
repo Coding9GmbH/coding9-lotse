@@ -283,3 +283,14 @@ export const isStillRunning = (snap: { running: boolean; chat: Pick<ChatDetail, 
 /** Offene Rückfrage, auf die das Eingabefeld antwortet. */
 export const pendingQuestion = (s: ChatState) =>
   [...s.items].reverse().find((i): i is Extract<LogItem, { kind: 'question' }> => i.kind === 'question' && i.interactive) ?? null;
+
+/** Freigabe ist raus, das Ergebnis fehlt noch: der Shop-Schreibvorgang läuft und hängt nicht am Stoppen. */
+export const writeInFlight = (s: ChatState): boolean =>
+  s.items.some(i => i.kind === 'changeset' && !!i.sent?.allow && !i.result);
+
+/** Stoppen vor der Freigabe lehnt ab und schreibt nichts. Während des Schreibens bleibt der Knopf stehen, bricht aber nichts ab. */
+export function stopControl(writing: boolean): { label: string; title: string; stops: boolean } {
+  return writing
+    ? { label: 'Schreiben läuft', title: 'Der Shop wird gerade geschrieben. Das läuft weiter und lässt sich nicht abbrechen.', stops: false }
+    : { label: 'Stoppen', title: 'Laufende Anfrage abbrechen. Es wird nichts geschrieben.', stops: true };
+}

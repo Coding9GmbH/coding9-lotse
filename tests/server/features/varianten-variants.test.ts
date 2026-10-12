@@ -181,6 +181,19 @@ test('applyVariants: Fehler beim Anlegen einer Eigenschaft lässt alle neuen Var
   assert.deepEqual(res.undo.map(u => u.op), ['patch'], 'nichts Halbes angelegt');
 });
 
+test('applyVariants: Preisänderung behält den Grundpreis, eine neue Variante erfindet keinen', async () => {
+  const reg = { currencyId: 'eur', gross: 80, net: 67.2269, linked: false, apiAlias: 'price' };
+  const b = child(hex(101), 2, [GROUPS[0].options[1], GROUPS[1].options[0]], { price: [{ currencyId: 'eur', gross: 95, net: 79.83, linked: true, regulationPrice: reg }] });
+  const { cs, payload } = await buildVariantsChangeSet(fakeReader([b]), { title: 't', reason: 'r', productId: PARENT, update: [{ id: b.id, price: 90 }], create: { axes: [{ group: 'Farbe', options: ['Rost'] }], defaults: { stock: 1, price: 70 } } });
+  const shop = fakeShop([parent, b], [[SAND, 'cs1'], [SALBEI, 'cs2'], [S, 'cs3']].map(([optionId, id], i) => ({ id, productId: PARENT, optionId, position: i + 1 })));
+  const res = await applyVariants(shop.sw, cs, payload, new Set(cs.items.map(i => i.id)));
+  assert.ok(res.results.every(r => r.ok), JSON.stringify(res.results));
+  assert.deepEqual(shop.db.product.get(b.id)!.price[0].regulationPrice, { currencyId: 'eur', gross: 80, net: 67.2269, linked: false });
+  assert.equal(shop.db.product.get(b.id)!.price[0].gross, 90);
+  const created = shop.db.product.get((cs.items.find(i => i.field === 'create')!.afterRaw as NewVariant).id)!;
+  assert.equal(created.price[0].regulationPrice, undefined);
+});
+
 test('Streichpreis einer erbenden Variante: Hinweis, dass der Preis fixiert wird', async () => {
   const a = child(hex(100), 1, [GROUPS[1].options[0]]);
   const { cs } = await buildVariantsChangeSet(fakeReader([a]), { title: 't', reason: 'r', productId: PARENT, update: [{ id: a.id, listPrice: 99 }] });

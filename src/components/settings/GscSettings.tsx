@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
+import { connectionTestBlock } from '@/lib/settings-form';
 import type { GscPublic, GscTestResult } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
 import styles from './Settings.module.css';
@@ -38,7 +39,7 @@ export function GscSettings() {
     finally { setBusy(null); }
   };
   const runTest = async () => {
-    if (dirty && !(await save())) return;
+    if (connectionTestBlock(dirty)) return;
     setBusy('test'); setNotice(null); setTest(null);
     try { setTest(await api.testGsc()); } catch (e) { setTest({ ok: false, message: errorText(e), sites: [] }); }
     finally { setBusy(null); }
@@ -57,7 +58,7 @@ export function GscSettings() {
       <ol className={styles.steps}>
         <li>In der <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">Google Cloud Console</a> die <b>Google Search Console API</b> aktivieren und ein <b>Service-Konto</b> mit JSON-Schlüssel anlegen.</li>
         <li>In der Search Console unter <b>Einstellungen → Nutzer und Berechtigungen</b> die E-Mail des Service-Kontos als Nutzer hinzufügen. Die Berechtigung „Eingeschränkt“ genügt.</li>
-        <li>Schlüssel hier einfügen, Property eintragen und die Verbindung testen.</li>
+        <li>Schlüssel hier einfügen, Property eintragen, speichern und dann die Verbindung testen.</li>
       </ol>
 
       {showKey ? (
@@ -102,7 +103,7 @@ export function GscSettings() {
 
       <div className={styles.testRow}>
         <Button variant="primary" onClick={() => void save()} busy={busy === 'save'} disabled={!dirty || !!busy}>Speichern</Button>
-        <Button onClick={() => void runTest()} busy={busy === 'test'} disabled={!!busy || (!pub.hasKey && !key.trim())}>{busy === 'test' ? 'Teste …' : 'Verbindung testen'}</Button>
+        <Button onClick={() => void runTest()} busy={busy === 'test'} disabled={!!busy || !!connectionTestBlock(dirty) || (!pub.hasKey && !key.trim())} title={connectionTestBlock(dirty) ?? undefined}>{busy === 'test' ? 'Teste …' : 'Verbindung testen'}</Button>
         {notice && <span className={notice.ok ? styles.ok : styles.bad} role="status">{notice.text}</span>}
         {test && <span className={test.ok ? styles.ok : styles.bad} role="status">{test.ok ? '✓' : '✗'} {test.message}</span>}
       </div>

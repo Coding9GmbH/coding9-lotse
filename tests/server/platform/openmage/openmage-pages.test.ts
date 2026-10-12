@@ -190,6 +190,39 @@ test('read_page: nur eigener Shop, Ziel wird erkannt', async () => {
   assert.equal(r.target?.type, 'PRODUCT'); assert.equal(r.hint, 'Daten: get_product');
 });
 
+test('read_page: öffentlicher Pfad-Prefix wird intern geholt, angehängte Hosts und Weiterleitungen nicht', async () => {
+  const { OmClient } = await import('../../../../src/server/platform/openmage/client');
+  const { OmReader } = await import('../../../../src/server/platform/openmage/reader');
+  const { openmageTools } = await import('../../../../src/server/platform/openmage/tools');
+  const c = new OmClient({ url: fake.base, publicUrl: `${fake.base}/de`, token: fake.token });
+  const fetched: string[] = [];
+  const session = {
+    reader: new OmReader(c),
+    storefrontFetch: async (url: string, init?: RequestInit) => {
+      fetched.push(url);
+      assert.equal(init?.redirect, 'manual');
+      if (url.endsWith('/hop')) return new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data' } });
+      return c.storefrontFetch(url, init);
+    },
+  };
+  const page = openmageTools(session as never).find(t => t.name === 'read_page')!;
+  const run = async (url: string) => page.handler({ url }, {} as never) as Promise<{ isError?: boolean; content: { text: string }[] }>;
+  const text = (r: { content: { text: string }[] }) => r.content.map(x => x.text).join('\n');
+  const ok = await run(`${fake.base}/de/produkt`);
+  assert.equal(ok.isError, undefined, text(ok));
+  assert.equal(fetched[0], `${fake.base}/produkt`);
+  const attack = `${fake.base}/de@169.254.169.254/latest/meta-data`;
+  fetched.length = 0;
+  await run(attack);
+  assert.equal(fetched[0], attack);
+  assert.equal(new URL(fetched[0]).hostname, '127.0.0.1');
+  fetched.length = 0;
+  const hop = await run(`${fake.base}/de/hop`);
+  assert.equal(hop.isError, true);
+  assert.match(text(hop), /169\.254\.169\.254|eigenen Shops/);
+  assert.ok(!fetched.some(u => new URL(u).hostname === '169.254.169.254'));
+});
+
 test('Shop-Check: OpenMage-Prüfungen mit Befunden und gemeinsamen Werkzeugnamen im Auftrag', async () => {
   await openmage.loadChecks();
   const checks = listChecks('openmage').filter(c => c.id.startsWith('openmage.'));

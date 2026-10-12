@@ -3,7 +3,7 @@
 import { useId, useMemo, useState } from 'react';
 import type { ChangesetResultEvent, UndoPhase } from '@/lib/chat-state';
 import type { ChangeItem, ChangeSet } from '@/lib/protocol';
-import { plural } from '@/lib/format';
+import { plural, sampleSummary } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import styles from './ChangeSetCard.module.css';
 
@@ -140,7 +140,7 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
 
       {!!cs.sample?.length && (
         <details className={styles.sample} open={!result}>
-          <summary>Stichprobe: {fmt(cs.sample.length)} von {fmt(cs.total ?? cs.sample.length)} vorher → nachher</summary>
+          <summary>{sampleSummary(cs.sample.length, cs.total ?? cs.sample.length)}</summary>
           <div className={styles.rows}>
             {cs.sample.map(i => {
               const r = resultFor(i.id);

@@ -69,6 +69,10 @@ export function buildPatch(f: SettingsForm): SettingsPatch {
 export const isDirty = (f: SettingsForm, saved: PublicSettings): boolean =>
   JSON.stringify(buildPatch(f)) !== JSON.stringify(buildPatch(formFromSettings(saved)));
 
+/** null = Test erlaubt. Sonst der Hinweis: ungespeicherte Eingaben, auch ein Plattformwechsel, werden nicht mitgeschrieben. */
+export const connectionTestBlock = (dirty: boolean): string | null =>
+  (dirty ? 'Zuerst speichern. Getestet wird nur, was gespeichert ist.' : null);
+
 export const AI_MODELS: { value: string; label: string }[] = [
   { value: '', label: 'Standard (empfohlen)' },
   { value: 'sonnet', label: 'Sonnet: schnell und günstig' },

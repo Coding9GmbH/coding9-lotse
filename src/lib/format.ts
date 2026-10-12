@@ -33,6 +33,12 @@ export function swatches(colors: Record<string, string | undefined> | undefined,
 
 export const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
 
+/** Stapel-Karte: die sichtbaren Zeilen sind eine Stichprobe, die Freigabe gilt für die angehakten Gruppen. */
+export const sampleSummary = (shown: number, total: number): string => {
+  const fmt = (n: number) => n.toLocaleString('de-DE');
+  return `Stichprobe: ${fmt(shown)} von ${fmt(total)}. Die Freigabe gilt für die angehakten Gruppen, nicht für jede einzelne Zeile.`;
+};
+
 /** Verlauf nach Tagen gruppieren: Heute · Gestern · Letzte 7 Tage · Älter (leere Gruppen entfallen, Reihenfolge bleibt). */
 export function groupByDay<T extends { updatedAt: string }>(items: T[], now: Date = new Date()): { label: string; items: T[] }[] {
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), day = 86_400_000;

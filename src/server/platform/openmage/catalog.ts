@@ -175,9 +175,21 @@ async function applyProduct(c: OmClient, store: string, sku: string, its: Change
     await assertPriceUnchanged(c, sku, store, expect);
     Object.assign(global, write);
   }
-  if (Object.keys(scoped).length || Object.keys(global).length) undo.push(...await writeScoped(c, 'product', sku, store, scoped, global));
+  try {
+    if (Object.keys(scoped).length || Object.keys(global).length) undo.push(...await writeScoped(c, 'product', sku, store, scoped, global));
+  } catch (e) {
+    const prev = (e as { undo?: UndoOp[] }).undo;
+    throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: !prev?.length || prev === undo ? undo : [...undo, ...prev] });
+  }
   const si = its.find(i => i.field === 'stock');
-  if (si) undo.push(await writeStock(c, sku, (si.afterRaw as { quantity: number }).quantity));
+  if (si) {
+    try { undo.push(await writeStock(c, sku, (si.afterRaw as { quantity: number }).quantity)); }
+    catch (e) {
+      const prev = (e as { undo?: UndoOp[] }).undo;
+      const okIds = its.filter(i => i.field !== 'stock').map(i => i.id);
+      throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: !prev?.length || prev === undo ? undo : [...undo, ...prev], okIds });
+    }
+  }
   return undo;
 }
 
@@ -189,7 +201,11 @@ export async function applyGrouped(cs: ChangeSet, selected: Set<string>, fn: (id
   const results: ApplyResult['results'] = [], undo: UndoOp[] = [], tick = partialTicker(ctx, n, { results, undo });
   await pool([...groups], WRITE_CONCURRENCY, async ([id, its]) => {
     try { undo.push(...await fn(id, its)); its.forEach(i => results.push({ itemId: i.id, ok: true })); }
-    catch (e) { its.forEach(i => results.push({ itemId: i.id, ok: false, error: errMsg(e) })); }
+    catch (e) {
+      const extra = (e as { undo?: UndoOp[] }).undo ?? [], okIds = (e as { okIds?: string[] }).okIds, msg = errMsg(e);
+      undo.push(...extra);
+      its.forEach(i => { const ok = !!okIds?.includes(i.id); results.push({ itemId: i.id, ok, ...(ok ? {} : { error: msg }) }); });
+    }
     finally { tick(); }
   });
   return { results, undo };

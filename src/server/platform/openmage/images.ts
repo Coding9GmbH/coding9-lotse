@@ -4,6 +4,7 @@ import 'server-only';
 // „Entfernen“ blendet ein Bild aus (disabled); Rückgängig blendet es wieder ein. Neue Bilder löscht Rückgängig (?mode=delete).
 import type { ChangeAsset, ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { downloadImage, readStaged, stagedMeta } from '../../media';
+import { fetchShopPage } from '../../storefront';
 import { applyEach, errMsg, MAX_ITEMS, newIdSafe, partialTicker, pool, WRITE_CONCURRENCY, type ApplyResult } from './kit';
 import { isGlobal, skuPath, type OmClient } from './client';
 import { basisWord, COVER_TYPES, coverImage, fileName, mediaId, money, omAttr, parseMediaId, plain, productLabel, same, stripTitleAffixes, urlKey, type OmImage, type OmProduct } from './map';
@@ -24,7 +25,8 @@ export async function imageContent(c: OmClient, ref: string, name: string): Prom
     const p = await c.req('GET', `/v1/products/id:${productId}`, undefined, { nullOn404: true }) as OmProduct | null;
     const e = p?.images?.find(x => x.id === imageId);
     if (!e?.url) throw new Error(`Medium ${ref} nicht gefunden`);
-    const res = await c.storefrontFetch(e.url.startsWith(c.publicUrl) && c.base !== c.publicUrl ? c.base + e.url.slice(c.publicUrl.length) : e.url);
+    const allowed = [c.publicUrl, c.base, e.url].filter(Boolean);
+    const res = await fetchShopPage(e.url, allowed, { publicUrl: c.publicUrl, internalBase: c.base, fetchImpl: (href, init) => c.storefrontFetch(href, init) });
     if (!res.ok) throw new Error(`Medium ${ref} nicht ladbar (HTTP ${res.status})`);
     buf = Buffer.from(await res.arrayBuffer()); mime = (res.headers.get('content-type') ?? '').split(';')[0] || 'image/jpeg';
     base = fileName(e).replace(/\.[a-z0-9]+$/i, '');

@@ -69,6 +69,20 @@ test('Storefront-Proxy: Assets mit CORS-Freigabe (Schriften im sandboxed Entwurf
   assert.equal(html.headers.get('content-security-policy'), "script-src 'none'");
 });
 
+test('Storefront-Proxy: fremde Weiterleitung wird nicht durchgereicht', async () => {
+  for (const location of ['https://evil.example/phish', 'https://shop.de.evil.example/x', 'https://user:pass@shop.de/x', '//evil.example/phish']) {
+    reply = () => new Response(null, { status: 302, headers: { location } });
+    const r = await GET(req('/shop/alt'));
+    assert.equal(r.status, 502, location);
+    assert.equal(r.headers.get('location'), null, location);
+    assert.match(await r.text(), /außerhalb/);
+  }
+  reply = () => new Response(null, { status: 302, headers: { location: `${BASE}/ok/` } });
+  const ok = await GET(req('/shop/alt'));
+  assert.equal(ok.status, 302);
+  assert.equal(ok.headers.get('location'), '/shop/ok/');
+});
+
 test('Storefront-Proxy: ohne /shop nur Präfixe der aktiven Plattform; Shop nicht erreichbar → 502', async () => {
   reply = () => new Response('<p>ok</p>', { headers: { 'content-type': 'text/html' } });
   const n = calls.length;

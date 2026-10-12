@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
-import { RULE_MAX, RULE_SCOPES, type KnowledgeDoc, type KnowledgeLink, type KnowledgeRule, type RuleScope } from '@/lib/knowledge';
+import { KNOWLEDGE_LEAD, RULE_MAX, RULE_SCOPES, type KnowledgeDoc, type KnowledgeLink, type KnowledgeRule, type RuleScope } from '@/lib/knowledge';
 import type { ProductRow } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
 import { IconClose, IconEdit, IconSearch, IconTrash, IconUpload } from '@/components/ui/icons';
@@ -49,7 +49,7 @@ export function KnowledgeView() {
     <div className={styles.page}>
       <div className={styles.wrap}>
         <h1 className={styles.h1}>Wissen</h1>
-        <p className={styles.lead}>Datenblätter, PDFs und eigene Regeln. Lotse nutzt Dokumente als Faktenquelle für Produkttexte, FAQ und Sicherheitsinformationen und nennt dabei die Quelle. Alles bleibt lokal in Lotse.</p>
+        <p className={styles.lead}>{KNOWLEDGE_LEAD}</p>
         {loadError && <p className={styles.alert}>Wissensbasis konnte nicht geladen werden: {loadError}</p>}
 
         <section className={styles.card} aria-labelledby="k-docs">

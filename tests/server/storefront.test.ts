@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ShopReader } from '../../src/server/shopware';
-import { assertShopUrl, cmsOutline, pageKind, parseStorefront, resolveCmsTarget } from '../../src/server/storefront';
+import { assertShopUrl, cmsOutline, fetchShopPage, mapPublicToInternal, pageKind, parseStorefront, resolveCmsTarget } from '../../src/server/storefront';
 
 const HTML = `<!doctype html><html><head><title>Gartenduschen &amp; Co | Shop</title><meta name="description" content="Gartenduschen für Terrasse und Pool"><link rel="canonical" href="https://shop.test/gartenduschen/"></head>
 <body class="is-ctl-product is-act-index">
@@ -69,4 +69,59 @@ test('read_page: nur Domains des eigenen Shops', () => {
   assert.throws(() => assertShopUrl('https://evil.test/', allowed), /nur Seiten des eigenen Shops/);
   assert.throws(() => assertShopUrl('ftp://shop.test/', allowed), /http/);
   assert.throws(() => assertShopUrl('kaputt', allowed), /gültige URL/);
+});
+
+test('mapPublicToInternal: Pfad unter dem öffentlichen Prefix geht auf die interne Basis, Host-Tricks nicht', () => {
+  const pub = 'https://mein-shop.de/de', base = 'http://172.17.0.2';
+  assert.equal(mapPublicToInternal(pub, base, 'https://mein-shop.de/de/produkt'), 'http://172.17.0.2/produkt');
+  assert.equal(mapPublicToInternal(`${pub}/`, `${base}/`, 'https://mein-shop.de/de/produkt'), 'http://172.17.0.2/produkt');
+  assert.equal(mapPublicToInternal(pub, base, pub), 'http://172.17.0.2/');
+  assert.equal(mapPublicToInternal(pub, base, `${pub}?x=1`), 'http://172.17.0.2/?x=1');
+  assert.equal(mapPublicToInternal(pub, base, `${pub}#oben`), 'http://172.17.0.2/#oben');
+  // Rest beginnt nicht mit /, ? oder #: die öffentliche URL bleibt, der interne Host wird nicht umgeschrieben
+  const at = mapPublicToInternal(pub, base, 'https://mein-shop.de/de@169.254.169.254/latest/meta-data');
+  assert.equal(new URL(at).hostname, 'mein-shop.de');
+  assert.equal(at, 'https://mein-shop.de/de@169.254.169.254/latest/meta-data');
+  const dot = mapPublicToInternal(pub, base, 'https://mein-shop.de/de.evil.example/x');
+  assert.equal(new URL(dot).hostname, 'mein-shop.de');
+  // //evil darf durch das Zusammensetzen keinen neuen Host werden
+  assert.equal(new URL(mapPublicToInternal(pub, base, 'https://mein-shop.de/de//evil.example/x')).hostname, '172.17.0.2');
+  assert.equal(mapPublicToInternal(base, base, `${base}/x`), `${base}/x`);
+  assert.equal(mapPublicToInternal(pub, base, 'https://other.test/x'), 'https://other.test/x');
+  assert.equal(mapPublicToInternal(pub, 'http://user:pass@172.17.0.2', `${pub}/produkt`), `${pub}/produkt`);
+});
+
+test('fetchShopPage: nur erlaubte Hosts, jede Weiterleitung einzeln, öffentliches Ziel wieder intern', async () => {
+  const seen: { url: string; redirect?: RequestRedirect }[] = [];
+  const fetchImpl: typeof fetch = async (url, init) => {
+    const u = String(url);
+    seen.push({ url: u, redirect: init?.redirect });
+    if (u.endsWith('/produkt')) return new Response(null, { status: 302, headers: { location: 'https://mein-shop.de/de/neu' } });
+    if (u.endsWith('/neu')) return new Response('<html><title>Neu</title></html>', { status: 200, headers: { 'content-type': 'text/html' } });
+    if (u.endsWith('/weg')) return new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data' } });
+    if (u.endsWith('/relativ')) return new Response(null, { status: 302, headers: { location: '/anderes' } });
+    if (u.endsWith('/anderes')) return new Response('<html><title>Anderes</title></html>', { status: 200 });
+    return new Response('<html><title>Ok</title></html>', { status: 200, headers: { 'content-type': 'text/html' } });
+  };
+  const allowed = ['https://mein-shop.de/de', 'http://172.17.0.2'];
+  const opts = { publicUrl: 'https://mein-shop.de/de', internalBase: 'http://172.17.0.2', fetchImpl };
+  const r = await fetchShopPage('https://mein-shop.de/de/produkt', allowed, opts);
+  assert.equal(r.status, 200);
+  assert.deepEqual(seen.map(s => s.url), ['http://172.17.0.2/produkt', 'http://172.17.0.2/neu']);
+  assert.equal(seen[0].redirect, 'manual');
+  seen.length = 0;
+  const rel = await fetchShopPage('https://mein-shop.de/de/relativ', allowed, opts);
+  assert.equal(rel.status, 200);
+  assert.deepEqual(seen.map(s => s.url), ['http://172.17.0.2/relativ', 'http://172.17.0.2/anderes']);
+  seen.length = 0;
+  await assert.rejects(() => fetchShopPage('https://mein-shop.de/de/weg', allowed, opts), /169\.254\.169\.254|eigenen Shops/);
+  assert.deepEqual(seen.map(s => s.url), ['http://172.17.0.2/weg'], 'die Metadaten-Adresse wird nicht abgerufen');
+  seen.length = 0;
+  await assert.rejects(() => fetchShopPage('https://evil.test/x', allowed, opts), /eigenen Shops/);
+  assert.equal(seen.length, 0);
+  const attack = 'https://mein-shop.de/de@169.254.169.254/latest/meta-data';
+  const kept = await fetchShopPage(attack, allowed, opts);
+  assert.equal(kept.status, 200);
+  assert.equal(new URL(seen[0].url).hostname, 'mein-shop.de');
+  assert.equal(seen[0].url, attack);
 });
