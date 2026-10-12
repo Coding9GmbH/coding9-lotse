@@ -2,7 +2,7 @@ import 'server-only';
 // Shopify: Änderungssets für Produkte (Felder, neue Produkte, Varianten, Stapel) + Executor mit exakten Rückgängig-Schritten.
 // Preise liegen bei Shopify an den Varianten: ein Produktpreis gilt für alle Varianten, Regeln ({percent, add, set, round}) rechnet der Server je Variante.
 import type { ChangeAsset, ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
-import { MAX_ITEMS, WRITE_CONCURRENCY, errMsg, faqHtml, normFaq, pool, resolvePrice, trackedUndo, type ApplyCtx, type ApplyResult, type PriceSpec, type RawFaq } from '../../changes';
+import { MAX_ITEMS, WRITE_CONCURRENCY, assertFresh, errMsg, faqHtml, normFaq, pool, resolvePrice, trackedUndo, type ApplyCtx, type ApplyResult, type PriceSpec, type RawFaq } from '../../changes';
 import { stagedMeta } from '../../media';
 import { newId } from '../../shopware';
 import { shortId, toGid, type Json, type ShopifyClient } from './client';
@@ -98,13 +98,13 @@ export async function buildProductChangeSet(q: Q, a: ProposeArgs, currency: stri
           if (field === 'price') plan.changes.forEach(c => newPrices.set(c.id, c.after!));
           const ids = new Set(plan.changes.map(c => c.id));
           items.push({ ...base, before: priceRange(variants.filter(v => ids.has(v.id)).map(v => toNum(field === 'price' ? v.price : v.compareAtPrice)), currency),
-            after: plan.changes.every(c => c.after === null) ? 'entfernt' : priceRange(plan.changes.map(c => c.after), currency), afterRaw: { variants: plan.changes.map(c => ({ id: c.id, value: c.after })) }, warn: plan.warn });
+            after: plan.changes.every(c => c.after === null) ? 'entfernt' : priceRange(plan.changes.map(c => c.after), currency), afterRaw: { variants: plan.changes.map(c => ({ id: c.id, value: c.after })) }, beforeRaw: plan.changes.map(c => ({ id: c.id, before: c.before })), warn: plan.warn });
           continue;
         }
         if (def.kind === 'faq') {
           const faq = normFaq(raw as RawFaq, p.title);
           let cur: { items?: unknown[] } | null = null; try { cur = p.faq?.value ? JSON.parse(p.faq.value) : null; } catch { /* altes Format */ }
-          items.push({ ...base, before: cur?.items?.length ? `${cur.items.length} Fragen` : '–', after: `${faq.items.length} Fragen: „${cut(faq.items[0].q, 70)}“ …`, afterRaw: faq, html: { before: '', after: faq.items.map(i => `F: ${i.q}\nA: ${i.a}`).join('\n\n').slice(0, 4000) }, warn: ['Das Theme muss das Metafeld lotse.faq ausgeben (z. B. als FAQ-Abschnitt)'] });
+          items.push({ ...base, before: cur?.items?.length ? `${cur.items.length} Fragen` : '–', after: `${faq.items.length} Fragen: „${cut(faq.items[0].q, 70)}“ …`, afterRaw: faq, beforeRaw: cur ?? null, html: { before: '', after: faq.items.map(i => `F: ${i.q}\nA: ${i.a}`).join('\n\n').slice(0, 4000) }, warn: ['Das Theme muss das Metafeld lotse.faq ausgeben (z. B. als FAQ-Abschnitt)'] });
           continue;
         }
         if (def.kind === 'variantStr') {
@@ -112,7 +112,7 @@ export async function buildProductChangeSet(q: Q, a: ProposeArgs, currency: stri
           if (typeof raw !== 'string' || raw.length > 255) throw new Error(`${def.label}: Text bis 255 Zeichen erwartet`);
           const cur = variants[0][field] ?? null;
           if ((cur ?? '') === raw) { unchanged++; continue; }
-          items.push({ ...base, before: cut(cur), after: cut(raw), afterRaw: { variantId: variants[0].id, value: raw }, warn: [] });
+          items.push({ ...base, before: cut(cur), after: cut(raw), afterRaw: { variantId: variants[0].id, value: raw }, beforeRaw: cur ?? null, warn: [] });
           continue;
         }
         let cur: unknown, next: unknown, before: string, after: string; const warn: string[] = [];
@@ -130,7 +130,8 @@ export async function buildProductChangeSet(q: Q, a: ProposeArgs, currency: stri
           }
         }
         if (cur === next || (cur == null && next === '')) { unchanged++; continue; }
-        items.push({ ...base, before, after, afterRaw: next, html: def.kind === 'html' ? { before: String(cur ?? '').slice(0, 4000), after: String(next).slice(0, 4000) } : undefined, warn });
+        const beforeRaw = def.kind === 'tags' ? [...(cur as string[])].sort() : (cur ?? null);
+        items.push({ ...base, before, after, afterRaw: next, beforeRaw, html: def.kind === 'html' ? { before: String(cur ?? '').slice(0, 4000), after: String(next).slice(0, 4000) } : undefined, warn });
       } catch (e) { skipped.push({ id, reason: `${field}: ${errMsg(e)}` }); }
     }
   }
@@ -148,6 +149,27 @@ export async function freshProduct(client: ShopifyClient, id: string): Promise<J
   return p;
 }
 
+/** Wert, den der Vorschlag als beforeRaw gemerkt hat (Tags sortiert, Preise je Variante als Zahl). */
+function shopifyFresh(p: Json, it: ChangeItem, varById: Map<string, Json>): unknown {
+  switch (it.field) {
+    case 'name': return p.title ?? null;
+    case 'description': return p.descriptionHtml ?? null;
+    case 'vendor': case 'productType': return p[it.field] ?? null;
+    case 'tags': return [...(p.tags ?? [])].sort();
+    case 'active': return p.status === 'ACTIVE';
+    case 'status': return p.status ?? null;
+    case 'metaTitle': return p.seo?.title ?? null;
+    case 'metaDescription': return p.seo?.description ?? null;
+    case 'sku': case 'barcode': return varById.get((it.afterRaw as { variantId: string }).variantId)?.[it.field] ?? null;
+    case 'price': case 'listPrice': {
+      const key = it.field === 'price' ? 'price' : 'compareAtPrice';
+      return (it.beforeRaw as { id: string; before: number | null }[]).map(c => ({ id: c.id, before: toNum(varById.get(c.id)?.[key]) }));
+    }
+    case 'faq': try { return p.faq?.value ? JSON.parse(p.faq.value) : null; } catch { return null; }
+    default: return undefined;
+  }
+}
+
 /** schreibt alle Felder eines Produkts; liefert die Rückgängig-Schritte (auch bei Teilfehlern die der erfolgreichen Schritte) */
 export async function applyProductItems(client: ShopifyClient, its: ChangeItem[], results: ApplyResult['results'], undo: UndoOp[]) {
   const p = await freshProduct(client, its[0].entityId!), gid = p.id;
@@ -155,7 +177,13 @@ export async function applyProductItems(client: ShopifyClient, its: ChangeItem[]
   const prod: Json = { id: gid }, back: Json = { id: gid }, prodItems: ChangeItem[] = [];
   const vIn = new Map<string, Json>(), vBack = new Map<string, Json>(), varItems: ChangeItem[] = [];
   let faq: ChangeItem | undefined;
+  const stale = (it: ChangeItem) => {
+    if (it.beforeRaw === undefined) return false;
+    try { assertFresh(it.fieldLabel, shopifyFresh(p, it, varById), it.beforeRaw); return false; }
+    catch (e) { results.push({ itemId: it.id, ok: false, error: errMsg(e) }); return true; }
+  };
   for (const it of its) {
+    if (stale(it)) continue;
     const raw = it.afterRaw;
     switch (it.field) {
       case 'name': prod.title = raw; back.title = p.title; prodItems.push(it); break;

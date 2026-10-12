@@ -2,6 +2,7 @@ import 'server-only';
 // Magento: Änderungssets für Produkte, Kategorien, Übersetzungen, URL-Schlüssel und Kategorie-Zuordnungen (bauen + Executor).
 // Bauen liest über den geschützten Lese-Client; der Executor liest die Vorher-Werte neu und schreibt mit dem privilegierten Client.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
+import { assertFresh, isStale, STALE } from '../../changes';
 import { applyEach, errMsg, MAX_ITEMS, newIdSafe, partialTicker, pool, resolvePrice, WRITE_CONCURRENCY, type ApplyCtx, type ApplyResult, type PriceSpec } from './kit';
 import { skuPath, type MagentoClient } from './client';
 import { attr, attrStr, basisWord, day, isActive, money, needBasis, plain, planPrice, priceState, priceText, priceUndo, sameValue, urlKey, VISIBILITY, VISIBILITY_IN, type MProduct, type MRecord, type PriceWrite } from './map';
@@ -72,7 +73,7 @@ export async function buildProductChangeSet(ro: MagentoReader, { title, reason, 
     const p = byId.get(String(ch.id));
     if (!p) { skipped.push({ id: String(ch.id), reason: 'nicht gefunden' }); continue; }
     const id = String(p.id), label = productLabel(p); skus[id] = p.sku;
-    const f = { ...(ch.fields ?? {}) }, push = (field: string, fieldLabel: string, before: string, after: string, afterRaw: unknown, warn: string[] = [], html?: ChangeItem['html']) => items.push({ id: `${id}:${field}`, entity: 'product', entityId: id, label, field, fieldLabel, before, after, afterRaw, warn, ...(html ? { html } : {}) });
+    const f = { ...(ch.fields ?? {}) }, push = (field: string, fieldLabel: string, before: string, after: string, afterRaw: unknown, warn: string[] = [], html?: ChangeItem['html'], beforeRaw?: unknown) => items.push({ id: `${id}:${field}`, entity: 'product', entityId: id, label, field, fieldLabel, before, after, afterRaw, ...(beforeRaw !== undefined ? { beforeRaw } : {}), warn, ...(html ? { html } : {}) });
     // Preise: price/listPrice/Sonderpreis-Zeitraum ergeben EINE Zeile mit den Magento-Werten
     if (PRICE_KEYS.some(k => k in f)) {
       try {
@@ -92,7 +93,8 @@ export async function buildProductChangeSet(ro: MagentoReader, { title, reason, 
           if (next.selling === 0) warn.push('Preis 0 €');
           if (s.selling && next.selling != null) { const d = ((next.selling - s.selling) / s.selling) * 100; if (Math.abs(d) >= 30) warn.push(`Preisänderung ${d > 0 ? '+' : ''}${d.toFixed(0)} %`); }
           const period = write.special_to_date || write.special_from_date ? ` · Zeitraum ${write.special_from_date ?? s.from ?? '…'} bis ${write.special_to_date ?? s.to ?? '…'}` : '';
-          push('price', `Preis ${basisWord(basis)} (Streichpreis)`, priceText(s, basis), `${priceText(next, basis)}${period}`, { write, expect: priceUndo(p, Object.keys(write) as (keyof PriceWrite)[]) }, warn);
+          const expect = priceUndo(p, Object.keys(write) as (keyof PriceWrite)[]);
+          push('price', `Preis ${basisWord(basis)} (Streichpreis)`, priceText(s, basis), `${priceText(next, basis)}${period}`, { write, expect }, warn, undefined, expect);
         }
       } catch (e) { skipped.push({ id, reason: `Preis: ${errMsg(e)}` }); }
       for (const k of PRICE_KEYS) delete f[k];
@@ -110,7 +112,7 @@ export async function buildProductChangeSet(ro: MagentoReader, { title, reason, 
           else if (typeof raw !== 'string') throw new Error('Text erwartet');
           if (sameValue(curRaw, v)) { unchanged++; continue; }
           const before = def.frontend_input === 'select' ? opts.find(x => x.value === String(curRaw))?.label ?? '–' : def.frontend_input === 'boolean' ? (curRaw == null ? '–' : String(curRaw) === '1' ? 'ja' : 'nein') : cut(curRaw);
-          push(`attr:${code}`, def.default_frontend_label ?? code, before, cut(shownAfter), { attr: code, value: v, scope: def.scope ?? 'store' });
+          push(`attr:${code}`, def.default_frontend_label ?? code, before, cut(shownAfter), { attr: code, value: v, scope: def.scope ?? 'store' }, [], undefined, curRaw);
         } catch (e) { skipped.push({ id, reason: `${code}: ${errMsg(e)}` }); }
       }
       delete f.attributes;
@@ -126,7 +128,7 @@ export async function buildProductChangeSet(ro: MagentoReader, { title, reason, 
           const si = srcItems.find(s => s.sku === p.sku && s.source_code === stock.source);
           const cur = si ? Number(si.quantity) : null;
           if (cur === v) { unchanged++; continue; }
-          push('stock', def.label, cur == null ? '–' : String(cur), String(v), { source: stock.source, quantity: v }, cur != null && cur > 0 && v === 0 ? ['Bestand auf 0'] : []);
+          push('stock', def.label, cur == null ? '–' : String(cur), String(v), { source: stock.source, quantity: v }, cur != null && cur > 0 && v === 0 ? ['Bestand auf 0'] : [], undefined, cur);
           continue;
         }
         if (field === 'active') v = v ? 1 : 2;
@@ -136,7 +138,7 @@ export async function buildProductChangeSet(ro: MagentoReader, { title, reason, 
         if (field === 'active' && v === 2) warn.push('Wird deaktiviert');
         if (field === 'visibility' && v === 1) warn.push('Nicht mehr einzeln im Shop sichtbar');
         const before = field === 'active' ? (isActive(p) ? 'ja' : 'nein') : shown(def, cur), after = field === 'active' ? (v === 1 ? 'ja' : 'nein') : shown(def, v);
-        push(field, def.label, before, after, v, warn, def.kind === 'html' ? { before: String(cur ?? '').slice(0, 4000), after: String(v).slice(0, 4000) } : undefined);
+        push(field, def.label, before, after, v, warn, def.kind === 'html' ? { before: String(cur ?? '').slice(0, 4000), after: String(v).slice(0, 4000) } : undefined, cur);
       } catch (e) { skipped.push({ id, reason: `${field}: ${errMsg(e)}` }); }
     }
   }
@@ -167,52 +169,96 @@ export async function assertPriceInView(c: MagentoClient, sku: string, store: st
   if (keys.some(k => !sameValue(now[k], write[k]))) throw Object.assign(new Error(`Die Store-View „${store}“ zeigt weiter ihren Website-Preis (Preis-Scope „Website“): Preis bitte in Magento je Website pflegen`), { undo });
 }
 
-async function applyProduct(c: MagentoClient, store: string, sku: string, its: ChangeItem[]): Promise<UndoOp[]> {
-  const scoped: Record<string, unknown> = {}, global: Record<string, unknown> = {}, undo: UndoOp[] = [];
+type ApplyPiece = { undo: UndoOp[]; failed?: { id: string; error: string }[] };
+
+/** Frischer Attributwert. Preis und Bestand haben eigene Prüfungen (Preisformat, Lagerquelle). Ohne beforeRaw keine Prüfung. */
+function splitStale(its: ChangeItem[], freshOf: (it: ChangeItem) => unknown): { live: ChangeItem[]; failed: { id: string; error: string }[] } {
+  const live: ChangeItem[] = [], failed: { id: string; error: string }[] = [];
   for (const it of its) {
+    if (it.beforeRaw === undefined || !it.field || it.field === 'price' || it.field === 'stock') { live.push(it); continue; }
+    try { assertFresh(it.fieldLabel, freshOf(it), it.beforeRaw); live.push(it); }
+    catch (e) { failed.push({ id: it.id, error: errMsg(e) }); }
+  }
+  return { live, failed };
+}
+const withFailed = (e: unknown, undo: UndoOp[], failed: { id: string; error: string }[]): never => {
+  const prev = (e as { undo?: UndoOp[] }).undo;
+  throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: !prev?.length || prev === undo ? undo : [...undo, ...prev], ...(failed.length ? { failed } : {}) });
+};
+
+async function applyProduct(c: MagentoClient, store: string, sku: string, its: ChangeItem[]): Promise<ApplyPiece> {
+  const fresh = await getEnt(c, 'product', sku, store);
+  if (!fresh) throw new Error('Produkt nicht mehr vorhanden');
+  const { live, failed } = splitStale(its, it => {
+    const code = it.field!.startsWith('attr:') ? (it.afterRaw as { attr: string }).attr : M_PRODUCT_FIELDS[it.field!]?.attr;
+    return code ? attr(fresh, code) : undefined;
+  });
+  const scoped: Record<string, unknown> = {}, global: Record<string, unknown> = {}, undo: UndoOp[] = [];
+  for (const it of live) {
     const def = it.field ? M_PRODUCT_FIELDS[it.field] : undefined;
     if (it.field?.startsWith('attr:')) { const a = it.afterRaw as { attr: string; value: unknown; scope: string }; (a.scope === 'global' ? global : scoped)[a.attr] = a.value; }
     else if (def?.attr && it.field !== 'stock') (def.attr === 'weight' ? global : scoped)[def.attr] = it.afterRaw;
   }
-  const pi = its.find(i => i.field === 'price'), pw = pi ? (pi.afterRaw as { write: PriceWrite; expect: PriceWrite }) : null;
-  if (pw) { await assertPriceUnchanged(c, sku, store, pw.expect); Object.assign(global, pw.write); }
+  const pi = live.find(i => i.field === 'price');
+  let pw = pi ? (pi.afterRaw as { write: PriceWrite; expect: PriceWrite }) : null;
+  if (pw && pi) {
+    try { await assertPriceUnchanged(c, sku, store, pw.expect); Object.assign(global, pw.write); }
+    catch (e) {
+      const msg = errMsg(e);
+      if (!/inzwischen/.test(msg)) throw e;
+      failed.push({ id: pi.id, error: msg });
+      pw = null;
+    }
+  }
   try {
     if (Object.keys(scoped).length || Object.keys(global).length) undo.push(...await writeScoped(c, 'product', sku, store, scoped, global));
     if (pw) await assertPriceInView(c, sku, store, pw.write, undo);
-  } catch (e) {
-    const prev = (e as { undo?: UndoOp[] }).undo;
-    throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: !prev?.length || prev === undo ? undo : [...undo, ...prev] });
-  }
-  const si = its.find(i => i.field === 'stock');
+  } catch (e) { return withFailed(e, undo, failed); }
+  const si = live.find(i => i.field === 'stock');
   if (si) {
     try {
       const { source, quantity } = si.afterRaw as { source: string; quantity: number };
       const r = await c.search('/V1/inventory/source-items', { filters: [[{ field: 'sku', value: sku }], [{ field: 'source_code', value: source }]], pageSize: 1 }, { store: 'all' });
       const cur = r.items[0];
-      await c.req('POST', '/V1/inventory/source-items', { sourceItems: [{ sku, source_code: source, quantity, status: quantity > 0 ? 1 : cur?.status ?? 0 }] }, { store: 'all' });
-      undo.push(cur ? reqOp('source-item', sku, 'POST', '/all/V1/inventory/source-items', { sourceItems: [{ sku, source_code: source, quantity: cur.quantity, status: cur.status }] })
-        : reqOp('source-item', sku, 'POST', '/all/V1/inventory/source-items-delete', { sourceItems: [{ sku, source_code: source }] }));
+      const have = cur ? Number(cur.quantity) : null;
+      if (isStale(have, si.beforeRaw)) failed.push({ id: si.id, error: `${si.fieldLabel}: ${STALE}` });
+      else {
+        await c.req('POST', '/V1/inventory/source-items', { sourceItems: [{ sku, source_code: source, quantity, status: quantity > 0 ? 1 : cur?.status ?? 0 }] }, { store: 'all' });
+        undo.push(cur ? reqOp('source-item', sku, 'POST', '/all/V1/inventory/source-items', { sourceItems: [{ sku, source_code: source, quantity: cur.quantity, status: cur.status }] })
+          : reqOp('source-item', sku, 'POST', '/all/V1/inventory/source-items-delete', { sourceItems: [{ sku, source_code: source }] }));
+      }
     } catch (e) {
       const prev = (e as { undo?: UndoOp[] }).undo;
-      const okIds = its.filter(i => i.field !== 'stock').map(i => i.id);
-      throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: !prev?.length || prev === undo ? undo : [...undo, ...prev], okIds });
+      const okIds = live.filter(i => i.field !== 'stock' && !failed.some(f => f.id === i.id)).map(i => i.id);
+      throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: !prev?.length || prev === undo ? undo : [...undo, ...prev], okIds, ...(failed.length ? { failed } : {}) });
     }
   }
-  return undo;
+  return { undo, ...(failed.length ? { failed } : {}) };
 }
 
-/** Gruppiert die Zeilen je Datensatz (ein Schreibvorgang je Produkt/Kategorie, Fehler gelten für alle Zeilen des Datensatzes) */
-async function applyGrouped(cs: ChangeSet, selected: Set<string>, fn: (id: string, its: ChangeItem[]) => Promise<UndoOp[]>, ctx?: ApplyCtx): Promise<ApplyResult> {
+/** Gruppiert die Zeilen je Datensatz. Veraltete Felder (failed) gelten nur für ihre Zeile, der Rest wird geschrieben. */
+async function applyGrouped(cs: ChangeSet, selected: Set<string>, fn: (id: string, its: ChangeItem[]) => Promise<UndoOp[] | ApplyPiece>, ctx?: ApplyCtx): Promise<ApplyResult> {
   const groups = new Map<string, ChangeItem[]>();
   let n = 0;
   for (const it of cs.items) if (selected.has(it.id) && it.entity !== 'info') { groups.set(it.entityId ?? '', [...(groups.get(it.entityId ?? '') ?? []), it]); n++; }
   const results: ApplyResult['results'] = [], undo: UndoOp[] = [], tick = partialTicker(ctx, n, { results, undo });
+  const mark = (its: ChangeItem[], failed: { id: string; error: string }[] | undefined, okIds: string[] | undefined, msg: string) => {
+    const bad = new Map((failed ?? []).map(f => [f.id, f.error]));
+    its.forEach(i => {
+      if (okIds?.includes(i.id)) results.push({ itemId: i.id, ok: true });
+      else if (bad.has(i.id)) results.push({ itemId: i.id, ok: false, error: bad.get(i.id) });
+      else results.push({ itemId: i.id, ok: !msg, ...(msg ? { error: msg } : {}) });
+    });
+  };
   await pool([...groups], WRITE_CONCURRENCY, async ([id, its]) => {
-    try { undo.push(...await fn(id, its)); its.forEach(i => results.push({ itemId: i.id, ok: true })); }
-    catch (e) {
+    try {
+      const out = await fn(id, its);
+      if (Array.isArray(out)) { undo.push(...out); its.forEach(i => results.push({ itemId: i.id, ok: true })); }
+      else { undo.push(...out.undo); mark(its, out.failed, undefined, ''); }
+    } catch (e) {
       const extra = (e as { undo?: UndoOp[] }).undo ?? [], okIds = (e as { okIds?: string[] }).okIds, msg = errMsg(e);
       undo.push(...extra); // teilweise geschrieben: Rückgängig-Schritte behalten; okIds = Zeilen, die schon stehen
-      its.forEach(i => { const ok = !!okIds?.includes(i.id); results.push({ itemId: i.id, ok, ...(ok ? {} : { error: msg }) }); });
+      mark(its, (e as { failed?: { id: string; error: string }[] }).failed, okIds, msg);
     }
     finally { tick(); }
   });
@@ -239,17 +285,23 @@ export async function buildCategoryChangeSet(ro: MagentoReader, { title, reason,
       try {
         const v = validate(def, raw), cur = attr(cat, def.attr!);
         if (sameValue(cur, v) || (def.kind === 'bool' && !!cur === v)) { unchanged++; continue; }
-        items.push({ id: `${id}:${field}`, entity: 'category', entityId: id, label: String(cat.name ?? id), field, fieldLabel: def.label, before: shown(def, cur), after: shown(def, v), afterRaw: v, warn: field === 'active' && v === false ? ['Wird deaktiviert'] : [], ...(def.kind === 'html' ? { html: { before: String(cur ?? '').slice(0, 4000), after: String(v).slice(0, 4000) } } : {}) });
+        items.push({ id: `${id}:${field}`, entity: 'category', entityId: id, label: String(cat.name ?? id), field, fieldLabel: def.label, before: shown(def, cur), after: shown(def, v), afterRaw: v, beforeRaw: cur ?? null, warn: field === 'active' && v === false ? ['Wird deaktiviert'] : [], ...(def.kind === 'html' ? { html: { before: String(cur ?? '').slice(0, 4000), after: String(v).slice(0, 4000) } } : {}) });
       } catch (e) { skipped.push({ id, reason: `${field}: ${errMsg(e)}` }); }
     }
   }
   if (!items.length) throw new Error(`Keine Änderung nötig bzw. nichts anwendbar (${unchanged} unverändert, ${skipped.length} übersprungen: ${skipped.slice(0, 3).map(s => s.reason).join('; ')})`);
   return { cs: { id: newIdSafe(), kind: 'categories', entity: 'category', title, reason, items, skipped, unchanged, atomic: false }, payload: { store: ro.storeCode } };
 }
-reg.register('categories', (c, cs, payload, selected, ctx) => applyGrouped(cs, selected, (id, its) => {
+reg.register('categories', (c, cs, payload, selected, ctx) => applyGrouped(cs, selected, async (id, its) => {
+  const store = (payload as CatalogPayload).store;
+  const fresh = await getEnt(c, 'category', id, store);
+  if (!fresh) throw new Error('Kategorie nicht mehr vorhanden');
+  const { live, failed } = splitStale(its, it => { const code = M_CATEGORY_FIELDS[it.field!]?.attr; return code ? attr(fresh, code) : undefined; });
+  if (!live.length) return { undo: [], failed };
   const scoped: Record<string, unknown> = {};
-  for (const it of its) scoped[M_CATEGORY_FIELDS[it.field!].attr!] = it.afterRaw;
-  return writeScoped(c, 'category', id, (payload as CatalogPayload).store, scoped);
+  for (const it of live) scoped[M_CATEGORY_FIELDS[it.field!].attr!] = it.afterRaw;
+  try { return { undo: await writeScoped(c, 'category', id, store, scoped), ...(failed.length ? { failed } : {}) }; }
+  catch (e) { return withFailed(e, [], failed); }
 }, ctx));
 
 // ================= Übersetzungen (Store-Views) =================

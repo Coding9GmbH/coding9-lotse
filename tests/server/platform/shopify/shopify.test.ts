@@ -609,6 +609,40 @@ test('Kollektion mit mehr als 250 Produkten: Rückgängig stellt die manuelle Po
 // ---- Verlorene Antworten, Varianten mit updateAll, Sommerzeit, 5xx, Bereiche, Stapel-Grenzen, gebündelte Abfragen ----
 const rq: Q = (d, v) => (session.reader as InstanceType<typeof ShopifyReader>).query(d, v);
 const allOf = (cs: { items: { id: string }[] }) => new Set(cs.items.map(i => i.id));
+
+test('Name inzwischen geändert: die Zeile wird nicht geschrieben, der Hersteller derselben Entität schon', async () => {
+  const { applyProducts, buildProductChangeSet } = await import('../../../../src/server/platform/shopify/products');
+  const { applyCollections, buildCollectionChangeSet } = await import('../../../../src/server/platform/shopify/catalog');
+  const product = fake.state.products.get(Number(P.vase))!;
+  const before = snap();
+  const cs = await buildProductChangeSet(rq, { title: 't', reason: 'r', changes: [{ id: P.vase, fields: { name: 'Vase neu', vendor: 'Andere' } }] }, 'EUR');
+  product.title = 'Vase fremd';
+  const r = await applyProducts(new ShopifyClient(conf), cs, allOf(cs));
+  const name = r.results.find(x => x.itemId.endsWith(':name'))!, vendor = r.results.find(x => x.itemId.endsWith(':vendor'))!;
+  assert.equal(name.ok, false, JSON.stringify(r.results));
+  assert.match(name.error ?? '', /inzwischen geändert/);
+  assert.equal(vendor.ok, true, JSON.stringify(r.results));
+  assert.equal(product.title, 'Vase fremd');
+  assert.equal(product.vendor, 'Andere');
+  await undo(withPlatform(r.undo));
+  product.title = 'Vase „Kiesel“';
+  assert.deepEqual(snap(), before);
+
+  const col = fake.state.collections.get(Number(C.wohn))!;
+  const beforeC = snap();
+  const ccs = await buildCollectionChangeSet(rq, { title: 't', reason: 'r', changes: [{ id: C.wohn, fields: { name: 'Wohnen neu', metaTitle: 'Neu' } }] });
+  col.title = 'Fremd';
+  const cr = await applyCollections(new ShopifyClient(conf), ccs, allOf(ccs));
+  const cname = cr.results.find(x => x.itemId.endsWith(':name'))!, meta = cr.results.find(x => x.itemId.endsWith(':metaTitle'))!;
+  assert.equal(cname.ok, false, JSON.stringify(cr.results));
+  assert.match(cname.error ?? '', /inzwischen geändert/);
+  assert.equal(meta.ok, true, JSON.stringify(cr.results));
+  assert.equal(col.title, 'Fremd');
+  assert.equal(col.seo.title, 'Neu');
+  await undo(withPlatform(cr.undo));
+  col.title = 'Wohnaccessoires';
+  assert.deepEqual(snap(), beforeC);
+});
 /** Anfragen im Fake-Protokoll, deren Query den Text enthält (seit Index from) */
 const requestsLike = (from: number, re: RegExp) => fake.state.requestLog.slice(from).filter(r => re.test(r.query)).length;
 
