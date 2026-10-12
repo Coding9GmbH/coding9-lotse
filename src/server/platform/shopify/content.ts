@@ -227,8 +227,16 @@ export async function buildPromotionChangeSet(q: Q, a: PromotionArgs, shop: { cu
 }
 
 const priorValue = (v: Json | undefined) => (v?.__typename === 'DiscountPercentage' ? { percentage: v.percentage } : v?.__typename === 'DiscountAmount' ? { discountAmount: { amount: v.amount.amount, appliesOnEachItem: v.appliesOnEachItem } } : undefined);
-export async function applyPromotion(client: ShopifyClient, cs: ChangeSet, payload: { id?: string; input: Json }, ctx?: ApplyCtx): Promise<ApplyResult> {
-  const undo = trackedUndo(ctx, cs.items.length);
+/** Kartenfeld → Schlüssel im DiscountCodeBasicInput. Anlegen ist eine Zeile (id neu) und bleibt ganz oder gar nicht. */
+const PROMO_KEY: Record<string, string> = { title: 'title', startsAt: 'startsAt', endsAt: 'endsAt', usageLimit: 'usageLimit', oncePerCustomer: 'appliesOncePerCustomer', value: 'customerGets', combinesWith: 'combinesWith' };
+export async function applyPromotion(client: ShopifyClient, cs: ChangeSet, payload: { id?: string; input: Json }, selected: Set<string>, ctx?: ApplyCtx): Promise<ApplyResult> {
+  const chosen = cs.items.filter(i => selected.has(i.id));
+  const undo = trackedUndo(ctx, chosen.length);
+  if (!chosen.length) return { results: [], undo };
+  const input: Json = payload.id
+    ? Object.fromEntries(chosen.flatMap(i => { const key = PROMO_KEY[i.field]; return key && Object.prototype.hasOwnProperty.call(payload.input, key) ? [[key, payload.input[key]]] : []; }))
+    : payload.input;
+  if (payload.id && !Object.keys(input).length) return { results: [], undo };
   try {
     if (!payload.id) {
       const ids = () => idsWhere((d, v) => client.gql(d, v), 'codeDiscountNodes', qField('title', String(payload.input.title ?? '')));
@@ -237,15 +245,15 @@ export async function applyPromotion(client: ShopifyClient, cs: ChangeSet, paylo
     } else {
       const [cur] = await discountsByIds((d, v) => client.gql(d, v), [payload.id]); if (!cur) throw new Error('Rabatt nicht mehr vorhanden');
       const d = cur.codeDiscount, back: Json = {};
-      for (const k of Object.keys(payload.input)) {
+      for (const k of Object.keys(input)) {
         if (k === 'customerGets') back.customerGets = { value: priorValue(d.customerGets?.value) };
         else if (k === 'combinesWith') back.combinesWith = d.combinesWith;
         else back[k] = d[k] ?? null;
       }
-      await runRecording(client, M.discountUpdate, { id: cur.id, input: payload.input }, undo, reqOp('promotion', cur.id, M.discountUpdate, { id: cur.id, input: back }));
+      await runRecording(client, M.discountUpdate, { id: cur.id, input }, undo, reqOp('promotion', cur.id, M.discountUpdate, { id: cur.id, input: back }));
     }
-    return { results: cs.items.map(i => ({ itemId: i.id, ok: true })), undo };
-  } catch (e) { return { results: cs.items.map(i => ({ itemId: i.id, ok: false, error: errMsg(e) })), undo }; }
+    return { results: chosen.map(i => ({ itemId: i.id, ok: true })), undo };
+  } catch (e) { return { results: chosen.map(i => ({ itemId: i.id, ok: false, error: errMsg(e) })), undo }; }
 }
 
 export async function buildPromotionStatusChangeSet(q: Q, a: { ids: string[]; action: 'activate' | 'deactivate'; reason?: string }, shop: { currency: string; timezone?: string }): Promise<ChangeSet> {

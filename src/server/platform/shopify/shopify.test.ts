@@ -358,6 +358,39 @@ test('Rabattcode anlegen, ändern, beenden/aktivieren: jeweils exakt rückgängi
   });
 });
 
+test('Rabatt ändern: nur angehakte Felder werden geschrieben, der Rest bleibt und gilt nicht als erledigt', async () => {
+  const prev = decide, before = snap();
+  let createdUndo: UndoOp[] | undefined, partialUndo: UndoOp[] | undefined;
+  try {
+    json(await call('propose_promotion', { reason: 'x', title: 'Auswahl', code: 'AUSWAHL1', type: 'amount', value: 10, startsAt: '2026-01-01', usageLimit: 3 }));
+    createdUndo = lastResult().undo;
+    const id = String([...fake.state.discounts.values()].find(d => d.title === 'Auswahl')!.id);
+    const prior = structuredClone(fake.state.discounts.get(Number(id))!);
+    decide = cs => cs.items.filter(i => i.field === 'title' || i.field === 'oncePerCustomer').map(i => i.id);
+    const out = json(await call('propose_promotion', { id, reason: 'nur Name', title: 'Auswahl neu', usageLimit: 9, type: 'percentage', value: 40, oncePerCustomer: true }));
+    const d = fake.state.discounts.get(Number(id))!;
+    partialUndo = lastResult().undo;
+    assert.equal(d.title, 'Auswahl neu');
+    assert.equal(d.appliesOncePerCustomer, true);
+    assert.equal(d.usageLimit, prior.usageLimit, 'nicht angehaktes Limit bleibt');
+    assert.deepEqual(d.value, prior.value, 'nicht angehakter Rabattwert bleibt');
+    const lines = lastResult().results ?? [];
+    assert.deepEqual(lines.map(r => r.itemId).sort(), ['f:oncePerCustomer', 'f:title']);
+    assert.ok(lines.every(r => r.ok), 'nur angehakte Zeilen sind erledigt');
+    assert.equal(out.status, 'applied');
+    decide = () => [];
+    const n = fake.state.discounts.size;
+    json(await call('propose_promotion', { reason: 'x', title: 'Nicht angehakt', code: 'NEIN1', type: 'percentage', value: 5 }));
+    assert.equal(fake.state.discounts.size, n, 'ohne Haken wird nichts angelegt');
+    assert.deepEqual(lastResult().results ?? [], []);
+  } finally {
+    decide = prev;
+    if (partialUndo?.length) await undo(partialUndo);
+    if (createdUndo?.length) await undo(createdUndo);
+  }
+  assert.deepEqual(snap(), before);
+});
+
 test('SEO-URL (Handle) ändern legt Weiterleitung an; Rückgängig entfernt sie und stellt den Handle wieder her', async () => {
   await roundtrip('propose_seo_urls', { title: 'U', reason: 'U', changes: [{ entity: 'product', id: P.plaid, slug: 'Plaid Düne Wolle' }, { entity: 'category', id: C.keramik, slug: 'keramik-steinzeug' }, { entity: 'page', id: '129000000001', slug: 'ueber-haus-holm' }] }, () => {
     assert.equal(fake.state.products.get(Number(P.plaid))!.handle, 'plaid-duene-wolle');
@@ -600,8 +633,8 @@ test('Verlorene Antwort nach dem Senden: jede Schreibung vermerkt ihr Rückgäng
     ['fileUpdate', 'Alt-Text', async c => { const cs = await buildAltTextChangeSet(rq, { title: 't', reason: 'r', images: [{ mediaId: '32600000000001', alt: 'Verloren' }] }, null); return applyAltTexts(c, cs, allOf(cs)); }],
     ['productUpdate', 'Handle', async c => { const cs = await buildHandlesChangeSet(rq, { title: 't', reason: 'r', changes: [{ entity: 'product', id: P.vase, slug: 'vase-verloren' }] }); return applyHandles(c, cs, allOf(cs)); }],
     ['translationsRegister', 'Übersetzung', async c => { const cs = await buildTranslationChangeSet(rq, { title: 't', reason: 'r', entity: 'product', changes: [{ id: P.becher, language: 'en', fields: { name: 'Lost mug', metaTitle: 'Lost' } }] }); return applyTranslations(c, cs, allOf(cs)); }],
-    ['discountCodeBasicUpdate', 'Rabatt ändern', async c => { const { cs, payload } = await buildPromotionChangeSet(rq, { id: sommer, reason: 'r', usageLimit: 7 }, shop); return applyPromotion(c, cs, payload as { id?: string; input: J }); }],
-    ['discountCodeBasicCreate', 'Rabatt anlegen', async c => { const { cs, payload } = await buildPromotionChangeSet(rq, { reason: 'r', title: 'Verloren', code: 'LOST1', type: 'percentage', value: 5 }, shop); return applyPromotion(c, cs, payload as { id?: string; input: J }); }],
+    ['discountCodeBasicUpdate', 'Rabatt ändern', async c => { const { cs, payload } = await buildPromotionChangeSet(rq, { id: sommer, reason: 'r', usageLimit: 7 }, shop); return applyPromotion(c, cs, payload as { id?: string; input: J }, allOf(cs)); }],
+    ['discountCodeBasicCreate', 'Rabatt anlegen', async c => { const { cs, payload } = await buildPromotionChangeSet(rq, { reason: 'r', title: 'Verloren', code: 'LOST1', type: 'percentage', value: 5 }, shop); return applyPromotion(c, cs, payload as { id?: string; input: J }, allOf(cs)); }],
     ['discountCodeDeactivate', 'Rabatt beenden', async c => { const cs = await buildPromotionStatusChangeSet(rq, { ids: [sommer], action: 'deactivate' }, shop); return applyPromotionStatus(c, cs, allOf(cs)); }],
   ];
   for (const [root, label, run] of cases) {
@@ -634,7 +667,7 @@ test('Zwischenstand (B1): Executor ohne applyEach melden Rückgängig-Schritte, 
   const ticks: { done: number; total: number; undo: number }[] = [], ctx = { progress: (done: number, total: number, p?: { undo: UndoOp[] }) => ticks.push({ done, total, undo: p?.undo.length ?? -1 }) };
   // Rabatt anlegen mit verlorener Antwort: der Löschschritt steht schon im Zwischenstand, obwohl die Zeile am Ende „fehlgeschlagen“ meldet
   const { cs: pcs, payload } = await buildPromotionChangeSet(rq, { reason: 'r', title: 'Zwischen', code: 'ZWISCH1', type: 'percentage', value: 5 }, shop);
-  const pr = await applyPromotion(faultyClient('discountCodeBasicCreate', 'lost'), pcs, payload as { id?: string; input: J }, ctx);
+  const pr = await applyPromotion(faultyClient('discountCodeBasicCreate', 'lost'), pcs, payload as { id?: string; input: J }, allOf(pcs), ctx);
   assert.ok(pr.results.every(x => !x.ok) && pr.undo.length);
   assert.ok(ticks.length && ticks.every(t => t.done === 0 && t.total === pcs.items.length) && ticks.at(-1)!.undo === pr.undo.length, JSON.stringify(ticks));
   await undo(withPlatform(pr.undo)); assert.deepEqual(snap(), before);
