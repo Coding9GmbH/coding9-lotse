@@ -14,12 +14,13 @@
 /* Arbeiten ohne Vorschau: Chat-Spalte zentriert, max. 900px */
 .app[data-mode="work"] .main { grid-template-columns: minmax(0, 1fr); }
 .app[data-mode="work"] .right { display: none; }
-.app[data-mode="work"] .chat { align-items: center; border-right: 0; }
+.app[data-mode="work"] .chat { align-items: center; border-right: 0; overflow: auto; }
+.app[data-mode="pv"] .chat { overflow: auto; }
 .app[data-mode="work"] .chat > * { width: 100%; max-width: 900px; }
 .app[data-mode="work"] .chat > section:first-child { width: calc(100% - 24px); max-width: 876px; }
 
 /* Schmaler Viewport: Vorschau nicht daneben, sondern auf Knopfdruck (oder beim fertigen Entwurf) über dem Chat */
-.pvBar { display: none; }
+.pvBar { display: none; flex-wrap: wrap; }
 @media (max-width: 1100px) {
   .main { grid-template-columns: minmax(0, 1fr); position: relative; }
   .right { display: none; }

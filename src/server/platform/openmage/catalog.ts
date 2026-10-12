@@ -2,11 +2,12 @@ import 'server-only';
 // OpenMage: Änderungssets für Produkte, Kategorien, Übersetzungen, URL-Schlüssel und Kategorie-Zuordnungen (bauen + Executor).
 // Bauen liest über den geschützten Lese-Client; der Executor liest die Vorher-Werte neu und schreibt mit dem privilegierten Client.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
+import { assertFresh, isStale, STALE } from '../../changes';
 import { applyEach, errMsg, MAX_ITEMS, newIdSafe, partialTicker, pool, resolvePrice, WRITE_CONCURRENCY, type ApplyCtx, type ApplyResult, type PriceSpec } from './kit';
 import { skuPath, type OmClient } from './client';
 import { basisWord, day, isActive, money, mrec, omAttr, omStr, plain, planPrice, priceOf, priceText, priceUndo, productLabel, same, stripTitleAffixes, urlKey, VISIBILITY, VISIBILITY_IN, FROM_KIDS, SIMPLE_TYPES, type OmCategory, type OmProduct, type OmRecord, type PriceWrite } from './map';
 import { LIST_FIELDS, parseRef, pickRef, type OmReader } from './reader';
-import { getProduct, reg, reqOp, writeScoped, writeStore } from './write';
+import { getCategory, getProduct, reg, reqOp, writeScoped, writeStore } from './write';
 
 type Kind = 'str' | 'html' | 'price' | 'date' | 'int' | 'bool' | 'visibility' | 'num';
 interface FieldDef { label: string; kind: Kind; attr?: string; /** global = Website-/Global-Attribut (nicht je Store-View) */ global?: boolean }
@@ -75,7 +76,7 @@ export async function buildProductChangeSet(ro: OmReader, { title, reason, chang
     const p = byRef.get(String(ch.id));
     if (!p) { skipped.push({ id: String(ch.id), reason: 'nicht gefunden' }); continue; }
     const id = String(p.id), label = productLabel(p); skus[id] = p.sku;
-    const f = { ...(ch.fields ?? {}) }, push = (field: string, fieldLabel: string, before: string, after: string, afterRaw: unknown, warn: string[] = [], html?: ChangeItem['html']) => items.push({ id: `${id}:${field}`, entity: 'product', entityId: id, label, field, fieldLabel, before, after, afterRaw, warn, ...(html ? { html } : {}) });
+    const f = { ...(ch.fields ?? {}) }, push = (field: string, fieldLabel: string, before: string, after: string, afterRaw: unknown, warn: string[] = [], html?: ChangeItem['html'], beforeRaw?: unknown) => items.push({ id: `${id}:${field}`, entity: 'product', entityId: id, label, field, fieldLabel, before, after, afterRaw, ...(beforeRaw !== undefined ? { beforeRaw } : {}), warn, ...(html ? { html } : {}) });
     // Preise: price/listPrice/Sonderpreis-Zeitraum ergeben EINE Zeile mit den OpenMage-Werten
     if (PRICE_KEYS.some(k => k in f)) {
       try {
@@ -94,7 +95,8 @@ export async function buildProductChangeSet(ro: OmReader, { title, reason, chang
           if (next.selling === 0) warn.push('Preis 0 €');
           if (s.selling && next.selling != null) { const d = ((next.selling - s.selling) / s.selling) * 100; if (Math.abs(d) >= 30) warn.push(`Preisänderung ${d > 0 ? '+' : ''}${d.toFixed(0)} %`); }
           const period = write.special_to_date || write.special_from_date ? ` · Zeitraum ${write.special_from_date ?? s.from ?? '…'} bis ${write.special_to_date ?? s.to ?? '…'}` : '';
-          push('price', `Preis ${basisWord(basis)} (Streichpreis)`, priceText(s, basis), `${priceText(next, basis)}${period}`, { write, expect: priceUndo(mrec(p), Object.keys(write) as (keyof PriceWrite)[]) }, warn);
+          const expect = priceUndo(mrec(p), Object.keys(write) as (keyof PriceWrite)[]);
+          push('price', `Preis ${basisWord(basis)} (Streichpreis)`, priceText(s, basis), `${priceText(next, basis)}${period}`, { write, expect }, warn, undefined, expect);
         }
       } catch (e) { skipped.push({ id, reason: `Preis: ${errMsg(e)}` }); }
       for (const k of PRICE_KEYS) delete f[k];
@@ -111,7 +113,7 @@ export async function buildProductChangeSet(ro: OmReader, { title, reason, chang
           else if (typeof raw !== 'string') throw new Error('Text erwartet');
           if (same(curRaw, v)) { unchanged++; continue; }
           const before = def.input === 'select' ? opts.find(x => String(x.value) === String(curRaw))?.label ?? '–' : def.input === 'boolean' ? (curRaw == null ? '–' : Number(curRaw) === 1 ? 'ja' : 'nein') : cut(curRaw);
-          push(`attr:${code}`, String(def.label ?? code), before, cut(shownAfter), { attr: code, value: v, scope: def.scope ?? 'store' });
+          push(`attr:${code}`, String(def.label ?? code), before, cut(shownAfter), { attr: code, value: v, scope: def.scope ?? 'store' }, [], undefined, curRaw ?? null);
         } catch (e) { skipped.push({ id, reason: `${code}: ${errMsg(e)}` }); }
       }
       delete f.attributes;
@@ -125,7 +127,7 @@ export async function buildProductChangeSet(ro: OmReader, { title, reason, chang
           if (!SIMPLE_TYPES.has(String(p.type_id))) throw new Error(`${p.type_id}-Produkte haben keinen eigenen Bestand`);
           const cur = p.qty == null ? (p.stock?.qty ?? null) : Number(p.qty);
           if (cur === v) { unchanged++; continue; }
-          push('stock', def.label, cur == null ? '–' : String(cur), String(v), { quantity: v }, cur != null && cur > 0 && v === 0 ? ['Bestand auf 0'] : []);
+          push('stock', def.label, cur == null ? '–' : String(cur), String(v), { quantity: v }, cur != null && cur > 0 && v === 0 ? ['Bestand auf 0'] : [], undefined, cur);
           continue;
         }
         if (field === 'active') v = v ? 1 : 2;
@@ -135,7 +137,7 @@ export async function buildProductChangeSet(ro: OmReader, { title, reason, chang
         if (field === 'active' && v === 2) warn.push('Wird deaktiviert');
         if (field === 'visibility' && v === 1) warn.push('Nicht mehr einzeln im Shop sichtbar');
         const before = field === 'active' ? (isActive(p) ? 'ja' : 'nein') : shown(def, cur), after = field === 'active' ? (v === 1 ? 'ja' : 'nein') : shown(def, v);
-        push(field, def.label, before, after, v, warn, def.kind === 'html' ? { before: String(cur ?? '').slice(0, 4000), after: String(v).slice(0, 4000) } : undefined);
+        push(field, def.label, before, after, v, warn, def.kind === 'html' ? { before: String(cur ?? '').slice(0, 4000), after: String(v).slice(0, 4000) } : undefined, cur ?? null);
       } catch (e) { skipped.push({ id, reason: `${field}: ${errMsg(e)}` }); }
     }
   }
@@ -162,49 +164,90 @@ export async function writeStock(c: OmClient, sku: string, quantity: number): Pr
   return reqOp('stock', sku, 'PUT', `/v1/products/${skuPath(sku)}/stock`, { qty: Number(cur?.qty ?? 0), is_in_stock: !!cur?.is_in_stock });
 }
 
-async function applyProduct(c: OmClient, store: string, sku: string, its: ChangeItem[]): Promise<UndoOp[]> {
-  const scoped: Record<string, unknown> = {}, global: Record<string, unknown> = {}, undo: UndoOp[] = [];
+type ApplyPiece = { undo: UndoOp[]; failed?: { id: string; error: string }[] };
+
+/** Frischer Attributwert. Preis und Bestand haben eigene Prüfungen. Ohne beforeRaw keine Prüfung. */
+function splitStale(its: ChangeItem[], freshOf: (it: ChangeItem) => unknown): { live: ChangeItem[]; failed: { id: string; error: string }[] } {
+  const live: ChangeItem[] = [], failed: { id: string; error: string }[] = [];
   for (const it of its) {
+    if (it.beforeRaw === undefined || !it.field || it.field === 'price' || it.field === 'stock') { live.push(it); continue; }
+    try { assertFresh(it.fieldLabel, freshOf(it), it.beforeRaw); live.push(it); }
+    catch (e) { failed.push({ id: it.id, error: errMsg(e) }); }
+  }
+  return { live, failed };
+}
+const withFailed = (e: unknown, undo: UndoOp[], failed: { id: string; error: string }[]): never => {
+  const prev = (e as { undo?: UndoOp[] }).undo;
+  throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: !prev?.length || prev === undo ? undo : [...undo, ...prev], ...(failed.length ? { failed } : {}) });
+};
+
+async function applyProduct(c: OmClient, store: string, sku: string, its: ChangeItem[]): Promise<ApplyPiece> {
+  const fresh = await getProduct(c, sku, store);
+  if (!fresh) throw new Error('Produkt nicht mehr vorhanden');
+  const { live, failed } = splitStale(its, it => {
+    const code = it.field!.startsWith('attr:') ? (it.afterRaw as { attr: string }).attr : OM_PRODUCT_FIELDS[it.field!]?.attr;
+    return code ? omAttr(fresh, code) : undefined;
+  });
+  const scoped: Record<string, unknown> = {}, global: Record<string, unknown> = {}, undo: UndoOp[] = [];
+  for (const it of live) {
     const def = it.field ? OM_PRODUCT_FIELDS[it.field] : undefined;
     if (it.field?.startsWith('attr:')) { const a = it.afterRaw as { attr: string; value: unknown; scope: string }; (a.scope === 'global' || a.scope === 'website' ? global : scoped)[a.attr] = a.value; }
     else if (def?.attr && it.field !== 'stock') (def.global ? global : scoped)[def.attr] = it.afterRaw;
   }
-  const pi = its.find(i => i.field === 'price');
+  const pi = live.find(i => i.field === 'price');
   if (pi) {
     const { write, expect } = pi.afterRaw as { write: PriceWrite; expect: PriceWrite };
-    await assertPriceUnchanged(c, sku, store, expect);
-    Object.assign(global, write);
+    try { await assertPriceUnchanged(c, sku, store, expect); Object.assign(global, write); }
+    catch (e) {
+      const msg = errMsg(e);
+      if (!/inzwischen/.test(msg)) throw e;
+      failed.push({ id: pi.id, error: msg });
+    }
   }
   try {
     if (Object.keys(scoped).length || Object.keys(global).length) undo.push(...await writeScoped(c, 'product', sku, store, scoped, global));
-  } catch (e) {
-    const prev = (e as { undo?: UndoOp[] }).undo;
-    throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: !prev?.length || prev === undo ? undo : [...undo, ...prev] });
-  }
-  const si = its.find(i => i.field === 'stock');
+  } catch (e) { return withFailed(e, undo, failed); }
+  const si = live.find(i => i.field === 'stock');
   if (si) {
-    try { undo.push(await writeStock(c, sku, (si.afterRaw as { quantity: number }).quantity)); }
-    catch (e) {
+    try {
+      if (si.beforeRaw !== undefined) {
+        const cur = await c.req('GET', `/v1/products/${skuPath(sku)}/stock`) as { qty?: number } | null;
+        const have = cur && cur.qty != null ? Number(cur.qty) : null;
+        if (isStale(have, si.beforeRaw)) failed.push({ id: si.id, error: `${si.fieldLabel}: ${STALE}` });
+        else undo.push(await writeStock(c, sku, (si.afterRaw as { quantity: number }).quantity));
+      } else undo.push(await writeStock(c, sku, (si.afterRaw as { quantity: number }).quantity));
+    } catch (e) {
       const prev = (e as { undo?: UndoOp[] }).undo;
-      const okIds = its.filter(i => i.field !== 'stock').map(i => i.id);
-      throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: !prev?.length || prev === undo ? undo : [...undo, ...prev], okIds });
+      const okIds = live.filter(i => i.field !== 'stock' && !failed.some(f => f.id === i.id)).map(i => i.id);
+      throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: !prev?.length || prev === undo ? undo : [...undo, ...prev], okIds, ...(failed.length ? { failed } : {}) });
     }
   }
-  return undo;
+  return { undo, ...(failed.length ? { failed } : {}) };
 }
 
-/** Gruppiert die Zeilen je Datensatz (ein Schreibvorgang je Produkt/Kategorie, Fehler gelten für alle Zeilen des Datensatzes) */
-export async function applyGrouped(cs: ChangeSet, selected: Set<string>, fn: (id: string, its: ChangeItem[]) => Promise<UndoOp[]>, ctx?: ApplyCtx): Promise<ApplyResult> {
+/** Gruppiert die Zeilen je Datensatz. Veraltete Felder gelten nur für ihre Zeile, der Rest wird geschrieben. */
+export async function applyGrouped(cs: ChangeSet, selected: Set<string>, fn: (id: string, its: ChangeItem[]) => Promise<UndoOp[] | ApplyPiece>, ctx?: ApplyCtx): Promise<ApplyResult> {
   const groups = new Map<string, ChangeItem[]>();
   let n = 0;
   for (const it of cs.items) if (selected.has(it.id) && it.entity !== 'info') { groups.set(it.entityId ?? '', [...(groups.get(it.entityId ?? '') ?? []), it]); n++; }
   const results: ApplyResult['results'] = [], undo: UndoOp[] = [], tick = partialTicker(ctx, n, { results, undo });
+  const mark = (its: ChangeItem[], failed: { id: string; error: string }[] | undefined, okIds: string[] | undefined, msg: string) => {
+    const bad = new Map((failed ?? []).map(f => [f.id, f.error]));
+    its.forEach(i => {
+      if (okIds?.includes(i.id)) results.push({ itemId: i.id, ok: true });
+      else if (bad.has(i.id)) results.push({ itemId: i.id, ok: false, error: bad.get(i.id) });
+      else results.push({ itemId: i.id, ok: !msg, ...(msg ? { error: msg } : {}) });
+    });
+  };
   await pool([...groups], WRITE_CONCURRENCY, async ([id, its]) => {
-    try { undo.push(...await fn(id, its)); its.forEach(i => results.push({ itemId: i.id, ok: true })); }
-    catch (e) {
+    try {
+      const out = await fn(id, its);
+      if (Array.isArray(out)) { undo.push(...out); its.forEach(i => results.push({ itemId: i.id, ok: true })); }
+      else { undo.push(...out.undo); mark(its, out.failed, undefined, ''); }
+    } catch (e) {
       const extra = (e as { undo?: UndoOp[] }).undo ?? [], okIds = (e as { okIds?: string[] }).okIds, msg = errMsg(e);
       undo.push(...extra);
-      its.forEach(i => { const ok = !!okIds?.includes(i.id); results.push({ itemId: i.id, ok, ...(ok ? {} : { error: msg }) }); });
+      mark(its, (e as { failed?: { id: string; error: string }[] }).failed, okIds, msg);
     }
     finally { tick(); }
   });
@@ -231,17 +274,27 @@ export async function buildCategoryChangeSet(ro: OmReader, { title, reason, chan
       try {
         const v = normTitle(def, validate(def, raw), view), cur = def.kind === 'bool' ? catActive(cat) : omAttr(cat, def.attr!);
         if (def.kind === 'bool' ? cur === v : same(cur, v)) { unchanged++; continue; }
-        items.push({ id: `${id}:${field}`, entity: 'category', entityId: id, label: String(cat.name ?? id), field, fieldLabel: def.label, before: shown(def, cur), after: shown(def, v), afterRaw: def.kind === 'bool' ? (v ? 1 : 0) : v, warn: field === 'active' && v === false ? ['Wird deaktiviert'] : [], ...(def.kind === 'html' ? { html: { before: String(cur ?? '').slice(0, 4000), after: String(v).slice(0, 4000) } } : {}) });
+        items.push({ id: `${id}:${field}`, entity: 'category', entityId: id, label: String(cat.name ?? id), field, fieldLabel: def.label, before: shown(def, cur), after: shown(def, v), afterRaw: def.kind === 'bool' ? (v ? 1 : 0) : v, beforeRaw: def.kind === 'bool' ? (cur ? 1 : 0) : (cur ?? null), warn: field === 'active' && v === false ? ['Wird deaktiviert'] : [], ...(def.kind === 'html' ? { html: { before: String(cur ?? '').slice(0, 4000), after: String(v).slice(0, 4000) } } : {}) });
       } catch (e) { skipped.push({ id, reason: `${field}: ${errMsg(e)}` }); }
     }
   }
   if (!items.length) throw new Error(`Keine Änderung nötig bzw. nichts anwendbar (${unchanged} unverändert, ${skipped.length} übersprungen: ${skipped.slice(0, 3).map(s => s.reason).join('; ')})`);
   return { cs: { id: newIdSafe(), kind: 'categories', entity: 'category', title, reason, items, skipped, unchanged, atomic: false }, payload: { store: await ro.store() } };
 }
-reg.register('categories', (c, cs, payload, selected, ctx) => applyGrouped(cs, selected, (id, its) => {
+reg.register('categories', (c, cs, payload, selected, ctx) => applyGrouped(cs, selected, async (id, its) => {
+  const store = (payload as CatalogPayload).store;
+  const fresh = await getCategory(c, id, store);
+  if (!fresh) throw new Error('Kategorie nicht mehr vorhanden');
+  const { live, failed } = splitStale(its, it => {
+    const def = OM_CATEGORY_FIELDS[it.field!];
+    if (!def?.attr) return undefined;
+    return def.kind === 'bool' ? (catActive(fresh) ? 1 : 0) : omAttr(fresh, def.attr);
+  });
+  if (!live.length) return { undo: [], failed };
   const scoped: Record<string, unknown> = {};
-  for (const it of its) scoped[OM_CATEGORY_FIELDS[it.field!].attr!] = it.afterRaw;
-  return writeScoped(c, 'category', id, (payload as CatalogPayload).store, scoped);
+  for (const it of live) scoped[OM_CATEGORY_FIELDS[it.field!].attr!] = it.afterRaw;
+  try { return { undo: await writeScoped(c, 'category', id, store, scoped), ...(failed.length ? { failed } : {}) }; }
+  catch (e) { return withFailed(e, [], failed); }
 }, ctx));
 
 // ================= Übersetzungen (Store-Views) =================

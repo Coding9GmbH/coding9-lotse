@@ -6,7 +6,7 @@ import type { PageSpec } from './cms';
 import { parsePartial } from './partial-json';
 import { buildSystem } from './prompt';
 import { getSession, persist } from './sessions';
-import { aiEnv, getSettings } from './settings';
+import { aiEnv, getSettings, redact } from './settings';
 import { allToolsFor, buildToolServer } from './tools';
 import { getPlatform } from './platform';
 import { targetHint } from './target-hint';
@@ -15,6 +15,12 @@ import type { Session } from './sessions';
 import { errMsg } from './util';
 
 const PERSIST_ON = new Set(['draft', 'styleguide', 'approval', 'changeset', 'changeset_result', 'question']);
+
+/** Vorschau eines Werkzeugergebnisses: dieselbe Schwärzung wie bei Codex, höchstens 300 Zeichen. */
+export function previewToolResult(content: unknown): string {
+  const txt = Array.isArray(content) ? content.map(c => (c && typeof c === 'object' && 'text' in c ? String((c as { text: unknown }).text) : '')).join('') : String(content);
+  return redact(txt).slice(0, 300);
+}
 
 /** Ereignis in den Verlauf aufnehmen: nur-live-Ereignisse weglassen, Text zusammenfassen, von Entwürfen nur die letzte Vorschau (HTML) behalten. */
 export function recordEvent(events: ChatEvent[], ev: ChatEvent) {
@@ -114,8 +120,7 @@ async function runClaude(s: Session, prompt: string, ac: AbortController, emit: 
         for (const b of m.message.content) if (b.type === 'tool_use') emit({ t: 'tool', id: b.id, name: b.name.replace('mcp__shop__', ''), input: b.input });
       } else if (m.type === 'user' && Array.isArray(m.message?.content)) {
         for (const b of m.message.content) if (b.type === 'tool_result') {
-          const txt = Array.isArray(b.content) ? b.content.map(c => ('text' in c ? c.text : '')).join('') : String(b.content);
-          emit({ t: 'tool_result', id: b.tool_use_id, error: !!b.is_error, preview: txt.slice(0, 300) });
+          emit({ t: 'tool_result', id: b.tool_use_id, error: !!b.is_error, preview: previewToolResult(b.content) });
         }
       } else if (m.type === 'result') {
         end = { error: m.is_error ? (('result' in m ? m.result : '') || m.subtype) : null, cost: m.total_cost_usd }; persist(s);

@@ -134,9 +134,15 @@ export class Shopware implements ShopReader {
     const id = newId();
     await this.create('media', { id, mediaFolderId: folderId ?? null, private: false });
     const token = await this.auth();
-    const r = await shopFetch(`${this.base}/api/_action/media/${id}/upload?extension=${ext}&fileName=${encodeURIComponent(fileName)}`, {
-      method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': mime, accept: 'application/json' }, body: new Uint8Array(buf),
-    });
+    let r: Response;
+    try {
+      r = await shopFetch(`${this.base}/api/_action/media/${id}/upload?extension=${ext}&fileName=${encodeURIComponent(fileName)}`, {
+        method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': mime, accept: 'application/json' }, body: new Uint8Array(buf),
+      });
+    } catch (e) {
+      await this.req('DELETE', `/media/${id}`).catch(() => {});
+      throw e;
+    }
     if (!r.ok) { await this.req('DELETE', `/media/${id}`).catch(() => {}); throw new Error(`Medien-Upload fehlgeschlagen (${r.status}): ${(await r.text()).slice(0, 300)}`); }
     return id;
   }

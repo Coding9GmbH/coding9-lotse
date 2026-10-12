@@ -14,14 +14,15 @@ export type ToFrame =
 /** Entwurf → Oberfläche */
 export type FromFrame =
   | { t: 'scroll'; top: number }
-  | { t: 'pick'; tag: string; text: string; alt: string; isButton: boolean; section?: string; path: string; x: number; y: number };
+  | { t: 'pick'; tag: string; text: string; alt: string; isButton: boolean; section?: string; path: string; x: number; y: number }
+  | { t: 'targets'; items: { tag: string; text: string; alt: string; isButton: boolean; section?: string; path: string }[] };
 
 /** Eindeutiges Kennzeichen prüfen (Nachrichten anderer Herkunft werden ignoriert) */
 export const isFrameMessage = (d: unknown): d is { t: string } & Record<string, unknown> => !!d && typeof d === 'object' && (d as { lotse?: unknown }).lotse === FRAME_TAG && typeof (d as { t?: unknown }).t === 'string';
 
 /** Styles für Markier-Modus und Nummern (Teil des Vorschau-Dokuments; für das Live-iframe injiziert sie annotator.ts) */
 export const FRAME_CSS = `.__lotse-hover{outline:2px solid #FF786D!important;outline-offset:2px;cursor:crosshair!important}
-.__lotse-pin{position:absolute;z-index:2147483647;min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:#FF786D;color:#fff;font:700 12px/22px Inter,system-ui,sans-serif;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.25);pointer-events:none}
+.__lotse-pin{position:absolute;z-index:2147483647;min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:#FF786D;color:#2e2e38;font:700 12px/22px Inter,system-ui,sans-serif;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.25);pointer-events:none}
 html.__lotse-on a,html.__lotse-on button{cursor:crosshair!important}`;
 
 /** Sinnvolle Zielelemente im Markier-Modus: was ein Mensch als „das da“ bezeichnen würde */
@@ -40,6 +41,11 @@ document.addEventListener('mouseleave',function(){if(on)leave()},true);
 document.addEventListener('click',function(e){if(!on)return;e.preventDefault();e.stopPropagation();var t=target(e.target);if(!t)return;
 var isButton=t.tagName==='BUTTON'||t.classList.contains('btn')||/button/.test(String(t.className));
 send({t:'pick',tag:t.tagName,text:String(t.innerText||t.textContent||'').slice(0,300),alt:String(t.alt||'').slice(0,300),isButton:isButton,section:sectionTitle(t),path:cssPath(t),x:e.clientX,y:e.clientY})},true);
+document.addEventListener('keydown',function(e){if(!on)return;if(e.key!=='Enter'&&e.key!==' ')return;var t=target(e.target);if(!t)return;e.preventDefault();e.stopPropagation();
+var isButton=t.tagName==='BUTTON'||t.classList.contains('btn')||/button/.test(String(t.className));
+send({t:'pick',tag:t.tagName,text:String(t.innerText||t.textContent||'').slice(0,300),alt:String(t.alt||'').slice(0,300),isButton:isButton,section:sectionTitle(t),path:cssPath(t),x:0,y:0})},true);
+document.addEventListener('focusin',function(e){if(!on)return;var t=target(e.target);if(t===hov)return;leave();hov=t;if(t)t.classList.add('__lotse-hover')},true);
+function listTargets(){var els=document.querySelectorAll(${JSON.stringify(MEANINGFUL)});var items=[];for(var i=0;i<els.length&&items.length<40;i++){var t=els[i];if(t.tabIndex<0)t.tabIndex=0;var isButton=t.tagName==='BUTTON'||t.classList.contains('btn')||/button/.test(String(t.className));items.push({tag:t.tagName,text:String(t.innerText||t.textContent||'').slice(0,120),alt:String(t.alt||'').slice(0,120),isButton:isButton,section:sectionTitle(t),path:cssPath(t)})}send({t:'targets',items:items})}
 document.addEventListener('submit',block,true);document.addEventListener('auxclick',block,true);
 function pins(paths){var old=document.querySelectorAll('.__lotse-pin');for(var i=0;i<old.length;i++)old[i].remove();if(!document.body)return;
 for(var n=0;n<paths.length;n++){var el=null;try{el=document.querySelector(paths[n])}catch(e){}if(!el)continue;var r=el.getBoundingClientRect(),pin=document.createElement('span');pin.className='__lotse-pin';pin.textContent=String(n+1);
@@ -49,6 +55,6 @@ window.addEventListener('message',function(e){if(e.source!==P)return;var d=e.dat
 if(d.t==='body'){var y=window.scrollY,atEnd=y>0&&y+window.innerHeight>=document.documentElement.scrollHeight-40;
 document.body.innerHTML=new DOMParser().parseFromString(String(d.html),'text/html').body.innerHTML;window.scrollTo({top:atEnd?document.documentElement.scrollHeight:y,behavior:'instant'})}
 else if(d.t==='scroll')window.scrollTo({top:Number(d.top)||0,behavior:'instant'});
-else if(d.t==='mark'){on=!!d.on;document.documentElement.classList.toggle('__lotse-on',on);if(!on)leave()}
+else if(d.t==='mark'){on=!!d.on;document.documentElement.classList.toggle('__lotse-on',on);if(!on)leave();else listTargets()}
 else if(d.t==='pins'){var ps=[];if(Array.isArray(d.paths))for(var k=0;k<d.paths.length;k++)ps.push(String(d.paths[k]));pins(ps)}});
 })();`;

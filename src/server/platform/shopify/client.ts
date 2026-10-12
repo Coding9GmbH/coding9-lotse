@@ -45,6 +45,8 @@ export class ShopifyError extends Error {
 export type Json = Record<string, any>;
 interface Throttle { max: number; available: number; restoreRate: number; at: number }
 export interface ClientOpts { fetch?: typeof fetch; sleep?: (ms: number) => Promise<void>; timeoutMs?: number; maxRetries?: number }
+/** Wie Magento und OpenMage: LOTSE_SHOP_TIMEOUT_MS, mindestens 5s, sonst 60s. */
+export const shopTimeoutMs = (raw = process.env.LOTSE_SHOP_TIMEOUT_MS) => Math.max(5_000, parseInt(raw ?? '', 10) || 60_000);
 
 const isMutation = (q: string) => /^\s*mutation\b/.test(q.replace(/#[^\n]*/g, ''));
 const sleepReal = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -91,7 +93,7 @@ export class ShopifyClient {
       let res: Response;
       try {
         res = await f(url, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
-          body: new URLSearchParams({ grant_type: 'client_credentials', client_id: c.clientId ?? '', client_secret: c.clientSecret ?? '' }).toString(), signal: AbortSignal.timeout(this.opts.timeoutMs ?? 30_000) });
+          body: new URLSearchParams({ grant_type: 'client_credentials', client_id: c.clientId ?? '', client_secret: c.clientSecret ?? '' }).toString(), signal: AbortSignal.timeout(this.opts.timeoutMs ?? shopTimeoutMs()) });
       } catch (e) {
         if (attempt < 2) { await sleep(500 * 2 ** attempt); continue; }
         throw new ShopifyError(this.clean(`Shopify nicht erreichbar (${c.domain}): ${e instanceof Error ? e.message : String(e)}`));
@@ -123,7 +125,7 @@ export class ShopifyClient {
       const token = await this.accessToken(c);
       let res: Response;
       try {
-        res = await f(c.endpoint, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', 'x-shopify-access-token': token }, body: JSON.stringify({ query, variables: variables ?? {} }), signal: AbortSignal.timeout(this.opts.timeoutMs ?? 30_000) });
+        res = await f(c.endpoint, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', 'x-shopify-access-token': token }, body: JSON.stringify({ query, variables: variables ?? {} }), signal: AbortSignal.timeout(this.opts.timeoutMs ?? shopTimeoutMs()) });
       } catch (e) {
         if (!write && attempt < 3) { await sleep(500 * 2 ** attempt); continue; }
         throw new ShopifyError(this.clean(`Shopify nicht erreichbar (${c.domain}): ${e instanceof Error ? e.message : String(e)}`));

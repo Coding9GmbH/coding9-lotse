@@ -87,9 +87,15 @@ export async function downloadImage(url: string) {
     return { buf: Buffer.from(await r.arrayBuffer()), mime };
   }
 }
+const IMPORT_MAP = 'import_map';
 export async function importFromUrl(sw: Shopware, url: string, { alt, name, folder }: { alt?: string; name?: string; folder?: string } = {}) { // schreibend – nur im Executor nach Freigabe
+  const known = kvGet<Record<string, string>>(IMPORT_MAP)?.[url];
+  const row = known ? await sw.get('media', known).catch(() => null) : null;
+  if (known && row) return { mediaId: known, url: row.url, fileName: `${row.fileName}.${row.fileExtension}`, alt: alt ?? row.alt ?? null };
   const { buf, mime } = await downloadImage(url);
-  return uploadBuffer(sw, buf, mime, { name: name ?? (new URL(url).pathname.split('/').pop() ?? '').replace(/\.[a-z0-9]+$/i, ''), alt, folder });
+  const up = await uploadBuffer(sw, buf, mime, { name: name ?? (new URL(url).pathname.split('/').pop() ?? '').replace(/\.[a-z0-9]+$/i, ''), alt, folder });
+  kvSet(IMPORT_MAP, { ...(kvGet<Record<string, string>>(IMPORT_MAP) ?? {}), [url]: up.mediaId });
+  return up;
 }
 
 // ---- Staging: Bilder der KI liegen NUR lokal (data/staging), bis eine Veröffentlichung freigegeben wird ----

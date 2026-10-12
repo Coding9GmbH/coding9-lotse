@@ -15,7 +15,7 @@ import { renderPageHtml, renderPageParts } from '../../page-html';
 import { newId } from '../../shopware';
 import { shortId, toGid, type Json, type ShopifyClient } from './client';
 import { collectionsByIds, idsWhere, mediaByIds, productsByIds, qField, shopInfo, stripHtml, type Q } from './data';
-import { deleteOp, M, reqOp, run, runCreating, runRecording, undoShopify } from './ops';
+import { deleteOp, M, reqOp, runCreating, runRecording, undoShopify } from './ops';
 import { PREVIEW_SEL, previewProduct } from './preview';
 import {
   isLotseSuffix, mainTheme, MAX_HTML, metaKey, pageTemplate, parseTemplate, readThemeFiles, SECTION_FILE, SECTION_LIQUID, storedBase, stripLotse, suffixOf, templateFile,
@@ -112,6 +112,17 @@ export async function buildShopifyPublish(q: Q, spec: PageSpec, a: ShopifyPublis
 const safeHost = (u: string) => { try { return new URL(u).host; } catch { return ''; } };
 
 // ======================= Executor (privilegierter Client) =======================
+const fileNameOf = (source: string) => { try { return decodeURIComponent(new URL(source).pathname.split('/').pop() || ''); } catch { return ''; } };
+/** Datei anlegen. Geht die Antwort verloren, wird die neue Datei per Dateiname nachgelesen und zum Löschen vorgemerkt. */
+export async function createShopFile(client: ShopifyClient, source: string, alt: string, undo: UndoOp[]): Promise<Json> {
+  const q: Q = (d, v) => client.gql(d, v), name = fileNameOf(source);
+  const ids = () => (name ? idsWhere(q, 'files', qField('filename', name)) : Promise.resolve([] as string[]));
+  const r = await runCreating<Json>(client, M.fileCreate, { files: [{ originalSource: source, contentType: 'IMAGE', alt }] }, undo, 'file', ids);
+  const id = r.files?.[0]?.id as string | undefined;
+  if (!id) throw new Error('Shopify lieferte keine Datei-ID');
+  if (!undo.some(o => o.op === 'delete' && o.entity === 'file' && o.id === id)) undo.push(deleteOp('file', id));
+  return r.files[0];
+}
 /** Bilder auflösen: vorgemerkte hochladen, fremde URLs importieren (Dateien), vorhandene Medien → URL. Angelegte Dateien → Rückgängig */
 async function resolveImages(client: ShopifyClient, spec: PageSpec, undo: UndoOp[], sleep: (ms: number) => Promise<void>): Promise<(im: ImageRef) => string | null> {
   const q: Q = (d, v) => client.gql(d, v), urls = new Map<string, string | null>();
@@ -124,10 +135,8 @@ async function resolveImages(client: ShopifyClient, spec: PageSpec, undo: UndoOp
     if (o.mediaId?.startsWith('staged:')) { const up = await uploadStagedImage(client, o.mediaId.slice(7)); source = up.originalSource; alt = o.alt ?? up.alt; }
     else if (o.url && /^https?:\/\//.test(o.url)) { if (/(^|\.)cdn\.shopify\.com$|\.myshopify\.com$/i.test(safeHost(o.url))) { urls.set(k, o.url); continue; } source = o.url; }
     if (!source) { urls.set(k, null); continue; }
-    const r = await run<Json>(client, M.fileCreate, { files: [{ originalSource: source, contentType: 'IMAGE', alt }] });
-    const id = r.files?.[0]?.id; if (!id) throw new Error('Shopify lieferte keine Datei-ID');
-    undo.push(deleteOp('file', id));
-    urls.set(k, await fileUrl(client, id, r.files[0].image?.url, sleep));
+    const file = await createShopFile(client, source, alt, undo);
+    urls.set(k, await fileUrl(client, file.id, file.image?.url, sleep));
   }
   return im => { const o = typeof im === 'string' ? { url: im } : im; return urls.get(key(o)) ?? (o.url && !o.mediaId ? o.url : null); };
 }

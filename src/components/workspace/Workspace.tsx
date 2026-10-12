@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useAttachments } from '@/hooks/useAttachments';
 import { useChatStream } from '@/hooks/useChatStream';
-import { api, errorText } from '@/lib/api';
+import { api, ApiError, errorText } from '@/lib/api';
+import { approveError } from '@/lib/approve-error';
 import { annotationMessage, type Annotation } from '@/lib/annotations';
 import { attachmentMessage, parseAttachments } from '@/lib/attachments';
 import { chatReducer, initialChatState, isHome, isStillRunning, pendingQuestion, showPreview, stopControl, writeInFlight } from '@/lib/chat-state';
@@ -49,6 +50,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const [chatId, setChatId] = useState<string | null>(initialChatId);
   const [cfg, setCfg] = useState<AppConfig | null>(null);
   const [categories, setCategories] = useState<CategoryRow[] | null>(null);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
   const [contextOpen, setContextOpen] = useState(false);
   const [sgLoaded, setSgLoaded] = useState(shell.styleguideKnown);
   const [exampleProduct, setExampleProduct] = useState('Produkt XY');
@@ -58,6 +60,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const [notes, setNotes] = useState<Annotation[]>([]); // Änderungswünsche aus der Vorschau
   const [previewOpen, setPreviewOpen] = useState(false); // schmaler Viewport: Vorschau über dem Chat
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sentApprovals = useRef(new Set<string>());
   const runGen = useRef(0);
   const busyRef = useRef(false);
   const lastRunEnd = useRef(0);
@@ -75,7 +78,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       if (c.status === 'fulfilled') setCfg(c.value);
       if (sg.status === 'fulfilled' && sg.value !== undefined) dispatch({ type: 'set_styleguide', sg: sg.value && typeof sg.value === 'object' ? sg.value : null });
       setSgLoaded(true);
-      api.categories().then(l => { if (!off) setCategories(l); }).catch(() => { if (!off) setCategories([]); });
+      api.categories().then(l => { if (!off) { setCategoryError(null); setCategories(l); } }).catch(() => { if (!off) setCategoryError('nicht geladen'); });
       api.products('').then(l => { if (!off && l[0]) setExampleProduct(l[0].name); }).catch(() => {});
     })();
     return () => { off = true; };
@@ -83,7 +86,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
 
   const { target, busy, styleguide: sg } = state;
   // Für die Einrichtungs-Karte genügt „eingerichtet ja/nein“ – das kennt der Server schon beim ersten Rendern
-  const homeHealth: Health | null = health ?? (setup && { shopware: { url: '', ok: false, configured: setup.shopware }, ai: { configured: setup.ai } });
+  const homeHealth: Health | null = shell.healthFailed ? null : (health ?? (setup && { shopware: { url: '', ok: false, configured: setup.shopware }, ai: { configured: setup.ai } }));
 
   // Navigation (links) mit dem Zustand der Arbeitsfläche versorgen
   useEffect(() => { setActiveChatId(chatId); return () => setActiveChatId(null); }, [chatId, setActiveChatId]);
@@ -177,8 +180,16 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
 
   const decide = (approvalId: string, allow: boolean, selected?: string[]) => {
     if (!chatId) return;
+    const alreadySent = sentApprovals.current.has(approvalId) || writeInFlight(state);
+    if (sentApprovals.current.has(approvalId)) return;
+    sentApprovals.current.add(approvalId);
     dispatch({ type: 'decide', approvalId, allow, selected });
-    api.approve(chatId, approvalId, allow, selected).catch(e => reportError(`Freigabe konnte nicht gesendet werden: ${errorText(e)}`));
+    api.approve(chatId, approvalId, allow, selected).catch(e => {
+      const status = e instanceof ApiError ? e.status : 0;
+      const text = approveError(status, alreadySent);
+      if (!text) return;
+      reportError(status === 404 ? text : `${text}: ${errorText(e)}`);
+    });
   };
 
   const undo = async (csId: string) => {
@@ -315,7 +326,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     <div className={styles.app} data-mode={mode} data-show={overlay ? 'preview' : undefined}>
 
       <main className={styles.main}>
-        <ContextPanel open={contextOpen} onClose={() => setContextOpen(false)} categories={cats} target={target} onSelect={selectTarget} />
+        <ContextPanel open={contextOpen} onClose={() => setContextOpen(false)} categories={cats} categoryError={categoryError} target={target} onSelect={selectTarget} />
 
         <section className={styles.chat} aria-label="Chat" onDragOver={onDrop} onDrop={onDrop}>
           {home ? (
@@ -323,8 +334,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
               <HomeHead />
               {composer}
               {status}
-              <ChatLog className={styles.homeLog} items={state.items} cfg={cfg} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)}>
-                <HomeContent health={homeHealth} hasStyleguide={sgLoaded ? !!sg : null} product={exampleProduct} category={exampleCategory}
+              <ChatLog className={styles.homeLog} items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)}>
+                <HomeContent health={homeHealth} loadFailed={shell.healthFailed} hasStyleguide={sgLoaded ? !!sg : null} product={exampleProduct} category={exampleCategory}
                   recent={chats ?? []} onExample={t => { setInput(t); inputRef.current?.focus(); }} onOpenChat={id => void openChat(id)} onOnboard={onboard} />
               </ChatLog>
             </>
@@ -336,9 +347,9 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
                 </div>
               )}
               {target && <TargetCard target={target} cfg={cfg} onClear={() => selectTarget(null)} />}
-              <ChatLog items={state.items} cfg={cfg} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} />
+              <ChatLog items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} />
               {status}
-              <Chips items={chips} onPick={s => send(s)} />
+              <Chips items={chips} onPick={s => { setInput(s); inputRef.current?.focus(); }} />
               {composer}
             </>
           )}

@@ -216,6 +216,67 @@ test('Produkte: Texte (global bzw. Store-View mit eigenem Wert), Preis mit Strei
   assert.match(bad.error, /Keine Änderung nötig bzw\. nichts anwendbar/); assert.match(bad.error, /Einzelprodukten/);
 });
 
+test('Name inzwischen geändert: die Zeile wird nicht geschrieben, der Bestand derselben Entität schon', async () => {
+  const { reg, undoMagento } = await import('../../../../src/server/platform/magento/write');
+  const before = fake.snapshot(), c = new MagentoClient({ url: fake.base, accessToken: fake.token });
+  prodVals('VASE')[0].name = 'Vase fremd';
+  const cs = { id: 'cs-stale', kind: 'products', entity: 'product', title: 't', reason: null, skipped: [], atomic: false, items: [
+    { id: '1:name', entity: 'product', entityId: '1', label: 'Vase', field: 'name', fieldLabel: 'Name', before: 'Vase', after: 'Vase neu', afterRaw: 'Vase neu', beforeRaw: 'Vase', warn: [] },
+    { id: '1:stock', entity: 'product', entityId: '1', label: 'Vase', field: 'stock', fieldLabel: 'Bestand', before: '10', after: '4', afterRaw: { source: 'default', quantity: 4 }, beforeRaw: 10, warn: [] },
+  ] };
+  const r = await reg.apply(c, cs, { store: 'default', skus: { 1: 'VASE' } }, new Set(['1:name', '1:stock']));
+  const by = Object.fromEntries(r.results.map(x => [x.itemId, x]));
+  assert.equal(by['1:name'].ok, false, JSON.stringify(r.results));
+  assert.match(by['1:name'].error ?? '', /inzwischen geändert/);
+  assert.equal(by['1:stock'].ok, true, JSON.stringify(r.results));
+  assert.equal(prodVals('VASE')[0].name, 'Vase fremd');
+  assert.equal(fake.sourceItems.find(x => x.sku === 'VASE')!.quantity, 4);
+  assert.ok((await undoMagento(c, r.undo)).every(x => x.ok));
+  prodVals('VASE')[0].name = 'Vase';
+  assert.equal(fake.snapshot(), before);
+});
+
+test('Bestand inzwischen geändert: die Zeile wird nicht geschrieben, der Name derselben Entität schon', async () => {
+  const { reg, undoMagento } = await import('../../../../src/server/platform/magento/write');
+  const before = fake.snapshot(), c = new MagentoClient({ url: fake.base, accessToken: fake.token });
+  fake.sourceItems.find(x => x.sku === 'VASE')!.quantity = 3;
+  const cs = { id: 'cs-stock-stale', kind: 'products', entity: 'product', title: 't', reason: null, skipped: [], atomic: false, items: [
+    { id: '1:name', entity: 'product', entityId: '1', label: 'Vase', field: 'name', fieldLabel: 'Name', before: 'Vase', after: 'Vase neu', afterRaw: 'Vase neu', beforeRaw: 'Vase', warn: [] },
+    { id: '1:stock', entity: 'product', entityId: '1', label: 'Vase', field: 'stock', fieldLabel: 'Bestand', before: '10', after: '4', afterRaw: { source: 'default', quantity: 4 }, beforeRaw: 10, warn: [] },
+  ] };
+  const r = await reg.apply(c, cs, { store: 'default', skus: { 1: 'VASE' } }, new Set(['1:name', '1:stock']));
+  const by = Object.fromEntries(r.results.map(x => [x.itemId, x]));
+  assert.equal(by['1:stock'].ok, false, JSON.stringify(r.results));
+  assert.match(by['1:stock'].error ?? '', /inzwischen geändert/);
+  assert.equal(by['1:name'].ok, true, JSON.stringify(r.results));
+  assert.equal(fake.sourceItems.find(x => x.sku === 'VASE')!.quantity, 3);
+  assert.equal(prodVals('VASE')[0].name, 'Vase neu');
+  assert.ok((await undoMagento(c, r.undo)).every(x => x.ok));
+  fake.sourceItems.find(x => x.sku === 'VASE')!.quantity = 10;
+  assert.equal(fake.snapshot(), before);
+});
+
+test('Kategoriename inzwischen geändert: die Zeile wird nicht geschrieben, der Meta-Title schon', async () => {
+  const { reg, undoMagento } = await import('../../../../src/server/platform/magento/write');
+  const before = fake.snapshot(), c = new MagentoClient({ url: fake.base, accessToken: fake.token });
+  const cat = fake.categories.find(x => x.id === 3)!;
+  cat.vals[0].name = 'Fremd';
+  const cs = { id: 'cs-cat-stale', kind: 'categories', entity: 'category', title: 't', reason: null, skipped: [], atomic: false, items: [
+    { id: '3:name', entity: 'category', entityId: '3', label: 'Wohnaccessoires', field: 'name', fieldLabel: 'Name', before: 'Wohnaccessoires', after: 'Wohnen', afterRaw: 'Wohnen', beforeRaw: 'Wohnaccessoires', warn: [] },
+    { id: '3:metaTitle', entity: 'category', entityId: '3', label: 'Wohnaccessoires', field: 'metaTitle', fieldLabel: 'Meta-Title', before: '–', after: 'Neu', afterRaw: 'Neu', beforeRaw: null, warn: [] },
+  ] };
+  const r = await reg.apply(c, cs, { store: 'default' }, new Set(['3:name', '3:metaTitle']));
+  const by = Object.fromEntries(r.results.map(x => [x.itemId, x]));
+  assert.equal(by['3:name'].ok, false, JSON.stringify(r.results));
+  assert.match(by['3:name'].error ?? '', /inzwischen geändert/);
+  assert.equal(by['3:metaTitle'].ok, true, JSON.stringify(r.results));
+  assert.equal(cat.vals[0].name, 'Fremd');
+  assert.equal(cat.vals[0].meta_title, 'Neu');
+  assert.ok((await undoMagento(c, r.undo)).every(x => x.ok));
+  cat.vals[0].name = 'Wohnaccessoires';
+  assert.equal(fake.snapshot(), before);
+});
+
 test('Bestand schlägt fehl: geschriebene Felder bleiben gültig und rückgängig machbar', async () => {
   const { reg, undoMagento } = await import('../../../../src/server/platform/magento/write');
   const before = fake.snapshot(), c = new MagentoClient({ url: fake.base, accessToken: fake.token });

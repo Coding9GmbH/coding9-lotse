@@ -2,7 +2,7 @@ import 'server-only';
 // Codex-Laufzeit (ChatGPT-Abo): gleiche Shop-Tools wie bei Claude, aber über einen MCP-Endpunkt von Lotse (/api/mcp/<chatId>).
 import { Codex, type ThreadItem, type ThreadOptions } from '@openai/codex-sdk';
 import type { ChatEvent } from '@/lib/protocol';
-import { codexConfig, codexEnv, codexLoggedIn, mcpTokenFor } from './codex';
+import { bindRoundToken, codexConfig, codexEnv, codexLoggedIn, mcpTokenFor } from './codex';
 import type { PlatformKind } from '@/lib/platforms';
 import { buildSystem } from './prompt';
 import { persist, type Session } from './sessions';
@@ -69,42 +69,46 @@ export function onCodexItem(
   }
 }
 
-/** Eine Chat-Runde mit Codex. Abbruch über `signal` (Client weg). */
+/** Eine Chat-Runde mit Codex. Abbruch über `signal` (Client weg). Das MCP-Token gilt bis zum Ende, auch während einer Freigabe. */
 export async function runCodex(s: Session, prompt: string, signal: AbortSignal, emit: (ev: ChatEvent) => void): Promise<RunEnd> {
-  if (!codexLoggedIn()) return { error: 'Codex ist nicht mit ChatGPT angemeldet (Einstellungen → KI verbinden).' };
-  const ac = new AbortController();
-  if (signal.aborted) ac.abort(); else signal.addEventListener('abort', () => ac.abort(), { once: true });
-  const texts = new Map<string, number>(); // agent_message-ID → bereits gesendete Zeichen
-  const tools = new Set<string>();
-  let failed: string | null = null;
-  try {
-    const { codex, opts } = client(s.id, s.platform);
-    const thread = s.codexThreadId ? codex.resumeThread(s.codexThreadId, opts) : codex.startThread(opts);
-    const { events } = await thread.runStreamed(prompt, { signal: ac.signal });
-    for await (const ev of events) {
-      if (ev.type === 'thread.started') { s.codexThreadId = ev.thread_id; persist(s); continue; }
-      if (ev.type === 'turn.failed') { failed = ev.error.message; continue; }
-      if (ev.type === 'error') { failed = ev.message; continue; }
-      if (ev.type === 'turn.completed') continue;
-      if (ev.type !== 'item.started' && ev.type !== 'item.updated' && ev.type !== 'item.completed') continue;
-      const stop = onCodexItem(ev.item, ev.type, { texts, tools }, emit);
-      if (stop.abort) { failed = stop.abort; ac.abort(); }
+  return bindRoundToken(s.id, async () => {
+    if (!codexLoggedIn()) return { error: 'Codex ist nicht mit ChatGPT angemeldet (Einstellungen → KI verbinden).' };
+    const ac = new AbortController();
+    if (signal.aborted) ac.abort(); else signal.addEventListener('abort', () => ac.abort(), { once: true });
+    const texts = new Map<string, number>(); // agent_message-ID → bereits gesendete Zeichen
+    const tools = new Set<string>();
+    let failed: string | null = null;
+    try {
+      const { codex, opts } = client(s.id, s.platform);
+      const thread = s.codexThreadId ? codex.resumeThread(s.codexThreadId, opts) : codex.startThread(opts);
+      const { events } = await thread.runStreamed(prompt, { signal: ac.signal });
+      for await (const ev of events) {
+        if (ev.type === 'thread.started') { s.codexThreadId = ev.thread_id; persist(s); continue; }
+        if (ev.type === 'turn.failed') { failed = ev.error.message; continue; }
+        if (ev.type === 'error') { failed = ev.message; continue; }
+        if (ev.type === 'turn.completed') continue;
+        if (ev.type !== 'item.started' && ev.type !== 'item.updated' && ev.type !== 'item.completed') continue;
+        const stop = onCodexItem(ev.item, ev.type, { texts, tools }, emit);
+        if (stop.abort) { failed = stop.abort; ac.abort(); }
+      }
+      persist(s);
+      return { error: failed };
+    } catch (e) {
+      persist(s);
+      return { error: failed ?? (ac.signal.aborted ? 'Abgebrochen.' : redact(errMsg(e))) };
     }
-    persist(s);
-    return { error: failed };
-  } catch (e) {
-    persist(s);
-    return { error: failed ?? (ac.signal.aborted ? 'Abgebrochen.' : redact(errMsg(e))) };
-  }
+  });
 }
 
 /** Verbindungstest: kurze Runde ohne Werkzeuge. */
 export async function pingCodex(): Promise<string> {
-  if (!codexLoggedIn()) throw new Error('Nicht mit ChatGPT angemeldet. Zuerst „Mit ChatGPT anmelden“ (Einstellungen).');
-  const { codex, opts } = client('ping');
-  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 90_000);
-  try {
-    const turn = await codex.startThread(opts).run('Antworte exakt mit dem Wort: OK', { signal: ac.signal });
-    return turn.finalResponse;
-  } finally { clearTimeout(t); }
+  return bindRoundToken('ping', async () => {
+    if (!codexLoggedIn()) throw new Error('Nicht mit ChatGPT angemeldet. Zuerst „Mit ChatGPT anmelden“ (Einstellungen).');
+    const { codex, opts } = client('ping');
+    const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 90_000);
+    try {
+      const turn = await codex.startThread(opts).run('Antworte exakt mit dem Wort: OK', { signal: ac.signal });
+      return turn.finalResponse;
+    } finally { clearTimeout(t); }
+  });
 }

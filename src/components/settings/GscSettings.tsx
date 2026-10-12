@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
+import { GSC_QUERY_NOTICE } from '@/lib/privacy-copy';
 import { connectionTestBlock } from '@/lib/settings-form';
 import type { GscPublic, GscTestResult } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
@@ -14,6 +15,7 @@ export function GscSettings() {
   const [replace, setReplace] = useState(false);
   const [property, setProperty] = useState('');
   const [busy, setBusy] = useState<'save' | 'test' | 'off' | null>(null);
+  const [confirmOff, setConfirmOff] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [test, setTest] = useState<GscTestResult | null>(null);
   const file = useRef<HTMLInputElement>(null);
@@ -54,7 +56,7 @@ export function GscSettings() {
 
   return (
     <Card connected={pub.hasKey ? pub.connected : null}>
-      <p className={styles.hint}>Echte Suchdaten (Klicks, Impressionen, Position) für bessere Meta-Daten, Inhaltslücken und die Erfolgsmessung deiner Änderungen. Lotse liest nur.</p>
+      <p className={styles.hint}>Echte Suchdaten (Klicks, Impressionen, Position) für bessere Meta-Daten, Inhaltslücken und die Erfolgsmessung deiner Änderungen. Lotse liest nur. {GSC_QUERY_NOTICE}</p>
       <ol className={styles.steps}>
         <li>In der <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">Google Cloud Console</a> die <b>Google Search Console API</b> aktivieren und ein <b>Service-Konto</b> mit JSON-Schlüssel anlegen.</li>
         <li>In der Search Console unter <b>Einstellungen → Nutzer und Berechtigungen</b> die E-Mail des Service-Kontos als Nutzer hinzufügen. Die Berechtigung „Eingeschränkt“ genügt.</li>
@@ -83,8 +85,18 @@ export function GscSettings() {
             <span className={styles.savedTag}>Schlüssel gespeichert</span>
           </span>
           <span className={styles.keyBtns}>
-            <Button size="sm" onClick={() => setReplace(true)}>Ersetzen</Button>
-            <Button size="sm" variant="danger" busy={busy === 'off'} onClick={() => void disconnect()}>Trennen</Button>
+            {confirmOff ? (
+              <>
+                <span className={styles.fieldHint}>Schlüssel trennen? Er lässt sich hier nicht wieder anzeigen.</span>
+                <Button size="sm" variant="danger" busy={busy === 'off'} onClick={() => void disconnect()}>Trennen</Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirmOff(false)}>Abbrechen</Button>
+              </>
+            ) : (
+              <>
+                <Button size="sm" onClick={() => setReplace(true)}>Ersetzen</Button>
+                <Button size="sm" variant="danger" onClick={() => setConfirmOff(true)}>Trennen</Button>
+              </>
+            )}
           </span>
         </div>
       )}

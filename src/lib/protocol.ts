@@ -51,6 +51,8 @@ export interface UndoOp {
   op: 'patch' | 'delete' | 'create' | 'req'; entity: string; id: string; data?: Record<string, unknown>; method?: string; path?: string; body?: unknown;
   /** Plattform, deren Adapter den Schritt ausführt (fehlt bei Altbestand = shopware) */
   platform?: PlatformKind;
+  /** Werte, die Lotse geschrieben hat. Fehlt der Eintrag, stellt Rückgängig den Vorher-Wert ohne erneuten Vergleich her. */
+  wrote?: Record<string, unknown>;
 }
 export interface UndoOutcome { ok: boolean; error?: string }
 export interface PublishedInfo { url?: string; cmsPageId?: string; adminUrl?: string; [k: string]: unknown }

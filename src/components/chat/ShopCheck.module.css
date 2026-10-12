@@ -2,7 +2,7 @@
 .head { display: flex; justify-content: space-between; align-items: center; gap: 10px 14px; flex-wrap: wrap; padding-bottom: 10px; }
 .title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
 .title b { font-family: var(--display); font-size: 16px; color: var(--ink); }
-.sum { font-size: 13px; color: var(--coral-d); font-weight: 600; }
+.sum { font-size: 13px; color: var(--warn); font-weight: 600; }
 .sumOk { color: var(--green-d); }
 .sumWarn { color: var(--warn); }
 .meta { display: flex; align-items: center; gap: 10px; color: var(--mute); font-size: 12px; margin-left: auto; }
@@ -16,7 +16,7 @@
 .row { display: grid; grid-template-columns: 74px 1fr auto; gap: 4px 12px; align-items: start; padding: 7px 0; }
 .row + .row { border-top: 1px dashed var(--line); }
 .sev { justify-self: start; font: 600 10.5px var(--body); letter-spacing: .05em; text-transform: uppercase; border-radius: 99px; padding: 2px 9px; margin-top: 2px; white-space: nowrap; }
-.hoch { background: var(--coral-bg); color: var(--coral-d); }
+.hoch { background: var(--coral-bg); color: var(--warn); }
 .mittel { background: var(--warn-bg); color: var(--warn); }
 .niedrig { background: var(--green-bg); color: var(--green-d); }
 .body { min-width: 0; }
@@ -45,7 +45,7 @@
 
 .warn { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; border-top: 1px solid var(--line); padding: 10px 0; font-size: 13px; color: var(--ink); }
 .warn b { color: var(--warn); }
-.error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; border-top: 1px solid var(--line); padding: 10px 0; color: var(--coral-d); font-size: 13px; }
+.error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; border-top: 1px solid var(--line); padding: 10px 0; color: var(--warn); font-size: 13px; }
 
 .skeleton { border-top: 1px solid var(--line); padding: 6px 0 8px; }
 .skeleton > div { display: grid; grid-template-columns: 74px 1fr 70px; gap: 12px; align-items: center; padding: 9px 0; }

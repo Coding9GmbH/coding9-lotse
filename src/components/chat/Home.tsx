@@ -19,6 +19,8 @@ export function HomeHead() {
 
 interface Props {
   health: Health | null;
+  /** Statusabruf fehlgeschlagen: nicht als „nicht verbunden“ und nicht als bereit zeigen. */
+  loadFailed?: boolean;
   hasStyleguide: boolean | null;
   product: string;
   category: string;
@@ -29,11 +31,17 @@ interface Props {
 }
 
 /** Startbildschirm: Einrichtung, Styleguide-Empfehlung, Shop-Check, Beispiele, zuletzt genutzte Chats. */
-export function HomeContent({ health, hasStyleguide, product, category, recent, onExample, onOpenChat, onOnboard }: Props) {
-  const needsSetup = health && (!health.shopware.configured || !health.ai.configured);
-  const ready = health && health.shopware.configured && health.ai.configured;
+export function HomeContent({ health, loadFailed = false, hasStyleguide, product, category, recent, onExample, onOpenChat, onOnboard }: Props) {
+  const needsSetup = !loadFailed && health && (!health.shopware.configured || !health.ai.configured);
+  const ready = !loadFailed && health && health.shopware.configured && health.ai.configured;
   return (
     <div className={styles.home}>
+      {loadFailed && (
+        <div className={`${styles.card} ${styles.setup}`}>
+          <b>Status nicht geladen</b>
+          <p>Ob Shop und KI verbunden sind, ist gerade nicht bekannt.</p>
+        </div>
+      )}
       {needsSetup && (
         <div className={`${styles.card} ${styles.setup}`}>
           <b>Lotse einrichten</b>

@@ -1,10 +1,10 @@
 .default {}
 .primary { background: var(--coral); border-color: var(--coral); color: var(--dark); font-weight: 600; }
-.primary:hover { background: var(--coral-d); border-color: var(--coral-d); }
+.primary:hover { background: var(--coral); border-color: var(--coral); }
 .primary:disabled:hover { background: var(--coral); border-color: var(--coral); }
 .ghost { background: transparent; border-color: transparent; color: var(--mute); }
 .ghost:hover { border-color: var(--line); color: var(--ink); }
-.danger { color: var(--coral-d); }
+.danger { color: var(--warn); }
 .danger:hover { border-color: var(--coral-d); }
 .sm { font-size: 12px; padding: 3px 10px; }
 .busy { pointer-events: none; opacity: .7; }

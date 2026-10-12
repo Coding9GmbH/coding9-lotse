@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { inertExcept } from '@/lib/a11y';
 import { IconMenu } from '@/components/ui/icons';
 import { useShell } from './ShellProvider';
 import { SideNav } from './SideNav';
@@ -12,6 +13,7 @@ import styles from './AppShell.module.css';
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { collapsed, mobileOpen, setMobileOpen } = useShell();
   const path = usePathname();
+  const menuRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { setMobileOpen(false); }, [path, setMobileOpen]);
   useEffect(() => {
@@ -20,11 +22,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [mobileOpen, setMobileOpen]);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const nav = document.getElementById('lotse-nav');
+    if (!nav) return;
+    const release = inertExcept(nav);
+    const menu = menuRef.current;
+    nav.querySelector<HTMLElement>('a, button')?.focus();
+    return () => {
+      release();
+      menu?.focus();
+    };
+  }, [mobileOpen]);
 
   return (
     <div className={styles.shell} data-collapsed={collapsed || undefined}>
       <header className={styles.mobileBar}>
-        <button type="button" className={styles.menu} onClick={() => setMobileOpen(true)} aria-label="Navigation öffnen"
+        <button type="button" ref={menuRef} className={styles.menu} onClick={() => setMobileOpen(true)} aria-label="Navigation öffnen"
           aria-expanded={mobileOpen} aria-controls="lotse-nav"><IconMenu size={20} /></button>
         <Link href="/" className={styles.mobileBrand}>
           {/* eslint-disable-next-line @next/next/no-img-element -- kleines SVG-Logo */}
@@ -32,7 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
       </header>
       <SideNav />
-      {mobileOpen && <div className={styles.backdrop} onClick={() => setMobileOpen(false)} aria-hidden="true" />}
+      {mobileOpen && <div className={styles.backdrop} data-dismiss="" onClick={() => setMobileOpen(false)} aria-hidden="true" />}
       <div className={styles.content}>{children}</div>
     </div>
   );

@@ -294,11 +294,13 @@ export async function buildNewProductsChangeSet(ro: OmReader, { title, reason, p
  * (Schritte von applyImages, mode=delete; das Löschen des Produkts allein ließe die Dateien unter media/catalog/product liegen), dann das Produkt.
  */
 export async function createProduct(c: OmClient, p: NewProductPlan): Promise<UndoOp[]> {
+  if (await getProduct(c, p.sku)) throw new Error(`SKU ${p.sku} ist schon vergeben`);
   const attributes: Record<string, unknown> = { name: p.name, price: p.price, description: p.description, url_key: p.urlKey, status: p.active ? 1 : 2, visibility: 4, ...(p.taxClassId != null ? { tax_class_id: p.taxClassId } : {}),
     ...(p.shortDescription ? { short_description: p.shortDescription } : {}), ...(p.metaTitle ? { meta_title: p.metaTitle } : {}), ...(p.metaDescription ? { meta_description: p.metaDescription } : {}), ...(p.keywords ? { meta_keyword: p.keywords } : {}), ...(p.weight != null ? { weight: p.weight } : {}), ...(p.extra ?? {}) };
   for (const k of Object.keys(attributes)) if (attributes[k] === null || attributes[k] === undefined) delete attributes[k];
-  await c.req('POST', '/v1/products', { sku: p.sku, type_id: 'simple', attribute_set_id: p.attributeSetId, website_ids: p.websiteIds, attributes, stock: { qty: p.stock, is_in_stock: p.stock > 0 }, categories: p.categoryIds.map((id, k) => ({ id: Number(id), position: k })) });
   const undo = [reqOp('product', p.sku, 'DELETE', `/v1/products/${skuPath(p.sku)}`)];
+  try { await c.req('POST', '/v1/products', { sku: p.sku, type_id: 'simple', attribute_set_id: p.attributeSetId, website_ids: p.websiteIds, attributes, stock: { qty: p.stock, is_in_stock: p.stock > 0 }, categories: p.categoryIds.map((id, k) => ({ id: Number(id), position: k })) }); }
+  catch (e) { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo }); }
   if (p.images.length) {
     try { undo.push(...await applyImages(c, { sku: p.sku, adds: p.images.map((ref, i) => ({ ref, label: p.name, position: i + 1 })), entries: [], cover: 'new:0' })); }
     catch (e) { throw Object.assign(new Error(`Angelegt, aber Bild nicht übernommen: ${errMsg(e)}`), { undo: [...undo, ...((e as { undo?: UndoOp[] }).undo ?? [])] }); }

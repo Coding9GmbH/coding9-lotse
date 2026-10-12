@@ -3,8 +3,28 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { STOREFRONT_PREFIX_HEADER, storefrontPrefix } from '@/lib/platforms';
 
-const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
+const LOOPBACK_HOPS = new Set(['127.0.0.1', '::1', 'localhost', '[::1]']);
 const allowedHosts = () => new Set([...LOCAL_HOSTS, ...(process.env.ALLOWED_HOSTS ?? '').split(',').map(h => h.trim()).filter(Boolean)]);
+
+/** Host ohne Port. [::1]:3333 bleibt [::1]; nacktes ::1 verliert nicht die letzte Gruppe. */
+function hostName(host: string): string {
+  const value = host.trim();
+  if (value.startsWith('[')) return value.replace(/]:\d+$/, ']');
+  if ((value.match(/:/g) ?? []).length > 1) return value;
+  return value.replace(/:\d+$/, '');
+}
+
+/** Loopback-Namen nur von Loopback: ohne X-Forwarded-For (lokales dev, Smoke) oder wenn jeder Hop selbst Loopback ist. */
+export function hostAllowed(host: string, forwardedFor: string | null): boolean {
+  const name = hostName(host);
+  if (LOCAL_HOSTS.includes(name)) {
+    if (forwardedFor == null || forwardedFor.trim() === '') return true;
+    const hops = forwardedFor.split(',').map(hop => hop.trim().toLowerCase()).filter(Boolean);
+    return hops.every(hop => LOOPBACK_HOPS.has(hop));
+  }
+  return allowedHosts().has(name);
+}
 
 // Shop-JS ruft Widget-/Asset-Pfade ohne /shop-Präfix auf → ebenfalls an den Shop-Proxy (nur GET).
 // Präfixe je Plattform: PLATFORM_SETTINGS[kind].storefrontPaths; die /shop-Route lässt nur die der aktiven Plattform durch.
@@ -25,8 +45,7 @@ export async function proxy(req: NextRequest) {
   if (pathname === '/api/ping') return NextResponse.next(); // Healthcheck
 
   const hostHeader = req.headers.get('host') ?? '';
-  const host = hostHeader.replace(/:\d+$/, '');
-  if (!allowedHosts().has(host)) return new NextResponse('Host nicht erlaubt', { status: 403 });
+  if (!hostAllowed(hostHeader, req.headers.get('x-forwarded-for'))) return new NextResponse('Host nicht erlaubt', { status: 403 });
 
   const origin = req.headers.get('origin');
   const writes = req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS';

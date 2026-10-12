@@ -36,9 +36,11 @@ export async function GET(req: NextRequest) {
     const ct = r.headers.get('content-type') || 'application/octet-stream';
     const html = /text\/html/.test(ct);
     // Nur Vorschau: kein Shop-/Drittanbieter-JS in Lotses Herkunft (zusätzlich zur iframe-Sandbox ohne allow-scripts).
-    // Assets (Theme-CSS, Schriften, Bilder) mit CORS-Freigabe: der Entwurf läuft in einem sandboxed iframe mit opakem Origin,
-    // und Schriften aus @font-face lädt der Browser nur mit Access-Control-Allow-Origin – sonst fällt die Vorschau auf Ersatzschriften zurück.
-    const headers: Record<string, string> = { 'content-type': ct, 'cache-control': 'no-store', ...(html ? { 'content-security-policy': "script-src 'none'" } : { 'access-control-allow-origin': '*' }) };
+    // Schriften und Bilder mit CORS-Freigabe: der Entwurf läuft in einem sandboxed iframe mit opakem Origin,
+    // und @font-face lädt der Browser nur mit Access-Control-Allow-Origin. CSS, JSON und Skripte bleiben ohne Stern.
+    const mime = ct.split(';', 1)[0].trim().toLowerCase();
+    const corsAsset = mime.startsWith('image/') || mime.startsWith('font/') || mime === 'application/font-woff' || mime === 'application/font-woff2';
+    const headers: Record<string, string> = { 'content-type': ct, 'cache-control': 'no-store', ...(html ? { 'content-security-policy': "script-src 'none'" } : {}), ...(corsAsset ? { 'access-control-allow-origin': '*' } : {}) };
     if (NO_BODY.has(r.status)) return new Response(null, { status: r.status, headers });
     const body = /text\/(html|css)/.test(ct) ? storefrontRewrite(await r.text(), b) : await r.arrayBuffer();
     return new Response(body, { status: r.status, headers });

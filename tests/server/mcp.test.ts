@@ -50,6 +50,36 @@ test('Chat löschen invalidiert das MCP-Token', async () => {
   assert.equal(mcpTokenValid('chat-1', `Bearer ${alt}`), true, 'anderes Chat-Token bleibt');
 });
 
+test('MCP-Token gilt während der Runde und ist danach weg', async () => {
+  const { bindRoundToken, mcpTokenFor, mcpTokenValid } = await import('../../src/server/codex');
+  const id = 'chat-round';
+  const token = await bindRoundToken(id, async () => {
+    const t = mcpTokenFor(id);
+    assert.equal(mcpTokenValid(id, `Bearer ${t}`), true, 'während der Runde');
+    await new Promise(r => setTimeout(r, 20));
+    assert.equal(mcpTokenValid(id, `Bearer ${t}`), true, 'auch beim Warten auf Freigabe');
+    return t;
+  });
+  assert.equal(mcpTokenValid(id, `Bearer ${token}`), false);
+
+  const other = mcpTokenFor('chat-bleibt');
+  let thrown = '';
+  await assert.rejects(bindRoundToken('chat-fail', async () => {
+    thrown = mcpTokenFor('chat-fail');
+    throw new Error('Runde abgebrochen');
+  }));
+  assert.equal(mcpTokenValid('chat-fail', `Bearer ${thrown}`), false);
+  assert.equal(mcpTokenValid('chat-bleibt', `Bearer ${other}`), true, 'anderes Chat-Token bleibt');
+});
+
+test('dropSession löscht das MCP-Token nicht', async () => {
+  const { mcpTokenFor, mcpTokenValid } = await import('../../src/server/codex');
+  const { dropSession } = await import('../../src/server/sessions');
+  const t = mcpTokenFor('chat-reset');
+  dropSession('chat-reset');
+  assert.equal(mcpTokenValid('chat-reset', `Bearer ${t}`), true);
+});
+
 test('Shop-Check: Prüfungen aus Shop-Check, Recht und Search Console sind registriert (Alt-Texte nur einmal)', async () => {
   await import('../../src/server/features');
   const { listChecks } = await import('../../src/server/checks');
