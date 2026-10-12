@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { ago, groupByDay, hostOf, swatches } from '@/lib/format';
+import { catalogState, shellFlags } from '@/lib/load-state';
 import type { ChatStatus, ChatSummary, Health } from '@/lib/protocol';
 import { IconBook, IconChat, IconClose, IconHistory, IconLog, IconPalette, IconPanel, IconPlus, IconSearch, IconSettings, IconTarget, IconTrash } from '@/components/ui/icons';
 import { useShell } from './ShellProvider';
@@ -11,14 +12,23 @@ import styles from './SideNav.module.css';
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 
-function status(h: Health | null) {
-  if (!h) return { shop: { tone: '', text: 'Prüfe Verbindung …' }, ai: { tone: '', text: '…' } };
+function status(h: Health | null, healthFailed: boolean) {
+  const flags = shellFlags({
+    loadFailed: healthFailed,
+    known: !!h && !healthFailed,
+    shopConfigured: h?.shopware.configured,
+    shopOk: h?.shopware.ok,
+    aiConfigured: h?.ai.configured,
+  });
+  if (flags.shop === 'unloaded') return { shop: { tone: 'err', text: 'Shop nicht geladen' }, ai: { tone: 'err', text: 'KI nicht geladen' }, flags };
+  if (!h || flags.shop === 'loading') return { shop: { tone: '', text: 'Prüfe Verbindung …' }, ai: { tone: '', text: '…' }, flags };
   const label = h.platform?.label;
-  const shop = !h.shopware.configured ? { tone: 'err', text: label ? `${label}: nicht verbunden` : 'Shop nicht verbunden' }
+  const shop = flags.shop === 'disconnected' ? { tone: 'err', text: label ? `${label}: nicht verbunden` : 'Shop nicht verbunden' }
     : h.platform && !h.platform.available ? { tone: 'err', text: `${h.platform.label}: Anbindung folgt` }
-      : h.shopware.ok ? { tone: 'ok', text: label ? `${label} · ${hostOf(h.shopware.url)}` : hostOf(h.shopware.url) } : { tone: 'err', text: label ? `${label}: nicht erreichbar` : 'Shop nicht erreichbar' };
-  const ai = h.ai.configured ? { tone: 'ok', text: 'KI verbunden' } : { tone: 'err', text: 'KI nicht verbunden' };
-  return { shop, ai };
+      : flags.shop === 'ok' ? { tone: 'ok', text: label ? `${label} · ${hostOf(h.shopware.url)}` : hostOf(h.shopware.url) }
+        : { tone: 'err', text: label ? `${label}: nicht erreichbar` : 'Shop nicht erreichbar' };
+  const ai = flags.ai === 'ok' ? { tone: 'ok', text: 'KI verbunden' } : { tone: 'err', text: 'KI nicht verbunden' };
+  return { shop, ai, flags };
 }
 
 /** Linke Navigation: Neuer Chat, Bereiche, Verlauf, Status. Einklappbar (Strg/⌘ + B), mobil als Schublade. */
@@ -29,7 +39,8 @@ export function SideNav() {
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [hash, setHash] = useState('');
   const collapsed = s.collapsed && !s.mobileOpen;
-  const st = status(s.health);
+  const st = status(s.health, s.healthFailed);
+  const chatView = catalogState(s.chats == null ? s.chatError : null, s.chats);
   const colors = swatches(s.styleguide?.colors, 4);
 
   useEffect(() => {
@@ -105,7 +116,9 @@ export function SideNav() {
         <li>
           <Link href="/settings" className={styles.item} aria-current={onSettings ? 'page' : undefined} onClick={() => { setHash(''); close(); }} data-tip={collapsed ? 'Einstellungen' : undefined}>
             <IconSettings /><span className={styles.label}>Einstellungen</span>
-            {s.health && (!s.health.shopware.configured || !s.health.ai.configured) && <i className={cx(styles.pip, styles.pipWarn)} aria-label="Einrichtung unvollständig" />}
+            {(st.flags.shop === 'unloaded' || st.flags.ai === 'unloaded' || st.flags.shop === 'disconnected' || st.flags.ai === 'disconnected') && (
+              <i className={cx(styles.pip, styles.pipWarn)} aria-label={st.flags.shop === 'unloaded' || st.flags.ai === 'unloaded' ? 'Status nicht geladen' : 'Einrichtung unvollständig'} />
+            )}
           </Link>
         </li>
         <li>
@@ -135,9 +148,10 @@ export function SideNav() {
             </label>
           )}
           <div className={styles.histList}>
-            {s.chats === null && <p className={styles.note}>Lade …</p>}
-            {s.chats?.length === 0 && <p className={styles.note}>Noch keine Chats. Starte oben mit „Neuer Chat“.</p>}
-            {s.chats && s.chats.length > 0 && groups.length === 0 && <p className={styles.note}>Kein Treffer.</p>}
+            {chatView === 'loading' && <p className={styles.note}>Lade …</p>}
+            {chatView === 'error' && <p className={styles.note}>Verlauf nicht geladen.</p>}
+            {chatView === 'empty' && <p className={styles.note}>Noch keine Chats. Starte oben mit „Neuer Chat“.</p>}
+            {chatView === 'ready' && groups.length === 0 && <p className={styles.note}>Kein Treffer.</p>}
             {groups.map(g => (
               <div key={g.label} className={styles.group}>
                 <h3>{g.label}</h3>

@@ -6,10 +6,10 @@ import { IconClose, IconTarget } from '@/components/ui/icons';
 import { ContextPicker } from './ContextPicker';
 import styles from './ContextPanel.module.css';
 
-interface Props { open: boolean; onClose: () => void; categories: CategoryRow[] | null; target: Target | null; onSelect: (t: Target | null) => void }
+interface Props { open: boolean; onClose: () => void; categories: CategoryRow[] | null; categoryError?: string | null; target: Target | null; onSelect: (t: Target | null) => void }
 
 /** Ausklappbares Panel neben der Navigation: Kontext (Kategorie, Produkt, Landingpage) wählen. */
-export function ContextPanel({ open, onClose, categories, target, onSelect }: Props) {
+export function ContextPanel({ open, onClose, categories, categoryError = null, target, onSelect }: Props) {
   const ref = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -38,7 +38,7 @@ export function ContextPanel({ open, onClose, categories, target, onSelect }: Pr
             <button type="button" onClick={() => onSelect(null)}>Entfernen</button>
           </div>
         )}
-        <ContextPicker id="context-picker" categories={categories} target={target} onSelect={t => { onSelect(t); onClose(); }} />
+        <ContextPicker id="context-picker" categories={categories} categoryError={categoryError} target={target} onSelect={t => { onSelect(t); onClose(); }} />
       </aside>
     </>
   );

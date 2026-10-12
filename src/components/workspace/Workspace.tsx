@@ -50,6 +50,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const [chatId, setChatId] = useState<string | null>(initialChatId);
   const [cfg, setCfg] = useState<AppConfig | null>(null);
   const [categories, setCategories] = useState<CategoryRow[] | null>(null);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
   const [contextOpen, setContextOpen] = useState(false);
   const [sgLoaded, setSgLoaded] = useState(shell.styleguideKnown);
   const [exampleProduct, setExampleProduct] = useState('Produkt XY');
@@ -77,7 +78,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       if (c.status === 'fulfilled') setCfg(c.value);
       if (sg.status === 'fulfilled' && sg.value !== undefined) dispatch({ type: 'set_styleguide', sg: sg.value && typeof sg.value === 'object' ? sg.value : null });
       setSgLoaded(true);
-      api.categories().then(l => { if (!off) setCategories(l); }).catch(() => { if (!off) setCategories([]); });
+      api.categories().then(l => { if (!off) { setCategoryError(null); setCategories(l); } }).catch(() => { if (!off) setCategoryError('nicht geladen'); });
       api.products('').then(l => { if (!off && l[0]) setExampleProduct(l[0].name); }).catch(() => {});
     })();
     return () => { off = true; };
@@ -85,7 +86,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
 
   const { target, busy, styleguide: sg } = state;
   // Für die Einrichtungs-Karte genügt „eingerichtet ja/nein“ – das kennt der Server schon beim ersten Rendern
-  const homeHealth: Health | null = health ?? (setup && { shopware: { url: '', ok: false, configured: setup.shopware }, ai: { configured: setup.ai } });
+  const homeHealth: Health | null = shell.healthFailed ? null : (health ?? (setup && { shopware: { url: '', ok: false, configured: setup.shopware }, ai: { configured: setup.ai } }));
 
   // Navigation (links) mit dem Zustand der Arbeitsfläche versorgen
   useEffect(() => { setActiveChatId(chatId); return () => setActiveChatId(null); }, [chatId, setActiveChatId]);
@@ -325,7 +326,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     <div className={styles.app} data-mode={mode} data-show={overlay ? 'preview' : undefined}>
 
       <main className={styles.main}>
-        <ContextPanel open={contextOpen} onClose={() => setContextOpen(false)} categories={cats} target={target} onSelect={selectTarget} />
+        <ContextPanel open={contextOpen} onClose={() => setContextOpen(false)} categories={cats} categoryError={categoryError} target={target} onSelect={selectTarget} />
 
         <section className={styles.chat} aria-label="Chat" onDragOver={onDrop} onDrop={onDrop}>
           {home ? (
@@ -334,7 +335,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
               {composer}
               {status}
               <ChatLog className={styles.homeLog} items={state.items} cfg={cfg} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)}>
-                <HomeContent health={homeHealth} hasStyleguide={sgLoaded ? !!sg : null} product={exampleProduct} category={exampleCategory}
+                <HomeContent health={homeHealth} loadFailed={shell.healthFailed} hasStyleguide={sgLoaded ? !!sg : null} product={exampleProduct} category={exampleCategory}
                   recent={chats ?? []} onExample={t => { setInput(t); inputRef.current?.focus(); }} onOpenChat={id => void openChat(id)} onOnboard={onboard} />
               </ChatLog>
             </>
