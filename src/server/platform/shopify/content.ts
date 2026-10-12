@@ -234,7 +234,7 @@ export async function applyPromotion(client: ShopifyClient, cs: ChangeSet, paylo
   const undo = trackedUndo(ctx, chosen.length);
   if (!chosen.length) return { results: [], undo };
   const input: Json = payload.id
-    ? Object.fromEntries(chosen.flatMap(i => { const key = PROMO_KEY[i.field]; return key && Object.prototype.hasOwnProperty.call(payload.input, key) ? [[key, payload.input[key]]] : []; }))
+    ? Object.fromEntries(chosen.flatMap(i => { const key = i.field ? PROMO_KEY[i.field] : undefined; return key && Object.prototype.hasOwnProperty.call(payload.input, key) ? [[key, payload.input[key]]] : []; }))
     : payload.input;
   if (payload.id && !Object.keys(input).length) return { results: [], undo };
   try {

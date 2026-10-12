@@ -48,7 +48,7 @@ export async function writeScoped(c: OmClient, e: Ent, ref: string, store: strin
   if (!isGlobal(store) && Object.keys(scoped).length && store !== main) {
     const undo = Object.keys(global).length ? await writeScoped(c, e, ref, 'admin', {}, global) : [];
     try { return [...undo, ...await writeStore(c, e, ref, store, scoped)]; }
-    catch (e2) { failWithUndo(e2, undo); }
+    catch (e2) { return failWithUndo(e2, undo); }
   }
   const [cur, glob] = await Promise.all([isGlobal(store) ? null : getEnt(c, e, ref, store), getEnt(c, e, ref, 'admin')]);
   if (!glob || (!isGlobal(store) && !cur)) throw new OmError(`${e === 'product' ? 'Produkt' : 'Kategorie'} ${ref} nicht mehr vorhanden`, 404);
@@ -70,7 +70,7 @@ export async function writeScoped(c: OmClient, e: Ent, ref: string, store: strin
       if (Object.keys(fix).length) { const r = await patchAttrs(c, e, ref, store, fix); undo.push(undoPatch(e, ref, store, fixU), ...rewriteUndo(r)); }
     }
     return undo;
-  } catch (e2) { failWithUndo(e2, undo); }
+  } catch (e2) { return failWithUndo(e2, undo); }
 }
 
 /** Werte gezielt in einer Store-View schreiben (Übersetzungen). Rückgängig: vorheriger eigener Wert bzw. null (= wieder „Standardwert verwenden“) */

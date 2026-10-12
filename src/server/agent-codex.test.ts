@@ -58,12 +58,13 @@ test('Codex-Runde: Befehl, Datei und Websuche brechen ab; Text, Shop-Tool, Über
   assert.deepEqual(events[0], { t: 'tool', id: 'm', name: 'search_products', input: { q: 1 } });
   assert.deepEqual(events[1], { t: 'tool_result', id: 'm', error: false, preview: 'ok' });
 
-  for (const item of [
-    { id: 'r', type: 'reasoning' as const, text: 'denke' },
-    { id: 't', type: 'todo_list' as const, items: [{ text: 'lesen', completed: false }] },
-    { id: 'e', type: 'error' as const, message: 'hinweis' },
-  ]) {
-    const n = events.length;
+  const quiet: ThreadItem[] = [
+    { id: 'r', type: 'reasoning', text: 'denke' },
+    { id: 't', type: 'todo_list', items: [{ text: 'lesen', completed: false }] },
+    { id: 'e', type: 'error', message: 'hinweis' },
+  ];
+  for (const item of quiet) {
+    const n: number = events.length;
     assert.equal(onCodexItem(item, 'item.completed', state, emit).abort, undefined, item.type);
     assert.equal(events.length, n, item.type);
   }

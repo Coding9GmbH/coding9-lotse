@@ -39,7 +39,7 @@ export async function writeScoped(c: MagentoClient, e: Ent, ref: string, store: 
   if (store !== 'all' && Object.keys(scoped).length && store !== await mainStoreCode(c)) {
     const undo = Object.keys(global).length || Object.keys(extra).length ? await writeScoped(c, e, ref, 'all', {}, global) : [];
     try { return [...undo, ...await writeStore(c, e, ref, store, scoped, extra)]; }
-    catch (e2) { failWithUndo(e2, undo); }
+    catch (e2) { return failWithUndo(e2, undo); }
   }
   const [cur, glob] = await Promise.all([store === 'all' ? null : getEnt(c, e, ref, store), getEnt(c, e, ref, 'all')]);
   if (!glob || (store !== 'all' && !cur)) throw new MagentoError(`${e === 'product' ? 'Produkt' : 'Kategorie'} ${ref} nicht mehr vorhanden`, 404);
@@ -60,7 +60,7 @@ export async function writeScoped(c: MagentoClient, e: Ent, ref: string, store: 
       if (Object.keys(fix).length) { await putEnt(c, e, ref, store, fix, extra); fixCategoryUndo(e, fixU, glob); undo.push(undoPut(e, ref, store, fixU, extra)); }
     }
     return undo;
-  } catch (e2) { failWithUndo(e2, undo); }
+  } catch (e2) { return failWithUndo(e2, undo); }
 }
 
 /** Werte gezielt in einer Store-View schreiben (Übersetzungen). Rückgängig: vorheriger eigener Wert bzw. null (= wieder erben) */

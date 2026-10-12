@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ChatEvent } from '@/lib/protocol';
+import type { ChatEvent, UndoOp } from '@/lib/protocol';
 import { startFakeMagento, type FakeProduct } from './fake';
 
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-magento-'));
@@ -248,7 +248,7 @@ test('writeScoped: ein späterer Store-View-Fehler behält den Undo des ersten P
     if (method === 'PUT' && path.startsWith('/en/')) throw new Error('View nicht schreibbar');
     return orig(method, path, body, o);
   }) as typeof c.req;
-  const err = await writeScoped(c, 'product', 'VASE', 'en', { name: 'Vase EN' }, { weight: 2 }).then(() => null, (e: Error & { undo?: { path?: string }[] }) => e);
+  const err = await writeScoped(c, 'product', 'VASE', 'en', { name: 'Vase EN' }, { weight: 2 }).then(() => null, (e: Error & { undo?: UndoOp[] }) => e);
   assert.ok(err); assert.match(err.message, /View nicht schreibbar/);
   assert.equal(prodVals('VASE')[0].weight, 2, 'Gewicht ist geschrieben');
   assert.equal(prodVals('VASE')[0].name, 'Vase', 'Name der View wurde nicht geschrieben');
