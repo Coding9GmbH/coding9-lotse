@@ -2,11 +2,20 @@ import type { NextRequest } from 'next/server';
 import { STOREFRONT_PREFIX_HEADER, isStorefrontPathOf } from '@/lib/platforms';
 import { errMsg } from '@/server/http';
 import { activePlatform } from '@/server/platform';
+import { FRAME_CSS, FRAME_SCRIPT } from '@/lib/preview-frame';
+import { injectIntoHead } from '@/server/real-page';
 import { storefrontRewrite } from '@/server/runtime';
 
 export const dynamic = 'force-dynamic';
 
 const NO_BODY = new Set([101, 204, 205, 304]);
+/**
+ * Shop-HTML darf Skripte ausführen (Menü, Slider, Galerie), aber nie in Lotses Herkunft: `sandbox` ohne allow-same-origin macht den Origin
+ * opak (auch bei direkter Navigation, nicht nur im iframe), kein Zugriff auf Cookies, Speicher oder die API. Skripte nur von Lotse selbst
+ * (der Proxy liefert die des Shops), keine Drittanbieter. Der Rahmen-Skript spricht per postMessage mit der Oberfläche (Markieren, Scroll).
+ */
+const HTML_CSP = "sandbox allow-scripts allow-forms; script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'";
+const FRAME_HEAD = `<style>${FRAME_CSS}</style><script>${FRAME_SCRIPT}</script>`;
 const MAX_HOPS = 3;
 const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'ac', 'edu']);
 /** Gleiche Site: gleicher Host oder gleiche Eltern-Domain (stage.shop.de ↔ www.shop.de); ohne öffentliche Suffixe wie co.uk. */
@@ -59,9 +68,9 @@ export async function GET(req: NextRequest) {
     // und @font-face lädt der Browser nur mit Access-Control-Allow-Origin. CSS, JSON und Skripte bleiben ohne Stern.
     const mime = ct.split(';', 1)[0].trim().toLowerCase();
     const corsAsset = mime.startsWith('image/') || mime.startsWith('font/') || mime === 'application/font-woff' || mime === 'application/font-woff2';
-    const headers: Record<string, string> = { 'content-type': ct, 'cache-control': 'no-store', ...(html ? { 'content-security-policy': "script-src 'none'" } : {}), ...(corsAsset ? { 'access-control-allow-origin': '*' } : {}) };
+    const headers: Record<string, string> = { 'content-type': ct, 'cache-control': 'no-store', ...(html ? { 'content-security-policy': HTML_CSP } : {}), ...(corsAsset ? { 'access-control-allow-origin': '*' } : {}) };
     if (NO_BODY.has(r.status)) return new Response(null, { status: r.status, headers });
-    const body = /text\/(html|css)/.test(ct) ? storefrontRewrite(await r.text(), b) : await r.arrayBuffer();
+    const body = html ? injectIntoHead(storefrontRewrite(await r.text(), b), FRAME_HEAD) : /text\/css/.test(ct) ? storefrontRewrite(await r.text(), b) : await r.arrayBuffer();
     return new Response(body, { status: r.status, headers });
   } catch (e) {
     return new Response('Shop nicht erreichbar: ' + errMsg(e), { status: 502, headers: { 'content-type': 'text/plain; charset=utf-8' } });

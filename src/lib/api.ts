@@ -1,5 +1,6 @@
 // Typisierte fetch-Helfer für die Oberfläche (nur im Browser verwenden).
 import type { FileAttachment } from './attachments';
+import type { CheckListItem } from './custom-checks';
 import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget } from './knowledge';
 import type { CodexLoginState, GscPublic, GscTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
@@ -60,6 +61,12 @@ export const api = {
   accessLog: () => request<AccessLogRow[]>('/api/access-log'),
   audit: () => request<AuditRow[]>('/api/audit'),
   shopCheck: () => request<ShopCheckState>('/api/shopcheck'),
+  /** eingebaute und eigene Prüfungen (an/aus); Anlegen/Ändern eigener Prüfungen läuft im Chat */
+  checks: {
+    list: () => request<CheckListItem[]>('/api/shopcheck/checks'),
+    setEnabled: (id: string, enabled: boolean) => request<unknown>(`/api/shopcheck/checks/${encodeURIComponent(id)}`, json('PUT', { enabled })),
+    remove: (id: string) => request<unknown>(`/api/shopcheck/checks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  },
   /** startet einen neuen Durchlauf im Hintergrund */
   runShopCheck: () => request<ShopCheckState>('/api/shopcheck', { method: 'POST' }),
   knowledge: {

@@ -16,5 +16,5 @@ export interface KnowledgeRule { id: string; text: string; scope: RuleScope; tar
 
 export const RULE_MAX = 300;
 /** Lead der Wissensseite: lokal gespeichert, Auszüge und Regeln gehen an den Modellanbieter. */
-export const KNOWLEDGE_LEAD = 'Datenblätter, PDFs und eigene Regeln. Lotse speichert sie lokal und nutzt sie als Faktenquelle für Produkttexte, FAQ und Sicherheitsinformationen. Auszüge und Regeln gehen an Anthropic oder OpenAI.';
+export const KNOWLEDGE_LEAD = 'Datenblätter und PDFs als Faktenquelle. Lotse speichert sie lokal und nutzt sie für Produkttexte, FAQ und Sicherheitsinformationen. Auszüge gehen an Anthropic oder OpenAI. Eigene Regeln pflegst du im Styleguide.';
 export const TITLE_MAX = 160;

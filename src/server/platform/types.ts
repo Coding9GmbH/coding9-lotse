@@ -5,6 +5,7 @@ import type { ZodRawShape } from 'zod';
 import type { CategoryRow, ChangeSet, ChatEvent, PlatformPaths, ProductRow, TestResult, UndoOp } from '@/lib/protocol';
 import type { PlatformKind, PlatformSettingsDescriptor } from '@/lib/platforms';
 import type { ApplyCtx, ApplyResult } from '../changes';
+import type { NeutralScan } from '@/lib/custom-checks';
 import type { ShopCheck } from '../checks';
 import type { PageSpec, PageType, PreviewCtx } from '../cms';
 import type { Feature } from '../features/types';
@@ -118,6 +119,8 @@ export interface PlatformAdapter {
   features?: Feature[];
   /** lädt die Module, die Shop-Prüfungen registrieren (registerCheck mit platforms) */
   loadChecks(): Promise<void>;
+  /** Aktive Produkte in neutraler Form (Name, Texte, Meta, Preis, Bestand, Bild) für eigene Prüfungen; liest über den geschützten Lese-Client des Durchlaufs */
+  scanProducts(reader: unknown): Promise<NeutralScan>;
   /** Freigegebenes Änderungsset schreiben (privilegierter Client, nur hier) */
   apply(cs: ChangeSet, payload: unknown, selected: Set<string>, ctx?: ApplyCtx): Promise<ApplyResult>;
   /** Rückgängig: UndoOps dieser Plattform in umgekehrter Reihenfolge ausführen */

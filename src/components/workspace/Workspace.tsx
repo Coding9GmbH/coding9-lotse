@@ -283,6 +283,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       deleteChat: id => void deleteChat(id),
       openContext: () => setContextOpen(true),
       openStyleguide: () => { if (sg) setSgOpen(true); else if (sgLoaded && !busy) onboard(); },
+      openRules: () => setSgOpen(true),
     };
   });
   useEffect(() => {
@@ -292,6 +293,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       deleteChat: id => handlers.current?.deleteChat(id),
       openContext: () => handlers.current?.openContext(),
       openStyleguide: () => handlers.current?.openStyleguide(),
+      openRules: () => handlers.current?.openRules(),
     });
     return () => shell.registerWorkspace(null);
   }, [shell.registerWorkspace]); // eslint-disable-line react-hooks/exhaustive-deps -- nur bei Mount/Unmount
@@ -306,6 +308,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     else if (intent.type === 'new-context') { h.newChat(); h.openContext(); }
     else if (intent.type === 'open') h.openChat(intent.id);
     else if (intent.type === 'context') h.openContext();
+    else if (intent.type === 'rules') h.openRules();
     else h.openStyleguide();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- einmalig beim Start
 

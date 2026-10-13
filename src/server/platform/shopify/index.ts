@@ -120,6 +120,7 @@ export const shopify: PlatformAdapter = {
   tools: shopifyTools,
   features: [shopifyImportFeature],
   loadChecks: async () => { await import('./checks'); },
+  scanProducts: async r => (await import('./checks')).neutralScan(r as ShopifyReader),
 
   apply: (cs, payload, selected, ctx) => reg.apply(shopifyClient(), cs, payload, selected, ctx),
   undo: ops => undoShopify(shopifyClient(), ops),

@@ -245,3 +245,23 @@ test('undo-Aktion mit undoResults: Ergebnis trägt den Ausgang je Schritt, Butto
   const plain = chatReducer(part, { type: 'undo', csId: 'cs1', phase: 'running' });
   assert.deepEqual(cards(plain)[0].kind === 'changeset' && cards(plain)[0].result?.undoResults, [{ ok: false, error: 'kaputt' }], 'ohne undoResults bleibt das Ergebnis, wie es war');
 });
+
+test('Schritte ohne tool_result werden mit done/run_end/replay abgeschlossen; replay mit laufender Runde öffnet sie per resume wieder', () => {
+  const steps = (s: ChatState) => s.items.flatMap(i => (i.kind === 'steps' ? i.steps : []));
+  const events: ChatEvent[] = [
+    { t: 'user', text: 'Hallo' },
+    { t: 'tool', id: 'a', name: 'get_product', input: {} },
+    { t: 'tool', id: 'b', name: 'read_page', input: {} },
+    { t: 'tool_result', id: 'a', error: false, preview: 'ok' },
+  ];
+  const open = chatReducer(initialChatState, { type: 'replay', chat: { target: null, events } });
+  assert.deepEqual(steps(open).map(x => x.state), ['done', 'done'], 'nachgeladen: nichts blinkt');
+  assert.equal(steps(open)[1].stale, true);
+  assert.deepEqual(steps(chatReducer(open, { type: 'resume' })).map(x => x.state), ['done', 'run'], 'Runde läuft noch: offener Schritt läuft wieder');
+
+  const live = events.reduce((s, ev) => chatReducer(s, { type: 'event', event: ev, mode: 'live' }), { ...initialChatState, busy: true });
+  assert.deepEqual(steps(live).map(x => x.state), ['done', 'run']);
+  assert.deepEqual(steps(chatReducer(live, { type: 'event', event: { t: 'done', error: null }, mode: 'live' })).map(x => x.state), ['done', 'done']);
+  assert.deepEqual(steps(chatReducer(live, { type: 'event', event: { t: 'done', error: 'kaputt' }, mode: 'live' })).map(x => x.state), ['done', 'bad']);
+  assert.deepEqual(steps(chatReducer(live, { type: 'run_end' })).map(x => x.state), ['done', 'done']);
+});

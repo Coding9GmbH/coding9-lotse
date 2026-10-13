@@ -50,6 +50,7 @@ export const shopware: PlatformAdapter = {
   toolNames: SHOPWARE_TOOL_NAMES,
   tools: shopwareTools,
   loadChecks: async () => { await import('../../features'); },
+  scanProducts: async r => (await import('./scan')).scanNeutral(r as ShopReader),
 
   apply: (cs, payload, selected, ctx) => applyChangeSet(shop(), cs, payload, selected, ctx),
   undo: ops => undoOps(shop(), ops),

@@ -21,6 +21,14 @@
 .voice { margin: 0 0 8px; }
 .pills { display: flex; gap: 5px; flex-wrap: wrap; }
 .pills span { background: var(--bg); border: 1px solid var(--line); border-radius: 99px; padding: 1px 9px; font-size: 12px; }
+.blocks { margin-bottom: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.blocks > summary { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 10px 12px; cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--green-d); font-weight: 600; list-style: none; }
+.blocks > summary::-webkit-details-marker { display: none; }
+.blocks > summary small { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--mute); }
+.blocks[open] > summary { border-bottom: 1px solid var(--line); }
+.blocks > :not(summary) { margin: 12px; }
+.obs { list-style: none; padding: 0; display: grid; gap: 8px; }
+.obs li { padding: 8px 10px; border-left: 3px solid var(--line); background: var(--panel); border-radius: 0 8px 8px 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .example { margin: 8px 0 0; color: var(--mute); }
 .note { padding: 0; margin: 0; color: var(--mute); font-size: 13px; }
 .footer { display: contents; }

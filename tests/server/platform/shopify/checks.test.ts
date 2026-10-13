@@ -72,3 +72,12 @@ test('Durchlauf gegen den Fake: Befunde aus echten Daten, Datenschutz-Bereiche w
   assert.ok(findings.every(f => f.total == null || f.count <= f.total));
   assert.ok(checks.filter(c => c.platforms !== 'all').every(c => c.scopes?.length), 'jede Prüfung nennt ihre Bereiche (abschaltbar unter KI-Zugriff)');
 });
+
+test('Neutrale Produktzeilen für eigene Prüfungen: Texte, Preise, Bestand, Bild', async () => {
+  const { evaluate } = await import('../../../../src/lib/custom-checks');
+  const scan = await shopify.scanProducts(shopify.openSession('shop-check-neutral').reader);
+  assert.ok(scan.rows.length > 0 && scan.total >= scan.rows.length && scan.capped === false);
+  for (const r of scan.rows) { assert.ok(r.id && r.label && r.name, 'id/label/name'); assert.equal(typeof r.description, 'string'); assert.ok(r.price === null || typeof r.price === 'number'); assert.equal(typeof r.hasImage, 'boolean'); }
+  const hits = evaluate(scan.rows, { match: 'any', conditions: [{ field: 'metaDescriptionChars', op: 'eq', value: 0 }, { field: 'hasImage', op: 'eq', value: false }] });
+  assert.ok(hits.count > 0 && hits.sample.length > 0, 'Seed enthält eingebaute Lücken');
+});

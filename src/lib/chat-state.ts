@@ -8,7 +8,8 @@ import type { ChangeSet, ChatDetail, ChatEvent, DraftAudit, PublishedInfo, Style
 import { asList, shopProxyPath } from './urls';
 
 export type StepState = 'run' | 'done' | 'bad';
-export interface Step { id: string; name: string; input: unknown; state: StepState; preview?: string }
+/** stale: beim Nachladen als abgeschlossen angenommen; läuft die Runde doch noch, wird er mit „resume“ wieder offen */
+export interface Step { id: string; name: string; input: unknown; state: StepState; preview?: string; stale?: boolean }
 export interface QuestionOption { label: string; description?: string }
 export type ChangesetResultEvent = Extract<ChatEvent, { t: 'changeset_result' }>;
 export type UndoPhase = 'idle' | 'running' | 'done' | 'failed';
@@ -129,6 +130,13 @@ function update<K extends LogItemKind>(s: ChatState, kind: K, match: (i: Extract
   return hit ? { ...s, items } : s;
 }
 
+/** Schritte ohne Ergebnis abschließen (Runde zu Ende, abgebrochen oder Ergebnis nie angekommen), sonst blinken sie ewig auf „läuft“ */
+function settleSteps(s: ChatState, state: 'done' | 'bad', stale = false): ChatState {
+  if (!s.items.some(i => i.kind === 'steps' && i.steps.some(x => x.state === 'run'))) return s;
+  return { ...s, items: s.items.map(i => (i.kind === 'steps' && i.steps.some(x => x.state === 'run')
+    ? { ...i, steps: i.steps.map(x => (x.state === 'run' ? { ...x, state, ...(stale ? { stale: true } : {}) } : x)) } : i)) };
+}
+
 function applyPublished(s: ChatState, info: PublishedInfo, live: boolean): ChatState {
   let [next] = push(s, { kind: 'published', info, target: s.target });
   const t = next.target;
@@ -208,8 +216,10 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
       const [next] = push(s, { kind: 'styleguide', sg: ev.sg });
       return live ? { ...next, styleguide: ev.sg } : next;
     }
-    case 'done':
-      return ev.error ? push(s, { kind: 'error', text: ev.error })[0] : s;
+    case 'done': {
+      const settled = settleSteps(s, ev.error ? 'bad' : 'done');
+      return ev.error ? push(settled, { kind: 'error', text: ev.error })[0] : settled;
+    }
     default:
       return s;
   }
@@ -226,14 +236,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case 'replay': {
       let s: ChatState = { ...cleared(state), target: action.chat.target ?? null };
       for (const ev of action.chat.events) s = applyEvent(s, ev, 'replay');
-      return { ...s, tab: s.draft ? 'prev' : 'live', busy: false, status: null };
+      return { ...settleSteps(s, 'done', true), tab: s.draft ? 'prev' : 'live', busy: false, status: null };
     }
     case 'reset': return cleared(state);
     case 'run_start': {
       const s = applyEvent({ ...state, busy: true, curText: null, stepBox: null }, { t: 'user', text: action.text }, 'live');
       return { ...s, status: THINKING };
     }
-    case 'run_end': return { ...state, busy: false, status: null, curText: null, stepBox: null };
+    case 'run_end': return { ...settleSteps(state, 'done'), busy: false, status: null, curText: null, stepBox: null };
     case 'unsend': {
       const last = state.items.at(-1);
       return { ...state, items: last?.kind === 'user' ? state.items.slice(0, -1) : state.items, busy: false, status: null, curText: null, stepBox: null };
@@ -242,7 +252,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // Runde läuft noch: offene Rückfragen/Freigaben wieder bedienbar machen (der Server wartet auf sie)
       const items = state.items.map(i =>
         (i.kind === 'question' && i.answer === undefined) || (i.kind === 'changeset' && i.decision === undefined && !i.result) ? { ...i, interactive: true } : i);
-      return { ...state, items, busy: true, status: (action.last && liveStatus(action.last)) || THINKING };
+      // als abgeschlossen angenommene Schritte laufen weiter, wenn die Runde noch läuft
+      const reopened = items.map(i => (i.kind === 'steps' && i.steps.some(x => x.stale)
+        ? { ...i, steps: i.steps.map(x => (x.stale ? { ...x, state: 'run' as const, stale: undefined } : x)) } : i));
+      return { ...state, items: reopened, busy: true, status: (action.last && liveStatus(action.last)) || THINKING };
     }
     case 'error': return push(state, { kind: 'error', text: action.text })[0];
     case 'status': return { ...state, status: action.text };

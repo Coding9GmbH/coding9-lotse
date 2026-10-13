@@ -68,7 +68,7 @@ export function HomeContent({ health, loadFailed = false, hasStyleguide, product
           <Button variant="primary" onClick={onOnboard}>Styleguide erstellen</Button>
         </div>
       )}
-      {ready && <ShopCheck onFix={onFix} fixes={fixes} onOpenChat={onOpenChat} />}
+      {ready && <ShopCheck onFix={onFix} fixes={fixes} onOpenChat={onOpenChat} onNewCheck={onExample} />}
       <h3 className={styles.exH}>Probier es aus</h3>
       <div className={styles.ex}>
         {examples(product, category).map(e => (

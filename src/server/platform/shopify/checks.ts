@@ -1,6 +1,7 @@
 import 'server-only';
 // Shopify: Shop-Check (Startseite). Liest NUR über den geschützten Reader des Durchlaufs (feste Queries), höchstens SCAN_MAX aktive
 // Produkte („mindestens“, wenn der Katalog größer ist). Befunde mit Aufträgen (fixPrompt), die die Shopify-Werkzeuge nennen.
+import type { NeutralProduct, NeutralScan } from '@/lib/custom-checks';
 import type { CheckFinding } from '@/lib/protocol';
 import { registerPlatformCheck } from '../../checks';
 import { makeFinding, quoteLabel, type FindingDef, type Hit } from '../../features/shopcheck-rules';
@@ -137,6 +138,22 @@ async function scan(r: ShopifyReader): Promise<{ rows: ShopifyScanRow[]; total: 
     }
     return { rows, total: Math.max(total, rows.length), capped: rows.length < total };
   });
+}
+/** Neutrale Produktzeilen für eigene Prüfungen (aus demselben Scan wie die eingebauten, je Durchlauf einmal gelesen) */
+export async function neutralScan(r: ShopifyReader): Promise<NeutralScan> {
+  const s = await scan(r);
+  return {
+    total: s.total, capped: s.capped,
+    rows: s.rows.map((x): NeutralProduct => {
+      const priced = x.variants.filter(v => v.price != null).sort((a, b) => a.price! - b.price!), cheapest = priced[0];
+      const qtys = x.variants.map(v => v.qty).filter((q): q is number => typeof q === 'number');
+      return {
+        id: x.id, label: x.label, name: x.label, description: x.description, metaTitle: x.metaTitle, metaDescription: x.metaDescription,
+        price: cheapest?.price ?? null, listPrice: cheapest?.compareAt != null && cheapest.price != null && cheapest.compareAt > cheapest.price ? cheapest.compareAt : null,
+        stock: x.tracks && qtys.length ? qtys.reduce((a, b) => a + b, 0) : null, hasImage: x.images > 0,
+      };
+    }),
+  };
 }
 type DefKey = keyof typeof SHOPIFY_DEFS;
 const fromScan = (key: Exclude<DefKey, 'descLinks' | 'pageLinks' | 'catMeta' | 'catDesc' | 'translation'>) => async (r: ShopifyReader) => {

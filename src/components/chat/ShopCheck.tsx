@@ -8,6 +8,7 @@ import type { CheckFinding, ShopCheckState } from '@/lib/protocol';
 import { countText, findingsView, groupByArea, runHealth, SEVERITY_LABEL, summaryText } from '@/lib/shopcheck';
 import { Button } from '@/components/ui/Button';
 import { IconCheck } from '@/components/ui/icons';
+import { CheckManager } from './CheckManager';
 import styles from './ShopCheck.module.css';
 
 const COLLAPSED = 3;
@@ -21,14 +22,17 @@ interface Props {
   /** Befunde, die schon in einem Chat bearbeitet werden */
   fixes?: FixMap;
   onOpenChat?: (id: string) => void;
+  /** „Neue Prüfung im Chat“: füllt nur das Eingabefeld mit einem Anfang, gesendet wird nichts */
+  onNewCheck?: (prompt: string) => void;
 }
 
 /** Startseite: was im Shop gerade nicht stimmt – kompakt (wichtigste zuerst), nach Bereich filterbar. */
-export function ShopCheck({ onFix, fixes = {}, onOpenChat }: Props) {
+export function ShopCheck({ onFix, fixes = {}, onOpenChat, onNewCheck }: Props) {
   const [st, setSt] = useState<ShopCheckState | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [all, setAll] = useState(false);
   const [area, setArea] = useState<string | null>(null);
+  const [manage, setManage] = useState(false);
 
   const load = useCallback((start = false) => (start ? api.runShopCheck() : api.shopCheck())
     .then(s => { setSt(s); setErr(null); }, e => setErr(errorText(e))), []);
@@ -62,6 +66,7 @@ export function ShopCheck({ onFix, fixes = {}, onOpenChat }: Props) {
         <div className={styles.meta}>
           {running ? <span className={styles.runningTxt}><span className={styles.spin} aria-hidden />prüfe den Shop …</span>
             : run && <time dateTime={run.checkedAt} suppressHydrationWarning>{checkedText(run.checkedAt)}</time>}
+          <Button size="sm" variant="ghost" onClick={() => setManage(true)} disabled={!st}>Prüfungen</Button>
           <Button size="sm" onClick={() => void load(true)} disabled={running || !st} busy={running}>Neu prüfen</Button>
         </div>
       </header>
@@ -141,6 +146,8 @@ export function ShopCheck({ onFix, fixes = {}, onOpenChat }: Props) {
           {health === 'teilweise' && findings.length > 0 && <small title={errTitle}>{failed === 1 ? '1 Prüfung' : `${failed} Prüfungen`} ohne Ergebnis</small>}
         </footer>
       )}
+      <CheckManager open={manage} onClose={() => setManage(false)} onChanged={() => void load()}
+        onNew={() => onNewCheck?.('Lege eine eigene Prüfung für den Shop-Check an: ')} />
     </section>
   );
 }

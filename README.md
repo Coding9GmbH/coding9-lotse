@@ -41,6 +41,10 @@ Alles (App, KI-Laufzeit, SQLite-Datenbank) steckt im Image; Daten, verschlüssel
 
 > Shop auf demselben Rechner? Im Container ist `localhost` der Container selbst – nutze `http://host.docker.internal:<port>`.
 
+## Auf einem Server betreiben
+
+Lotse lässt sich auch selbst hosten, z. B. für ein Team: `LOTSE_PASSWORD` (Login per Umgebungsvariable) und `ALLOWED_HOSTS` setzen, HTTPS per Reverse-Proxy (Caddy, nginx, Traefik) davor. Konfiguration, Proxy-Beispiele, Sicherung und Fehlerbilder: **[docs/self-hosting.md](docs/self-hosting.md)**.
+
 ## Aus dem Quellcode / Entwicklung
 
 ```bash
@@ -64,7 +68,7 @@ Ohne Docker: `npm install && npm run dev` (Node ≥ 22.13) → http://localhost:
 | Lokal & gehärtet | Port nur auf `127.0.0.1`, Host-/Origin-Prüfung, Container als Nicht-Root, read-only, ohne Capabilities, mit Ressourcen-Limits. |
 | Zugangsdaten | AES-256-GCM-verschlüsselt im Volume, gehen nie an die KI. |
 | Codex (ChatGPT-Abo) | Eigene Codex-Werkzeuge (Shell, Dateien, Web, Bilder, Plugins …) abgeschaltet, Dateizugriff per Berechtigungsprofil komplett gesperrt, keine Rückfragen nach mehr Rechten; Shop-Tools nur über einen lokalen MCP-Endpunkt mit Zufalls-Token je Chat. Taucht trotzdem ein gesperrtes Werkzeug auf, bricht Lotse die Runde ab. |
-| Serverbetrieb | `LOTSE_PASSWORD` (Login) + `ALLOWED_HOSTS` setzen, HTTPS per Reverse-Proxy. |
+| Serverbetrieb | `LOTSE_PASSWORD` (Login) + `ALLOWED_HOSTS` setzen, HTTPS per Reverse-Proxy. Anleitung: [`docs/self-hosting.md`](docs/self-hosting.md). |
 
 Für Live-Shops: eigene Integration mit eingeschränkter Rolle statt Admin-Login, neue Abläufe zuerst im Staging testen. Details: [SECURITY.md](SECURITY.md).
 
@@ -83,7 +87,8 @@ Alle Variablen mit Erklärung in [`.env.example`](.env.example). In der Oberflä
 | `SHOPWARE_PUBLIC_URL` | Shop-Adresse aus Sicht des Browsers, falls abweichend |
 | `SHOP_PLATFORM` | verbundene Plattform: `shopware` (Standard), `shopify`, `magento` (Magento 2) oder `openmage` (Magento 1 mit dem Modul aus `integrations/openmage/`); Variablen `SHOPIFY_*`, `MAGENTO_*`, `OPENMAGE_*` siehe `src/lib/platforms.ts` |
 | `AI_MODEL` | z. B. `sonnet` oder `opus` |
-| `LOTSE_PASSWORD`, `ALLOWED_HOSTS` | Zugangsschutz für Serverbetrieb |
+| `LOTSE_PASSWORD`, `ALLOWED_HOSTS` | Zugangsschutz für Serverbetrieb ([Selbst hosten](docs/self-hosting.md)) |
+| `LOTSE_BIND`, `LOTSE_PORT` | Veröffentlichte Adresse und Port des Containers (Standard `127.0.0.1`, `3333`) |
 | `LOTSE_WRITE_CONCURRENCY`, `LOTSE_SHOP_TIMEOUT_MS` | Shop-Schonung |
 | `OPENAI_API_KEY`, `IMAGE_MODEL` | optionale Bild-KI |
 
@@ -96,6 +101,10 @@ Ein Tag `vX.Y.Z` veröffentlicht das Image automatisch (`.github/workflows/docke
 
 Gebaut wird für amd64 und arm64, mit SBOM und Provenance. `latest` gibt es erst nach dem ersten Release-Tag; vorher bleibt nur der Bau aus dem Quellcode (siehe unten). Neue GHCR-Pakete sind zunächst privat und müssen einmalig in den Paket-Einstellungen auf *Public* gestellt werden.
 
+## Dokumentation
+
+Die ausführliche Dokumentation liegt unter [`docs/`](docs/README.md): [Benutzerhandbuch](docs/benutzerhandbuch.md) (wie alles funktioniert), [Selbst hosten](docs/self-hosting.md), [Architektur](docs/architektur.md) und [Plattform-Schicht](docs/platform.md).
+
 ## Konzept: AI-first Verwaltung
 Chat statt Formulare. Du schreibst, was passieren soll („Ändere das Layout von Produkt XY“, „Senke alle Preise um 20 %“, „FAQ bei allen Produkten“). Der Agent **versteht → fragt gezielt zurück** (klickbare Antworten) **→ recherchiert (nur lesen) → zeigt Vorschau bzw. Alt→Neu-Vergleich → du gibst frei → der Server schreibt** (Audit-Log, Rückgängig).
 
@@ -106,6 +115,10 @@ Chat statt Formulare. Du schreibst, was passieren soll („Ändere das Layout vo
 - **Massenänderungen** (Preise, Streichpreise, Bestand, Aktiv, Texte, SEO) mit serverseitig gerechneten Preisregeln, Warnungen (z. B. −99 %), Zeilen-Auswahl, Audit-Log und Rückgängig.
 - **Produktindividuelle Blöcke** (FAQ): gemeinsames PDP-Layout mit Block `pdp-faq`, Inhalt je Produkt im JSON-Zusatzfeld `aicb_blocks` (mit FAQPage-Schema).
 - **Styleguide-Onboarding**: Die KI analysiert Theme-Konfiguration, Storefront-CSS, Logo und echte Texte → gespeichert in der Datenbank. Wirkt auf Texte, Farben, Vorschau und die CSS-Variablen (`--sg-*`) in Custom-HTML.
+- **Layout mit Bereichswahl** (Shopware): ein Layout für eine Kategorie, einzelne Produkte, alle Produkte einer Kategorie oder den ganzen Shop. Lotse fragt vorher mit echten Zahlen, die Freigabe zeigt, wie viele Seiten ein eigenes Layout verlieren, und Rückgängig stellt jede Seite einzeln wieder her.
+- **Entwurf auf der echten Seite** (Shopware): Kopf, Fuß, Theme, Kaufbox und Produktliste der Zielseite bleiben, nur der Inhalt wird durch den Entwurf ersetzt. Ohne genanntes Ziel wählt Lotse ein echtes Produkt bzw. eine Kategorie.
+- **Eigene Regeln**: feste Vorgaben für Texte („SEO-Texte mindestens 2000 Zeichen“, „wir duzen“), je Bereich (Produkttexte, Seiten, SEO) und optional nur für eine Kategorie. Gepflegt im Styleguide oder per Chat, gelten in jedem Chat.
+- **Eigene Shop-Prüfungen** (alle Plattformen): per Chat definierte Prüfungen über feste Felder (Beschreibungslänge, Meta, Preis, Bestand, Bild) erscheinen als Befunde im Shop-Check; vorhandene Prüfungen lassen sich an- und ausschalten.
 - **Einkaufswelten-Know-how**: Agent kennt Sections/Blöcke/Slots, liest bestehende Layouts (`get_cms_page`) und bezieht vorhandene Inhalte ein.
 - **Custom-HTML/CSS/JS** als `html`-Element (Block `custom-html`, CSS automatisch gescoped).
 - **Verlauf**: Alle Chats inkl. Entwurf/Freigaben liegen in der Datenbank und lassen sich im UI wieder öffnen.

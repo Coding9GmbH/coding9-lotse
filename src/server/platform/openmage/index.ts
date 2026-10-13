@@ -67,6 +67,7 @@ export const openmage: PlatformAdapter = {
   tools: openmageTools,
   features: [openmageImport],
   loadChecks: async () => { await import('./checks'); },
+  scanProducts: async r => (await import('./checks')).neutralScan(r as OmReader),
 
   apply: async (cs, payload, selected, ctx) => reg.apply(openmageClient(), cs, payload, selected, ctx),
   undo: ops => undoOpenmage(openmageClient(), ops),

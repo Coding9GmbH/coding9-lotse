@@ -6,7 +6,7 @@ import { KNOWLEDGE_LEAD, type KnowledgeDoc, type KnowledgeLink, type KnowledgeRu
 import type { ProductRow } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
 import { IconClose, IconEdit, IconSearch, IconTrash, IconUpload } from '@/components/ui/icons';
-import { RulesEditor } from './RulesEditor';
+import { useShell } from '@/components/shell/ShellProvider';
 import styles from './Knowledge.module.css';
 
 const ACCEPT = '.pdf,.docx,.xlsx,.csv,.tsv,.txt,.md,.json';
@@ -76,7 +76,7 @@ export function KnowledgeView() {
           {!!docs?.length && <ul className={styles.docs}>{docs.map(d => <DocRow key={d.id} doc={d} onChange={replace} onDelete={() => setDocs(ds => ds?.filter(x => x.id !== d.id) ?? null)} />)}</ul>}
         </section>
 
-        <RulesCard rules={rules} setRules={setRules} />
+        <RulesCard rules={rules} />
       </div>
     </div>
   );
@@ -188,12 +188,14 @@ function ProductPicker({ exclude, onPick, onClose }: { exclude: string[]; onPick
   );
 }
 
-function RulesCard({ rules, setRules }: { rules: KnowledgeRule[]; setRules: React.Dispatch<React.SetStateAction<KnowledgeRule[]>> }) {
+/** Regeln leben im Styleguide (Marke und Vorgaben an einem Ort); hier nur der Hinweis samt Weg dorthin. */
+function RulesCard({ rules }: { rules: KnowledgeRule[] }) {
+  const shell = useShell();
   return (
     <section className={styles.card} aria-labelledby="k-rules">
       <div className={styles.cardHead}><h2 id="k-rules">Eigene Regeln</h2>{rules.length > 0 && <span className={styles.count}>{rules.length}</span>}</div>
-      <p className={styles.hint}>Kurze, feste Vorgaben für alle Texte, z. B. Wortwahl, Ansprache oder Schreibweisen. Sie gelten in jedem Chat zusätzlich zum Styleguide.</p>
-      <RulesEditor rules={rules} setRules={setRules} />
+      <p className={styles.hint}>Feste Vorgaben für alle Texte (Wortwahl, Ansprache, Mindestlängen, Besonderheiten einzelner Kategorien) pflegst du im Styleguide, zusammen mit Farben und Ton. Sie gelten in jedem Chat.</p>
+      <Button onClick={shell.nav.openRules}>Regeln im Styleguide öffnen</Button>
     </section>
   );
 }

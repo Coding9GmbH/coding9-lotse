@@ -31,8 +31,13 @@ test('Storefront-Proxy: HTML wird umgeschrieben, ohne Skripte und ohne Cookies, 
   const sent = calls.at(-1)?.init.headers as Record<string, string>;
   assert.equal(sent.cookie, undefined, 'Browser-Cookies gehen nicht zum Shop');
   assert.equal(sent.accept, 'text/html');
-  assert.equal(await r.text(), '<a href="/shop/x">x</a><script>var u="\\/shop\\/y"</script>');
-  assert.equal(r.headers.get('content-security-policy'), "script-src 'none'");
+  const body = await r.text();
+  assert.ok(body.endsWith('<a href="/shop/x">x</a><script>var u="\\/shop\\/y"</script>'), 'URLs umgeschrieben, Skripte des Shops bleiben');
+  assert.match(body, /^<style>[\s\S]*<\/style><script>\(function\(\)\{var P=window\.parent/, 'Rahmen-Skript für Markieren/Scroll');
+  const csp = r.headers.get('content-security-policy') ?? '';
+  assert.match(csp, /^sandbox allow-scripts allow-forms;/, 'opaker Origin, auch bei direkter Navigation');
+  assert.doesNotMatch(csp, /allow-same-origin/);
+  assert.match(csp, /script-src 'self' 'unsafe-inline'/);
   assert.equal(r.headers.get('cache-control'), 'no-store');
   assert.equal(r.headers.get('set-cookie'), null);
   assert.equal(r.headers.get('x-frame-options'), null);
@@ -75,7 +80,7 @@ test('Storefront-Proxy: CORS-Stern nur für Bilder und Schriften', async () => {
   reply = () => new Response('<p>ok</p>', { headers: { 'content-type': 'text/html' } });
   const html = await GET(req('/shop/'));
   assert.equal(html.headers.get('access-control-allow-origin'), null);
-  assert.equal(html.headers.get('content-security-policy'), "script-src 'none'");
+  assert.match(html.headers.get('content-security-policy') ?? '', /^sandbox allow-scripts/);
 });
 
 test('Storefront-Proxy: Assets mit CORS-Freigabe (Schriften im sandboxed Entwurf), HTML ohne', async () => {
@@ -86,7 +91,7 @@ test('Storefront-Proxy: Assets mit CORS-Freigabe (Schriften im sandboxed Entwurf
   reply = () => new Response('<p>ok</p>', { headers: { 'content-type': 'text/html' } });
   const html = await GET(req('/shop/'));
   assert.equal(html.headers.get('access-control-allow-origin'), null, 'Shop-HTML bleibt ohne CORS-Freigabe');
-  assert.equal(html.headers.get('content-security-policy'), "script-src 'none'");
+  assert.match(html.headers.get('content-security-policy') ?? '', /^sandbox allow-scripts/);
 });
 
 test('Storefront-Proxy: fremde Weiterleitung wird nicht durchgereicht', async () => {

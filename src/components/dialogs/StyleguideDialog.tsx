@@ -13,12 +13,26 @@ interface Props { sg: Styleguide | null; open: boolean; onClose: () => void; onS
 
 const HEX6 = /^#[0-9a-f]{6}$/i;
 
+/** Ohne Styleguide bleiben die Regeln erreichbar; Farben und Ton entstehen durch die Analyse des Shops. */
+function NoStyleguide() {
+  return (
+    <>
+      <div className={styles.sec}>
+        <p className={styles.summary}>Es gibt noch keinen Styleguide. Lotse liest Theme, CSS, Logo und Texte deines Shops und leitet daraus Farben, Schriften und Ton ab. Die Regeln unten gelten schon jetzt.</p>
+      </div>
+      <RulesSection />
+    </>
+  );
+}
+
 /** Styleguide ansehen; Farben direkt anpassen; neu analysieren lassen. */
 export function StyleguideDialog({ sg, open, onClose, onSaved, onReanalyze }: Props) {
   return (
-    <Dialog open={open && !!sg} onClose={onClose} title="Styleguide"
-      footer={sg && <Footer key={sg.updatedAt ?? 'sg'} sg={sg} onClose={onClose} onSaved={onSaved} onReanalyze={onReanalyze} />}>
-      {sg && <Body sg={sg} />}
+    <Dialog open={open} onClose={onClose} title="Styleguide"
+      footer={sg
+        ? <Footer key={sg.updatedAt ?? 'sg'} sg={sg} onClose={onClose} onSaved={onSaved} onReanalyze={onReanalyze} />
+        : <Button variant="primary" onClick={() => { onClose(); onReanalyze(); }}>Styleguide analysieren (neuer Chat)</Button>}>
+      {sg ? <Body sg={sg} /> : <NoStyleguide />}
     </Dialog>
   );
 }
@@ -64,18 +78,8 @@ function Body({ sg }: { sg: Styleguide }) {
         </div>
         {(tone.examples ?? []).map(x => <p key={x} className={styles.example}>„{x}“</p>)}
       </div>
-      {(sg.components || sg.existingBlocks?.length) && (
-        <div className={styles.sec}>
-          <h3>Bausteine des Shops</h3>
-          <dl className={styles.kv}>
-            {Object.entries(sg.components ?? {}).filter((e): e is [string, string] => typeof e[1] === 'string' && !!e[1]).map(([k, v]) => (
-              <Fragment key={k}><dt>{({ buttons: 'Buttons', headings: 'Überschriften', cards: 'Karten', sections: 'Abschnitte', notes: 'Hinweise' } as Record<string, string>)[k] ?? k}</dt><dd>{v}</dd></Fragment>
-            ))}
-          </dl>
-          <div className={styles.pills}>{(sg.existingBlocks ?? []).map(x => <span key={x}>{x}</span>)}</div>
-        </div>
-      )}
       <RulesSection />
+      {(sg.components || sg.existingBlocks?.length) && <Blocks sg={sg} />}
       <p className={styles.note}>Alles Weitere änderst du per Chat („Setze die Ansprache auf Du …“). Lotse aktualisiert dann den Styleguide.</p>
     </>
   );
@@ -93,6 +97,27 @@ function RulesSection() {
       {err && <p className={styles.err} role="alert">{err}</p>}
       {rules && <RulesEditor rules={rules} setRules={setRules as React.Dispatch<React.SetStateAction<KnowledgeRule[]>>} />}
     </div>
+  );
+}
+
+const SHORT = 32;
+const COMPONENT_LABEL: Record<string, string> = { buttons: 'Buttons', headings: 'Überschriften', cards: 'Karten', sections: 'Abschnitte', notes: 'Hinweise' };
+
+/** Vom Shop erkannte Bausteine: kurze Namen als Chips, lange Beobachtungen als lesbare Liste. Standardmäßig eingeklappt, das ist Material für die KI. */
+function Blocks({ sg }: { sg: Styleguide }) {
+  const blocks = sg.existingBlocks ?? [], short = blocks.filter(x => x.length <= SHORT), long = blocks.filter(x => x.length > SHORT);
+  const comps = Object.entries(sg.components ?? {}).filter((e): e is [string, string] => typeof e[1] === 'string' && !!e[1]);
+  return (
+    <details className={styles.blocks}>
+      <summary><span>Erkannte Bausteine und Hinweise</span><small>{comps.length + blocks.length} Einträge, Material für die KI</small></summary>
+      {comps.length > 0 && (
+        <dl className={styles.kv}>
+          {comps.map(([k, v]) => <Fragment key={k}><dt>{COMPONENT_LABEL[k] ?? k}</dt><dd>{v}</dd></Fragment>)}
+        </dl>
+      )}
+      {short.length > 0 && <div className={styles.pills}>{short.map(x => <span key={x}>{x}</span>)}</div>}
+      {long.length > 0 && <ul className={styles.obs}>{long.map(x => <li key={x}>{x}</li>)}</ul>}
+    </details>
   );
 }
 

@@ -47,6 +47,7 @@ Werkzeuge und Fachbereiche (gleiche Namen, wo die Bedeutung passt; ✓ = vorhand
 | `get_brand_signals` (Onboarding aus dem Theme) | ✓ | – | – | – |
 | Lieferanten-Import (`read_supplier_file`, `save_import_mapping`, `preview_import`, `propose_import`) | ✓ | ✓ (eigenes Feature `shopify-import`; vorhandene Varianten per SKU/Barcode, neue Varianten bestehender Produkte nur über `propose_variants`) | ✓ (Abgleich per SKU, keine Varianten/Attribute/Kategorien anlegen) | ✓ (`import-openmage`, wie Magento 2) |
 | Shop-Check (`run_shop_check`) | ✓ | ✓ (`shopify/checks.ts`) | ✓ (`magento/checks.ts`) | ✓ (`openmage/checks.ts`) |
+| Eigene Prüfungen per Chat, Prüfungen an/aus (`create_check`, `set_check_enabled`) | ✓ (`shopware/scan.ts`) | ✓ (`neutralScan` in `checks.ts`) | ✓ (`neutralScan`) | ✓ (`neutralScan`) |
 | Kern: Seiten, Styleguide, Bilder-KI, Wissensbasis, Search Console | ✓ | ✓ | ✓ | ✓ |
 
 Die Werkzeugnamen je Plattform sind eindeutig und haben alle einen Anzeigenamen (`TOOL_LABELS`); beides prüft `tests/server/platform/platform.test.ts`.
@@ -114,6 +115,7 @@ Code-Stil wie im Repo: strenges TypeScript, kompakt, deutsche Kommentare, `impor
 | `toolNames`, `tools(session)` | ja | Werkzeuge der Plattform (Abschnitt 4); `toolNames` muss exakt zu `tools()` passen |
 | `features?` | nein | zusätzliche Feature-Module (wie `src/server/features`), z. B. Bilder, Promotionen |
 | `loadChecks()` | ja | importiert die Module, die Shop-Prüfungen registrieren (darf leer sein) |
+| `scanProducts(reader)` | ja | aktive Produkte als `NeutralProduct` (Name, Beschreibung, Metas, Preis, Streichpreis, Bestand, Bild) für eigene Prüfungen; liest über den geschützten Lese-Client des Durchlaufs, je Durchlauf einmal (Deckel wie die eingebauten Prüfungen). `null` = auf der Plattform nicht lesbar |
 | `apply(cs, payload, selected, ctx)` | ja | freigegebenes Änderungsset schreiben (Abschnitt 5). `ctx.progress(done, total, partial)` nach jedem Element/Häppchen aufrufen, `partial = { results, undo }` mit dem bisherigen Stand: die Session sichert ihn gebündelt in `changeset_runs` (SQLite), damit ein Absturz mittendrin kein Rückgängig verliert. Helfer in `changes.ts`: `applyEach` (tickt selbst), `partialTicker(ctx, total, { results, undo })` für eigene Schleifen, `trackedUndo(ctx, total, results?)` für Executor mit mehreren Schreibschritten je Datensatz (Promotion, Veröffentlichung: jeder `push` meldet sofort). Beim nächsten Laden des Chats wird ein unterbrochener Lauf zum Ergebnis `partial`/`failed` mit den gesicherten Rückgängig-Schritten; ohne gesicherten Zwischenstand sagt das Ergebnis ehrlich „unbekannt, im Shop prüfen“ (nie „nichts geschrieben“). Offene Freigaben gelten dann als abgelehnt („Neustart, bitte erneut vorschlagen“) |
 | `undo(ops)` | ja | Rückgängig-Schritte dieser Plattform in **umgekehrter** Reihenfolge ausführen, je Schritt `{ ok, error? }` (in Ausführungsreihenfolge, also rückwärts zu `ops`). Die Session merkt sich den Ausgang je Schritt (`undoResults`); ein weiterer Klick wiederholt nur die fehlgeschlagenen Schritte |
 | `pages` | ja | Vorschau-Daten, Veröffentlichung (Abschnitt 6) |
@@ -310,6 +312,8 @@ Tests müssen zeigen: Kunden/Bestellungen werden abgewiesen, sensible Felder ent
 ---
 
 ## 8. Shop-Check, Kontext-Auswahl, Vorschau-Proxy
+
+- Eigene Prüfungen und An/Aus: Jede Plattform liefert über `scanProducts(reader)` eine neutrale Produktsicht (`NeutralProduct`, `lib/custom-checks.ts`); darauf laufen die per Chat definierten Prüfungen. Neue Adapter müssen `scanProducts` umsetzen (ohne Daten: leere Zeilen). Aufbau und Felder: [architektur.md](architektur.md), Abschnitt 8.
 
 - Prüfungen: `registerPlatformCheck<ShopifyReader>('shopify', { id: 'shopify.meta-description', area: 'SEO', scopes: ['products'], run: async (reader, ctx) => … })` in einem Modul, das `loadChecks()` importiert (Shopify: `shopify/checks.ts`: Metas, dünne Texte, Bilder/Alt-Texte, Bestand mit Weiterverkauf, Preise 0/Vergleichspreis/Spanne, Kollektionen, kaputte interne Links in Beschreibungen, Seiten und Kollektionstexten, fehlende Übersetzungen je Sprache). Je Durchlauf ein frischer Lese-Client (Zwischenspeicher je Durchlauf). Befund: `CheckFinding` mit `fixPrompt`, der die gemeinsamen Werkzeugnamen nutzt. Prüfungen mit `platforms: 'all'` (Search Console) laufen überall.
 - Kontext-Auswahl (`/api/categories`, `/api/products`): `CategoryRow { id, name, parentId, active, type, cmsPage }`, `ProductRow { id, name, number, img, cmsPage }`. Anzeige für den Menschen; Shopify: Kollektionen flach (`parentId: null`), Magento: Kategoriebaum.

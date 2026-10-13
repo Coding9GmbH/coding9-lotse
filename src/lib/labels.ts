@@ -25,7 +25,7 @@ export const TOOL_LABELS: Record<string, string> = {
   add_knowledge: 'Wissen aufnehmen', search_knowledge: 'Wissensbasis durchsuchen', get_product_knowledge: 'Produktwissen lesen', list_knowledge: 'Wissensbasis lesen',
   add_rule: 'Regel speichern', list_rules: 'Regeln lesen', remove_rule: 'Regel löschen',
   list_promotions: 'Promotionen lesen', get_promotion: 'Promotion lesen', propose_promotion: 'Promotion vorschlagen', propose_promotion_status: 'Promotion-Status vorschlagen',
-  run_shop_check: 'Shop-Check',
+  run_shop_check: 'Shop-Check', list_checks: 'Prüfungen lesen', create_check: 'Prüfung anlegen', update_check: 'Prüfung ändern', set_check_enabled: 'Prüfung an/aus', delete_check: 'Prüfung löschen',
   preview_collection_rules: 'Kollektionsregeln prüfen', propose_collection: 'Kollektion vorschlagen', propose_collection_products: 'Kollektions-Zuordnung vorschlagen',
   list_store_views: 'Store-Views lesen', list_product_attributes: 'Attribute lesen', propose_category_products: 'Kategorie-Zuordnung vorschlagen', propose_cms_page_changes: 'CMS-Seite ändern',
   get_legal_overview: 'Rechts-Check', get_gpsr_status: 'GPSR-Angaben prüfen', read_gpsr_document: 'Dokument lesen', propose_gpsr_data: 'GPSR-Angaben vorschlagen',
