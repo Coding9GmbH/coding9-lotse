@@ -11,6 +11,7 @@ import { ReadOnlyShopware, type ShopReader } from './shopware';
 import { singleton } from './state';
 import type { Fetcher } from './styleguide';
 import { errMsg } from './util';
+import { DEFAULT_LOCALE, type Locale } from '@/lib/i18n/locales';
 
 export interface ApprovalReply { answer?: string; allow?: boolean; selected?: string[] }
 export interface Question { question: string; options: { label: string; description?: string }[] }
@@ -42,6 +43,8 @@ export interface Session {
   /** letzter Zugriff (ruhende Sessions ohne Zuhörer werden nach einer Weile freigegeben) */
   lastUsed: number;
   abort: AbortController | null;
+  /** Antwortsprache der KI (Sprache der Oberfläche bei der letzten Nachricht) */
+  locale: Locale;
   /** Verbundene Oberflächen, die Live-Ereignisse empfangen */
   listeners: Set<(ev: ChatEvent) => void>;
   approvals: Map<string, (r: ApprovalReply) => void>;
@@ -202,7 +205,7 @@ export function getSession(id: string): Session {
     id, platform: kind, reader: parts.reader, lookup: parts.lookup,
     sw: parts.reader instanceof ReadOnlyShopware ? parts.reader : new ReadOnlyShopware(shopwareOnly(kind)),
     storefrontFetch: parts.storefrontFetch, themeCss: parts.themeCss, draft: saved?.draft ?? null, sdkSessionId: saved?.sdkSessionId ?? null, codexThreadId: saved?.codexThreadId ?? null, title: saved?.title ?? null, target: saved?.target ?? null,
-    createdAt: saved?.createdAt ?? new Date().toISOString(), events: saved?.events ?? [], emit: () => {}, running: false, lastUsed: Date.now(), abort: null, listeners: new Set(), approvals: new Map(),
+    createdAt: saved?.createdAt ?? new Date().toISOString(), events: saved?.events ?? [], emit: () => {}, running: false, lastUsed: Date.now(), abort: null, locale: DEFAULT_LOCALE, listeners: new Set(), approvals: new Map(),
     askUser: async q => {
       const approvalId = Math.random().toString(36).slice(2);
       ss.emit({ t: 'question', approvalId, question: q.question, options: q.options.map(o => o.label), optionHints: q.options.map(o => o.description ?? '') });
