@@ -27,6 +27,22 @@ test('Loopback-Host nur ohne X-Forwarded-For oder wenn jeder Hop Loopback ist', 
   assert.equal(hostAllowed('127.0.0.1', '203.0.113.5, 127.0.0.1'), false);
 });
 
+test('Container mit Loopback-Publish: Docker-Gateway (privat) ok, öffentlicher Hop nicht', () => {
+  const prev = { d: process.env.AICB_DOCKER, b: process.env.LOTSE_BIND };
+  try {
+    assert.equal(hostAllowed('localhost:3333', '192.168.215.1'), false, 'außerhalb von Docker');
+    process.env.AICB_DOCKER = '1'; process.env.LOTSE_BIND = '127.0.0.1';
+    for (const hop of ['192.168.215.1', '172.17.0.1', '10.0.0.2', '198.19.249.1']) assert.equal(hostAllowed('localhost:3333', hop), true, hop);
+    assert.equal(hostAllowed('localhost:3333', '203.0.113.5'), false);
+    assert.equal(hostAllowed('localhost:3333', '192.168.215.1, 203.0.113.5'), false);
+    process.env.LOTSE_BIND = '0.0.0.0';
+    assert.equal(hostAllowed('localhost:3333', '192.168.215.1'), false, 'Port nicht nur auf Loopback veröffentlicht');
+  } finally {
+    if (prev.d === undefined) delete process.env.AICB_DOCKER; else process.env.AICB_DOCKER = prev.d;
+    if (prev.b === undefined) delete process.env.LOTSE_BIND; else process.env.LOTSE_BIND = prev.b;
+  }
+});
+
 test('Andere Hosts nur über ALLOWED_HOSTS, auch mit öffentlichem X-Forwarded-For', () => {
   assert.equal(hostAllowed('lotse.example', null), false);
   assert.equal(hostAllowed('lotse.example', '203.0.113.5'), false);

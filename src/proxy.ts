@@ -5,6 +5,15 @@ import { STOREFRONT_PREFIX_HEADER, storefrontPrefix } from '@/lib/platforms';
 
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
 const LOOPBACK_HOPS = new Set(['127.0.0.1', '::1', 'localhost', '[::1]']);
+/** Docker-Bridge/VM-Gateway (Docker Desktop, OrbStack, Linux-Bridge): privat, nie öffentlich. */
+function privateHop(hop: string): boolean {
+  const m = hop.match(/^(\d+)\.(\d+)\.\d+\.\d+$/);
+  if (!m) return /^f[cd][0-9a-f]{2}:/.test(hop);
+  const a = Number(m[1]), b = Number(m[2]);
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 198 && (b === 18 || b === 19));
+}
+/** Im Container mit Loopback-Publish (LOTSE_BIND) erreicht nur der eigene Rechner den Port; Next setzt dort X-Forwarded-For auf das Bridge-Gateway. */
+const dockerLoopbackPublish = () => process.env.AICB_DOCKER === '1' && LOOPBACK_HOPS.has((process.env.LOTSE_BIND ?? '').toLowerCase());
 const allowedHosts = () => new Set([...LOCAL_HOSTS, ...(process.env.ALLOWED_HOSTS ?? '').split(',').map(h => h.trim()).filter(Boolean)]);
 
 /** Host ohne Port. [::1]:3333 bleibt [::1]; nacktes ::1 verliert nicht die letzte Gruppe. */
@@ -15,13 +24,15 @@ function hostName(host: string): string {
   return value.replace(/:\d+$/, '');
 }
 
-/** Loopback-Namen nur von Loopback: ohne X-Forwarded-For (lokales dev, Smoke) oder wenn jeder Hop selbst Loopback ist. */
+/** Loopback-Namen nur von Loopback: ohne X-Forwarded-For (lokales dev, Smoke) oder wenn jeder Hop selbst Loopback ist
+ *  (im Container mit Loopback-Publish zusätzlich private Gateway-Adressen, nie öffentliche). */
 export function hostAllowed(host: string, forwardedFor: string | null): boolean {
   const name = hostName(host);
   if (LOCAL_HOSTS.includes(name)) {
     if (forwardedFor == null || forwardedFor.trim() === '') return true;
     const hops = forwardedFor.split(',').map(hop => hop.trim().toLowerCase()).filter(Boolean);
-    return hops.every(hop => LOOPBACK_HOPS.has(hop));
+    const docker = dockerLoopbackPublish();
+    return hops.every(hop => LOOPBACK_HOPS.has(hop) || (docker && privateHop(hop)));
   }
   return allowedHosts().has(name);
 }
