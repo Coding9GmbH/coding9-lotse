@@ -7,6 +7,18 @@ import { storefrontRewrite } from '@/server/runtime';
 export const dynamic = 'force-dynamic';
 
 const NO_BODY = new Set([101, 204, 205, 304]);
+const MAX_HOPS = 3;
+const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'ac', 'edu']);
+/** Gleiche Site: gleicher Host oder gleiche Eltern-Domain (stage.shop.de ↔ www.shop.de); ohne öffentliche Suffixe wie co.uk. */
+function sameSite(a: string, c: string): boolean {
+  const reg = (h: string) => {
+    const l = h.toLowerCase().split('.');
+    if (l.length < 2 || /^\d+$/.test(l[l.length - 1])) return h.toLowerCase(); // IP/localhost: nur exakt
+    const n = l.length >= 3 && l[l.length - 1].length === 2 && SECOND_LEVEL.has(l[l.length - 2]) ? 3 : 2;
+    return l.slice(-n).join('.');
+  };
+  return a.toLowerCase() === c.toLowerCase() || (a.includes('.') && c.includes('.') && reg(a) === reg(c));
+}
 
 // Storefront-Proxy (Storefront der aktiven Plattform): Shopware sendet X-Frame-Options: deny → direkt nicht einbettbar. Hier gleiche Herkunft, Links auf /shop umgeschrieben.
 // Auch die Pfade ohne /shop-Präfix landen hier (proxy.ts schreibt sie um).
@@ -20,16 +32,23 @@ export async function GET(req: NextRequest) {
     if (prefix && !isStorefrontPathOf(platform.kind, prefix)) return new Response('Nicht gefunden', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
     const sf = platform.storefront;
     const b = await sf.base();
-    const r = await sf.fetch(b + url, { redirect: 'manual', headers: { accept: req.headers.get('accept') || '*/*', 'accept-language': 'de-DE,de' } });
-    const loc = r.headers.get('location');
-    if (loc) {
-      // Nur dieselbe Herkunft wie die Shop-Basis, ohne Zugangsdaten in der URL. Fremde Location nicht folgen und nicht durchreichen.
-      let target: string | null = null;
+    const hdrs = { accept: req.headers.get('accept') || '*/*', 'accept-language': 'de-DE,de' };
+    let r = await sf.fetch(b + url, { redirect: 'manual', headers: hdrs });
+    // Weiterleitungen: gleiche Herkunft wie die Shop-Basis als /shop-Pfad zurückgeben; derselbe Auftritt auf anderer Subdomain
+    // (stage.→www., Medien-/CDN-Host) serverseitig folgen. Alles andere (fremde Domain, Zugangsdaten in der URL) wird nicht gefolgt.
+    for (let hop = 0; ; hop++) {
+      const loc = r.headers.get('location');
+      if (!loc) break;
+      let target: string | null = null, follow: string | null = null;
       try {
         const baseUrl = new URL(b);
-        const abs = new URL(loc, baseUrl);
-        if (abs.origin === baseUrl.origin && !abs.username && !abs.password) target = storefrontRewrite(abs.href, b);
+        const abs = new URL(loc, hop === 0 ? baseUrl : r.url || baseUrl);
+        if (!abs.username && !abs.password && /^https?:$/.test(abs.protocol)) {
+          if (abs.origin === baseUrl.origin) target = storefrontRewrite(abs.href, b);
+          else if (r.status < 400 && sameSite(abs.hostname, baseUrl.hostname) && hop < MAX_HOPS) follow = abs.href;
+        }
       } catch { target = null; }
+      if (follow) { r = await sf.fetch(follow, { redirect: 'manual', headers: hdrs }); continue; }
       if (!target) return new Response('Weiterleitung außerhalb des Shops', { status: 502, headers: { 'content-type': 'text/plain; charset=utf-8' } });
       return new Response(null, { status: r.status, headers: { location: target } });
     }
