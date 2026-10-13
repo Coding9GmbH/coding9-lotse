@@ -18,13 +18,9 @@ concurrency:
 env:
   IMAGE: ghcr.io/coding9gmbh/lotse
 
-# Self-hosted Runner, aber nie für fremden Code: Das Repo ist öffentlich, ein PR aus einem Fork
-# könnte sonst beliebigen Code auf unserem Runner ausführen. Fork-PRs laufen daher auf
-# GitHub-gehosteten Runnern; push/Tag/workflow_dispatch und PRs aus diesem Repo auf self-hosted.
-
 jobs:
   check:
-    runs-on: ${{ fromJSON((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '"ubuntu-latest"' || '["self-hosted","linux"]') }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,13 +31,16 @@ jobs:
       - run: npm test
       - name: OpenMage-Modul (Unit, ohne Shop)
         run: php integrations/openmage/tests/unit.php
-      - run: npm run build
+      # Build + Smoke-Test nur außerhalb von PRs (push auf main, Tag, manuell): PRs bekommen schnelles
+      # Feedback aus Typecheck/Lint/Tests, der Build läuft beim Image-Bau ohnehin erneut.
+      - name: Build
+        if: github.event_name != 'pull_request'
+        run: npm run build
       - name: Smoke-Test (Standalone-Server startet, Healthcheck & Seite antworten)
+        if: github.event_name != 'pull_request'
         run: |
           mkdir -p "$RUNNER_TEMP/data"
           AICB_DATA="$RUNNER_TEMP/data" HOSTNAME=127.0.0.1 PORT=3333 node .next/standalone/server.js &
-          # Persistente Runner: Server am Ende sicher beenden, damit Port 3333 frei bleibt
-          SERVER_PID=$!; trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
           for i in $(seq 1 30); do curl -fs localhost:3333/api/ping && break; sleep 1; done
           curl -fs localhost:3333/api/health
           curl -fs -o /dev/null localhost:3333/
@@ -50,7 +49,7 @@ jobs:
   image:
     needs: check
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -69,7 +68,6 @@ jobs:
             type=edge,branch=main
             type=sha,format=short
       - name: Bei GHCR anmelden
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -80,7 +78,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
