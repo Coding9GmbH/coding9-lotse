@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { ago } from '@/lib/format';
 import { examples } from '@/lib/labels';
-import type { ChatSummary, Health } from '@/lib/protocol';
+import type { FixMap } from '@/lib/fixes';
+import type { ChatSummary, CheckFinding, Health } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
 import { ShopCheck } from './ShopCheck';
 import styles from './Home.module.css';
@@ -26,12 +27,15 @@ interface Props {
   category: string;
   recent: ChatSummary[];
   onExample: (text: string) => void;
+  /** Shop-Check-Befund als Auftrag ins Feld */
+  onFix: (f: CheckFinding) => void;
+  fixes: FixMap;
   onOpenChat: (id: string) => void;
   onOnboard: () => void;
 }
 
 /** Startbildschirm: Einrichtung, Styleguide-Empfehlung, Shop-Check, Beispiele, zuletzt genutzte Chats. */
-export function HomeContent({ health, loadFailed = false, hasStyleguide, product, category, recent, onExample, onOpenChat, onOnboard }: Props) {
+export function HomeContent({ health, loadFailed = false, hasStyleguide, product, category, recent, onExample, onFix, fixes, onOpenChat, onOnboard }: Props) {
   const needsSetup = !loadFailed && health && (!health.shopware.configured || !health.ai.configured);
   const ready = !loadFailed && health && health.shopware.configured && health.ai.configured;
   return (
@@ -64,7 +68,7 @@ export function HomeContent({ health, loadFailed = false, hasStyleguide, product
           <Button variant="primary" onClick={onOnboard}>Styleguide erstellen</Button>
         </div>
       )}
-      {ready && <ShopCheck onFix={onExample} />}
+      {ready && <ShopCheck onFix={onFix} fixes={fixes} onOpenChat={onOpenChat} />}
       <h3 className={styles.exH}>Probier es aus</h3>
       <div className={styles.ex}>
         {examples(product, category).map(e => (

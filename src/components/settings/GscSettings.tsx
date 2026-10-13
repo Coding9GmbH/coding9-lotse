@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import { GSC_QUERY_NOTICE } from '@/lib/privacy-copy';
-import { connectionTestBlock } from '@/lib/settings-form';
+import { connectionTestBlock, gscKeyComplete as keyComplete } from '@/lib/settings-form';
 import type { GscPublic, GscTestResult } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
 import styles from './Settings.module.css';
@@ -19,6 +19,7 @@ export function GscSettings() {
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [test, setTest] = useState<GscTestResult | null>(null);
   const file = useRef<HTMLInputElement>(null);
+  const saving = useRef(false);
 
   useEffect(() => {
     let off = false;
@@ -26,20 +27,30 @@ export function GscSettings() {
     return () => { off = true; };
   }, []);
 
+  // Automatisch speichern: Property kurz nach der Eingabe, Schlüssel sobald er vollständiges JSON ist (Einfügen oder Datei)
+  const keyReady = keyComplete(key);
+  const propDirty = !!pub && property.trim() !== pub.property;
+  useEffect(() => {
+    if (!pub || (!keyReady && !propDirty) || notice?.ok === false) return;
+    const t = setTimeout(() => { if (!saving.current) void save(); }, keyReady ? 0 : 800);
+    return () => clearTimeout(t);
+  }, [pub, keyReady, propDirty, property, notice]); // eslint-disable-line react-hooks/exhaustive-deps -- save liest den aktuellen Stand
+
   if (!pub) return <Card connected={null}><p className={styles.hint}>{notice?.text ?? 'Lade …'}</p></Card>;
   const showKey = !pub.hasKey || replace;
   const dirty = !!key.trim() || property.trim() !== pub.property;
 
-  const save = async (): Promise<boolean> => {
+  async function save(): Promise<boolean> {
+    saving.current = true;
     setBusy('save'); setNotice(null); setTest(null);
     try {
-      const p = await api.saveGsc({ ...(key.trim() ? { key } : {}), property });
-      setPub(p); setProperty(p.property); setKey(''); setReplace(false);
-      setNotice({ ok: true, text: 'Gespeichert ✓' });
+      const p = await api.saveGsc({ ...(keyComplete(key) ? { key } : {}), property });
+      setPub(p); setProperty(p.property); if (keyComplete(key)) { setKey(''); setReplace(false); }
+      setNotice({ ok: true, text: 'Gespeichert' });
       return true;
-    } catch (e) { setNotice({ ok: false, text: errorText(e) }); return false; }
-    finally { setBusy(null); }
-  };
+    } catch (e) { setNotice({ ok: false, text: `Nicht gespeichert: ${errorText(e)}` }); return false; }
+    finally { saving.current = false; setBusy(null); }
+  }
   const runTest = async () => {
     if (connectionTestBlock(dirty)) return;
     setBusy('test'); setNotice(null); setTest(null);
@@ -60,7 +71,7 @@ export function GscSettings() {
       <ol className={styles.steps}>
         <li>In der <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">Google Cloud Console</a> die <b>Google Search Console API</b> aktivieren und ein <b>Service-Konto</b> mit JSON-Schlüssel anlegen.</li>
         <li>In der Search Console unter <b>Einstellungen → Nutzer und Berechtigungen</b> die E-Mail des Service-Kontos als Nutzer hinzufügen. Die Berechtigung „Eingeschränkt“ genügt.</li>
-        <li>Schlüssel hier einfügen, Property eintragen, speichern und dann die Verbindung testen.</li>
+        <li>Schlüssel hier einfügen, Property eintragen (wird automatisch gespeichert) und dann die Verbindung testen.</li>
       </ol>
 
       {showKey ? (
@@ -114,9 +125,9 @@ export function GscSettings() {
       )}
 
       <div className={styles.testRow}>
-        <Button variant="primary" onClick={() => void save()} busy={busy === 'save'} disabled={!dirty || !!busy}>Speichern</Button>
         <Button onClick={() => void runTest()} busy={busy === 'test'} disabled={!!busy || !!connectionTestBlock(dirty) || (!pub.hasKey && !key.trim())} title={connectionTestBlock(dirty) ?? undefined}>{busy === 'test' ? 'Teste …' : 'Verbindung testen'}</Button>
-        {notice && <span className={notice.ok ? styles.ok : styles.bad} role="status">{notice.text}</span>}
+        {busy === 'save' ? <span className={styles.muted} role="status">Speichert …</span>
+          : notice && <span className={notice.ok ? styles.ok : styles.bad} role="status">{notice.text}{!notice.ok && <> · <button type="button" className={styles.linkBtn} onClick={() => { setNotice(null); void save(); }}>Erneut versuchen</button></>}</span>}
         {test && <span className={test.ok ? styles.ok : styles.bad} role="status">{test.ok ? '✓' : '✗'} {test.message}</span>}
       </div>
     </Card>

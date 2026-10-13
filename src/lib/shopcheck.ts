@@ -27,3 +27,19 @@ export function runHealth(r: Pick<CheckRun, 'errors' | 'checks'>): 'ok' | 'teilw
   if (!failed) return 'ok';
   return !checks || failed * 2 >= checks ? 'unvollstaendig' : 'teilweise';
 }
+
+/** Befunde nach Bereich gruppieren; Reihenfolge der Bereiche = wichtigster Befund zuerst (Liste ist schon sortiert). */
+export function groupByArea<T extends Pick<CheckFinding, 'area'>>(list: T[]): [string, T[]][] {
+  const m = new Map<string, T[]>();
+  for (const f of list) m.set(f.area, [...(m.get(f.area) ?? []), f]);
+  return [...m.entries()];
+}
+
+/** Startseite: Reiter je Bereich (nur, wenn es mehr als einen gibt), gewählter Bereich und die sichtbaren Befunde.
+ *  Ein Bereich, den es im neuen Durchlauf nicht mehr gibt, fällt auf „Alle“ zurück. */
+export function findingsView<T extends Pick<CheckFinding, 'area'>>(findings: T[], area: string | null, all: boolean, limit: number) {
+  const tabs = groupByArea(findings).map(([name, l]) => ({ area: name, count: l.length }));
+  const active = area && tabs.some(t => t.area === area) ? area : null;
+  const inArea = active ? findings.filter(f => f.area === active) : findings;
+  return { tabs: tabs.length > 1 ? tabs : [], area: active, total: inArea.length, shown: all ? inArea : inArea.slice(0, limit), more: inArea.length > limit };
+}

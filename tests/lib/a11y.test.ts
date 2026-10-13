@@ -44,12 +44,12 @@ test('markKeySelects wählt mit Enter oder Leertaste', () => {
 
 test('eingeklappte Navigation trägt denselben Namen wie das Label', () => {
   const nav = read('src/components/shell/SideNav.tsx');
-  for (const label of ['Neuer Chat', 'Arbeitsfläche', 'Wissen', 'Einstellungen', 'Protokolle']) {
-    assert.match(nav, new RegExp(`aria-label=\\{railName\\('${label}'\\)\\}`));
+  for (const label of ['Neuer Chat', 'Arbeitsfläche', 'Wissen']) {
+    assert.match(nav, new RegExp(`aria-label=\\{tip\\('${label}'\\)\\}`));
   }
-  assert.match(nav, /aria-label=\{railName\(`Kontext/);
-  assert.match(nav, /aria-label=\{railName\(s\.styleguide \? 'Styleguide' : 'Styleguide einrichten'\)\}/);
-  assert.match(nav, /aria-label=\{railName\(`\$\{st\.shop\.text\}/);
+  assert.match(nav, /aria-label="Neuer Chat mit Kontext/);
+  assert.match(nav, /aria-label=\{tip\(s\.styleguide \? 'Styleguide' : 'Styleguide einrichten'\)\}/);
+  assert.match(nav, /aria-label=\{`Einstellungen\. \$\{st\.shop\.text\}/);
 });
 
 test('Anmerken benennt das Feld und lässt Ziele per Tastatur wählen', () => {

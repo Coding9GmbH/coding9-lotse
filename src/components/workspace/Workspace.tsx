@@ -7,12 +7,14 @@ import { api, ApiError, errorText } from '@/lib/api';
 import { approveError } from '@/lib/approve-error';
 import { annotationMessage, type Annotation } from '@/lib/annotations';
 import { attachmentMessage, parseAttachments } from '@/lib/attachments';
+import { fixForChat, loadFixes, rememberFix, sentFix, type FixMap } from '@/lib/fixes';
 import { chatReducer, initialChatState, isHome, isStillRunning, pendingQuestion, showPreview, stopControl, writeInFlight } from '@/lib/chat-state';
 import { DEFAULT_PLACEHOLDER, placeholderFor, SUGGESTIONS } from '@/lib/labels';
-import { CHAT_COOKIE } from '@/lib/nav';
-import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, Health, Target } from '@/lib/protocol';
+import { CHAT_COOKIE, setupReady } from '@/lib/nav';
+import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, CheckFinding, Health, Target } from '@/lib/protocol';
 import { liveSrc, withBust } from '@/lib/urls';
 import { useShell, type WorkspaceBridge } from '@/components/shell/ShellProvider';
+import { ContextChip } from '@/components/context/ContextChip';
 import { ContextPanel } from '@/components/context/ContextPanel';
 import { ChatLog } from '@/components/chat/ChatLog';
 import { Chips } from '@/components/chat/Chips';
@@ -59,6 +61,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const [auditOpen, setAuditOpen] = useState(false);
   const [notes, setNotes] = useState<Annotation[]>([]); // Änderungswünsche aus der Vorschau
   const [previewOpen, setPreviewOpen] = useState(false); // schmaler Viewport: Vorschau über dem Chat
+  const [fixes, setFixes] = useState<FixMap>({}); // Shop-Check-Befunde, die in einem Chat bearbeitet werden
+  const pendingFix = useRef<{ id: string; title: string; prompt: string } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sentApprovals = useRef(new Set<string>());
   const runGen = useRef(0);
@@ -75,6 +79,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     (async () => {
       const [c, sg] = await Promise.allSettled([api.config(), shell.styleguideKnown ? Promise.resolve(undefined) : api.styleguide()]);
       if (off) return;
+      setFixes(loadFixes()); // erst nach dem Laden: localStorage gibt es beim Server-Rendern nicht
       if (c.status === 'fulfilled') setCfg(c.value);
       if (sg.status === 'fulfilled' && sg.value !== undefined) dispatch({ type: 'set_styleguide', sg: sg.value && typeof sg.value === 'object' ? sg.value : null });
       setSgLoaded(true);
@@ -85,6 +90,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- einmalig beim Start
 
   const { target, busy, styleguide: sg } = state;
+  // Solange Shop oder KI fehlen, gibt es nichts zu senden (unbekannter Stand oder Ladefehler: nicht sperren)
+  const locked = !shell.healthFailed && !setupReady(setup);
   // Für die Einrichtungs-Karte genügt „eingerichtet ja/nein“ – das kennt der Server schon beim ersten Rendern
   const homeHealth: Health | null = shell.healthFailed ? null : (health ?? (setup && { shopware: { url: '', ok: false, configured: setup.shopware }, ai: { configured: setup.ai } }));
 
@@ -122,7 +129,12 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     let conflict = false;
     dispatch({ type: 'run_start', text: message });
     await stream.run({ chatId: id, message, target: extra.chatId ? null : pickTarget(target), onboarding: extra.onboarding }, {
-      onEvent: event => { if (gen === runGen.current) liveEvent(event); },
+      onEvent: event => {
+        if (gen !== runGen.current) return;
+        liveEvent(event);
+        // Der Chat ist ab jetzt gespeichert: sofort links im Verlauf zeigen (als „läuft“), nicht erst nach der Runde
+        if (event.t === 'start') loadHistory();
+      },
       onError: (msg, status) => { if (gen !== runGen.current) return; if (status === 409) conflict = true; else dispatch({ type: 'error', text: msg }); },
     });
     if (gen !== runGen.current) return; // inzwischen anderer Chat – die Runde läuft dort im Hintergrund weiter
@@ -167,8 +179,12 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const send = (text = input) => {
     const message = text.trim();
     if (question && message) { setInput(''); answer(question.approvalId, message); return; }
-    if ((!message && !attachments.atts.length) || busyRef.current) return;
+    if ((!message && !attachments.atts.length) || busyRef.current || locked) return;
     if (attachments.uploading) { dispatch({ type: 'status', text: 'Anhänge werden noch hochgeladen …' }); return; }
+    // Auftrag aus dem Shop-Check: Befund mit diesem Chat verknüpfen („in Arbeit“ auf der Startseite)
+    const fix = pendingFix.current;
+    if (fix && chatId && sentFix(fix.prompt, message)) setFixes(m => rememberFix(m, fix.id, { chatId, title: fix.title, at: new Date().toISOString() }));
+    pendingFix.current = null;
     const full = attachmentMessage(message, attachments.done, attachments.files);
     attachments.clear();
     setInput('');
@@ -287,6 +303,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     const h = handlers.current;
     if (!h) return;
     if (intent.type === 'new') h.newChat();
+    else if (intent.type === 'new-context') { h.newChat(); h.openContext(); }
     else if (intent.type === 'open') h.openChat(intent.id);
     else if (intent.type === 'context') h.openContext();
     else h.openStyleguide();
@@ -311,14 +328,18 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     if (e.type === 'drop') void attachments.addFiles(Array.from(e.dataTransfer.files));
   };
 
-  const placeholder = question ? 'Antwort eintippen oder oben anklicken …' : target ? placeholderFor(target.kind, target.name) : DEFAULT_PLACEHOLDER;
+  const fixFinding = (f: CheckFinding) => { pendingFix.current = { id: f.id, title: f.title, prompt: f.fixPrompt }; setInput(f.fixPrompt); inputRef.current?.focus(); };
+  const fixLink = !home ? fixForChat(fixes, chatId) : null;
+  const placeholder = locked ? 'Erst Shop und KI verbinden (Einstellungen) …' : question ? 'Antwort eintippen oder oben anklicken …' : target ? placeholderFor(target.kind, target.name) : DEFAULT_PLACEHOLDER;
   const chips = !busy && target ? SUGGESTIONS[target.kind] : [];
   const mode = home ? 'home' : pv ? 'pv' : 'work';
   const overlay = pv && previewOpen; // schmaler Viewport: Vorschau über dem Chat (Desktop zeigt sie ohnehin rechts)
 
+  const contextChip = <ContextChip target={target} onPick={() => setContextOpen(true)} onClear={() => selectTarget(null)} />;
   const composer = (
     <Composer value={input} onChange={setInput} onSubmit={() => send()} onStop={stop} writing={writeInFlight(state)} busy={busy} placeholder={placeholder} home={home}
-      atts={attachments.atts} onFiles={f => void attachments.addFiles(f)} onRemoveAtt={attachments.remove} inputRef={inputRef} />
+      atts={attachments.atts} onFiles={f => void attachments.addFiles(f)} onRemoveAtt={attachments.remove} inputRef={inputRef} disabled={locked}
+      extra={!locked && (home || !target) && contextChip} />
   );
   const status = <div className={styles.statusRow}><StatusLine text={state.status} /></div>;
 
@@ -336,7 +357,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
               {status}
               <ChatLog className={styles.homeLog} items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)}>
                 <HomeContent health={homeHealth} loadFailed={shell.healthFailed} hasStyleguide={sgLoaded ? !!sg : null} product={exampleProduct} category={exampleCategory}
-                  recent={chats ?? []} onExample={t => { setInput(t); inputRef.current?.focus(); }} onOpenChat={id => void openChat(id)} onOnboard={onboard} />
+                  recent={chats ?? []} onExample={t => { setInput(t); inputRef.current?.focus(); }} onFix={fixFinding} fixes={fixes} onOpenChat={id => void openChat(id)} onOnboard={onboard} />
               </ChatLog>
             </>
           ) : (
@@ -344,6 +365,12 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
               {pv && (
                 <div className={styles.pvBar}>
                   <Button size="sm" onClick={() => setPreviewOpen(true)}>{state.draft ? 'Entwurf ansehen' : 'Vorschau'}</Button>
+                </div>
+              )}
+              {fixLink && (
+                <div className={styles.fixBar}>
+                  <span>Aus dem Shop-Check: <b>{fixLink.title}</b></span>
+                  <button type="button" onClick={() => newChat()}>Zur Übersicht</button>
                 </div>
               )}
               {target && <TargetCard target={target} cfg={cfg} onClear={() => selectTarget(null)} />}

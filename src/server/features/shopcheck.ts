@@ -5,11 +5,11 @@ import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { CheckFinding } from '@/lib/protocol';
 import { countText, runHealth, SEVERITY_LABEL, summaryText } from '@/lib/shopcheck';
-import { DEFAULT_CURRENCY } from '../changes';
+import { DEFAULT_CURRENCY, onApplied } from '../changes';
 import { registerCheck } from '../checks';
 import { ago } from '@/lib/format';
 import { checkLinks, collectLinks, extractLinks, linkContext, shortProblem, type LinkCtx } from '../seo-links';
-import { latestShopCheck } from '../shopcheck';
+import { latestShopCheck, recheckShopCheck } from '../shopcheck';
 import type { ShopReader, SwEntity } from '../shopware';
 import { guard, ok, type AnyTool } from '../tool-kit';
 import { GAP_FILTER } from './bilder';
@@ -19,6 +19,9 @@ import { loadLanguages, SYSTEM_LANGUAGE } from './sprachen';
 import type { Feature } from './types';
 
 export const SCAN_MAX = 2500, SCAN_PAGE = 250, PAGES_MAX = 200;
+
+// Freigegebene Änderung angewendet (z. B. ein Befund über „Als Auftrag ins Feld“ behoben) → Shop-Check im Hintergrund neu
+onApplied('shopcheck', () => { void recheckShopCheck(); });
 
 // Pro Durchlauf nur einmal lesen (runChecks gibt jedem Durchlauf ein eigenes Lese-Client-Objekt, siehe perRun), auch wenn mehrere Prüfungen dieselben Daten brauchen
 const memos = new WeakMap<ShopReader, Map<string, Promise<unknown>>>();

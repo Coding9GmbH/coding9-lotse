@@ -14,7 +14,7 @@ interface Props {
   autoComplete?: string;
 }
 
-/** Geheimnis-Eingabe: nie vorbefüllt; zeigt „gespeichert“, leeres Feld lässt den Wert unverändert, „Entfernen“ löscht. */
+/** Geheimnis-Eingabe: nie vorbefüllt; zeigt „gespeichert“, leeres Feld lässt den Wert unverändert, „Entfernen“ löscht (nach Rückfrage, gespeichert wird automatisch). */
 export function SecretField({ label, has, state, onChange, placeholder, hint, autoComplete = 'off' }: Props) {
   const id = useId();
   const hintId = `${id}-hint`;
@@ -28,11 +28,11 @@ export function SecretField({ label, has, state, onChange, placeholder, hint, au
       <span className={styles.secretRow}>
         <input id={id} type="password" autoComplete={autoComplete} spellCheck={false} aria-describedby={hint ? hintId : undefined}
           value={state.value} disabled={state.remove}
-          placeholder={state.remove ? 'wird beim Speichern gelöscht' : has ? '•••••••• (unverändert lassen)' : placeholder}
+          placeholder={state.remove ? 'wird gelöscht …' : has ? '•••••••• (unverändert lassen)' : placeholder}
           onChange={e => onChange({ value: e.target.value, remove: false })} />
         {has && (state.remove
           ? <button type="button" onClick={() => onChange({ value: '', remove: false })}>Behalten</button>
-          : <button type="button" className={styles.danger} onClick={() => onChange({ value: '', remove: true })}>Entfernen</button>)}
+          : <button type="button" className={styles.danger} onClick={() => { if (window.confirm(`${label} wirklich entfernen?`)) onChange({ value: '', remove: true }); }}>Entfernen</button>)}
       </span>
       {hint && <small id={hintId} className={styles.fieldHint}>{hint}</small>}
     </div>
