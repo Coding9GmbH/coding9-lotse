@@ -5,13 +5,17 @@ import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { CheckFinding } from '@/lib/protocol';
 import { countText, runHealth, SEVERITY_LABEL, summaryText } from '@/lib/shopcheck';
-import { DEFAULT_CURRENCY, onApplied } from '../changes';
+import { DEFAULT_CURRENCY, errMsg, onApplied } from '../changes';
 import { registerCheck } from '../checks';
 import { ago } from '@/lib/format';
 import { checkLinks, collectLinks, extractLinks, linkContext, shortProblem, type LinkCtx } from '../seo-links';
 import { latestShopCheck, recheckShopCheck } from '../shopcheck';
+import type { PlatformKind } from '@/lib/platforms';
+import type { CustomCheck } from '@/lib/custom-checks';
+import { CHECK_FIELDS, CHECK_OPS, conditionsText, CUSTOM_PREFIX, parseCheckInput, type CheckField, type CheckOp } from '@/lib/custom-checks';
+import { addCustom, checkList, customFinding, listCustom, removeCustom, setCheckEnabled, updateCustom } from '../custom-checks';
 import type { ShopReader, SwEntity } from '../shopware';
-import { guard, ok, type AnyTool } from '../tool-kit';
+import { fail, guard, ok, type AnyTool } from '../tool-kit';
 import { GAP_FILTER } from './bilder';
 import { auditPages } from './seo';
 import { DEFS, makeFinding, productLabel, scanHits, SCAN_INCLUDES, toScanRow, type Hit, type ScanRow } from './shopcheck-rules';
@@ -161,8 +165,8 @@ const view = (f: CheckFinding) => ({ id: f.id, area: f.area, severity: SEVERITY_
 export const shopcheck: Feature = {
   key: 'shopcheck',
   platforms: 'all',
-  toolNames: ['run_shop_check'],
-  tools: () => [
+  toolNames: ['run_shop_check', 'list_checks', 'create_check', 'update_check', 'set_check_enabled', 'delete_check'],
+  tools: session => [
     tool('run_shop_check', 'Liefert die Befunde des Shop-Checks (dasselbe wie auf der Startseite): was im Shop gerade nicht stimmt, je Punkt Bereich, Gewicht (Wichtig/Mittel/Hinweis), Anzahl, Beispiele, Begründung und fixPrompt (Auftrag, wie Lotse es mit den propose_*-Werkzeugen behebt). Nutzt das gespeicherte Ergebnis (bis 6 Std. alt), sonst wird neu geprüft (kann bei großen Katalogen etwas dauern). Ändert nichts im Shop. Geeignet für „Was sollte ich als Nächstes verbessern?“.',
       { area: z.string().optional().describe('nur diesen Bereich, z. B. "SEO", "Bilder", "Preise", "Links", "Daten", "Sprachen"'), refresh: z.boolean().optional().describe('true = jetzt neu prüfen statt gespeichertes Ergebnis') },
       guard(async a => {
@@ -177,5 +181,92 @@ export const shopcheck: Feature = {
           hint: 'Reihenfolge = Priorität (Wichtig zuerst, dann Anzahl). Zum Beheben den fixPrompt als Plan nutzen: Umfang vorher per ask_user bestätigen, nichts erfinden, Änderungen nur über propose_*-Werkzeuge.',
         });
       })),
+
+    tool('list_checks', 'Listet ALLE Prüfungen des Shop-Checks dieser Plattform: eingebaute und eigene, je id, Titel, Bereich, an/aus und bei eigenen die Regel. Vor create_check/update_check/set_check_enabled/delete_check aufrufen, um IDs zu kennen.', {},
+      guard(async () => {
+        const list = checkList(session.platform);
+        return ok({ pruefungen: list.map(c => ({ id: c.id, titel: c.title, bereich: c.area, an: c.enabled, eigene: c.custom || undefined, regel: c.rule })),
+          felder: Object.fromEntries(Object.entries(CHECK_FIELDS).map(([k, v]) => [k, v.label])), vergleiche: Object.keys(CHECK_OPS) });
+      })),
+
+    tool('create_check', 'Legt eine EIGENE Prüfung für den Shop-Check an (z. B. „Produktbeschreibung unter 2000 Zeichen“, „Bestand unter 5“, „Meta-Description fehlt“). Die Prüfung gilt für alle aktiven Produkte und wird so ausgewertet: Bedingungen über neutrale Felder, kein Code. Zeigt dem Nutzer vorher die Regel samt Trefferzahl im Shop und fragt, ob sie gespeichert werden soll. Erscheint danach als normaler Befund auf der Startseite.',
+      {
+        title: z.string().describe('Kurzer Titel des Befunds, z. B. „Beschreibung unter 2000 Zeichen“'),
+        conditions: z.array(z.object({ field: z.enum(Object.keys(CHECK_FIELDS) as [CheckField, ...CheckField[]]), op: z.enum(Object.keys(CHECK_OPS) as [CheckOp, ...CheckOp[]]), value: z.union([z.number(), z.boolean()]) })).min(1).max(5)
+          .describe('Bedingungen; Beispiel: {field:"descriptionChars", op:"lt", value:2000}. hasImage braucht op eq/neq und true/false'),
+        match: z.enum(['all', 'any']).optional().describe('all = alle Bedingungen müssen zutreffen (Standard), any = mindestens eine'),
+        severity: z.enum(['hoch', 'mittel', 'niedrig']).optional(), area: z.string().optional().describe('Bereich auf der Startseite, Standard „Eigene Prüfungen“'),
+        hint: z.string().optional().describe('Ein Satz: warum das wichtig ist'),
+      },
+      guard(async a => {
+        const draft = parseCheckInput({ title: a.title, conditions: a.conditions, match: a.match, severity: a.severity, area: a.area, hint: a.hint });
+        const preview = await dryRun(session, { ...draft, id: 'preview', createdAt: '' });
+        const answer = await session.askUser({
+          question: `Neue Prüfung im Shop-Check:\n**${draft.title}**\nTrifft zu, wenn: ${conditionsText(draft)}.\n${preview}\nSpeichern?`,
+          options: [{ label: 'Ja, anlegen' }, { label: 'Nein' }],
+        });
+        if (!/^\s*ja\b/i.test(answer)) return ok({ status: 'nicht angelegt', antwort: answer });
+        const c = addCustom(draft);
+        void recheckShopCheck().catch(() => {});
+        return ok({ status: 'angelegt', id: c.id, hinweis: 'Läuft ab sofort bei jedem Shop-Check mit; die Startseite aktualisiert sich nach dem nächsten Durchlauf.' });
+      })),
+
+    tool('update_check', 'Ändert eine EIGENE Prüfung (id aus list_checks, beginnt mit custom.): Titel, Bedingungen, Verknüpfung, Gewicht, Bereich, Hinweis. Nur die angegebenen Felder ändern sich; bei conditions die vollständige neue Liste senden. Fragt den Nutzer vorher. Eingebaute Prüfungen lassen sich nur an/ausschalten.',
+      {
+        id: z.string(), title: z.string().optional(),
+        conditions: z.array(z.object({ field: z.enum(Object.keys(CHECK_FIELDS) as [CheckField, ...CheckField[]]), op: z.enum(Object.keys(CHECK_OPS) as [CheckOp, ...CheckOp[]]), value: z.union([z.number(), z.boolean()]) })).min(1).max(5).optional(),
+        match: z.enum(['all', 'any']).optional(), severity: z.enum(['hoch', 'mittel', 'niedrig']).optional(), area: z.string().optional(), hint: z.string().optional(),
+      },
+      guard(async ({ id, ...patch }) => {
+        const cur = listCustom().find(c => c.id === id);
+        if (!cur) return fail(id.startsWith(CUSTOM_PREFIX) ? 'Eigene Prüfung nicht gefunden (list_checks)' : 'Eingebaute Prüfungen lassen sich nur an-/ausschalten (set_check_enabled).');
+        const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+        const next = { ...cur, ...parseCheckInput({ ...cur, ...clean }) };
+        const preview = await dryRun(session, next);
+        const answer = await session.askUser({ question: `Prüfung „${cur.title}“ ändern?\nNeu: **${next.title}**, trifft zu, wenn: ${conditionsText(next)}.\n${preview}`, options: [{ label: 'Ja, ändern' }, { label: 'Nein' }] });
+        if (!/^\s*ja\b/i.test(answer)) return ok({ status: 'nicht geändert', antwort: answer });
+        const c = updateCustom(id, clean);
+        void recheckShopCheck().catch(() => {});
+        return ok({ status: 'geändert', id: c.id });
+      })),
+
+    tool('set_check_enabled', 'Schaltet EINE Prüfung des Shop-Checks an oder aus (eingebaut oder eigen; id aus list_checks). Aus = wird nicht mehr geprüft und taucht nicht mehr auf der Startseite auf. Beim Ausschalten fragt das Werkzeug den Nutzer.',
+      { id: z.string(), enabled: z.boolean() },
+      guard(async ({ id, enabled }) => {
+        const c = checkList(session.platform).find(x => x.id === id);
+        if (!c) return fail('Prüfung nicht gefunden (list_checks)');
+        if (c.enabled === enabled) return ok({ status: 'unverändert', an: enabled });
+        if (!enabled) {
+          const answer = await session.askUser({ question: `Prüfung „${c.title}“ (${c.area}) ausschalten? Sie wird dann nicht mehr geprüft und nicht mehr angezeigt.`, options: [{ label: 'Ja, ausschalten' }, { label: 'Nein' }] });
+          if (!/^\s*ja\b/i.test(answer)) return ok({ status: 'nicht geändert', antwort: answer });
+        }
+        setCheckEnabled(id, enabled);
+        void recheckShopCheck().catch(() => {});
+        return ok({ status: enabled ? 'eingeschaltet' : 'ausgeschaltet', id });
+      })),
+
+    tool('delete_check', 'Löscht eine EIGENE Prüfung (id aus list_checks, beginnt mit custom.). Fragt den Nutzer vorher. Eingebaute Prüfungen lassen sich nur ausschalten.',
+      { id: z.string() },
+      guard(async ({ id }) => {
+        const c = listCustom().find(x => x.id === id);
+        if (!c) return fail('Eigene Prüfung nicht gefunden (list_checks)');
+        const answer = await session.askUser({ question: `Eigene Prüfung „${c.title}“ löschen?`, options: [{ label: 'Ja, löschen' }, { label: 'Nein' }] });
+        if (!/^\s*ja\b/i.test(answer)) return ok({ status: 'nicht gelöscht' });
+        removeCustom(id);
+        void recheckShopCheck().catch(() => {});
+        return ok({ status: 'gelöscht' });
+      })),
   ] as AnyTool[],
 };
+
+/** Probelauf gegen die echten Produkte, damit der Nutzer vor dem Speichern die Trefferzahl sieht */
+async function dryRun(session: { platform: PlatformKind; reader: unknown }, c: CustomCheck): Promise<string> {
+  try {
+    const { getPlatform } = await import('../platform');
+    const scan = await getPlatform(session.platform).scanProducts(session.reader);
+    const f = customFinding(c, scan);
+    const base = `${scan.capped ? 'mindestens ' : ''}`;
+    return f ? `Würde aktuell **${base}${f.count.toLocaleString('de-DE')} von ${scan.total.toLocaleString('de-DE')} Produkten** melden${f.sample?.length ? `, z. B. ${f.sample.slice(0, 3).map(s => s.label).join('; ')}` : ''}.`
+      : `Würde aktuell **nichts** melden (${scan.total.toLocaleString('de-DE')} Produkte geprüft).`;
+  } catch (e) { return `Probelauf nicht möglich (${errMsg(e)}); die Prüfung wird trotzdem gespeichert.`; }
+}

@@ -320,6 +320,18 @@ test('Shop-Check: Magento-Prüfungen mit Befunden und Magento-Werkzeugen im Auft
   for (const f of run.findings) assert.doesNotMatch(f.fixPrompt, /find_products_by_data|get_product_details|suggest_internal_links|Einkaufswelt|Shopware/, f.id);
 });
 
+test('Neutrale Produktzeilen für eigene Prüfungen: Texte, Preise, Bestand, Bild; Befund über denselben Durchlauf', async () => {
+  const { evaluate } = await import('../../../../src/lib/custom-checks');
+  const reader = magentoReaderFor('shop-check-neutral');
+  const scan = await magento.scanProducts(reader);
+  assert.ok(scan.rows.length > 0 && scan.total >= scan.rows.length && scan.capped === false);
+  for (const r of scan.rows) { assert.ok(r.id && r.label && r.name, 'id/label/name'); assert.equal(typeof r.description, 'string'); assert.ok(r.price === null || typeof r.price === 'number'); assert.equal(typeof r.hasImage, 'boolean'); }
+  const noMeta = evaluate(scan.rows, { match: 'all', conditions: [{ field: 'metaDescriptionChars', op: 'eq', value: 0 }] });
+  assert.ok(noMeta.count > 0 && noMeta.sample.length > 0, 'Meta-Description fehlt irgendwo');
+  const zero = evaluate(scan.rows, { match: 'all', conditions: [{ field: 'price', op: 'lte', value: 0 }] });
+  assert.ok(zero.count >= 0);
+});
+
 test('Import: Plan (neu als Entwurf, nur geänderte Felder, Preise nur mit Option, Varianten übersprungen) und Rückgängig exakt', async () => {
   const csv = 'SKU;Name;Preis;UVP;Bestand;Beschreibung;Kategorie;Hauptartikel\nVASE;Vase neu;49,00;;10;;Wohnaccessoires;\nNEU-1;Neue Schale;29,90;39,90;5;Schöne Schale;Küche;\nNEU-2;Ohne Preis;;;;;;\nVAR-1;Variante;10;;;;;VASE\n';
   const t = await parseTable(Buffer.from(csv), 'liste.csv');

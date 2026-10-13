@@ -70,6 +70,7 @@ export const magento: PlatformAdapter = {
   tools: magentoTools,
   features: [magentoImport],
   loadChecks: async () => { await import('./checks'); },
+  scanProducts: async r => (await import('./checks')).neutralScan(r as MagentoReader),
 
   apply: async (cs, payload, selected, ctx) => reg.apply(magentoClient(), cs, payload, selected, ctx),
   undo: ops => undoMagento(magentoClient(), ops),

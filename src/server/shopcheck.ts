@@ -4,6 +4,7 @@ import 'server-only';
 import type { CheckRun, ShopCheckState } from '@/lib/protocol';
 import { errMsg } from './changes';
 import { listChecks } from './checks';
+import { customShopChecks, disabledChecks } from './custom-checks';
 import { kvGet, kvSet } from './db';
 import { activePlatform } from './platform';
 import { runHealth } from '@/lib/shopcheck';
@@ -41,7 +42,9 @@ export function startShopCheck(reader?: ShopReader): Promise<CheckRun> {
     const p = activePlatform();
     await import('./features'); await p.loadChecks();
     // Lese-Client je Durchlauf frisch vom Adapter; Shopware hüllt ihn zusätzlich ein (perRun), damit Zwischenspeicher nur für diesen Durchlauf gelten
-    const run = await runChecks(reader ?? checkReader(), listChecks(p.kind), { scopes: getSettings().scopes, concurrency: 3, timeoutMs: 90_000, ctx: r => ({ platform: p.kind, reader: r, lookup: p.lookup(r) }), perRun: p.kind === 'shopware' });
+    // An/Aus je Prüfung und eigene Prüfungen (Plattform liefert die neutralen Produktzeilen)
+    const off = disabledChecks(), checks = [...listChecks(p.kind), ...customShopChecks(r => p.scanProducts(r))].filter(c => !off.has(c.id));
+    const run = await runChecks(reader ?? checkReader(), checks, { scopes: getSettings().scopes, concurrency: 3, timeoutMs: 90_000, ctx: r => ({ platform: p.kind, reader: r, lookup: p.lookup(r) }), perRun: p.kind === 'shopware' });
     if (sig === signature()) kvSet(KEY, { sig, run } satisfies Cached);
     s.error = null;
     return run;

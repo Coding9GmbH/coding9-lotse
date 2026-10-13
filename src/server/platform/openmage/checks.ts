@@ -2,10 +2,12 @@ import 'server-only';
 // OpenMage-Shop-Check: Prüfungen registrieren (SEO, Bilder, Bestand, Preise, Links in Beschreibungen und CMS-Seiten, Übersetzungen).
 // Je Durchlauf ein frischer Lese-Client; Daten werden je Lese-Client einmal gelesen (memo) und von allen Prüfungen geteilt.
 // Die Produktliste liefert mit ?fields= und ?with=images alles Nötige; große Kataloge: höchstens SCAN_MAX Produkte (Befund „mindestens“).
+import type { NeutralProduct, NeutralScan } from '@/lib/custom-checks';
 import type { CheckFinding } from '@/lib/protocol';
 import { registerPlatformCheck } from '../../checks';
 import { makeFinding, type FindingDef, type Hit } from '../../features/shopcheck-rules';
 import { extractLinks } from '../../seo-links';
+import { attr, attrStr, plain, priceState } from '../magento/map';
 import { categoryHits, M_DEFS, productHits, untranslated } from '../magento/checks-rules';
 import { catRec } from './audit';
 import { checkOmLinks, type OmLinkCache } from './links';
@@ -44,8 +46,23 @@ const hitsOf = (ro: OmReader) => memo(ro, 'hits', async () => {
   const s = await scan(ro);
   const stock = new Map<string, { qty: number; inStock: boolean }>();
   for (const p of s.raw) if (p.qty != null) stock.set(String(p.sku), { qty: Number(p.qty), inStock: !!p.is_in_stock });
-  return { s, h: productHits(s.rows, stock) };
+  return { s, h: productHits(s.rows, stock), stock };
 });
+/** Neutrale Produktzeilen für eigene Prüfungen (Bestand aus dem Lagerposten) */
+export async function neutralScan(ro: OmReader): Promise<NeutralScan> {
+  const { s, stock } = await hitsOf(ro);
+  return {
+    total: s.total, capped: s.capped,
+    rows: s.rows.map((p): NeutralProduct => {
+      const pr = priceState(p), name = plain(p.name) || String(p.sku), q = stock.get(String(p.sku));
+      return {
+        id: String(p.id), name, label: `${name} (${p.sku})`, description: String(attr(p, 'description') ?? ''), metaTitle: plain(attrStr(p, 'meta_title')), metaDescription: plain(attrStr(p, 'meta_description')),
+        price: pr.selling, listPrice: pr.list, stock: q ? q.qty : null,
+        hasImage: (p.media_gallery_entries ?? []).some((e: OmRecord) => !e.disabled),
+      };
+    }),
+  };
+}
 type Key = keyof ReturnType<typeof productHits>;
 const fromScan = (k: Key, def: FindingDef) => async (ro: OmReader) => {
   const { s, h } = await hitsOf(ro), v = h[k], list = Array.isArray(v) ? { count: v.length, sample: v } : v;
