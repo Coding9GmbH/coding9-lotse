@@ -1,3 +1,5 @@
+**Deutsch** · [English](README.en.md)
+
 # Lotse Connector für OpenMage (Magento 1)
 
 Kleines OpenMage-Modul `Lotse_Connector`, das Lotse eine **token-gesicherte JSON-API** unter `/lotse-api/v1/...` gibt. Die alten Magento-1-Schnittstellen (REST mit OAuth 1.0a, SOAP/XML-RPC) kennen keine CMS-Seiten und -Blöcke und sind für Lotse unhandlich; dieses Modul deckt genau das ab, was Lotse liest und (nach menschlicher Freigabe) schreibt.

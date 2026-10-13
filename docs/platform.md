@@ -1,3 +1,5 @@
+**Deutsch** · [English](en/platform.md)
+
 # Plattform-Schicht: Shopware, Shopify, Magento, OpenMage
 
 Lotse verbindet genau **einen** Shop. Welche Plattform das ist, steht in den Einstellungen (`platform`, Standard `shopware`, Umgebung `SHOP_PLATFORM`). Der Kern (Chat, Freigabe-Workflow, Seitenentwurf mit Vorschau, Styleguide, Wissensbasis, Datei-Anhänge, Search Console, Shop-Check) kennt keinen Shop. Er spricht ausschließlich über einen **Adapter** (`PlatformAdapter`) mit der Plattform.
@@ -142,6 +144,7 @@ Code-Stil wie im Repo: strenges TypeScript, kompakt, deutsche Kommentare, `impor
 - `session.reader`: geschützter Lese-Client der Plattform (`unknown`). Eigene Werkzeuge casten auf ihren Typ, am besten mit Prüfung, z. B. `const r = session.reader as ShopifyReader`.
 - `session.lookup`: `ShopLookup`.
 - `session.sw`: nur Shopware. Auf anderen Plattformen wirft jeder Zugriff („Dieses Werkzeug gibt es nur für Shopware“).
+- `session.locale`: Sprache der Oberfläche (`'de' | 'en'`), gesetzt von `POST /api/chat`; bestimmt die Antwortsprache im System-Prompt (siehe [architektur.md](architektur.md), Abschnitt 12).
 - `session.requestChange(cs, payload)`: einziger Weg zum Schreiben (Abschnitt 5).
 - `session.askUser(q)`: Rückfrage mit Optionen.
 
@@ -325,6 +328,8 @@ Tests müssen zeigen: Kunden/Bestellungen werden abgewiesen, sensible Felder ent
 ## 9. Prompts
 
 `prompt.ts` liest `prompts/common/*.md` und `prompts/<plattform>/*.md`, sortiert **alle nach Dateinamen** (die Teile greifen ineinander) und füllt `{{shop}}`, `{{platform}}`, `{{htmlElement}}`, `{{shopcheckTools}}` aus `promptVars`. `shopcheckTools` ergänzt im Shop-Check-Abschnitt die Lese-Werkzeuge für das Beheben eines Befunds, mit führendem Leerzeichen und Klammern (Shopware: `' (seo_audit, find_image_gaps, get_product_details …)'`), leer, wenn die Plattform diese optionalen Werkzeuge nicht hat. Nur Werkzeuge nennen, die es wirklich gibt. Gleicher Dateiname im Plattform-Ordner ersetzt die gemeinsame Datei. Danach folgen Pattern-Katalog und der Blockkatalog der Plattform.
+
+Die Prompts sind bewusst deutsch formuliert (interne Anweisungen an das Modell). Die Antwortsprache hängt je Session ein eigener Block an (`REPLY_LANGUAGE` in `prompt.ts`, siehe [architektur.md](architektur.md), Abschnitt 12).
 
 Plätze, die eine Plattform füllt (Shopware-Dateien als Vorlage):
 

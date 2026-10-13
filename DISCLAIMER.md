@@ -1,3 +1,5 @@
+**Deutsch** · [English](DISCLAIMER.en.md)
+
 # Haftungsausschluss
 
 Lotse ist ein Open-Source-Werkzeug (MIT-Lizenz) der CODING 9 GmbH. Bitte lies diese Hinweise, bevor du Lotse mit einem Live-Shop verbindest.
