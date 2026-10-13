@@ -101,7 +101,7 @@ export function SettingsView() {
           { id: 'scopes', label: 'KI-Zugriff' },
           { id: 'gsc', label: 'Search Console', note: 'optional' },
           { id: 'protokolle', label: 'Protokolle' },
-        ]} />
+        ]} loaded={!!form && !!saved} />
 
         <main className={styles.content}>
           <div className={styles.titleRow}>
@@ -261,7 +261,7 @@ function Field({ label, hint, children }: { label: string; hint?: React.ReactNod
 type TocItem = { id: string; label: string; state?: 'ok' | 'todo'; note?: string };
 
 /** Abschnitte links: markiert den sichtbaren Abschnitt und zeigt, was eingerichtet ist und was noch fehlt. */
-function Toc({ items }: { items: TocItem[] }) {
+function Toc({ items, loaded }: { items: TocItem[]; /** Abschnitte gerendert (Einstellungen geladen) */ loaded: boolean }) {
   const [current, setCurrent] = useState(items[0]?.id);
   const ids = items.map(i => i.id).join(',');
   useEffect(() => {
@@ -269,19 +269,25 @@ function Toc({ items }: { items: TocItem[] }) {
     read();
     const els = ids.split(',').map(id => document.getElementById(id)).filter((e): e is HTMLElement => !!e);
     const root = els[0]?.closest(`.${styles.page}`) ?? null;
-    // Der Abschnitt, dessen Kopf zuletzt über die obere Bildschirmhälfte gewandert ist
-    const io = new IntersectionObserver(() => {
-      const top = root?.getBoundingClientRect().top ?? 0;
+    // Der Abschnitt, dessen Kopf zuletzt unter die Überschrift gewandert ist
+    const pick = () => {
+      const top = root?.getBoundingClientRect().top ?? 0, line = Math.max(160, ((root as HTMLElement | null)?.clientHeight ?? window.innerHeight) / 3);
       let best: string | undefined = els[0]?.id;
-      for (const el of els) if (el.getBoundingClientRect().top - top < 160) best = el.id;
+      for (const el of els) if (el.getBoundingClientRect().top - top < line) best = el.id;
       const page = root as HTMLElement | null;
-      if (page && page.scrollTop + page.clientHeight >= page.scrollHeight - 4) best = els.at(-1)?.id; // ganz unten: letzter Abschnitt
+      // Ganz unten (nach echtem Scrollen): letzter Abschnitt. Nicht beim Laden, wenn die Seite noch kurz ist und nicht scrollt.
+      if (page && page.scrollTop > 0 && page.scrollTop + page.clientHeight >= page.scrollHeight - 4) best = els.at(-1)?.id;
       if (best) setCurrent(best);
-    }, { root, threshold: [0, 0.25, 0.5, 0.75, 1], rootMargin: '0px 0px -40% 0px' });
-    els.forEach(el => io.observe(el));
+    };
+    // Beim Scrollen (je Frame höchstens einmal) neu bestimmen
+    let frame = 0;
+    const onScroll = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(pick); };
+    const target: HTMLElement | Window = (root as HTMLElement | null) ?? window;
+    if (!window.location.hash) pick(); // mit Sprungmarke zählt die (read), bis gescrollt wird
+    target.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('hashchange', read);
-    return () => { io.disconnect(); window.removeEventListener('hashchange', read); };
-  }, [ids]);
+    return () => { cancelAnimationFrame(frame); target.removeEventListener('scroll', onScroll); window.removeEventListener('hashchange', read); };
+  }, [ids, loaded]); // erst nach dem Laden gibt es alle Abschnitte
   return (
     <nav className={styles.toc} aria-label="Abschnitte">
       <span className={styles.tocHead}>Auf dieser Seite</span>

@@ -1,4 +1,4 @@
-.page { height: 100%; overflow-y: auto; scroll-behavior: smooth; scroll-padding-top: 92px; }
+.page { height: 100%; overflow-y: auto; scroll-behavior: smooth; }
 
 .wrap { display: grid; grid-template-columns: 200px minmax(0, 820px); gap: 28px; justify-content: center; padding: 28px 18px 60px; }
 .toc { position: sticky; top: 28px; align-self: start; display: flex; flex-direction: column; border-left: 1px solid var(--line); }

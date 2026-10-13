@@ -106,3 +106,22 @@ test('recheckShopCheck: Shop nicht eingerichtet → nichts', async () => {
   assert.equal(calls, 0);
   updateSettings({ shopware: { url: 'http://127.0.0.1:9' } });
 });
+
+test('freigegebene Änderung angewendet → Shop-Check prüft über den onApplied-Hook neu (echte Verdrahtung)', async () => {
+  await import('../../src/server/features'); // registriert die Hooks wie im Chat
+  const { notifyApplied } = await import('../../src/server/changes');
+  const before = cachedRun();
+  assert.ok(before, 'Ergebnis aus den vorigen Tests vorhanden');
+  await new Promise(r => setTimeout(r, 5));
+  const cs = { id: 'cs1', kind: 'products', title: 'Meta-Descriptions', reason: '', items: [{ id: 'i1', entity: 'product', entityId: 'p1', label: 'Vase', field: 'metaDescription', before: '', after: 'Neu' }] } as never;
+  await notifyApplied(cs, { results: [{ itemId: 'i1', ok: true }] }, { ro: {} as ShopReader, chatId: 'c1' });
+  // Der Hook startet im Hintergrund; warten, bis ein neues Ergebnis gespeichert ist
+  for (let i = 0; i < 200 && cachedRun()?.checkedAt === before.checkedAt; i++) await new Promise(r => setTimeout(r, 50));
+  assert.notEqual(cachedRun()?.checkedAt, before.checkedAt, 'neuer Durchlauf nach der Änderung');
+
+  // Nichts angewendet (alles fehlgeschlagen) → kein Hook, kein Durchlauf
+  const now = cachedRun()?.checkedAt;
+  await notifyApplied(cs, { results: [{ itemId: 'i1', ok: false }] }, { ro: {} as ShopReader, chatId: 'c1' });
+  await new Promise(r => setTimeout(r, 300));
+  assert.equal(cachedRun()?.checkedAt, now);
+});
