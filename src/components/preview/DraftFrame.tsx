@@ -11,9 +11,9 @@ export const postToFrame = (f: HTMLIFrameElement, m: ToFrame) => f.contentWindow
 /** iframe ohne Zugriff auf das eingebettete Dokument (sandbox ohne allow-same-origin) → nur postMessage */
 export const isSandboxed = (f: HTMLIFrameElement) => f.hasAttribute('sandbox') && !f.sandbox.contains('allow-same-origin');
 
-/** Live-Vorschau (Shop-Seite über den Proxy): gleiche Herkunft, damit der Annotator contentDocument lesen kann, Formulare erlaubt,
- *  aber keine Skripte – Shop-JS läuft nie in Lotses Herkunft. Der Entwurf nutzt stattdessen sandbox="allow-scripts" (siehe unten). */
-export const PREVIEW_SANDBOX = 'allow-same-origin allow-forms';
+/** Live-Vorschau (Shop-Seite über den Proxy): Skripte und Formulare laufen, aber in einem opaken Origin (kein allow-same-origin), nie in
+ *  Lotses Herkunft. Der Proxy setzt zusätzlich `sandbox` per CSP. Markieren und Scroll laufen wie beim Entwurf per postMessage. */
+export const PREVIEW_SANDBOX = 'allow-scripts allow-forms';
 
 /**
  * Entwurfs-Vorschau (srcdoc) in einem sandboxed iframe: Skripte aus custom-html-Blöcken und Shop-HTML laufen in einem

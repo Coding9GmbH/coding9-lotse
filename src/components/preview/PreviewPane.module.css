@@ -3,7 +3,7 @@
 .ttl { font-family: var(--display); font-weight: 700; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ttl small { color: var(--mute); font-weight: 400; margin-left: 8px; font-family: var(--body); }
 .seg { margin: 0; flex: 1 1 180px; width: auto; min-width: 140px; max-width: 250px; }
-.vp { flex: none; }
+.vp { flex: none; min-height: 36px; min-width: 36px; border-radius: 10px; }
 .close { flex: none; display: grid; place-items: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--ink); cursor: pointer; }
 .close:hover { background: var(--bg); }
 @media (max-width: 640px) {
@@ -31,8 +31,11 @@
 @keyframes pulse { 50% { opacity: .3; } }
 
 /* Anmerken: Elemente in der Vorschau markieren und Wünsche sammeln */
-.mark { flex: none; gap: 6px; }
-.markOn { background: var(--coral); border-color: var(--coral); color: var(--dark); }
+.bar .mark { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 14px; font-size: 13px; font-weight: 600; line-height: 1; border-radius: 10px; color: var(--ink); white-space: nowrap; }
+.bar .mark svg { color: var(--coral-d, var(--coral)); flex: none; }
+.bar .mark:hover:not(:disabled) { border-color: var(--coral); }
+.bar .markOn { background: var(--coral); border-color: var(--coral); color: var(--dark); }
+.bar .markOn svg { color: var(--dark); }
 .marking .frame { outline: 2px dashed var(--coral); outline-offset: 3px; }
 .markHint { position: absolute; z-index: 3; top: 24px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; font: 500 13px var(--body); padding: 8px 14px; border-radius: 99px; pointer-events: none; box-shadow: var(--shadow-pop); }
 .pop { position: absolute; z-index: 4; width: min(320px, calc(100% - 16px)); display: grid; gap: 6px; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-pop); }

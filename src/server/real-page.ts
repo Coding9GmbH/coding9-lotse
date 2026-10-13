@@ -1,12 +1,18 @@
 // Entwurf auf der echten Seite: das HTML der Shop-Seite (Kopf, Fuß, Theme, Kaufbox, Produktliste) bleibt, nur der CMS-Inhalt
 // (.cms-sections) wird durch den Entwurf ersetzt. Rein (kein Netz): Teile finden, Skripte entfernen, einsetzen. Shopware-Markup.
 
-/** Skripte, Kommentare und Vorladehinweise entfernen: die Vorschau führt kein Shop-JS aus */
+const external = (url: string) => /^(?:https?:)?\/\//i.test(url.trim());
+const attr = (tag: string, name: string) => tag.match(new RegExp(`\\b${name}\\s*=\\s*["']?([^"'\\s>]+)`, 'i'))?.[1];
+
+/**
+ * Skripte des Shops bleiben (Menü, Slider, Galerie laufen in der isolierten Vorschau), Skripte und Vorladehinweise fremder Domains
+ * (Tracking, Consent-Dienste) und Kommentare werden entfernt. Die Shop-URL ist vorher auf /shop umgeschrieben, Shop-Skripte sind also relativ.
+ */
 export function stripScripts(html: string): string {
   return html
     .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
-    .replace(/<link\b[^>]*\brel=["']?(?:modulepreload|preload|prefetch)["']?[^>]*>/gi, '');
+    .replace(/<script\b([^>]*)>[\s\S]*?<\/script\s*>/gi, (m, attrs: string) => { const src = attr(attrs, 'src'); return src && external(src) ? '' : m; })
+    .replace(/<link\b[^>]*\brel=["']?(?:modulepreload|preload|prefetch)["']?[^>]*>/gi, m => { const href = attr(m, 'href'); return href && external(href) ? '' : m; });
 }
 
 const openDiv = () => /<div\b[^>]*>/gi; // je Aufruf eine eigene Instanz: ineinander verschachtelte Suchen teilen sonst lastIndex
@@ -85,7 +91,7 @@ export function extractBlocks(html: string, byType: Record<string, string[]>): R
   return out;
 }
 
-/** Fremde Skripte in <head>/<body> einer Vorschau-Hülle: eigene Styles und Rahmen-Skript vor </head> einsetzen */
+/** Eigene Styles und Rahmen-Skript vor </head> einsetzen (ohne <head>: an den Anfang) */
 export function injectIntoHead(html: string, headExtra: string): string {
-  return /<\/head\s*>/i.test(html) ? html.replace(/<\/head\s*>/i, `${headExtra}</head>`) : headExtra + html;
+  return /<\/head\s*>/i.test(html) ? html.replace(/<\/head\s*>/i, () => `${headExtra}</head>`) : headExtra + html; // Funktion: kein $-Muster im Skript auswerten
 }
