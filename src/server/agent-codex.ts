@@ -5,6 +5,7 @@ import type { ChatEvent } from '@/lib/protocol';
 import { bindRoundToken, codexConfig, codexEnv, codexLoggedIn, mcpTokenFor } from './codex';
 import type { PlatformKind } from '@/lib/platforms';
 import { buildSystem } from './prompt';
+import type { Locale } from '@/lib/i18n/locales';
 import { persist, type Session } from './sessions';
 import type { RunEnd } from './agent';
 import { getSettings, redact } from './settings';
@@ -12,13 +13,13 @@ import { errMsg } from './util';
 
 // Ergänzung zum System-Prompt: Codex kennt sonst seine Rolle als Programmier-Agent
 const CODEX_NOTE = `\n\n## Laufzeit
-Du läufst in Lotse, nicht als Programmier-Assistent. Du hast ausschließlich die Werkzeuge des MCP-Servers „shop“ (z. B. search_products, draft_page, ask_user, propose_product_changes). Führe keine Befehle aus, lies oder schreibe keine Dateien und frage nicht nach solchen Rechten. Das ist hier technisch gesperrt. Antworte auf Deutsch.`;
+Du läufst in Lotse, nicht als Programmier-Assistent. Du hast ausschließlich die Werkzeuge des MCP-Servers „shop“ (z. B. search_products, draft_page, ask_user, propose_product_changes). Führe keine Befehle aus, lies oder schreibe keine Dateien und frage nicht nach solchen Rechten. Das ist hier technisch gesperrt.`;
 
 /** Interne Adresse, unter der der Codex-Prozess Lotse erreicht (gleicher Rechner/Container). */
 const internalUrl = () => (process.env.LOTSE_INTERNAL_URL || `http://127.0.0.1:${process.env.PORT || 3333}`).replace(/\/$/, '');
 
-function client(chatId: string, platform?: PlatformKind) {
-  const cfg = codexConfig({ mcpUrl: `${internalUrl()}/api/mcp/${encodeURIComponent(chatId)}`, instructions: buildSystem(platform) + CODEX_NOTE });
+function client(chatId: string, platform?: PlatformKind, locale?: Locale) {
+  const cfg = codexConfig({ mcpUrl: `${internalUrl()}/api/mcp/${encodeURIComponent(chatId)}`, instructions: buildSystem(platform, locale) + CODEX_NOTE });
   const codex = new Codex({ env: codexEnv({ LOTSE_MCP_TOKEN: mcpTokenFor(chatId) }), config: cfg.config, configOverrides: cfg.configOverrides });
   const opts = codexThreadOptions(cfg.workingDirectory, getSettings().ai.codexModel);
   return { codex, opts };
@@ -79,7 +80,7 @@ export async function runCodex(s: Session, prompt: string, signal: AbortSignal, 
     const tools = new Set<string>();
     let failed: string | null = null;
     try {
-      const { codex, opts } = client(s.id, s.platform);
+      const { codex, opts } = client(s.id, s.platform, s.locale);
       const thread = s.codexThreadId ? codex.resumeThread(s.codexThreadId, opts) : codex.startThread(opts);
       const { events } = await thread.runStreamed(prompt, { signal: ac.signal });
       for await (const ev of events) {

@@ -8,13 +8,16 @@ import { catalogState, shellFlags } from '@/lib/load-state';
 import { filterHistory, historyContexts, setupReady } from '@/lib/nav';
 import { chatDeleteQuestion } from '@/lib/privacy-copy';
 import type { ChatStatus, ChatSummary, Health } from '@/lib/protocol';
+import type { Messages } from '@/lib/i18n';
+import { useI18n } from '@/lib/i18n/I18nProvider';
+import { LanguageSwitch } from '@/components/i18n/LanguageSwitch';
 import { IconBook, IconChat, IconClose, IconHistory, IconPalette, IconPanel, IconPlus, IconSearch, IconSettings, IconTarget, IconTrash } from '@/components/ui/icons';
 import { useShell } from './ShellProvider';
 import styles from './SideNav.module.css';
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 
-function status(h: Health | null, healthFailed: boolean) {
+function status(h: Health | null, healthFailed: boolean, t: Messages['nav']['status']) {
   const flags = shellFlags({
     loadFailed: healthFailed,
     known: !!h && !healthFailed,
@@ -22,14 +25,14 @@ function status(h: Health | null, healthFailed: boolean) {
     shopOk: h?.shopware.ok,
     aiConfigured: h?.ai.configured,
   });
-  if (flags.shop === 'unloaded') return { shop: { tone: 'err', text: 'Shop nicht geladen' }, ai: { tone: 'err', text: 'KI nicht geladen' }, flags };
-  if (!h || flags.shop === 'loading') return { shop: { tone: '', text: 'Prüfe Verbindung …' }, ai: { tone: '', text: '…' }, flags };
+  if (flags.shop === 'unloaded') return { shop: { tone: 'err', text: t.shopUnloaded }, ai: { tone: 'err', text: t.aiUnloaded }, flags };
+  if (!h || flags.shop === 'loading') return { shop: { tone: '', text: t.checking }, ai: { tone: '', text: '…' }, flags };
   const label = h.platform?.label;
-  const shop = flags.shop === 'disconnected' ? { tone: 'err', text: label ? `${label}: nicht verbunden` : 'Shop nicht verbunden' }
-    : h.platform && !h.platform.available ? { tone: 'err', text: `${h.platform.label}: Anbindung folgt` }
+  const shop = flags.shop === 'disconnected' ? { tone: 'err', text: label ? t.platformDisconnected(label) : t.shopDisconnected }
+    : h.platform && !h.platform.available ? { tone: 'err', text: t.platformComing(h.platform.label) }
       : flags.shop === 'ok' ? { tone: 'ok', text: label ? `${label} · ${hostOf(h.shopware.url)}` : hostOf(h.shopware.url) }
-        : { tone: 'err', text: label ? `${label}: nicht erreichbar` : 'Shop nicht erreichbar' };
-  const ai = flags.ai === 'ok' ? { tone: 'ok', text: 'KI verbunden' } : { tone: 'err', text: 'KI nicht verbunden' };
+        : { tone: 'err', text: label ? t.platformUnreachable(label) : t.shopUnreachable };
+  const ai = flags.ai === 'ok' ? { tone: 'ok', text: t.aiConnected } : { tone: 'err', text: t.aiDisconnected };
   return { shop, ai, flags };
 }
 
@@ -38,90 +41,92 @@ function status(h: Health | null, healthFailed: boolean) {
 export function SideNav() {
   const s = useShell();
   const path = usePathname();
+  const { t: all, locale } = useI18n();
+  const t = all.nav;
   const [filter, setFilter] = useState('');
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [ctx, setCtx] = useState<string | null>(null); // Verlauf nur für einen Kontext
   const collapsed = s.collapsed && !s.mobileOpen;
   const tip = (label: string) => (collapsed ? label : undefined);
-  const st = status(s.health, s.healthFailed);
+  const st = status(s.health, s.healthFailed, t.status);
   const chatView = catalogState(s.chats == null ? s.chatError : null, s.chats);
   const colors = swatches(s.styleguide?.colors, 4);
   const ready = setupReady(s.setup);
-  const locked = ready ? undefined : 'Erst Shop und KI verbinden';
+  const locked = ready ? undefined : t.locked;
 
   const contexts = useMemo(() => historyContexts(s.chats ?? []), [s.chats]);
   const activeCtx = ctx && contexts.includes(ctx) ? ctx : null;
-  const groups = useMemo(() => groupByDay(filterHistory(s.chats ?? [], filter, activeCtx)), [s.chats, filter, activeCtx]);
+  const groups = useMemo(() => groupByDay(filterHistory(s.chats ?? [], filter, activeCtx), new Date(), locale), [s.chats, filter, activeCtx, locale]);
 
   // Eingeklappt: ein Punkt am Verlauf-Symbol – wartet (wichtigster) > läuft > fertig
   const live = s.chats?.filter(c => c.status) ?? [];
   const railState: RowState | null = live.some(c => c.status === 'waiting') ? 'waiting' : live.length ? 'running' : s.doneIds.size ? 'done' : null;
-  const railTip = `Verlauf (${s.chats?.length ?? 0})${live.length ? ` · ${live.length} ${live.length === 1 ? 'läuft' : 'laufen'}` : ''}${s.doneIds.size ? ` · ${s.doneIds.size} fertig` : ''}`;
+  const railTip = t.railTip(s.chats?.length ?? 0, live.length, s.doneIds.size);
 
   const onWorkspace = path === '/';
   const close = () => s.setMobileOpen(false);
   const warn = st.flags.shop === 'unloaded' || st.flags.ai === 'unloaded' || st.flags.shop === 'disconnected' || st.flags.ai === 'disconnected' || st.shop.tone === 'err';
 
   return (
-    <nav className={cx(styles.nav, collapsed && styles.collapsed, s.mobileOpen && styles.drawerOpen)} aria-label="Hauptnavigation" id="lotse-nav">
+    <nav className={cx(styles.nav, collapsed && styles.collapsed, s.mobileOpen && styles.drawerOpen)} aria-label={t.main} id="lotse-nav">
       <div className={styles.top}>
-        <Link href="/" className={styles.brand} onClick={close} aria-label="Lotse: Arbeitsfläche">
+        <Link href="/" className={styles.brand} onClick={close} aria-label={t.brand}>
           {/* eslint-disable-next-line @next/next/no-img-element -- kleines SVG-Logo */}
           <img src="/lotse-mark.svg" alt="" width={28} height={28} />
           <span className={styles.word}>Lotse</span>
         </Link>
         <button type="button" className={cx(styles.iconBtn, styles.collapseBtn)} onClick={s.toggleCollapsed}
-          aria-label={s.collapsed ? 'Navigation ausklappen' : 'Navigation einklappen'} aria-expanded={!s.collapsed} aria-controls="lotse-nav"
-          data-tip={s.collapsed ? 'Ausklappen · Strg+B' : undefined} title={s.collapsed ? undefined : 'Einklappen (Strg/⌘ + B)'}>
+          aria-label={s.collapsed ? t.expand : t.collapse} aria-expanded={!s.collapsed} aria-controls="lotse-nav"
+          data-tip={s.collapsed ? t.expandTip : undefined} title={s.collapsed ? undefined : t.collapseTitle}>
           <IconPanel size={18} />
         </button>
-        <button type="button" className={cx(styles.iconBtn, styles.closeBtn)} onClick={close} aria-label="Navigation schließen"><IconClose /></button>
+        <button type="button" className={cx(styles.iconBtn, styles.closeBtn)} onClick={close} aria-label={t.close}><IconClose /></button>
       </div>
 
       <div className={styles.start}>
         <button type="button" className={styles.newChat} onClick={s.nav.newChat} disabled={!ready} title={locked}
-          aria-label={tip('Neuer Chat')} data-tip={tip(locked ?? 'Neuer Chat')}>
-          <IconPlus size={16} /><span className={styles.label}>Neuer Chat</span>
+          aria-label={tip(t.newChat)} data-tip={tip(locked ?? t.newChat)}>
+          <IconPlus size={16} /><span className={styles.label}>{t.newChat}</span>
         </button>
         <button type="button" id="lotse-context" className={styles.withContext} onClick={s.nav.newChatWithContext} disabled={!ready}
-          aria-label="Neuer Chat mit Kontext: Kategorie, Produkt oder Landingpage wählen" title={locked ?? 'Neuer Chat mit Kontext (Kategorie, Produkt, Landingpage)'}>
+          aria-label={t.newChatWithContext} title={locked ?? t.newChatWithContextTitle}>
           <IconTarget size={16} />
         </button>
       </div>
 
       {!ready && s.setup && (
-        <Link href="/settings" className={styles.setup} onClick={close} aria-label={tip('Einrichtung abschließen')} data-tip={tip('Einrichtung abschließen')}>
-          <span className={styles.setupHead}><b>Einrichtung</b><span>{Number(s.setup.shopware) + Number(s.setup.ai)} von 2</span></span>
-          <span className={cx(styles.setupStep, s.setup.shopware && styles.setupDone)}>Shop verbinden</span>
-          <span className={cx(styles.setupStep, s.setup.ai && styles.setupDone)}>KI verbinden</span>
+        <Link href="/settings" className={styles.setup} onClick={close} aria-label={tip(t.setup.finish)} data-tip={tip(t.setup.finish)}>
+          <span className={styles.setupHead}><b>{t.setup.title}</b><span>{t.setup.progress(Number(s.setup.shopware) + Number(s.setup.ai))}</span></span>
+          <span className={cx(styles.setupStep, s.setup.shopware && styles.setupDone)}>{t.setup.shop}</span>
+          <span className={cx(styles.setupStep, s.setup.ai && styles.setupDone)}>{t.setup.ai}</span>
         </Link>
       )}
 
       <ul className={styles.items}>
         <li>
-          <Link href="/" className={styles.item} aria-current={onWorkspace ? 'page' : undefined} onClick={close} aria-label={tip('Arbeitsfläche')} data-tip={tip('Arbeitsfläche')}>
-            <IconChat size={18} /><span className={styles.label}>Arbeitsfläche</span>
-            {s.contextName && onWorkspace && <span className={styles.ctx} title={`Kontext: ${s.contextName}`}>{s.contextName}</span>}
+          <Link href="/" className={styles.item} aria-current={onWorkspace ? 'page' : undefined} onClick={close} aria-label={tip(t.workspace)} data-tip={tip(t.workspace)}>
+            <IconChat size={18} /><span className={styles.label}>{t.workspace}</span>
+            {s.contextName && onWorkspace && <span className={styles.ctx} title={t.context(s.contextName)}>{s.contextName}</span>}
           </Link>
         </li>
         <li>
           <button type="button" className={styles.item} onClick={s.nav.openStyleguide} disabled={!ready}
-            aria-label={tip(s.styleguide ? 'Styleguide' : 'Styleguide einrichten')} data-tip={tip(locked ?? (s.styleguide ? 'Styleguide' : 'Styleguide einrichten'))} title={collapsed ? undefined : locked}>
+            aria-label={tip(s.styleguide ? t.styleguide : t.styleguideSetup)} data-tip={tip(locked ?? (s.styleguide ? t.styleguide : t.styleguideSetup))} title={collapsed ? undefined : locked}>
             <IconPalette size={18} />
-            <span className={styles.label}>Styleguide</span>
+            <span className={styles.label}>{t.styleguide}</span>
             {ready && (colors.length ? (
               <span className={styles.swatches} aria-hidden="true">{colors.map(c => <i key={c} style={{ background: c }} />)}</span>
-            ) : s.styleguide === null && <span className={styles.hint}>anlegen</span>)}
+            ) : s.styleguide === null && <span className={styles.hint}>{t.styleguideCreate}</span>)}
           </button>
         </li>
         <li>
           {ready ? (
-            <Link href="/wissen" className={styles.item} aria-current={path === '/wissen' ? 'page' : undefined} onClick={close} aria-label={tip('Wissen')} data-tip={tip('Wissen')}>
-              <IconBook size={18} /><span className={styles.label}>Wissen</span>
+            <Link href="/wissen" className={styles.item} aria-current={path === '/wissen' ? 'page' : undefined} onClick={close} aria-label={tip(t.knowledge)} data-tip={tip(t.knowledge)}>
+              <IconBook size={18} /><span className={styles.label}>{t.knowledge}</span>
             </Link>
           ) : (
-            <button type="button" className={styles.item} disabled aria-label={tip('Wissen')} data-tip={tip(locked ?? 'Wissen')} title={collapsed ? undefined : locked}>
-              <IconBook size={18} /><span className={styles.label}>Wissen</span>
+            <button type="button" className={styles.item} disabled aria-label={tip(t.knowledge)} data-tip={tip(locked ?? t.knowledge)} title={collapsed ? undefined : locked}>
+              <IconBook size={18} /><span className={styles.label}>{t.knowledge}</span>
             </button>
           )}
         </li>
@@ -129,34 +134,34 @@ export function SideNav() {
 
       {collapsed ? (
         <div className={styles.railFill}>
-          <button type="button" className={styles.item} onClick={s.toggleCollapsed} data-tip={railTip} aria-label="Verlauf anzeigen">
+          <button type="button" className={styles.item} onClick={s.toggleCollapsed} data-tip={railTip} aria-label={t.showHistory}>
             <IconHistory size={18} />
-            {railState && <i className={cx(styles.pip, railState === 'waiting' && styles.pipWarn, railState === 'running' && styles.pipLive)} aria-label={STATE_LABEL[railState]} />}
+            {railState && <i className={cx(styles.pip, railState === 'waiting' && styles.pipWarn, railState === 'running' && styles.pipLive)} aria-label={t.state[railState]} />}
           </button>
         </div>
       ) : (
-        <section className={styles.history} aria-label="Verlauf">
+        <section className={styles.history} aria-label={t.history}>
           <div className={styles.histHead}>
-            <h2>Verlauf</h2>
+            <h2>{t.history}</h2>
             {!!s.chats?.length && <span className={styles.count}>{s.chats.length}</span>}
           </div>
           {(s.chats?.length ?? 0) > 6 && (
             <label className={styles.search}>
               <IconSearch size={14} />
-              <input type="search" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Suchen" aria-label="Chats durchsuchen" />
+              <input type="search" value={filter} onChange={e => setFilter(e.target.value)} placeholder={t.search} aria-label={t.searchChats} />
             </label>
           )}
           {contexts.length > 0 && (
-            <div className={styles.ctxFilter} role="group" aria-label="Verlauf nach Kontext filtern">
-              <button type="button" aria-pressed={!activeCtx} onClick={() => setCtx(null)}>Alle</button>
+            <div className={styles.ctxFilter} role="group" aria-label={t.filterByContext}>
+              <button type="button" aria-pressed={!activeCtx} onClick={() => setCtx(null)}>{t.all}</button>
               {contexts.map(n => <button key={n} type="button" aria-pressed={activeCtx === n} onClick={() => setCtx(activeCtx === n ? null : n)} title={n}>{n}</button>)}
             </div>
           )}
           <div className={styles.histList}>
-            {chatView === 'loading' && <p className={styles.note}>Lade …</p>}
-            {chatView === 'error' && <p className={styles.note}>Verlauf nicht geladen.</p>}
-            {chatView === 'empty' && <p className={styles.note}>{ready ? 'Noch keine Chats. Starte oben mit „Neuer Chat“.' : 'Noch keine Chats. Nach der Einrichtung geht es los.'}</p>}
-            {chatView === 'ready' && groups.length === 0 && <p className={styles.note}>Kein Treffer.</p>}
+            {chatView === 'loading' && <p className={styles.note}>{t.loading}</p>}
+            {chatView === 'error' && <p className={styles.note}>{t.historyFailed}</p>}
+            {chatView === 'empty' && <p className={styles.note}>{ready ? t.emptyReady : t.emptySetup}</p>}
+            {chatView === 'ready' && groups.length === 0 && <p className={styles.note}>{t.noMatch}</p>}
             {groups.map(g => (
               <div key={g.label} className={styles.group}>
                 <h3>{g.label}</h3>
@@ -174,11 +179,12 @@ export function SideNav() {
       )}
 
       <footer className={styles.foot}>
+        {!collapsed && <LanguageSwitch className={styles.lang} />}
         <Link href="/settings" className={styles.settings} aria-current={path === '/settings' ? 'page' : undefined} onClick={close}
-          aria-label={`Einstellungen. ${st.shop.text}. ${st.ai.text}`} data-tip={tip(`Einstellungen · ${st.shop.text} · ${st.ai.text}`)}>
+          aria-label={t.settingsLabel(st.shop.text, st.ai.text)} data-tip={tip(t.settingsTip(st.shop.text, st.ai.text))}>
           <span className={styles.gear}><IconSettings size={18} />{warn && collapsed && <i className={cx(styles.pip, styles.pipWarn)} />}</span>
           <span className={styles.label}>
-            Einstellungen
+            {t.settings}
             <small className={styles.sub} suppressHydrationWarning>{st.shop.text}</small>
           </span>
           <span className={styles.dots} aria-hidden="true" title={`${st.shop.text} · ${st.ai.text}`}>
@@ -192,18 +198,18 @@ export function SideNav() {
 }
 
 type RowState = ChatStatus | 'done';
-const STATE_LABEL: Record<RowState, string> = { running: 'läuft', waiting: 'wartet auf dich', done: 'fertig' };
 
 interface RowProps { chat: ChatSummary; state?: RowState; active: boolean; confirming: boolean; onOpen: () => void; onAskDelete: () => void; onCancel: () => void; onDelete: () => void }
 
 function HistoryRow({ chat: c, state, active, confirming, onOpen, onAskDelete, onCancel, onDelete }: RowProps) {
+  const { t, locale } = useI18n();
   if (confirming) {
     return (
       <li className={cx(styles.row, styles.confirm)}>
-        <span className={styles.rowTitle}>{chatDeleteQuestion(c.title)}</span>
+        <span className={styles.rowTitle}>{chatDeleteQuestion(c.title, locale)}</span>
         <span className={styles.confirmBtns}>
-          <button type="button" className={styles.yes} onClick={onDelete} autoFocus>Löschen</button>
-          <button type="button" onClick={onCancel}>Abbrechen</button>
+          <button type="button" className={styles.yes} onClick={onDelete} autoFocus>{t.common.delete}</button>
+          <button type="button" onClick={onCancel}>{t.common.cancel}</button>
         </span>
       </li>
     );
@@ -215,12 +221,12 @@ function HistoryRow({ chat: c, state, active, confirming, onOpen, onAskDelete, o
           {state && <i className={cx(styles.state, styles[state])} aria-hidden="true" />}{c.title}
         </span>
         <small>
-          {state && <span className={cx(styles.stateText, styles[state])}>{STATE_LABEL[state]} · </span>}
-          {c.target?.name && <>{c.target.name} · </>}<time dateTime={c.updatedAt} suppressHydrationWarning>{ago(c.updatedAt)}</time>
-          {c.published > 0 && <span className={styles.pub} title={`${c.published}× veröffentlicht`}> · ✓ {c.published}</span>}
+          {state && <span className={cx(styles.stateText, styles[state])}>{t.nav.state[state]} · </span>}
+          {c.target?.name && <>{c.target.name} · </>}<time dateTime={c.updatedAt} suppressHydrationWarning>{ago(c.updatedAt, undefined, locale)}</time>
+          {c.published > 0 && <span className={styles.pub} title={t.nav.published(c.published)}> · ✓ {c.published}</span>}
         </small>
       </button>
-      <button type="button" className={styles.del} onClick={onAskDelete} aria-label={`Chat „${c.title}“ löschen`} title="Löschen"><IconTrash size={15} /></button>
+      <button type="button" className={styles.del} onClick={onAskDelete} aria-label={t.nav.deleteChat(c.title)} title={t.common.delete}><IconTrash size={15} /></button>
     </li>
   );
 }

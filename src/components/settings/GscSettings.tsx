@@ -2,14 +2,18 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
-import { GSC_QUERY_NOTICE } from '@/lib/privacy-copy';
+import { gscQueryNotice } from '@/lib/privacy-copy';
 import { connectionTestBlock, gscKeyComplete as keyComplete } from '@/lib/settings-form';
 import type { GscPublic, GscTestResult } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
+import { useI18n } from '@/lib/i18n/I18nProvider';
+import { rich } from './Rich';
 import styles from './Settings.module.css';
 
 /** Google Search Console: Service-Konto-Schlüssel (nur hinein, nie zurück) + Property. Eigene Speicherung, unabhängig vom übrigen Formular. */
 export function GscSettings() {
+  const { t: all, locale } = useI18n();
+  const ts = all.settings, t = ts.gsc;
   const [pub, setPub] = useState<GscPublic | null>(null);
   const [key, setKey] = useState('');
   const [replace, setReplace] = useState(false);
@@ -36,7 +40,7 @@ export function GscSettings() {
     return () => clearTimeout(t);
   }, [pub, keyReady, propDirty, property, notice]); // eslint-disable-line react-hooks/exhaustive-deps -- save liest den aktuellen Stand
 
-  if (!pub) return <Card connected={null}><p className={styles.hint}>{notice?.text ?? 'Lade …'}</p></Card>;
+  if (!pub) return <Card connected={null}><p className={styles.hint}>{notice?.text ?? ts.loading}</p></Card>;
   const showKey = !pub.hasKey || replace;
   const dirty = !!key.trim() || property.trim() !== pub.property;
 
@@ -46,20 +50,20 @@ export function GscSettings() {
     try {
       const p = await api.saveGsc({ ...(keyComplete(key) ? { key } : {}), property });
       setPub(p); setProperty(p.property); if (keyComplete(key)) { setKey(''); setReplace(false); }
-      setNotice({ ok: true, text: 'Gespeichert' });
+      setNotice({ ok: true, text: ts.saved });
       return true;
-    } catch (e) { setNotice({ ok: false, text: `Nicht gespeichert: ${errorText(e)}` }); return false; }
+    } catch (e) { setNotice({ ok: false, text: ts.notSaved(errorText(e)) }); return false; }
     finally { saving.current = false; setBusy(null); }
   }
   const runTest = async () => {
-    if (connectionTestBlock(dirty)) return;
+    if (connectionTestBlock(dirty, locale)) return;
     setBusy('test'); setNotice(null); setTest(null);
     try { setTest(await api.testGsc()); } catch (e) { setTest({ ok: false, message: errorText(e), sites: [] }); }
     finally { setBusy(null); }
   };
   const disconnect = async () => {
     setBusy('off'); setNotice(null); setTest(null);
-    try { const p = await api.disconnectGsc(); setPub(p); setProperty(''); setKey(''); setReplace(false); setNotice({ ok: true, text: 'Verbindung getrennt' }); }
+    try { const p = await api.disconnectGsc(); setPub(p); setProperty(''); setKey(''); setReplace(false); setNotice({ ok: true, text: t.disconnected }); }
     catch (e) { setNotice({ ok: false, text: errorText(e) }); }
     finally { setBusy(null); }
   };
@@ -67,45 +71,45 @@ export function GscSettings() {
 
   return (
     <Card connected={pub.hasKey ? pub.connected : null}>
-      <p className={styles.hint}>Echte Suchdaten (Klicks, Impressionen, Position) für bessere Meta-Daten, Inhaltslücken und die Erfolgsmessung deiner Änderungen. Lotse liest nur. {GSC_QUERY_NOTICE}</p>
+      <p className={styles.hint}>{t.intro} {gscQueryNotice(locale)}</p>
       <ol className={styles.steps}>
-        <li>In der <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">Google Cloud Console</a> die <b>Google Search Console API</b> aktivieren und ein <b>Service-Konto</b> mit JSON-Schlüssel anlegen.</li>
-        <li>In der Search Console unter <b>Einstellungen → Nutzer und Berechtigungen</b> die E-Mail des Service-Kontos als Nutzer hinzufügen. Die Berechtigung „Eingeschränkt“ genügt.</li>
-        <li>Schlüssel hier einfügen, Property eintragen (wird automatisch gespeichert) und dann die Verbindung testen.</li>
+        <li>{rich(t.step1, { href: 'https://console.cloud.google.com/' })}</li>
+        <li>{rich(t.step2)}</li>
+        <li>{t.step3}</li>
       </ol>
 
       {showKey ? (
         <div className={styles.field}>
           <span className={styles.labelRow}>
-            <label htmlFor="gsc-key" className={styles.label}>JSON-Schlüssel des Service-Kontos</label>
-            {pub.hasKey && <button type="button" className={styles.linkBtn} onClick={() => { setReplace(false); setKey(''); }}>Abbrechen</button>}
+            <label htmlFor="gsc-key" className={styles.label}>{t.keyLabel}</label>
+            {pub.hasKey && <button type="button" className={styles.linkBtn} onClick={() => { setReplace(false); setKey(''); }}>{all.common.cancel}</button>}
           </span>
           <textarea id="gsc-key" className={styles.keyArea} rows={4} spellCheck={false} autoComplete="off" value={key} onChange={e => { setKey(e.target.value); setNotice(null); }}
             placeholder={'{ "type": "service_account", "client_email": "…", "private_key": "…" }'} />
           <span className={styles.keyActions}>
-            <Button size="sm" onClick={() => file.current?.click()}>JSON-Datei wählen</Button>
+            <Button size="sm" onClick={() => file.current?.click()}>{t.chooseFile}</Button>
             <input ref={file} type="file" accept=".json,application/json" hidden onChange={e => { void readFile(e.target.files?.[0]); e.target.value = ''; }} />
-            <small className={styles.fieldHint}>Wird verschlüsselt gespeichert und danach nie wieder angezeigt, auch nicht der KI.</small>
+            <small className={styles.fieldHint}>{t.keyHint}</small>
           </span>
         </div>
       ) : (
         <div className={styles.keyBox}>
           <span className={styles.keyMail}>
-            <span className={styles.label}>Service-Konto</span>
+            <span className={styles.label}>{t.serviceAccount}</span>
             <code>{pub.clientEmail}</code>
-            <span className={styles.savedTag}>Schlüssel gespeichert</span>
+            <span className={styles.savedTag}>{t.keySaved}</span>
           </span>
           <span className={styles.keyBtns}>
             {confirmOff ? (
               <>
-                <span className={styles.fieldHint}>Schlüssel trennen? Er lässt sich hier nicht wieder anzeigen.</span>
-                <Button size="sm" variant="danger" busy={busy === 'off'} onClick={() => void disconnect()}>Trennen</Button>
-                <Button size="sm" variant="ghost" onClick={() => setConfirmOff(false)}>Abbrechen</Button>
+                <span className={styles.fieldHint}>{t.confirmDisconnect}</span>
+                <Button size="sm" variant="danger" busy={busy === 'off'} onClick={() => void disconnect()}>{t.disconnect}</Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirmOff(false)}>{all.common.cancel}</Button>
               </>
             ) : (
               <>
-                <Button size="sm" onClick={() => setReplace(true)}>Ersetzen</Button>
-                <Button size="sm" variant="danger" onClick={() => setConfirmOff(true)}>Trennen</Button>
+                <Button size="sm" onClick={() => setReplace(true)}>{t.replace}</Button>
+                <Button size="sm" variant="danger" onClick={() => setConfirmOff(true)}>{t.disconnect}</Button>
               </>
             )}
           </span>
@@ -113,21 +117,21 @@ export function GscSettings() {
       )}
 
       <label className={styles.field}>
-        <span className={styles.label}>Property</span>
-        <input spellCheck={false} placeholder="sc-domain:mein-shop.de" value={property} onChange={e => { setProperty(e.target.value); setNotice(null); }} />
-        <small className={styles.fieldHint}>Domain-Property <code>sc-domain:mein-shop.de</code> oder URL-Präfix <code>https://www.mein-shop.de/</code>, genau wie in der Search Console.</small>
+        <span className={styles.label}>{t.property}</span>
+        <input spellCheck={false} placeholder={t.propertyPlaceholder} value={property} onChange={e => { setProperty(e.target.value); setNotice(null); }} />
+        <small className={styles.fieldHint}>{rich(t.propertyHint)}</small>
       </label>
       {!!test?.sites.length && (
         <div className={styles.sites}>
-          <span className={styles.fieldHint}>Für das Service-Konto freigegeben:</span>
+          <span className={styles.fieldHint}>{t.sites}</span>
           {test.sites.map(s => <button key={s} type="button" className={`${styles.siteChip} ${s === property ? styles.siteOn : ''}`} onClick={() => { setProperty(s); setNotice(null); }}>{s}</button>)}
         </div>
       )}
 
       <div className={styles.testRow}>
-        <Button onClick={() => void runTest()} busy={busy === 'test'} disabled={!!busy || !!connectionTestBlock(dirty) || (!pub.hasKey && !key.trim())} title={connectionTestBlock(dirty) ?? undefined}>{busy === 'test' ? 'Teste …' : 'Verbindung testen'}</Button>
-        {busy === 'save' ? <span className={styles.muted} role="status">Speichert …</span>
-          : notice && <span className={notice.ok ? styles.ok : styles.bad} role="status">{notice.text}{!notice.ok && <> · <button type="button" className={styles.linkBtn} onClick={() => { setNotice(null); void save(); }}>Erneut versuchen</button></>}</span>}
+        <Button onClick={() => void runTest()} busy={busy === 'test'} disabled={!!busy || !!connectionTestBlock(dirty, locale) || (!pub.hasKey && !key.trim())} title={connectionTestBlock(dirty, locale) ?? undefined}>{busy === 'test' ? ts.testing : ts.test}</Button>
+        {busy === 'save' ? <span className={styles.muted} role="status">{ts.saving}</span>
+          : notice && <span className={notice.ok ? styles.ok : styles.bad} role="status">{notice.text}{!notice.ok && <> · <button type="button" className={styles.linkBtn} onClick={() => { setNotice(null); void save(); }}>{all.common.retry}</button></>}</span>}
         {test && <span className={test.ok ? styles.ok : styles.bad} role="status">{test.ok ? '✓' : '✗'} {test.message}</span>}
       </div>
     </Card>
@@ -135,11 +139,12 @@ export function GscSettings() {
 }
 
 function Card({ connected, children }: { connected: boolean | null; children: React.ReactNode }) {
+  const t = useI18n().t.settings;
   return (
     <section id="gsc" className={styles.card} aria-labelledby="gsc-h">
       <div className={styles.cardHead}>
-        <h2 id="gsc-h">Google Search Console <span className={styles.opt}>optional</span></h2>
-        {connected !== null && <span className={`${styles.state} ${connected ? styles.stateOk : styles.stateNo}`}>{connected ? 'eingerichtet' : 'Property fehlt'}</span>}
+        <h2 id="gsc-h">Google Search Console <span className={styles.opt}>{t.optional}</span></h2>
+        {connected !== null && <span className={`${styles.state} ${connected ? styles.stateOk : styles.stateNo}`}>{connected ? t.configured : t.gsc.propertyMissing}</span>}
       </div>
       {children}
     </section>

@@ -6,6 +6,7 @@ import 'server-only';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { PlatformKind } from '@/lib/platforms';
+import { DEFAULT_LOCALE, type Locale } from '@/lib/i18n/locales';
 import { BLOCKS, blocksFor } from './cms';
 import { patternCatalog } from './patterns';
 import { activeKind, getPlatform } from './platform';
@@ -39,5 +40,12 @@ export function buildBasePrompt(kind: PlatformKind = activeKind(), root = prompt
 // Eigene Regeln der Wissensbasis (gedeckelt); ein Lesefehler darf den Chat nicht blockieren
 const shopRules = () => { try { return rulesPromptBlock(); } catch { return ''; } };
 
-/** Vollständiger System-Prompt: Regeln + Kataloge + aktueller Styleguide + eigene Regeln des Shops. */
-export const buildSystem = (kind: PlatformKind = activeKind()) => [buildBasePrompt(kind), promptBlock(), shopRules()].filter(Boolean).join('\n\n');
+/** Antwortsprache: die Regeln sind deutsch formuliert, geantwortet wird in der Sprache der Oberfläche. */
+const REPLY_LANGUAGE: Record<Locale, string> = {
+  de: '## Antwortsprache\nAntworte auf Deutsch (auch Rückfragen, Zusammenfassungen und Begründungen in Vorschlägen).',
+  en: '## Antwortsprache\nAntworte auf Englisch (English): Chat-Antworten, Rückfragen (ask_user), Zusammenfassungen und Begründungen in Vorschlägen. Inhalte für den Shop (Texte, Seiten, SEO, Übersetzungen) schreibst du in der Sprache, die der Nutzer bzw. der Shop/Verkaufskanal verlangt – nicht automatisch Englisch. Die deutschen Typografie-Regeln gelten nur für deutsche Shop-Texte.',
+};
+
+/** Vollständiger System-Prompt: Regeln + Kataloge + aktueller Styleguide + eigene Regeln des Shops + Antwortsprache. */
+export const buildSystem = (kind: PlatformKind = activeKind(), locale: Locale = DEFAULT_LOCALE) =>
+  [buildBasePrompt(kind), promptBlock(), shopRules(), REPLY_LANGUAGE[locale]].filter(Boolean).join('\n\n');

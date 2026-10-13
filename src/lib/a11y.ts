@@ -1,6 +1,8 @@
+import { DEFAULT_LOCALE, messages, type Locale } from './i18n';
+
 /** Ansage, wenn eine Antwort fertig ist. Während des Schreibens bleibt es still. */
-export function announceAnswer(done: boolean): string | null {
-  return done ? 'Lotse hat geantwortet' : null;
+export function announceAnswer(done: boolean, locale: Locale = DEFAULT_LOCALE): string | null {
+  return done ? messages(locale).lib.chat.answered : null;
 }
 
 /** Enter und Leertaste wählen das fokussierte Ziel im Markier-Modus. */

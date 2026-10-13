@@ -39,8 +39,11 @@ test('Hülle zeigt Ladefehler nicht als leeren Katalog oder verbundene KI', () =
   assert.match(shell, /catalogState|chatError|healthFailed/);
   const nav = read('src/components/shell/SideNav.tsx');
   assert.match(nav, /catalogState\(/);
-  assert.match(nav, /nicht geladen/);
-  assert.match(nav, /Noch keine Chats/);
+  assert.match(nav, /t\.historyFailed/);
+  assert.match(nav, /t\.emptyReady : t\.emptySetup/);
+  const msgs = read('src/lib/i18n/messages/nav.ts');
+  assert.match(msgs, /nicht geladen/);
+  assert.match(msgs, /Noch keine Chats/);
   const picker = read('src/components/context/ContextPicker.tsx');
   assert.match(picker, /catalogState\(/);
   assert.doesNotMatch(picker, /setProducts\(\[\]\)/);

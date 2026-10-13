@@ -1,11 +1,9 @@
-const WRITE_ROWS = 'Der Klick schreibt die ausgewählten Zeilen in den verbundenen Shop.';
-const WRITE_SHOP = 'Der Klick schreibt in den verbundenen Shop.';
-const UNDO_YES = 'Rückgängig stellt die geschriebenen Zeilen auf die vorherigen Werte.';
-const UNDO_IF = 'Rückgängig gibt es nur, wenn der Shop die vorherigen Werte zurückgibt.';
+import { DEFAULT_LOCALE, messages, type Locale } from './i18n';
 
 /** Satz unter jedem offenen Set: der Klick schreibt in den verbundenen Shop, und ob Rückgängig vorgesehen ist. */
-export function applyHint({ selectable, undoPlanned }: { selectable: boolean; undoPlanned: boolean }): string {
-  return `${selectable ? WRITE_ROWS : WRITE_SHOP} ${undoPlanned ? UNDO_YES : UNDO_IF}`;
+export function applyHint({ selectable, undoPlanned }: { selectable: boolean; undoPlanned: boolean }, locale: Locale = DEFAULT_LOCALE): string {
+  const t = messages(locale).lib.approve;
+  return `${selectable ? t.writeRows : t.writeShop} ${undoPlanned ? t.undoYes : t.undoIf}`;
 }
 
 /** Vor dem Ergebnis bekannt: Zeilen, die keine reinen Hinweise sind, stellt Rückgängig auf die vorherigen Werte. Sonst ist Undo nicht zuverlässig bekannt. */

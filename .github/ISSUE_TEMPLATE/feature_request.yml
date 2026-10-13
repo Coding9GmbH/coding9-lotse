@@ -1,0 +1,77 @@
+name: Idee vorschlagen / Feature request
+description: Neue Funktion oder Verbesserung vorschlagen. / Suggest a new feature or improvement.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für deine Idee! Bitte keine Zugangsdaten, Kundendaten oder sensiblen Shop-URLs posten.
+        Thanks for your idea! Please do not post credentials, customer data or sensitive shop URLs.
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Shop-Plattform / Shop platform
+      description: Für welche Plattformen ist die Idee relevant? / Which platforms is the idea relevant for?
+      multiple: true
+      options:
+        - Shopware 6
+        - Shopify
+        - Magento 2
+        - OpenMage
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Lotse-Version / Lotse version
+      description: Mit welcher Version arbeitest du? / Which version are you using?
+      placeholder: 0.x.y
+  - type: dropdown
+    id: ai-provider
+    attributes:
+      label: KI-Anbieter / AI provider
+      options:
+        - Claude
+        - Codex
+  - type: dropdown
+    id: ui-language
+    attributes:
+      label: Sprache der Oberfläche / UI language
+      options:
+        - Deutsch
+        - English
+  - type: textarea
+    id: problem
+    attributes:
+      label: Welches Problem soll gelöst werden? / What problem should be solved?
+      description: Was willst du erreichen und was hindert dich heute daran? / What do you want to achieve and what stops you today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Vorschlag / Proposal
+      description: Wie könnte es in Lotse aussehen, z. B. ein Beispiel-Prompt im Chat? / How could it look in Lotse, e.g. an example chat prompt?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Ablauf heute / Current workflow
+      description: Schritte, die du heute (in Lotse oder im Shop-Admin) gehst. / Steps you take today (in Lotse or the shop admin).
+  - type: textarea
+    id: expected
+    attributes:
+      label: Erwartetes Ergebnis / Expected outcome
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativen / Alternatives
+      description: Andere Lösungen, die du in Betracht gezogen hast. / Other solutions you have considered.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Datenschutz / Privacy
+      options:
+        - label: Mein Beitrag enthält keine Zugangsdaten (API-Schlüssel, Tokens, Passwörter) und keine Kundendaten. / My request contains no credentials (API keys, tokens, passwords) and no customer data.
+          required: true

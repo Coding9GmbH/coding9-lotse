@@ -39,12 +39,15 @@ test('Chat-Löschen entfernt nur diesen Chat', () => {
 
 test('Oberfläche hängt die Sätze an die bestehenden Hinweise', () => {
   const settings = read('src/components/settings/SettingsView.tsx');
-  assert.match(settings, new RegExp(CREDENTIALS.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert.match(settings, /EGRESS_NOTICE/);
+  const msgs = read('src/lib/i18n/messages/settings.ts');
+  assert.match(msgs, new RegExp(CREDENTIALS.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(settings, /\{ts\.lead\}/);
+  assert.match(settings, /egressNotice\(locale\)/);
   const gsc = read('src/components/settings/GscSettings.tsx');
-  assert.match(gsc, /GSC_QUERY_NOTICE/);
-  assert.match(gsc, /Lotse liest nur/);
-  assert.match(gsc, /Schlüssel trennen\? Er lässt sich hier nicht wieder anzeigen\./);
+  assert.match(gsc, /gscQueryNotice\(locale\)/);
+  assert.match(msgs, /Lotse liest nur/);
+  assert.match(msgs, /Schlüssel trennen\? Er lässt sich hier nicht wieder anzeigen\./);
+  assert.match(gsc, /\{t\.confirmDisconnect\}/);
   assert.doesNotMatch(gsc, /Zugangsdatum|Kunden-Zugang|updatedAt/);
   const nav = read('src/components/shell/SideNav.tsx');
   assert.match(nav, /chatDeleteQuestion\(/);

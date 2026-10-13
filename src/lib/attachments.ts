@@ -1,6 +1,8 @@
 // Anhänge werden als Marker an die Nachricht gehängt, damit die KI sie kennt:
 // Bilder (in Shopware hochgeladen) mit mediaId + URL, Dateien (lokal, z. B. CSV/PDF) mit fileId.
 
+import { DEFAULT_LOCALE, messages, type Locale } from './i18n';
+
 export interface Attachment { mediaId: string; url: string; name: string }
 export interface FileAttachment { fileId: string; name: string; mime: string; size: number }
 
@@ -11,9 +13,10 @@ const FILE_MARKER = /\[Datei: fileId=(\S+?), typ=(\S+?), bytes=(\d+), name=([^\]
 const encName = (s: string) => s.replace(/[%\]\n\r]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
 const decName = (s: string) => { try { return decodeURIComponent(s); } catch { return s; } }; // ältere Chats: Name unkodiert
 
-export function attachmentMessage(text: string, atts: Attachment[], files: FileAttachment[] = []): string {
+export function attachmentMessage(text: string, atts: Attachment[], files: FileAttachment[] = [], locale: Locale = DEFAULT_LOCALE): string {
   if (!atts.length && !files.length) return text;
-  const fallback = files.length ? 'Sieh dir die angehängten Dateien an.' : 'Nutze diese Bilder passend in der Seite.';
+  const t = messages(locale).lib.attachments;
+  const fallback = files.length ? t.filesFallback : t.imagesFallback;
   return (text || fallback) + '\n\n'
     + [...atts.map(a => `[Anhang: mediaId=${a.mediaId}, url=${a.url}, name=${encName(a.name)}]`),
       ...files.map(f => `[Datei: fileId=${f.fileId}, typ=${f.mime}, bytes=${f.size}, name=${encName(f.name)}]`)].join('\n');

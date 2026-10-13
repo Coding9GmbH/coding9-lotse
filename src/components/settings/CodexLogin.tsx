@@ -4,12 +4,16 @@ import { useEffect, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { CodexLoginState } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
+import { useT } from '@/lib/i18n/I18nProvider';
+import { rich } from './Rich';
 import styles from './Settings.module.css';
 
 interface Props { loggedIn: boolean; onChange: () => void }
 
 /** ChatGPT-Anmeldung für Codex per Gerätecode: Link öffnen, Code eingeben, fertig – funktioniert auch im Docker-Container. */
 export function CodexLogin({ loggedIn, onChange }: Props) {
+  const t = useT();
+  const tc = t.settings.codex;
   const [st, setSt] = useState<CodexLoginState>({ status: 'idle' });
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -44,8 +48,8 @@ export function CodexLogin({ loggedIn, onChange }: Props) {
   if (loggedIn && st.status !== 'pending') {
     return (
       <div className={styles.codexBox}>
-        <p><b>Mit ChatGPT angemeldet.</b> Lotse nutzt dein ChatGPT-Abo über Codex.</p>
-        <Button size="sm" onClick={() => void logout()} disabled={busy}>Abmelden</Button>
+        <p>{rich(tc.loggedIn)}</p>
+        <Button size="sm" onClick={() => void logout()} disabled={busy}>{tc.logout}</Button>
       </div>
     );
   }
@@ -54,24 +58,24 @@ export function CodexLogin({ loggedIn, onChange }: Props) {
     return (
       <div className={styles.codexBox} aria-live="polite">
         <ol className={styles.codexSteps}>
-          <li>Öffne <a href={st.url} target="_blank" rel="noreferrer">{st.url?.replace(/^https:\/\//, '')}</a> und melde dich mit deinem ChatGPT-Konto an.</li>
+          <li>{rich(tc.open, { href: st.url ?? '', text: st.url?.replace(/^https:\/\//, '') })}</li>
           <li>
-            Gib diesen Code ein:
+            {tc.enterCode}
             <span className={styles.codexCode}>{st.code}</span>
-            <Button size="sm" onClick={() => void copy()}>{copied ? 'Kopiert' : 'Kopieren'}</Button>
+            <Button size="sm" onClick={() => void copy()}>{copied ? tc.copied : tc.copy}</Button>
           </li>
         </ol>
-        <p className={styles.codexWait}><i aria-hidden="true" /> Warte auf deine Bestätigung … (Code gilt 15 Minuten)</p>
-        <Button size="sm" variant="ghost" onClick={cancel}>Abbrechen</Button>
+        <p className={styles.codexWait}><i aria-hidden="true" /> {tc.waiting}</p>
+        <Button size="sm" variant="ghost" onClick={cancel}>{t.common.cancel}</Button>
       </div>
     );
   }
 
   return (
     <div className={styles.codexBox}>
-      <p>Melde dich mit deinem <b>ChatGPT-Abo</b> (Plus, Pro, Business …) an. Es fallen keine zusätzlichen API-Kosten an; es gelten die Nutzungsgrenzen deines Abos.</p>
+      <p>{rich(tc.intro)}</p>
       {st.status === 'error' && <p className={styles.codexErr} role="alert">{st.message}</p>}
-      <Button variant="primary" onClick={() => void start()} busy={busy} disabled={busy}>Mit ChatGPT anmelden</Button>
+      <Button variant="primary" onClick={() => void start()} busy={busy} disabled={busy}>{tc.login}</Button>
     </div>
   );
 }

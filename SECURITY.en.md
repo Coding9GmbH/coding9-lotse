@@ -1,0 +1,24 @@
+[Deutsch](SECURITY.md) · **English**
+
+# Security
+
+## Reporting a vulnerability
+Please **do not open public issues** for security vulnerabilities. Report them confidentially via
+[GitHub Security Advisories](https://github.com/Coding9GmbH/coding9-lotse/security/advisories/new).
+We acknowledge receipt within 3 business days.
+
+## Security model (summary)
+- **AI is read-only**: The language model only receives protected read clients with an allowlist (`ReadOnlyShopware` in `src/server/shopware.ts`, rules in `src/server/policy.ts`; per platform `reader.ts` under `src/server/platform/<platform>/`). Customer, order, invoice, payment, user and integration data are hard-blocked; sensitive fields are removed before hand-over; every access is recorded in the access log. Unused sample codes without a redeemer are included; customer data and who redeemed a code are not.
+- **Writing only after approval**: Only the executor (`src/server/changes.ts`, platform-specific writers under `src/server/platform/`) writes. The approval is the marker `x-lotse: 1` plus `LOTSE_PASSWORD` if set – not a secret bound to the click. Throttled (`LOTSE_WRITE_CONCURRENCY`, default 2), with audit log and undo. Single proposals hold at most 300 rows. Batches (one rule for many products) go up to 10,000 (Shopware, Shopify) or 5,000 (Magento, OpenMage), imports up to 2,000 rows. The approval card shows the groups and a sample, not every row.
+- **Shop protection**: Timeouts for every shop request (`LOTSE_SHOP_TIMEOUT_MS`), backoff on 429/503.
+- **Credentials**: AES-256-GCM encrypted in the data volume; never passed to the AI and stripped from error messages.
+- **Network**: Lotse is built for local operation (port bound to `127.0.0.1` only, host/origin check against DNS rebinding/CSRF; writing calls additionally require the UI's `x-lotse: 1` marker). For server operation, set `LOTSE_PASSWORD` and `ALLOWED_HOSTS` and put HTTPS in front with a reverse proxy (guide: [`docs/self-hosting.md`](docs/self-hosting.md), German). There is one shared password, no user accounts and no lockout after failed attempts: rate limiting and access scope belong at the proxy.
+- **Live preview** (`/shop`): Shop scripts run, but never in Lotse's origin: iframe `sandbox` without `allow-same-origin` and CSP `sandbox allow-scripts allow-forms` on the document (also when opened directly), `script-src 'self' 'unsafe-inline'` (no third-party scripts). No access to cookies, storage or the API; requests to Lotse fail the origin/marker check.
+- **Draft preview**: runs in a sandboxed iframe (`sandbox="allow-scripts"`, its own opaque origin). Scripts from AI blocks or shop HTML reach neither the UI nor the API; partial updates and highlight mode go through `postMessage` (`src/lib/preview-frame.ts`). The preview does not send the marker. An approval is `x-lotse: 1` plus optional `LOTSE_PASSWORD`, not a click secret.
+- **Codex (ChatGPT subscription)**: Codex's own tools (shell, files, web, images, plugins) disabled, file access blocked via permission profile (not escalatable), `approval_policy=never`; shop tools only via `/api/mcp/<chat>` with a random token per chat. Blocked tools in the event stream abort the turn immediately.
+- **Container**: runs as non-root, read-only file system, no Linux capabilities, `no-new-privileges`, resource limits.
+
+## Recommendations for live shops
+1. Create a dedicated Shopware **integration** with a role that may only write the areas needed (products, categories, shopping experiences, media) – do not use an admin user.
+2. Test new workflows on a **staging shop** first.
+3. Run `make backup` (Lotse data) and shop backups regularly.

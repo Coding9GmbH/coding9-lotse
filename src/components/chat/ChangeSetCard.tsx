@@ -5,6 +5,8 @@ import type { ChangesetResultEvent, UndoPhase } from '@/lib/chat-state';
 import type { ChangeItem, ChangeSet } from '@/lib/protocol';
 import { applyHint, undoPlannedFor } from '@/lib/apply-hint';
 import { plural, sampleSummary } from '@/lib/format';
+import { formatNumber } from '@/lib/i18n';
+import { useI18n, useT } from '@/lib/i18n/I18nProvider';
 import { Button } from '@/components/ui/Button';
 import styles from './ChangeSetCard.module.css';
 
@@ -20,8 +22,6 @@ interface Props {
   onUndo: () => void;
 }
 
-const UNDO_TEXT: Record<UndoPhase, string> = { idle: 'Rückgängig machen', running: 'Wird zurückgesetzt …', done: 'Rückgängig gemacht ✓', failed: 'Rückgängig fehlgeschlagen' };
-const fmt = (n: number) => n.toLocaleString('de-DE');
 /** Stapelverarbeitung: Anzahl Produkte einer Gruppe (afterRaw.count), sonst 1 */
 const groupCount = (i: ChangeItem) => ((i.afterRaw as { count?: number } | undefined)?.count ?? 1);
 
@@ -29,13 +29,14 @@ const groupCount = (i: ChangeItem) => ((i.afterRaw as { count?: number } | undef
 const EMPTY = new Set(['', '–', '-', '—', '(leer)', 'leer', 'keine', 'kein']);
 const isAdded = (i: ChangeItem) => EMPTY.has(i.before.trim());
 function Diff({ i, groupNew }: { i: ChangeItem; groupNew?: boolean }) {
+  const t = useT().chat.changeset;
   const added = isAdded(i), removed = !added && EMPTY.has(i.after.trim());
   return (
     <div className={styles.diff}>
       <span className={styles.fl}>{i.fieldLabel}</span>
-      {added ? !groupNew && <span className={styles.badge}>neu</span> : <span className={styles.old}>{i.before}</span>}
+      {added ? !groupNew && <span className={styles.badge}>{t.isNew}</span> : <span className={styles.old}>{i.before}</span>}
       {!added && !removed && <span aria-hidden="true" className={styles.arrow}>→</span>}
-      {removed ? <span className={`${styles.badge} ${styles.badgeOff}`}>entfernt</span> : <span className={styles.new}>{i.after}</span>}
+      {removed ? <span className={`${styles.badge} ${styles.badgeOff}`}>{t.removed}</span> : <span className={styles.new}>{i.after}</span>}
       {(i.warn ?? []).map(w => <span key={w} className={styles.wn}>⚠ {w}</span>)}
     </div>
   );
@@ -43,6 +44,9 @@ function Diff({ i, groupNew }: { i: ChangeItem; groupNew?: boolean }) {
 
 /** Änderungsset: Vergleich vorher/nachher → Auswahl → Freigabe → Ergebnis → Rückgängig. */
 export function ChangeSetCard({ cs, interactive, decision, sent, result, progress, undo, onDecide, onUndo }: Props) {
+  const { locale, t: m } = useI18n();
+  const t = m.chat.changeset;
+  const fmt = (x: number) => formatNumber(x, locale);
   const real = useMemo(() => cs.items.filter(i => i.entity !== 'info'), [cs]); // Hinweiszeilen zählen und wählen nicht mit
   const selectable = real.length > 0;
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(real.map(i => i.id)));
@@ -77,27 +81,27 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
 
   let res: React.ReactNode = null;
   if (result) {
-    if (result.status === 'rejected') res = result.error ? `✗ ${result.error}` : '✗ Abgelehnt. Es wurde nichts geschrieben.'; // error: Grund (z. B. Neustart)
+    if (result.status === 'rejected') res = result.error ? `✗ ${result.error}` : t.rejected; // error: Grund (z. B. Neustart)
     else if (result.error) res = `✗ ${result.error}`;
     else {
       const ok = result.counts?.applied ?? (result.results ?? []).filter(r => r.ok).length;
       const bad = result.counts?.failed ?? (result.results ?? []).filter(r => !r.ok).length;
       const off = real.filter(isOff).reduce((m, i) => m + (bulk ? groupCount(i) : 1), 0);
-      res = `${bad ? '⚠' : '✓'} ${fmt(ok)} angewendet${bad ? `, ${fmt(bad)} fehlgeschlagen` : ''}${off ? `, ${fmt(off)} nicht ausgewählt` : ''}`;
+      res = `${bad ? '⚠' : '✓'} ${t.applied(fmt(ok))}${bad ? t.failedPart(fmt(bad)) : ''}${off ? t.unselectedPart(fmt(off)) : ''}`;
     }
-  } else if (progress) res = progress.total > 1 ? `${fmt(progress.done)} / ${fmt(progress.total)} angewendet …` : 'Wird angewendet …'; // auch nach erneutem Verbinden (ohne sent); Einzelsätze zählen nicht mit
-  else if (sent) res = sent.allow ? 'Wird angewendet …' : 'Wird abgelehnt …';
-  else if (locked && decision === undefined) res = 'offen';
+  } else if (progress) res = progress.total > 1 ? t.progress(fmt(progress.done), fmt(progress.total)) : t.applying; // auch nach erneutem Verbinden (ohne sent); Einzelsätze zählen nicht mit
+  else if (sent) res = sent.allow ? t.applying : t.rejecting;
+  else if (locked && decision === undefined) res = t.open;
 
   const undoPhase: UndoPhase = result?.undone && undo === 'idle' ? 'done' : undo;
   const undoTotal = result?.undo?.length ?? 0, undoOk = result?.undoResults?.filter(x => x.ok).length;
   const undoPartial = undoOk !== undefined && !result?.undone && undoPhase === 'idle'; // teilweise zurückgesetzt: Rest ist erneut klickbar
 
   return (
-    <section className={styles.cs} aria-label={`Änderungsset: ${cs.title}`}>
+    <section className={styles.cs} aria-label={t.aria(cs.title)}>
       <div className={styles.head}>
         <span className={styles.tag}>
-          {bulk ? `${fmt(cs.total!)} ${plural(cs.total!, cs.noun?.one ?? 'Datensatz', cs.noun?.many ?? 'Datensätze')} · Stapelverarbeitung` : cs.kind === 'new-products' ? `${cs.items.length} ${plural(cs.items.length, 'neues Produkt', 'neue Produkte')}` : cs.noun ? `${cs.items.length} ${plural(cs.items.length, 'Änderung', 'Änderungen')} · ${entities} ${plural(entities, cs.noun.one, cs.noun.many)}` : selectable ? `${cs.items.length} Änderungen · ${entities} ${cs.entity === 'category' ? 'Kategorien' : 'Produkte'}` : 'Veröffentlichung'}
+          {bulk ? t.bulkTag(fmt(cs.total!), plural(cs.total!, cs.noun?.one ?? t.record.one, cs.noun?.many ?? t.record.many)) : cs.kind === 'new-products' ? t.newProducts(cs.items.length) : cs.noun ? t.changesOf(cs.items.length, entities, plural(entities, cs.noun.one, cs.noun.many)) : selectable ? t.changesEntities(cs.items.length, entities, cs.entity === 'category') : t.publication}
         </span>
         <b>{cs.title}</b>
         {cs.reason && <p>{cs.reason}</p>}
@@ -124,22 +128,22 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
             <div key={i.id} className={`${styles.row} ${head ? '' : styles.cont} ${isOff(i) ? styles.off : ''}`}>
               <span>
                 {i.entity !== 'info' && <input type="checkbox" checked={interactive ? selected.has(i.id) : !isOff(i)} disabled={locked}
-                  onChange={e => toggle(i.id, e.target.checked)} aria-label={`${i.label}: ${i.fieldLabel} übernehmen`} />}
+                  onChange={e => toggle(i.id, e.target.checked)} aria-label={t.rowAria(i.label, i.fieldLabel)} />}
               </span>
               <div className={styles.main}>
-                {head && <span className={styles.lb} title={i.label}>{i.label}{groupNew && <span className={styles.badge}>neu</span>}</span>}
+                {head && <span className={styles.lb} title={i.label}>{i.label}{groupNew && <span className={styles.badge}>{t.isNew}</span>}</span>}
                 <Diff i={i} groupNew={groupNew} />
                 {i.html && (
                   <details>
-                    <summary>Text vergleichen</summary>
+                    <summary>{t.compare}</summary>
                     <div className={styles.cmp}>
-                      <div role="region" aria-label="Vorher">{i.html.before || <span className={styles.none}>(leer)</span>}</div>
-                      <div role="region" aria-label="Nachher">{i.html.after}</div>
+                      <div role="region" aria-label={t.before}>{i.html.before || <span className={styles.none}>{t.empty}</span>}</div>
+                      <div role="region" aria-label={t.after}>{i.html.after}</div>
                     </div>
                   </details>
                 )}
               </div>
-              <span className={styles.st}>{r && (r.ok ? <span className={styles.ok} aria-label="angewendet">✓</span> : <span className={styles.bad} title={r.error}>✗ {r.error}</span>)}</span>
+              <span className={styles.st}>{r && (r.ok ? <span className={styles.ok} aria-label={t.appliedAria}>✓</span> : <span className={styles.bad} title={r.error}>✗ {r.error}</span>)}</span>
             </div>
           );
         })}
@@ -147,7 +151,7 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
 
       {!!cs.sample?.length && (
         <details className={styles.sample} open={!result}>
-          <summary>{sampleSummary(cs.sample.length, cs.total ?? cs.sample.length)}</summary>
+          <summary>{sampleSummary(cs.sample.length, cs.total ?? cs.sample.length, locale)}</summary>
           <div className={styles.rows}>
             {cs.sample.map(i => {
               const r = resultFor(i.id);
@@ -164,14 +168,14 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
       )}
 
       {!result && progress && progress.total > 5 && ( // Balken erst bei größeren Sets: kleine melden nur den Text
-        <div className={styles.progress} role="progressbar" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.done} aria-label="Fortschritt">
+        <div className={styles.progress} role="progressbar" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.done} aria-label={t.progressAria}>
           <span style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }} />
         </div>
       )}
 
       {cs.skipped?.length > 0 && (
         <details className={styles.skipped}>
-          <summary>⚠ {cs.skipped.length} {plural(cs.skipped.length, 'Angabe', 'Angaben')} übersprungen (ungültig oder nicht erlaubt)</summary>
+          <summary>⚠ {t.skipped(cs.skipped.length)}</summary>
           <ul>{cs.skipped.map((x, k) => <li key={`${x.id}-${k}`}>{x.reason}</li>)}</ul>
         </details>
       )}
@@ -180,22 +184,22 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
         {interactive && selectable && (
           <label htmlFor={allId}>
             <input id={allId} type="checkbox" checked={n === real.length} onChange={e => toggleAll(e.target.checked)} />
-            {bulk ? <>{fmt(bulkSel)} von {fmt(cs.total!)} ausgewählt</> : <>alle <span>{n}</span> ausgewählt</>}{warns > 0 && <> · <span className={styles.wn}>{warns}× Warnung</span></>}
+            {bulk ? <>{t.bulkSelected(fmt(bulkSel), fmt(cs.total!))}</> : <>{t.allBefore} <span>{n}</span> {t.allAfter}</>}{warns > 0 && <> · <span className={styles.wn}>{t.warnings(warns)}</span></>}
           </label>
         )}
-        {interactive && <span className={styles.res}>{applyHint({ selectable, undoPlanned: undoPlannedFor(cs) })}</span>}
+        {interactive && <span className={styles.res}>{applyHint({ selectable, undoPlanned: undoPlannedFor(cs) }, locale)}</span>}
         {interactive && (
           <>
             <Button variant="primary" disabled={clickLocked || (selectable && (bulk ? !bulkSel : !n))} onClick={() => choose(true)}>
-              {bulk ? `${fmt(bulkSel)} ${plural(bulkSel, cs.noun?.one ?? 'Datensatz', cs.noun?.many ?? 'Datensätze')} ändern` : cs.applyLabel ? cs.applyLabel : cs.kind === 'new-products' ? `${n} ${plural(n, 'Produkt', 'Produkte')} anlegen` : selectable ? `${n} ${plural(n, 'Änderung', 'Änderungen')} anwenden` : 'Freigeben & veröffentlichen'}
+              {bulk ? t.changeRecords(fmt(bulkSel), plural(bulkSel, cs.noun?.one ?? t.record.one, cs.noun?.many ?? t.record.many)) : cs.applyLabel ? cs.applyLabel : cs.kind === 'new-products' ? t.createProducts(n) : selectable ? t.applyChanges(n) : t.publish}
             </Button>
-            <Button disabled={clickLocked} onClick={() => choose(false)}>Ablehnen</Button>
+            <Button disabled={clickLocked} onClick={() => choose(false)}>{t.reject}</Button>
           </>
         )}
         {res && <span className={styles.res} role="status">{res}</span>}
-        {undoPartial && <span className={styles.res} role="status">⚠ {fmt(undoOk)} von {fmt(undoTotal)} {plural(undoTotal, 'Schritt', 'Schritten')} zurückgesetzt</span>}
+        {undoPartial && <span className={styles.res} role="status">{t.undoPartial(fmt(undoOk), fmt(undoTotal), undoTotal)}</span>}
         {!!undoTotal && (
-          <Button disabled={undoPhase !== 'idle'} onClick={onUndo}>{undoPartial ? (undoOk ? 'Rest rückgängig machen' : 'Erneut versuchen') : UNDO_TEXT[undoPhase]}</Button>
+          <Button disabled={undoPhase !== 'idle'} onClick={onUndo}>{undoPartial ? (undoOk ? t.undoRest : m.common.retry) : t.undo[undoPhase]}</Button>
         )}
       </div>
     </section>

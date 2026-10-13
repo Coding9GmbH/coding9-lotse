@@ -1,6 +1,7 @@
 // Vertrag zwischen Server und Oberfläche: Datentypen der REST-Endpunkte und der Chat-Ereignisse (NDJSON-Stream).
 // Wird von src/server (Erzeuger) und src/components (Verbraucher) gemeinsam genutzt – nur Typen, kein Laufzeitcode.
 import type { PlatformKind } from './platforms';
+import type { Locale } from './i18n/locales';
 export type { PlatformKind } from './platforms';
 
 export type TargetKind = 'category' | 'product' | 'landing';
@@ -109,7 +110,8 @@ export type ChatEvent =
 export type ChatEventType = ChatEvent['t'];
 
 // ---- REST ----
-export interface ChatRequest { chatId: string; message: string; target?: Target | null; onboarding?: boolean }
+/** locale: Sprache der KI-Antworten (vom Server aus Cookie/Accept-Language gesetzt) */
+export interface ChatRequest { chatId: string; message: string; target?: Target | null; onboarding?: boolean; locale?: Locale }
 /** status: läuft gerade („running“) oder wartet auf Antwort/Freigabe des Menschen („waiting“); fehlt = ruht */
 export type ChatStatus = 'running' | 'waiting';
 export interface ChatSummary { id: string; title: string; target: Target | null; updatedAt: string; published: number; status?: ChatStatus }

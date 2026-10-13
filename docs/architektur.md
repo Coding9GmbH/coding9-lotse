@@ -1,6 +1,8 @@
+**Deutsch** · [English](en/architecture.md)
+
 # Architektur
 
-Wie Lotse intern funktioniert: Ablauf einer Chat-Runde, Schutzschichten, Datenhaltung, Vorschau, Layout-Veröffentlichung, Shop-Check, Prompts und Tests. Bedienung steht im [Benutzerhandbuch](benutzerhandbuch.md), die Plattform-Schnittstelle in [platform.md](platform.md).
+Wie Lotse intern funktioniert: Ablauf einer Chat-Runde, Schutzschichten, Datenhaltung, Vorschau, Layout-Veröffentlichung, Shop-Check, Prompts, Mehrsprachigkeit und Tests. Bedienung steht im [Benutzerhandbuch](benutzerhandbuch.md), die Plattform-Schnittstelle in [platform.md](platform.md).
 
 ## 1. Überblick
 
@@ -26,7 +28,7 @@ Stack: Next.js 16 · React 19 · TypeScript (strict) · SQLite (`node:sqlite`) �
 ## 2. Ablauf einer Chat-Runde
 
 1. **Start.** `POST /api/chat` startet eine Runde und antwortet als NDJSON-Stream, eine JSON-Zeile je Ereignis (`ChatEvent`, Typen in `lib/protocol.ts`). Die Runde läuft **serverseitig weiter**, auch wenn die Verbindung abbricht oder der Chat gewechselt wird. `GET /api/chat` verbindet wieder: erst ein `snapshot` des bisherigen Verlaufs, dann die Live-Ereignisse.
-2. **Prompt.** `prompt.ts` setzt den System-Prompt aus `prompts/common/*.md` und `prompts/<plattform>/*.md` zusammen (Platzhalter wie `{{shop}}`), dazu der Styleguide-Block, die Regeln (`rulesPromptBlock`) und bei Kontext ein Ziel-Hinweis (`target-hint.ts`).
+2. **Prompt.** `prompt.ts` setzt den System-Prompt aus `prompts/common/*.md` und `prompts/<plattform>/*.md` zusammen (Platzhalter wie `{{shop}}`), dazu der Styleguide-Block, die Regeln (`rulesPromptBlock`), die Antwortsprache (`REPLY_LANGUAGE`, Abschnitt 12) und bei Kontext ein Ziel-Hinweis (`target-hint.ts`).
 3. **Werkzeuge.** Der Agent bekommt die Werkzeuge der Plattform und der Feature-Module (`tools.ts`, `features/`). Lesen läuft über den geschützten Lese-Client; **Schreiben gibt es nicht**, nur Vorschläge (`propose_*`, `publish_page`).
 4. **Rückfragen.** `ask_user` erzeugt ein `question`-Ereignis; die Runde wartet, `POST /api/answer` setzt sie fort.
 5. **Vorschlag → Freigabe.** Ein Vorschlag wird zu einem `ChangeSet` (Zeilen mit vorher/nachher, Warnungen, Auswahl). Das Werkzeug wartet auf die Entscheidung; `POST /api/approve` übergibt Freigabe und gewählte Zeilen.
@@ -147,3 +149,22 @@ Andere Plattformen veröffentlichen über ihre eigenen Pfade (Shopify: Theme-Vor
 | Neues Feld für eigene Prüfungen | `CHECK_FIELDS` + `fieldValue` in `lib/custom-checks.ts`, Wert in `NeutralProduct` und in allen vier `scanProducts` |
 | Neues Feature-Modul | `features/<name>.ts` (`Feature`) in `features/index.ts` eintragen; Werkzeugnamen in `lib/labels.ts` |
 | Neue Plattform | [platform.md](platform.md), Abschnitt 11 |
+| Neue Sprache | `LOCALES` und `LOCALE_NAMES` in `lib/i18n/locales.ts`, Wörterbuch je Namensraum in `lib/i18n/messages/`, `INTL_LOCALE`, `REPLY_LANGUAGE` in `server/prompt.ts` |
+
+## 12. Mehrsprachigkeit / Internationalization
+
+Oberfläche und KI-Antworten gibt es auf Deutsch (Standard) und Englisch. Alles liegt in `src/lib/i18n/`:
+
+| Datei | Aufgabe |
+|---|---|
+| `locales.ts` | `LOCALES` (`'de' \| 'en'`), `DEFAULT_LOCALE = 'de'`, `LOCALE_NAMES`, `INTL_LOCALE` (BCP-47-Tag für `Intl`: Datum, Zahlen), Cookie `LOCALE_COOKIE = 'lotse_lang'`; `resolveLocale` (Cookie vor `Accept-Language` vor Standard) und `requestLocale(req)` für Route-Handler |
+| `messages/<ns>.ts` | typisierte Wörterbücher je Namensraum (`common`, `chat`, `settings` …): `export const de = {…}` und `export const en: typeof de = {…}`. Der Typ erzwingt dieselben Schlüssel; Texte mit Platzhaltern oder Plural sind Funktionen (`t.common.minutesAgo(5)`). `tests/lib/i18n.test.ts` prüft, dass beide Sprachen dieselbe Form haben |
+| `index.ts` | `messages(locale)` → `Messages`, `formatNumber(n, locale)` |
+| `I18nProvider.tsx` | Client-Kontext: `useT()` (Wörterbuch), `useLocale()`, `useI18n()` (mit `setLocale`). Ein Wechsel setzt das Cookie, `<html lang>` und lädt die Server-Teile per `router.refresh()` neu |
+| `server.ts` | `getLocale()`/`getMessages()` für Server-Komponenten und `generateMetadata` (Cookie, sonst `Accept-Language`) |
+
+Der Umschalter (`components/i18n/LanguageSwitch.tsx`) steht in den Einstellungen und in der seitlichen Navigation. Es gibt keine Sprach-Präfixe in den URLs; Server und Client rendern mit derselben Sprache aus dem Cookie.
+
+**KI-Antworten.** `POST /api/chat` bestimmt die Sprache mit `requestLocale(req)` und setzt sie als `Session.locale`. `buildSystem(kind, locale)` (`server/prompt.ts`) hängt den passenden `REPLY_LANGUAGE`-Block an: Chat-Antworten, Rückfragen und Begründungen in der Sprache der Oberfläche; Inhalte für den Shop in der Sprache, die der Nutzer bzw. der Shop/Verkaufskanal verlangt. Die Prompts in `prompts/` bleiben bewusst deutsch (interne Anweisungen an das Modell, keine Nutzertexte).
+
+Nicht übersetzt werden Texte, die vom Server oder aus dem Shop kommen (Fehlertexte der API, Ausgaben der KI, Shop-Daten).

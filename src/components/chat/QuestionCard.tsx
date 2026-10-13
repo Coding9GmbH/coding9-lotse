@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { QuestionOption } from '@/lib/chat-state';
 import { Button } from '@/components/ui/Button';
+import { useT } from '@/lib/i18n/I18nProvider';
 import { Markdown } from './Message';
 import styles from './QuestionCard.module.css';
 
@@ -10,10 +11,11 @@ interface Props { question: string; options: QuestionOption[]; answer?: string; 
 
 /** Rückfrage der KI mit anklickbaren Antworten oder freier Eingabe. */
 export function QuestionCard({ question, options, answer, interactive, onAnswer }: Props) {
+  const t = useT().chat.question;
   const [own, setOwn] = useState('');
   return (
-    <section className={styles.q} aria-label="Rückfrage">
-      <div className={styles.lbl}>Rückfrage</div>
+    <section className={styles.q} aria-label={t.label}>
+      <div className={styles.lbl}>{t.label}</div>
       <Markdown text={question} className={styles.qt} />
       {interactive && (
         <>
@@ -26,8 +28,8 @@ export function QuestionCard({ question, options, answer, interactive, onAnswer 
             ))}
           </div>
           <form className={styles.qf} onSubmit={e => { e.preventDefault(); const a = own.trim(); if (a) onAnswer(a); }}>
-            <input value={own} onChange={e => setOwn(e.target.value)} placeholder="Oder eigene Antwort …" aria-label="Eigene Antwort" />
-            <Button type="submit" disabled={!own.trim()}>Senden</Button>
+            <input value={own} onChange={e => setOwn(e.target.value)} placeholder={t.ownPlaceholder} aria-label={t.ownAria} />
+            <Button type="submit" disabled={!own.trim()}>{t.send}</Button>
           </form>
         </>
       )}

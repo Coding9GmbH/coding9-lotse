@@ -1,6 +1,9 @@
+import { DEFAULT_LOCALE, messages, type Locale } from './i18n';
+
 /** 404, nachdem diese Freigabe schon angenommen wurde: kein zweiter Fehler. Andere Fehler bleiben. */
-export function approveError(status: number, alreadySent: boolean): string | null {
+export function approveError(status: number, alreadySent: boolean, locale: Locale = DEFAULT_LOCALE): string | null {
   if (status === 404 && alreadySent) return null;
-  if (status === 404) return 'Diese Freigabe gibt es nicht mehr.';
-  return 'Freigabe konnte nicht gesendet werden';
+  const t = messages(locale).lib.approve;
+  if (status === 404) return t.gone;
+  return t.failed;
 }

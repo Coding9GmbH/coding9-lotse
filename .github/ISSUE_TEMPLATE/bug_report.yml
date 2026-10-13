@@ -1,0 +1,88 @@
+name: Fehler melden / Bug report
+description: Etwas funktioniert nicht wie erwartet. / Something doesn't work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für deine Meldung! Bitte keine Zugangsdaten, Kundendaten oder sensiblen Shop-URLs posten. Sicherheitslücken bitte vertraulich melden ([SECURITY.md](https://github.com/coding9gmbh/coding9-lotse/security/policy)).
+        Thanks for your report! Please do not post credentials, customer data or sensitive shop URLs. Report security vulnerabilities confidentially ([SECURITY.en.md](https://github.com/coding9gmbh/coding9-lotse/security/policy)).
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Shop-Plattform / Shop platform
+      options:
+        - Shopware 6
+        - Shopify
+        - Magento 2
+        - OpenMage
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Lotse-Version / Lotse version
+      description: Image-Tag oder Commit, z. B. `0.4.0` oder `edge`. / Image tag or commit, e.g. `0.4.0` or `edge`.
+      placeholder: 0.x.y
+    validations:
+      required: true
+  - type: dropdown
+    id: ai-provider
+    attributes:
+      label: KI-Anbieter / AI provider
+      options:
+        - Claude
+        - Codex
+    validations:
+      required: true
+  - type: dropdown
+    id: ui-language
+    attributes:
+      label: Sprache der Oberfläche / UI language
+      options:
+        - Deutsch
+        - English
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Was ist passiert? / What happened?
+      description: Kurze Beschreibung des Fehlers, gern mit Screenshot oder Fehlermeldung. / Short description of the bug, ideally with a screenshot or error message.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Schritte zum Nachstellen / Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Erwartetes Verhalten / Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Tatsächliches Verhalten / Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (optional)
+      description: Relevante Ausgabe von `make logs` oder der Browser-Konsole, ohne Zugangsdaten. / Relevant output of `make logs` or the browser console, without credentials.
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Datenschutz / Privacy
+      options:
+        - label: Mein Beitrag enthält keine Zugangsdaten (API-Schlüssel, Tokens, Passwörter) und keine Kundendaten. / My report contains no credentials (API keys, tokens, passwords) and no customer data.
+          required: true

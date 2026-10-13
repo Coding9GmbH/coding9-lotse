@@ -6,15 +6,15 @@ import { dateTime } from '@/lib/format';
 import type { AccessLogRow, AuditRow } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
 import { Segmented } from '@/components/ui/Segmented';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 import styles from './Settings.module.css';
 
 type Which = 'access' | 'audit';
 
-const DECISION: Record<AuditRow['decision'], string> = { approved: 'freigegeben', rejected: 'abgelehnt', undo: 'rückgängig', changed: 'geändert' };
-const STATUS: Record<string, string> = { started: 'gestartet', applied: 'angewendet', partial: 'teilweise', failed: 'fehlgeschlagen', rejected: 'abgelehnt' };
-
 /** Zugriffsprotokoll (was die KI gelesen hat) und Änderungsprotokoll (was geschrieben wurde). */
 export function LogsPanel() {
+  const { t: all, locale } = useI18n();
+  const t = all.settings.logs;
   const [which, setWhich] = useState<Which>('access');
   const [access, setAccess] = useState<AccessLogRow[] | null>(null);
   const [audit, setAudit] = useState<AuditRow[] | null>(null);
@@ -46,37 +46,37 @@ export function LogsPanel() {
   return (
     <div>
       <div className={styles.logBar}>
-        <Segmented label="Protokoll" className={styles.logSeg} value={which} onChange={setWhich} options={[
-          { value: 'access', label: `Zugriffe${deniedCount ? ` · ${deniedCount} abgewiesen` : ''}` },
-          { value: 'audit', label: 'Änderungen' },
+        <Segmented label={t.label} className={styles.logSeg} value={which} onChange={setWhich} options={[
+          { value: 'access', label: t.access(deniedCount) },
+          { value: 'audit', label: t.audit },
         ]} />
         {which === 'access' && (
           <label className={styles.filter}>
-            <input type="checkbox" checked={onlyDenied} onChange={e => setOnlyDenied(e.target.checked)} /> nur abgewiesene
+            <input type="checkbox" checked={onlyDenied} onChange={e => setOnlyDenied(e.target.checked)} /> {t.onlyDenied}
           </label>
         )}
-        <Button size="sm" onClick={() => void load(which)}>Aktualisieren</Button>
+        <Button size="sm" onClick={() => void load(which)}>{t.refresh}</Button>
       </div>
       <p className={styles.hint}>
         {which === 'access'
-          ? 'Was die KI im Shop gelesen hat. Abgewiesene Versuche (gesperrte Bereiche oder Daten) sind markiert; „geschwärzt“ zählt entfernte sensible Felder.'
-          : 'Alle freigegebenen, abgelehnten und rückgängig gemachten Änderungssets.'}
+          ? t.accessHint
+          : t.auditHint}
       </p>
       {error && <div className={styles.alert} role="alert">{error}</div>}
 
-      {which === 'access' && (access === null ? <p className={styles.muted}>Lade …</p> : rows.length === 0 ? <p className={styles.muted}>Noch keine Einträge.</p> : (
+      {which === 'access' && (access === null ? <p className={styles.muted}>{all.settings.loading}</p> : rows.length === 0 ? <p className={styles.muted}>{t.noEntries}</p> : (
         <div className={styles.tableWrap}>
           <table className={styles.table}>
-            <thead><tr><th>Zeit</th><th>Vorgang</th><th>Bereich</th><th className={styles.num}>Datensätze</th><th className={styles.num}>geschwärzt</th><th>Ergebnis</th></tr></thead>
+            <thead><tr><th>{t.time}</th><th>{t.op}</th><th>{t.area}</th><th className={styles.num}>{t.records}</th><th className={styles.num}>{t.scrubbed}</th><th>{t.result}</th></tr></thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={`${r.ts}-${i}`} className={r.denied ? styles.denied : undefined}>
-                  <td className={styles.nowrap}>{dateTime(r.ts)}</td>
+                  <td className={styles.nowrap}>{dateTime(r.ts, locale)}</td>
                   <td>{r.op}</td>
                   <td><code>{r.entity}</code></td>
                   <td className={styles.num}>{r.n}</td>
                   <td className={styles.num}>{r.scrubbed || ''}</td>
-                  <td>{r.denied ? <span className={styles.deniedTag}>abgewiesen: {r.denied}</span> : <span className={styles.ok}>gelesen</span>}</td>
+                  <td>{r.denied ? <span className={styles.deniedTag}>{t.denied(r.denied)}</span> : <span className={styles.ok}>{t.read}</span>}</td>
                 </tr>
               ))}
             </tbody>
@@ -84,19 +84,19 @@ export function LogsPanel() {
         </div>
       ))}
 
-      {which === 'audit' && (audit === null ? <p className={styles.muted}>Lade …</p> : audit.length === 0 ? <p className={styles.muted}>Noch keine Änderungen.</p> : (
+      {which === 'audit' && (audit === null ? <p className={styles.muted}>{all.settings.loading}</p> : audit.length === 0 ? <p className={styles.muted}>{t.noChanges}</p> : (
         <div className={styles.tableWrap}>
           <table className={styles.table}>
-            <thead><tr><th>Zeit</th><th>Änderungsset</th><th>Entscheidung</th><th>Ergebnis</th></tr></thead>
+            <thead><tr><th>{t.time}</th><th>{t.changeSet}</th><th>{t.decisionHead}</th><th>{t.result}</th></tr></thead>
             <tbody>
               {audit.map((r, i) => (
                 <tr key={`${r.ts}-${i}`}>
-                  <td className={styles.nowrap}>{dateTime(r.ts)}{typeof r.recoveredFrom === 'string' && <small className={styles.sub}>Vorfall {dateTime(r.recoveredFrom)}, beim Laden nachgetragen</small>}</td>
-                  <td>{r.title ?? r.changeSet ?? '(ohne)'}{r.kind && <small className={styles.sub}>{r.kind}</small>}</td>
-                  <td><span className={`${styles.decision} ${styles[`d_${r.decision}`] ?? ''}`}>{DECISION[r.decision] ?? r.decision}</span></td>
+                  <td className={styles.nowrap}>{dateTime(r.ts, locale)}{typeof r.recoveredFrom === 'string' && <small className={styles.sub}>{t.recovered(dateTime(r.recoveredFrom, locale))}</small>}</td>
+                  <td>{r.title ?? r.changeSet ?? t.untitled}{r.kind && <small className={styles.sub}>{r.kind}</small>}</td>
+                  <td><span className={`${styles.decision} ${styles[`d_${r.decision}`] ?? ''}`}>{t.decision[r.decision] ?? r.decision}</span></td>
                   <td>
-                    {r.status ? STATUS[r.status] ?? r.status : ''}
-                    {typeof r.applied === 'number' && <small className={styles.sub}>{r.applied} angewendet{r.failed ? `, ${r.failed} fehlgeschlagen` : ''}</small>}
+                    {r.status ? t.status[r.status] ?? r.status : ''}
+                    {typeof r.applied === 'number' && <small className={styles.sub}>{t.applied(r.applied, r.failed ?? 0)}</small>}
                   </td>
                 </tr>
               ))}

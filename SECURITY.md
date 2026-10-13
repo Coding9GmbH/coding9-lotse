@@ -1,3 +1,5 @@
+**Deutsch** · [English](SECURITY.en.md)
+
 # Sicherheit
 
 ## Lücke melden

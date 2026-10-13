@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { requestLocale } from '@/lib/i18n/locales';
 import { startChat } from '@/server/agent';
 import { listenStream } from '@/server/chat-stream';
 import { chatIdSchema, jsonError, parseJson } from '@/server/http';
@@ -22,7 +23,7 @@ export async function POST(req: Request) {
   if (s.running) return jsonError(409, 'In diesem Chat läuft schon eine Anfrage.');
   // Erst zuhören, dann starten – so geht kein Ereignis verloren
   const res = listenStream(s, [], true);
-  startChat(body.data);
+  startChat({ ...body.data, locale: requestLocale(req) });
   return res;
 }
 

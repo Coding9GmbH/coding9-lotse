@@ -1,0 +1,170 @@
+[Deutsch](../architektur.md) · **English**
+
+# Architecture
+
+How Lotse works internally: flow of a chat turn, protection layers, data storage, preview, layout publishing, shop check, prompts, internationalization and tests. Usage is described in the [user guide](user-guide.md), the platform interface in [platform.md](platform.md).
+
+## 1. Overview
+
+```
+Browser ──► proxy.ts ──► Next.js (App Router)
+              │            ├─ app/api/**        REST + chat stream (NDJSON)
+              │            ├─ app/shop/**       storefront proxy for the preview
+              │            └─ interface         React 19, one reducer (lib/chat-state.ts)
+              │
+              └─ host/origin check, login, storefront paths → /shop
+
+Chat turn:   Agent (Claude SDK | Codex) ──► tools (tools.ts) ──► guarded read client ──► Shop
+                                   │
+                                   └─► propose_* / publish_page ──► change set ──► approval (human)
+                                                                                      │
+                                              Executor (changes.ts, sole writer)  ◄───┘
+                                              ├─ audit log + undo steps (SQLite)
+                                              └─ Shop (privileged client)
+```
+
+Stack: Next.js 16 · React 19 · TypeScript (strict) · SQLite (`node:sqlite`) · Claude Agent SDK or OpenAI Codex SDK. Runs as a Docker image (`output: 'standalone'`) or via `npm run dev`.
+
+## 2. Flow of a chat turn
+
+1. **Start.** `POST /api/chat` starts a turn and responds as an NDJSON stream, one JSON line per event (`ChatEvent`, types in `lib/protocol.ts`). The turn **keeps running on the server**, even if the connection drops or the user switches chats. `GET /api/chat` reconnects: first a `snapshot` of the history so far, then the live events.
+2. **Prompt.** `prompt.ts` assembles the system prompt from `prompts/common/*.md` and `prompts/<platform>/*.md` (placeholders like `{{shop}}`), plus the style guide block, the rules (`rulesPromptBlock`), the reply language (`REPLY_LANGUAGE`, section 12) and, with context, a target hint (`target-hint.ts`).
+3. **Tools.** The agent gets the tools of the platform and of the feature modules (`tools.ts`, `features/`). Reading goes through the guarded read client; **there is no writing**, only proposals (`propose_*`, `publish_page`).
+4. **Follow-up questions.** `ask_user` creates a `question` event; the turn waits, `POST /api/answer` resumes it.
+5. **Proposal → approval.** A proposal becomes a `ChangeSet` (rows with before/after, warnings, selection). The tool waits for the decision; `POST /api/approve` passes the approval and the selected rows.
+6. **Writing.** The executor writes the selected rows at a throttled rate, records an undo step per row and logs the result in the audit log. `POST /api/changesets/undo` reverts an application.
+7. **End.** `done` closes the turn; open steps are closed in the interface.
+
+### Providers
+- **Claude** (Agent SDK, in-process MCP server `shop`): tools in the same process.
+- **Codex** (ChatGPT subscription): Codex's own tools (shell, files, web) disabled, file access blocked via profile; shop tools only via `/api/mcp/<chat>` with a random token per chat.
+
+## 3. Protection layers
+
+| Layer | Where | Effect |
+|---|---|---|
+| Host/origin/marker check | `proxy.ts` | Only allowed host names; loopback names only from loopback (in the container also private gateway addresses with loopback publish); `Origin` must match `Host`; write calls require `x-lotse: 1` |
+| Login | `proxy.ts` | `LOTSE_PASSWORD` → Basic Auth (constant-time comparison), `/api/mcp/*` has its own token, `/api/ping` open |
+| Read client with allowlist | `policy.ts` + reader per platform | Only allowed entities/associations/fields; customer, order, payment and credential data blocked; areas from the settings; every access in the access log |
+| Proposals only | `tools.ts`, `changes.ts` | The AI's tools contain no writing; the executor is the only place that writes |
+| Approval + audit + undo | `changes.ts`, `audit.ts` | Old→new, row selection, log, undo per row |
+| Shop protection | `changes.ts`, clients | Throttling (`LOTSE_WRITE_CONCURRENCY`), max. 300 entries per set (`MAX_ITEMS`), timeouts, backoff on 429/503 |
+| Credentials | `db.ts` | AES-256-GCM, key `secret.key` in the data volume, never sent to the AI, removed from error texts |
+| Preview isolation | `app/shop/**`, `DraftFrame.tsx` | Shop HTML runs in an opaque origin, see below |
+
+Details and how to report issues: [SECURITY.en.md](../../SECURITY.en.md).
+
+## 4. Data storage
+
+Everything lives in the data folder (`AICB_DATA`, in the container `/data` as volume `lotse-data`).
+
+| File | Contents |
+|---|---|
+| `aicb.db` | Chats with event history (only the latest draft keeps its HTML), audit log, access log, settings and key-value data: `styleguide`, `shopcheck_run`, `custom_checks`, `checks_disabled` |
+| `knowledge.db` | Knowledge base: documents, text chunks (BM25 search), custom rules (`rules`, with scope and optional category) |
+| `secret.key` | Key for the encrypted credentials |
+| `staging/`, files | Staged images and attachments, kept locally only until approval |
+| `claude/`, `home/` | Claude Agent SDK sessions |
+
+Backup: `make backup`, restore: `make restore FILE=…`. Always the whole volume, otherwise stored credentials are useless.
+
+## 5. Preview
+
+Three views, none with access to Lotse:
+
+| View | Source | Isolation |
+|---|---|---|
+| **Current** | Shop page via the proxy `/shop/…` in an iframe | `sandbox="allow-scripts allow-forms"` (no `allow-same-origin`) and CSP `sandbox allow-scripts allow-forms; script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'` via response header: opaque origin even on direct navigation, no third-party scripts |
+| **Draft** (simple) | `renderPreview` in `cms.ts` renders the spec in the shop's theme CSS | `srcdoc`, `sandbox="allow-scripts"` |
+| **Draft on the real page** (Shopware) | Real target page, only `.cms-sections` replaced | as draft |
+
+**Proxy `/shop`** (`app/shop/[[...path]]/route.ts`): fetches the storefront via the internal address, rewrites shop URLs to `/shop`, removes cookies and frame restrictions, sets the CSP, injects the frame script (`lib/preview-frame.ts`: highlighting, scroll, via `postMessage`) and serves images/fonts with CORS. Redirects: same origin as a `/shop` path; same site (parent domain, e.g. `stage.` → `www.`) followed server-side (at most 3 hops); foreign domains never. Root-relative paths of the shop (`/theme`, `/media`, `/thumbnail` …) are redirected to `/shop` by `proxy.ts`.
+
+**Draft on the real page** (`real-page.ts`, `platform/shopware/pages.ts`):
+1. `previewData` loads the target page (`/detail/{id}`, `/navigation/{id}`, at most 2 redirects, only within the shop, 12 s, 1.5 MB, 60 s cache).
+2. `stripScripts` removes comments as well as scripts and preload hints from foreign domains; shop scripts remain.
+3. `extractBlocks` extracts the real dynamic blocks (buy box, heading, description/reviews, cross-selling, product listing, filters), also for themes with custom block types (markup detection).
+4. `renderPreview` inserts the draft and the real blocks into `.cms-sections` (`spliceSections`). If it cannot find the CMS area, it falls back to the simple view.
+5. Without a named target, `withPreviewDefaults` picks an active product with a cover image.
+
+Streaming: while writing, the server sends `draft_partial` (only `<body>` via `postMessage`, theme CSS and scroll position stay), then `draft` (new document, scroll position restored). `PREVIEW_VERSION` (`tools.ts`) forces stored drafts to be regenerated on load.
+
+## 6. Publishing layouts (Shopware)
+
+`publish_page` → `buildPublish` (`platform/shopware/pages.ts`) → `buildPublishChangeSet` (`changes.ts`) → applier `applyPublish`.
+
+1. **Resolve scope.** `resolvePublishScope` turns `allCategories`, `allProducts`, `productsInCategoryId` etc. into fixed ID lists (pages of 500, cap `SCOPE_MAX = 1000`). Ambiguous input is rejected. Products: active main products (variants inherit). Categories: type `page`, without root.
+2. **Change set.** Up to 15 targets, one row per target; above that a summary (“N, of which M with their own layout, will be replaced”) plus scope and 8 samples. Metadata only for a single category.
+3. **Apply.** Create the layout (`cms-page`), then the assignments with limited concurrency; on the first error no further target starts and everything is rolled back (atomic). One undo step per target with the previous `cmsPageId`.
+4. **Intermediate state.** `trackedUndo` reports every step immediately; a crash does not lose any undo.
+
+Other platforms publish via their own paths (Shopify: theme templates, Magento/OpenMage: CMS pages or Page Builder), see [platform.md](platform.md).
+
+## 7. Style guide, rules, knowledge
+
+- **Style guide** (`styleguide.ts`): derived from theme configuration, storefront CSS, logo and copy (`get_brand_signals` → `save_styleguide`) and passed into the prompt as a binding block. It also provides CSS variables (`--sg-*`) for the preview and custom HTML. Free text in it is treated as data, not as instructions.
+- **Rules** (`knowledge.ts`, table `rules`): text, scope (`all|products|pages|seo`), optional `target` (category). The prompt block is capped (40 rules, 3000 characters), the rest is available via `list_rules`. Category rules appear in the block with name and ID; the AI checks membership via the product's categories.
+- **Knowledge**: documents are split into chunks and searched locally with BM25 (`search_knowledge`, `get_product_knowledge`). Excerpts are data, not instructions, and appear with their source. Uploaded content is confirmed with the user before being added.
+
+## 8. Shop check and custom checks
+
+- **Registry** (`checks.ts`): `registerCheck`/`registerPlatformCheck` with `id`, `area`, `scopes`, `platforms`, `run`. `run` only reads via the guarded read client of the run and returns `CheckFinding`s with a `fixPrompt`.
+- **Run** (`shopcheck.ts`, `shopcheck-run.ts`): at most one run at a time, concurrency 3, 90 s per check, errors isolated per check; result in the kv store, valid for the same shop and the same areas. Stale after 6 hours (incomplete runs after 5 minutes). Areas blocked in the settings are skipped.
+- **On/off**: `checks_disabled` (list of IDs); the run filters them out.
+- **Custom checks** (`lib/custom-checks.ts`, `server/custom-checks.ts`): declarative, conditions on fixed fields (`descriptionWords`, `descriptionChars`, `metaTitleChars`, `metaDescriptionChars`, `nameChars`, `price`, `listPrice`, `stock`, `hasImage`), comparisons `lt|lte|gt|gte|eq|neq`, combination `all|any`. No code, no free-form queries.
+- **Neutral product view**: `PlatformAdapter.scanProducts(reader)` returns active products as `NeutralProduct` (cap 2500 products, 1000 on Shopify; `capped` → “at least”). Shopware: `platform/shopware/scan.ts`; Shopify, Magento, OpenMage: `neutralScan` in their `checks.ts`, from the same scan as the built-in checks (read once per run). Unknown values (`null`) never match.
+- **Chat tools** (`features/shopcheck.ts`): `list_checks`, `create_check` (with a dry run: match count before saving), `update_check`, `set_check_enabled`, `delete_check`. Creating, changing, deleting and disabling ask the user.
+- **API**: `GET /api/shopcheck`, `POST /api/shopcheck` (check again), `GET /api/shopcheck/checks`, `PUT|DELETE /api/shopcheck/checks/{id}`.
+
+## 9. API overview
+
+| Path | Purpose |
+|---|---|
+| `POST/GET /api/chat` | Start a turn (NDJSON) / reconnect |
+| `GET /api/chats`, `POST /api/reset` | History, clear chat |
+| `POST /api/answer`, `POST /api/approve`, `POST /api/changesets/undo` | Answer follow-up question, approval, undo |
+| `POST /api/files`, `POST /api/upload` | Attachments, images |
+| `GET/PUT /api/settings`, `GET /api/config`, `GET /api/health`, `GET /api/ping` | Settings, path templates/version, status, health check |
+| `GET/PUT /api/styleguide` | Style guide |
+| `/api/knowledge`, `PATCH|DELETE /api/knowledge/docs/{id}`, `POST /api/knowledge/rules`, `PUT|DELETE /api/knowledge/rules/{id}` | Knowledge base and rules |
+| `/api/shopcheck`, `/api/shopcheck/checks[/{id}]` | Shop check, checks |
+| `GET /api/categories`, `GET /api/products` | Context selection |
+| `GET /api/audit`, `GET /api/access-log` | Logs |
+| `/api/gsc`, `/api/codex/login` | Search Console, Codex sign-in |
+| `/api/mcp/{chat}` | MCP endpoint for Codex (token per chat) |
+| `GET /shop/**` | Storefront proxy (GET only) |
+
+## 10. Tests and quality
+
+- `npm run check`: type check (`next typegen && tsc`), ESLint, tests.
+- Tests (`node:test`, structure mirrors `src/`): pure logic, executor against fake Shopware, platform adapters against fakes (`tests/support/`: Shopify, Magento, OpenMage), proxy and reducer tests.
+- CI (`.github/workflows/docker.yml`): type check, lint, tests on pull requests and `main`; image build and smoke test on `main`; release on tag `vX.Y.Z`.
+
+## 11. Extending
+
+| Goal | Where |
+|---|---|
+| New block type | `BLOCKS` in `cms.ts` + preview renderer; the agent receives the catalog automatically |
+| New check (built-in) | `registerCheck` in a feature module or `registerPlatformCheck` in the adapter; add the title in `lib/custom-checks.ts` (`builtinTitle`) |
+| New field for custom checks | `CHECK_FIELDS` + `fieldValue` in `lib/custom-checks.ts`, value in `NeutralProduct` and in all four `scanProducts` |
+| New feature module | Register `features/<name>.ts` (`Feature`) in `features/index.ts`; tool names in `lib/labels.ts` |
+| New platform | [platform.md](platform.md), section 11 |
+| New language | `LOCALES` and `LOCALE_NAMES` in `lib/i18n/locales.ts`, a dictionary per namespace in `lib/i18n/messages/`, `INTL_LOCALE`, `REPLY_LANGUAGE` in `server/prompt.ts` |
+
+## 12. Internationalization
+
+The interface and AI replies are available in German (default) and English. Everything lives in `src/lib/i18n/`:
+
+| File | Purpose |
+|---|---|
+| `locales.ts` | `LOCALES` (`'de' \| 'en'`), `DEFAULT_LOCALE = 'de'`, `LOCALE_NAMES`, `INTL_LOCALE` (BCP 47 tag for `Intl`: dates, numbers), cookie `LOCALE_COOKIE = 'lotse_lang'`; `resolveLocale` (cookie before `Accept-Language` before default) and `requestLocale(req)` for route handlers |
+| `messages/<ns>.ts` | Typed dictionaries per namespace (`common`, `chat`, `settings` …): `export const de = {…}` and `export const en: typeof de = {…}`. The type enforces identical keys; texts with placeholders or plurals are functions (`t.common.minutesAgo(5)`). `tests/lib/i18n.test.ts` checks that both languages have the same shape |
+| `index.ts` | `messages(locale)` → `Messages`, `formatNumber(n, locale)` |
+| `I18nProvider.tsx` | Client context: `useT()` (dictionary), `useLocale()`, `useI18n()` (with `setLocale`). Switching sets the cookie and `<html lang>` and reloads the server parts via `router.refresh()` |
+| `server.ts` | `getLocale()`/`getMessages()` for server components and `generateMetadata` (cookie, otherwise `Accept-Language`) |
+
+The switcher (`components/i18n/LanguageSwitch.tsx`) sits in the settings and in the side navigation. There are no language prefixes in URLs; server and client render with the same language from the cookie.
+
+**AI replies.** `POST /api/chat` determines the language with `requestLocale(req)` and sets it as `Session.locale`. `buildSystem(kind, locale)` (`server/prompt.ts`) appends the matching `REPLY_LANGUAGE` block: chat replies, follow-up questions and reasons in the interface language; shop content in the language the user or the shop/sales channel requires. The prompts in `prompts/` intentionally stay German (internal instructions to the model, not user-facing text).
+
+Not translated: text that comes from the server or the shop (API error texts, AI output, shop data).

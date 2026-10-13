@@ -1,5 +1,7 @@
 <p align="center"><img src="docs/lotse-logo.svg" alt="Lotse" width="260"></p>
 
+<p align="center"><b>Deutsch</b> · <a href="README.en.md">English</a></p>
+
 <p align="center"><b>Der KI-Lotse für Shopware 6.</b> Du gibst den Kurs vor – Lotse bringt deinen Shop sicher hin.<br>
 Einkaufswelten, Preise, Texte & SEO per Chat. Die KI liest nur, geschrieben wird erst nach deiner Freigabe.</p>
 
@@ -77,6 +79,7 @@ Für Live-Shops: eigene Integration mit eingeschränkter Rolle statt Admin-Login
 ## Konfiguration
 
 Alle Variablen mit Erklärung in [`.env.example`](.env.example). In der Oberfläche gesetzte Werte haben Vorrang.
+Die Sprache (Deutsch/Englisch) ist keine Variable: Sie wird in den Einstellungen bzw. der Seitennavigation gewählt, Standard ist die Browsersprache (Cookie `lotse_lang`).
 
 | Variable | Zweck |
 |---|---|
@@ -122,6 +125,7 @@ Chat statt Formulare. Du schreibst, was passieren soll („Ändere das Layout vo
 - **Einkaufswelten-Know-how**: Agent kennt Sections/Blöcke/Slots, liest bestehende Layouts (`get_cms_page`) und bezieht vorhandene Inhalte ein.
 - **Custom-HTML/CSS/JS** als `html`-Element (Block `custom-html`, CSS automatisch gescoped).
 - **Verlauf**: Alle Chats inkl. Entwurf/Freigaben liegen in der Datenbank und lassen sich im UI wieder öffnen.
+- **Deutsch und Englisch**: Oberfläche und KI-Antworten gibt es auf Deutsch und Englisch. Umschalten in den Einstellungen oder in der Seitennavigation; ohne Auswahl gilt die Browsersprache (gespeichert im Cookie `lotse_lang`).
 - UI im Coding9-CI (Dunkel `#2E2E38`, Grün, Koralle, Creme; Satoshi/Inter via Fontshare/Google Fonts).
 
 ## Shop-Plattformen
@@ -156,6 +160,7 @@ src/
 ├── components/           UI nach Bereichen (shell = Navigation, chat, context, preview, dialogs, settings, ui), CSS Modules
 ├── hooks/                useChatStream, useAttachments
 ├── lib/
+│   ├── i18n/             Sprachen (de, en), Wörterbücher je Namensraum unter messages/
 │   ├── protocol.ts       Vertrag Server ↔ Oberfläche (REST-Typen, Chat-Ereignisse)
 │   └── chat-state.ts     ein Reducer für Live-Stream und Wiederherstellung eines Chats
 └── server/               nur serverseitig (`server-only`)
@@ -177,6 +182,7 @@ tests/                    alle Tests (node:test), Struktur wie src/
 
 Neue Blocktypen: in `BLOCKS` (`src/server/cms.ts`) ergänzen (+ Vorschau-Renderer) – der Agent bekommt den Katalog automatisch.
 Neue Shop-Plattform: Vertrag, Konventionen und Checkliste in [`docs/platform.md`](docs/platform.md).
+Neue UI-Sprache oder Übersetzungen: siehe [CONTRIBUTING.md](CONTRIBUTING.md#übersetzungen).
 
 ## Haftungsausschluss
 

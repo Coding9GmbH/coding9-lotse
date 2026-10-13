@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef } from 'react';
+import { useT } from '@/lib/i18n/I18nProvider';
 import styles from './Dialog.module.css';
 
 interface Props { open: boolean; onClose: () => void; title: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode; wide?: boolean }
@@ -9,6 +10,7 @@ interface Props { open: boolean; onClose: () => void; title: React.ReactNode; ch
 export function Dialog({ open, onClose, title, children, footer, wide }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const t = useT();
 
   useEffect(() => {
     const d = ref.current;
@@ -24,7 +26,7 @@ export function Dialog({ open, onClose, title, children, footer, wide }: Props) 
         <>
           <div className={styles.head}>
             <h2 id={titleId}>{title}</h2>
-            <button type="button" onClick={onClose}>Schließen</button>
+            <button type="button" onClick={onClose}>{t.common.close}</button>
           </div>
           <div className={styles.body}>{children}</div>
           {footer && <div className={styles.foot}>{footer}</div>}

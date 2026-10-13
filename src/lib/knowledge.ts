@@ -1,4 +1,5 @@
 // Wissensbasis: gemeinsame Typen für Server und Oberfläche.
+import { DEFAULT_LOCALE, messages, type Locale } from './i18n';
 
 /** upload = auf der Seite Wissen hochgeladen, chat = Chat-Anhang, text = vom Nutzer diktiert */
 export type KnowledgeSource = 'upload' | 'chat' | 'text';
@@ -9,12 +10,15 @@ export interface KnowledgeDoc {
 }
 
 export type RuleScope = 'all' | 'products' | 'pages' | 'seo';
-export const RULE_SCOPES: Record<RuleScope, string> = { all: 'Überall', products: 'Produkttexte', pages: 'Seiten', seo: 'SEO' };
+/** Bereichsnamen deutsch (Server, KI); je Sprache: ruleScopeLabel(scope, locale) */
+export const RULE_SCOPES: Record<RuleScope, string> = messages(DEFAULT_LOCALE).lib.knowledge.scopes;
+export const ruleScopeLabel = (scope: RuleScope, locale: Locale = DEFAULT_LOCALE): string => messages(locale).lib.knowledge.scopes[scope];
 /** Optionale Begrenzung einer Regel auf eine Kategorie (gilt dann für diese Kategorie und deren Produkte/Seiten) */
 export interface RuleTarget { id: string; name: string }
 export interface KnowledgeRule { id: string; text: string; scope: RuleScope; target: RuleTarget | null; createdAt: string; updatedAt: string }
 
 export const RULE_MAX = 300;
 /** Lead der Wissensseite: lokal gespeichert, Auszüge und Regeln gehen an den Modellanbieter. */
-export const KNOWLEDGE_LEAD = 'Datenblätter und PDFs als Faktenquelle. Lotse speichert sie lokal und nutzt sie für Produkttexte, FAQ und Sicherheitsinformationen. Auszüge gehen an Anthropic oder OpenAI. Eigene Regeln pflegst du im Styleguide.';
+export const KNOWLEDGE_LEAD = messages(DEFAULT_LOCALE).lib.knowledge.lead;
+export const knowledgeLead = (locale: Locale = DEFAULT_LOCALE): string => messages(locale).lib.knowledge.lead;
 export const TITLE_MAX = 160;

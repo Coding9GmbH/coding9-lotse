@@ -5,6 +5,8 @@ import { cookies } from 'next/headers';
 import { ShellProvider } from '@/components/shell/ShellProvider';
 import { NAV_COOKIE } from '@/lib/nav';
 import { shellInitial } from '@/server/initial';
+import { I18nProvider } from '@/lib/i18n/I18nProvider';
+import { getLocale, getMessages } from '@/lib/i18n/server';
 import './globals.css';
 
 // Inter und Satoshi liegen im Repo (src/app/fonts). Der Build braucht dafür kein Netz.
@@ -18,22 +20,24 @@ const satoshi = localFont({
   variable: '--font-satoshi',
 });
 
-export const metadata: Metadata = {
-  title: { default: 'Lotse', template: '%s · Lotse' },
-  description: 'KI-Lotse für deinen Onlineshop (Shopware, Shopify, Magento, OpenMage) · by CODING 9',
-  icons: { icon: '/lotse-mark.svg' },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getMessages();
+  return { title: { default: 'Lotse', template: '%s · Lotse' }, description: t.common.metaDescription, icons: { icon: '/lotse-mark.svg' } };
+}
 
 export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: '#2e2e38' };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const navCollapsed = (await cookies()).get(NAV_COOKIE)?.value === 'collapsed';
+  const locale = await getLocale();
   return (
-    <html lang="de" className={`${inter.variable} ${satoshi.variable}`}>
+    <html lang={locale} className={`${inter.variable} ${satoshi.variable}`}>
       <body>
-        <ShellProvider initialCollapsed={navCollapsed} initial={shellInitial()}>
-          <AppShell>{children}</AppShell>
-        </ShellProvider>
+        <I18nProvider locale={locale}>
+          <ShellProvider initialCollapsed={navCollapsed} initial={shellInitial()}>
+            <AppShell>{children}</AppShell>
+          </ShellProvider>
+        </I18nProvider>
       </body>
     </html>
   );

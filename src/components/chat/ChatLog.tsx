@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { announceAnswer } from '@/lib/a11y';
 import type { LogItem } from '@/lib/chat-state';
 import type { AppConfig } from '@/lib/protocol';
+import { useLocale } from '@/lib/i18n/I18nProvider';
 import { ChangeSetCard } from './ChangeSetCard';
 import { ImageCard, PublishedCard, StyleguideCard } from './Cards';
 import { AiMessage, ErrorMessage, UserMessage } from './Message';
@@ -25,9 +26,10 @@ interface Props {
 }
 
 function AnswerStatus({ busy, hasAnswer }: { busy: boolean; hasAnswer: boolean }) {
+  const locale = useLocale();
   const [snap, setSnap] = useState({ busy: false, text: null as string | null });
   if (busy !== snap.busy) {
-    const text = snap.busy && !busy && hasAnswer ? announceAnswer(true) : null;
+    const text = snap.busy && !busy && hasAnswer ? announceAnswer(true, locale) : null;
     setSnap({ busy, text });
   }
   return snap.text ? <p className="visually-hidden" role="status">{snap.text}</p> : null;

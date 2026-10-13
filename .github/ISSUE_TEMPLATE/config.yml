@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Sicherheitslücke melden / Report a security vulnerability
+    url: https://github.com/coding9gmbh/coding9-lotse/security/policy
+    about: Bitte nicht öffentlich melden, sondern vertraulich wie in SECURITY.md beschrieben. / Please do not report publicly; report confidentially as described in SECURITY.md.

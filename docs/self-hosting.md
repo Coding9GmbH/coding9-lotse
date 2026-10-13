@@ -1,3 +1,5 @@
+**Deutsch** · [English](en/self-hosting.md)
+
 # Lotse selbst hosten (Server, Login, HTTPS)
 
 Lotse läuft standardmäßig nur auf deinem Rechner (`127.0.0.1`). Du kannst es auch auf einem Server betreiben, damit ein Team darauf zugreift. Dann gilt: **Login setzen, HTTPS vorschalten, Hostnamen freigeben.** Dieses Dokument beschreibt den Weg und was Lotse dabei erzwingt.

@@ -36,7 +36,7 @@ export function recordEvent(events: ChatEvent[], ev: ChatEvent) {
  * meldet nur seinen Listener ab; die Runde läuft weiter (Abbruch nur über stopChat). Ereignisse gehen an alle Listener.
  * Liefert false, wenn in diesem Chat schon eine Runde läuft.
  */
-export function startChat({ chatId, message, target, onboarding }: ChatRequest): { started: boolean; done: Promise<void> } {
+export function startChat({ chatId, message, target, onboarding, locale }: ChatRequest): { started: boolean; done: Promise<void> } {
   const s = getSession(chatId);
   if (s.running) return { started: false, done: Promise.resolve() };
   const emit = (ev: ChatEvent) => {
@@ -46,6 +46,7 @@ export function startChat({ chatId, message, target, onboarding }: ChatRequest):
   };
   s.emit = emit;
   s.running = true;
+  if (locale) s.locale = locale;
   const ac = new AbortController();
   s.abort = ac;
   if (target && !onboarding) s.target = target;
@@ -83,7 +84,7 @@ async function runClaude(s: Session, prompt: string, ac: AbortController, emit: 
     const q = query({
       prompt,
       options: {
-        systemPrompt: buildSystem(s.platform),
+        systemPrompt: buildSystem(s.platform, s.locale),
         model: getSettings().ai.model || undefined,
         env: aiEnv(), // KI-Prozess ohne SHOPWARE_*/OPENAI_*-Zugangsdaten
         resume: s.sdkSessionId ?? undefined,
