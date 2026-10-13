@@ -376,3 +376,62 @@ test('undoOps: ohne gespeicherten Nachher-Wert wie bisher; mit Nachher-Wert nur,
   assert.equal(back[0].ok, true);
   assert.equal(fresh.db.product[0].name, 'Alt');
 });
+
+test('Layout-Bereichswahl: Bereich wird in feste IDs aufgelöst, große Mengen als Zusammenfassung, atomar und rückgängig', async () => {
+  const { resolvePublishScope } = await import('../../src/server/platform/shopware/pages');
+  const { buildPublishChangeSet, applyChangeSet, undoOps } = await import('../../src/server/changes');
+  const products: Record<string, unknown>[] = Array.from({ length: 30 }, (_, i) => ({ id: `p${i}`, name: `P${i}`, parentId: null, cmsPageId: i < 4 ? 'alt' : null, categoriesRo: [{ id: i % 2 ? 'outdoor' : 'wohnen' }] }));
+  products.push({ id: 'v1', name: 'Variante', parentId: 'p0', cmsPageId: null, categoriesRo: [{ id: 'outdoor' }] });
+  const cats = [{ id: 'root', name: 'Home', type: 'page', parentId: null }, { id: 'outdoor', name: 'Outdoor', type: 'page', parentId: 'root' }, { id: 'wohnen', name: 'Wohnen', type: 'page', parentId: 'root' }, { id: 'lnk', name: 'Link', type: 'link', parentId: 'root' }];
+  const f = fakeShopware({ product: products, category: cats, 'cms-page': [{ id: 'alt', name: 'Altes Layout' }], 'sales-channel': [{ id: 'sc', domains: [{ url: 'https://shop.test' }] }] });
+  const base = f.sw.search.bind(f.sw);
+  f.sw.search = (async (entity: string, c: { ids?: string[]; filter?: Record<string, unknown>[]; limit?: number; page?: number }) => {
+    if (c.ids) return base(entity, c as never);
+    let rows = f.db[entity] ?? [];
+    for (const fl of c.filter ?? []) {
+      if (fl.type === 'not') rows = rows.filter(r => r.parentId !== null);
+      else if (fl.field === 'categoriesRo.id') rows = rows.filter(r => (r.categoriesRo as { id: string }[]).some(x => x.id === fl.value));
+      else rows = rows.filter(r => r[fl.field as string] === fl.value);
+    }
+    const lim = c.limit ?? 500, pg = c.page ?? 1;
+    return { data: rows.slice((pg - 1) * lim, pg * lim), total: rows.length };
+  }) as typeof f.sw.search;
+  const PDP = { ...SPEC, type: 'product_detail' } as PageSpec;
+
+  const inCat = await resolvePublishScope(f.sw, { target: 'product', productsInCategoryId: 'outdoor' });
+  assert.equal(inCat.productIds!.length, 15, 'ohne Varianten');
+  assert.match(inCat.scopeLabel!, /Kategorie „Outdoor“.*: 15/);
+  const all = await resolvePublishScope(f.sw, { target: 'product', allProducts: true });
+  assert.equal(all.productIds!.length, 30);
+  const allCats = await resolvePublishScope(f.sw, { target: 'category', allCategories: true });
+  assert.deepEqual(allCats.categoryIds!.sort(), ['outdoor', 'wohnen'], 'nur Seiten-Kategorien ohne Wurzel');
+  await assert.rejects(resolvePublishScope(f.sw, { target: 'product', allProducts: true, productIds: ['p1'] }), /mehrdeutig/);
+  await assert.rejects(resolvePublishScope(f.sw, { target: 'product', productsInCategoryId: 'weg' }), /Kategorie weg nicht gefunden/);
+
+  const cs = await buildPublishChangeSet(f.sw, PDP, all);
+  const labels = cs.items.map(i => i.label);
+  assert.ok(labels.includes('30 Produkte') && cs.items.length < 15, 'Zusammenfassung statt 30 Zeilen');
+  assert.match(cs.items.find(i => i.label === '30 Produkte')!.before, /4 mit eigenem Layout \(wird ersetzt\), 26 ohne/);
+  assert.ok(cs.items.some(i => i.label === 'Geltungsbereich' && /Alle Produkte: 30/.test(i.after)));
+
+  await assert.rejects(buildPublishChangeSet(f.sw, SPEC, { ...allCats, metaTitle: 'T' }), /nur für eine einzelne Kategorie/);
+
+  const r = await applyChangeSet(f.sw, pageCs(['i0']), { spec: PDP, args: all }, new Set(['i0']));
+  assert.ok(r.results[0].ok, r.error);
+  const pageId = r.published!.cmsPageId;
+  assert.ok(f.db.product.filter(p => p.parentId === null).every(p => p.cmsPageId === pageId));
+  assert.equal(f.db.product.find(p => p.id === 'v1')!.cmsPageId, null, 'Variante bleibt unberührt');
+  assert.equal(r.undo.length, 31, 'Layout + 30 Zuweisungen');
+  await undoOps(f.sw, r.undo);
+  assert.equal(f.db.product.filter(p => p.cmsPageId === 'alt').length, 4);
+  assert.equal(f.db['cms-page'].filter(p => p.id === pageId).length, 0);
+
+  // mehrere Kategorien ohne Meta: beide bekommen das Layout; ein fehlendes Ziel nimmt alles zurück
+  const c2 = await applyChangeSet(f.sw, pageCs(['i0']), { spec: SPEC, args: allCats }, new Set(['i0']));
+  assert.ok(c2.results[0].ok, c2.error);
+  assert.deepEqual(f.db.category.filter(c => c.cmsPageId).map(c => c.id).sort(), ['outdoor', 'wohnen']);
+  await undoOps(f.sw, c2.undo);
+  const bad = await applyChangeSet(f.sw, pageCs(['i0']), { spec: SPEC, args: { target: 'category', categoryIds: ['outdoor', 'weg'] } }, new Set(['i0']));
+  assert.match(bad.error!, /Kategorie weg nicht mehr vorhanden/);
+  assert.equal(f.db.category.filter(c => c.cmsPageId).length, 0, 'nichts geändert');
+});

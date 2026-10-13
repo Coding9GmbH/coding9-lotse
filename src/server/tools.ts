@@ -22,7 +22,7 @@ const imageEvent = (m: StagedResult) => ({ t: 'image' as const, ...m, alt: m.alt
 // Verbindet Session-State (Lese-Client der Plattform, Draft, UI-Events) mit den Agent-Tools – anbieterneutral (Claude: In-Process-MCP, Codex: MCP über HTTP).
 // Kern-Werkzeuge hier; plattformspezifische im Adapter (platform/<kind>/), Fachbereiche in features/ (Feature.platforms).
 /** Version des Vorschau-Renderers (Produktboxen, Muster …) – erhöhen, wenn sich das Aussehen ändert. */
-export const PREVIEW_VERSION = 5;
+export const PREVIEW_VERSION = 6;
 
 /** Zeichnet die Vorschau des letzten Entwurfs eines Chats mit dem aktuellen Renderer neu (einmal je Version). */
 export async function refreshDraftPreview(session: Session): Promise<boolean> {

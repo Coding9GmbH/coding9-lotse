@@ -1,6 +1,7 @@
 import 'server-only';
 // Vereinfachte Page-Spec (für die KI) → Shopware cms_page Payload + HTML-Vorschau
 import { FRAME_CSS, FRAME_SCRIPT } from '@/lib/preview-frame';
+import { injectIntoHead, spliceSections } from './real-page';
 import { newId } from './shopware';
 import { cssVars } from './styleguide';
 
@@ -248,7 +249,13 @@ export async function compile(spec: PageSpec, resolveMedia: (im: ImageObj) => Pr
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c as '&' | '<' | '>' | '"']));
 
 export interface PreviewProduct { id?: string; name?: string; price?: string | null; img?: string; description?: string; faqHtml?: string; [k: string]: unknown }
-export interface PreviewCtx { imageUrl?: (im: ImageRef) => string | null | undefined; products?: Record<string, PreviewProduct>; product?: PreviewProduct; themeCss?: string | null }
+export interface PreviewCtx {
+  imageUrl?: (im: ImageRef) => string | null | undefined; products?: Record<string, PreviewProduct>; product?: PreviewProduct; themeCss?: string | null;
+  /** HTML der echten Zielseite (Skripte entfernt, URLs auf /shop umgeschrieben): der Entwurf ersetzt darin den CMS-Inhalt */
+  realPage?: string;
+  /** echte dynamische Blöcke (Kaufbox, Produktliste …) dieser Seite je Blocktyp des Entwurfs */
+  realBlocks?: Record<string, string>;
+}
 
 export function renderPreview(spec: Partial<PageSpec>, ctx: PreviewCtx = {}): string {
   const imgSrc = (im: ImageRef | undefined) => (im ? ctx.imageUrl?.(im) ?? (typeof im === 'string' ? im : im.url) : null);
@@ -279,7 +286,10 @@ export function renderPreview(spec: Partial<PageSpec>, ctx: PreviewCtx = {}): st
     'pdp-gallery-buybox': () => `<div class="cols c2">${prod?.img ? `<img src="${esc(prod.img)}" style="width:100%">` : '<div class="ph" style="min-height:300px">Galerie</div>'}<div class="buy"><div class="price">${esc(prod?.price ?? '€ …')}</div><button>In den Warenkorb</button><small>Kaufbox (dynamisch)</small></div></div>`,
     'pdp-description-reviews': () => `<div class="tabs"><b>Beschreibung</b> · Bewertungen</div><div class="t">${prod?.description ?? '<i>Produktbeschreibung (dynamisch)</i>'}</div>`,
     'pdp-faq': () => prod?.faqHtml ?? '<div class="ph" style="min-height:110px">FAQ: wird je Produkt aus dem Zusatzfeld geladen</div>',
-    'pdp-cross-selling': () => `<div class="ph">Cross-Selling (dynamisch)</div>`,
+    'pdp-cross-selling': () => {
+      const others = Object.values(ctx.products ?? {}).filter(p => p.id !== prod?.id).slice(0, 4);
+      return others.length ? `<h3>Das könnte dir auch gefallen</h3><div class="slider">${others.map(card).join('')}</div>` : `<div class="ph">Cross-Selling (dynamisch)</div>`;
+    },
     // Theme-Inhalt (HTML-Plattformen): Produktliste der Kollektion bzw. Produktbereich mit echten Daten, so weit vorhanden
     'theme-main': () => spec.type === 'product_detail'
       ? `<div class="theme-main"><div class="cols c2">${prod?.img ? `<img src="${esc(prod.img)}" style="width:100%">` : '<div class="ph" style="min-height:300px">Galerie (Theme)</div>'}<div class="buy"><h1>${esc(prod?.name ?? 'Produktname')}</h1><div class="price">${esc(prod?.price ?? '€ …')}</div><button>In den Warenkorb</button><small>Produktbereich des Themes</small></div></div>${prod?.description ? `<div class="t">${prod.description}</div>` : ''}</div>`
@@ -301,7 +311,7 @@ export function renderPreview(spec: Partial<PageSpec>, ctx: PreviewCtx = {}): st
     },
   };
 
-  const shop = !!ctx.themeCss; // echtes Theme-CSS des Shops + Shopware-Markup → Vorschau sieht aus wie der Shop
+  const shop = !!ctx.themeCss || !!ctx.realPage; // echtes Theme-CSS des Shops + Shopware-Markup → Vorschau sieht aus wie der Shop
   const sections = (spec.sections ?? []).filter(Boolean);
   const blocksOf = (sec: SectionSpec) => (sec.blocks ?? []).filter(b => b && b.type);
   const inner = (b: BlockSpec) => {
@@ -309,13 +319,18 @@ export function renderPreview(spec: Partial<PageSpec>, ctx: PreviewCtx = {}): st
     if (shop) h = h.replace(/class="t( |")/g, 'class="t cms-element-text$1');
     return `<div class="blk" data-type="${esc(b.type === 'reuse' ? `reuse: ${b.cmsType ?? '?'}` : b.type)}">${h}</div>`;
   };
+  // Echter Block der Zielseite (Kaufbox, Produktliste …) statt Platzhalter, wenn die Seite ihn hat
+  const block = (b: BlockSpec, j: number) => ctx.realBlocks && b.type in ctx.realBlocks
+    ? `<div class="blk" data-type="${esc(b.type)}"${ctx.realBlocks[b.type] ? '' : ' hidden'}>${ctx.realBlocks[b.type]}</div>`
+    : `<div class="cms-block pos-${j} cms-block-${esc(b.type)} position-relative"><div class="cms-block-container" style="padding:20px">${inner(b)}</div></div>`;
+  const sectionsHtml = shop ? sections.map((sec, i) => `<div class="cms-section pos-${i} cms-section-default"><section class="cms-section-default boxed">${blocksOf(sec).map(block).join('')}</section></div>`).join('') : '';
   const body = shop
-    ? `<main class="content-main"><div class="container-main"><div class="cms-page"><div class="cms-sections">${sections.map((sec, i) => `<div class="cms-section pos-${i} cms-section-default"><section class="cms-section-default boxed">${blocksOf(sec).map((b, j) => `<div class="cms-block pos-${j} cms-block-${esc(b.type)} position-relative"><div class="cms-block-container" style="padding:20px">${inner(b)}</div></div>`).join('')}</section></div>`).join('')}</div></div></div></main>`
+    ? `<main class="content-main"><div class="container-main"><div class="cms-page"><div class="cms-sections">${sectionsHtml}</div></div></div></main>`
     : sections.map(sec => `<section class="${sec.type === 'sidebar' ? 'sb' : ''}">${blocksOf(sec).map(inner).join('')}</section>`).join('');
 
   const base = shop ? '' : `body{font:16px/1.6 var(--sg-font-body,system-ui),system-ui,sans-serif;color:var(--sg-text,#1c2b36);margin:0;padding:16px;background:var(--sg-background,#fff)}
   section{max-width:1100px;margin:0 auto}.blk{margin:20px 0;position:relative}.t h2,h1,h3{font-family:var(--sg-font-heading,inherit)}`;
-  return `<!doctype html><meta charset="utf-8">${shop ? `<link rel="stylesheet" href="${esc(ctx.themeCss)}">` : ''}<style>
+  const css = `
   :root{${cssVars()}}
   ${base}.blk{position:relative}
   .blk:hover::before{content:attr(data-type);position:absolute;top:-10px;right:0;font:10px monospace;background:var(--sg-primary,#189eff);color:#fff;padding:1px 6px;border-radius:3px;z-index:2}
@@ -332,5 +347,11 @@ export function renderPreview(spec: Partial<PageSpec>, ctx: PreviewCtx = {}): st
   html{scroll-behavior:auto!important}
   .pv-new{animation:pvin .5s ease-out}@keyframes pvin{from{opacity:0;transform:translateY(8px)}}
   @media(max-width:700px){.c2,.c3{grid-template-columns:1fr}}
-  ${FRAME_CSS}</style><script>${FRAME_SCRIPT}</script><body${shop ? ' class="is-ctl-navigation is-act-index"' : ''}>${body}`;
+  ${FRAME_CSS}`;
+  // Entwurf auf der echten Seite: Kopf, Fuß, Theme und dynamische Blöcke bleiben, nur der CMS-Inhalt wird ersetzt
+  if (shop && ctx.realPage) {
+    const merged = spliceSections(ctx.realPage, sectionsHtml);
+    if (merged) return injectIntoHead(merged, `<meta charset="utf-8"><style>${css}</style><script>${FRAME_SCRIPT}</script>`);
+  }
+  return `<!doctype html><meta charset="utf-8">${ctx.themeCss ? `<link rel="stylesheet" href="${esc(ctx.themeCss)}">` : ''}<style>${css}</style><script>${FRAME_SCRIPT}</script><body${shop ? ' class="is-ctl-navigation is-act-index"' : ''}>${body}`;
 }

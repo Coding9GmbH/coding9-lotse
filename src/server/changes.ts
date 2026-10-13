@@ -244,7 +244,13 @@ async function createProduct(swW: Shopware, p: NewProductPayload): Promise<UndoO
 }
 
 // ---- Veröffentlichung einer Seite als Änderungsset ----
-export interface PublishArgs { target: 'category' | 'product' | 'landingpage'; categoryId?: string; productIds?: string[]; url?: string; salesChannelId?: string; metaTitle?: string; metaDescription?: string }
+/** Geltungsbereich bei Layouts für mehrere Seiten: Shopware löst ihn beim Vorschlag in feste IDs (categoryIds/productIds) auf, damit die Freigabe genau das schreibt, was gezeigt wurde. */
+export interface PublishScopeArgs { categoryIds?: string[]; allCategories?: boolean; productsInCategoryId?: string; allProducts?: boolean; scopeLabel?: string }
+export interface PublishArgs extends PublishScopeArgs { target: 'category' | 'product' | 'landingpage'; categoryId?: string; productIds?: string[]; url?: string; salesChannelId?: string; metaTitle?: string; metaDescription?: string }
+/** Ziele einer Veröffentlichung (Kategorien bzw. Produkte) in fester Reihenfolge */
+export const publishCategoryIds = (a: PublishArgs) => (a.categoryIds?.length ? a.categoryIds : a.categoryId ? [a.categoryId] : []);
+/** Ab so vielen Zielen zeigt die Übersicht eine Zusammenfassung mit Stichprobe statt einer Zeile je Seite */
+const BULK_ROWS = 15, BULK_SAMPLE = 8;
 export interface PublishPayload { spec: PageSpec; args: PublishArgs }
 /** Landingpage-Pfad: Kleinbuchstaben, Ziffern, - _ und /, ohne Leerzeichen, Query oder Fragment (Shopware prüft die URL nicht) */
 export function landingSlug(url: unknown): string {
@@ -264,16 +270,34 @@ export async function buildPublishChangeSet(ro: ShopReader, spec: PageSpec, a: P
   const info = (label: string, fieldLabel: string, before: string, after: string) => items.push({ id: `i${items.length}`, entity: 'info', label, fieldLabel, before, after, warn: [] });
   info('Neues CMS-Layout', 'Anlegen', '–', `${spec.name} · ${spec.type} · ${blocks} Blöcke`);
   const layoutName = async (id: string | null | undefined) => (id ? (await ro.get('cms-page', id))?.name ?? id : 'kein eigenes Layout');
+  const layoutNames = new Map<string, string>();
+  const layoutOf = async (id: string | null | undefined) => { if (!id) return 'kein eigenes Layout'; if (!layoutNames.has(id)) layoutNames.set(id, await layoutName(id)); return layoutNames.get(id)!; };
+  /** Eine Zeile je Ziel; bei vielen Zielen eine Zusammenfassung (wie viele ersetzen ein eigenes Layout) plus Stichprobe */
+  const rows = async (noun: string, nounPl: string, list: { name: string; cmsPageId?: string | null }[]) => {
+    if (list.length <= BULK_ROWS) { for (const t of list) info(`${noun} „${t.name}“`, 'Layout', await layoutOf(t.cmsPageId), spec.name); return; }
+    const own = list.filter(t => t.cmsPageId).length;
+    info(`${list.length} ${nounPl}`, 'Layout', `${own} mit eigenem Layout (wird ersetzt), ${list.length - own} ohne`, spec.name);
+    if (a.scopeLabel) info('Geltungsbereich', 'Auswahl', '–', a.scopeLabel);
+    for (const t of list.slice(0, BULK_SAMPLE)) info(`${noun} „${t.name}“`, 'Layout', await layoutOf(t.cmsPageId), spec.name);
+    info('Weitere', 'Layout', '–', `… und ${list.length - BULK_SAMPLE} weitere ${nounPl} mit demselben Layout`);
+  };
+  const fetchAll = async (entity: string, ids: string[]) => { const out: SwEntity[] = []; for (let i = 0; i < ids.length; i += 100) out.push(...(await ro.search(entity, { ids: ids.slice(i, i + 100), limit: 100 })).data); return out; };
   if (a.target === 'category') {
-    const c = await ro.get('category', a.categoryId!); if (!c) throw new Error(`Kategorie ${a.categoryId} nicht gefunden`);
-    const name = c.translated?.name ?? c.name;
-    info(`Kategorie „${name}“`, 'Layout', await layoutName(c.cmsPageId), spec.name);
-    if (a.metaTitle ?? spec.seo?.metaTitle) info(`Kategorie „${name}“`, 'Meta-Title', cut(c.translated?.metaTitle), cut(a.metaTitle ?? spec.seo?.metaTitle));
-    if (a.metaDescription ?? spec.seo?.metaDescription) info(`Kategorie „${name}“`, 'Meta-Description', cut(c.translated?.metaDescription), cut(a.metaDescription ?? spec.seo?.metaDescription));
+    const ids = publishCategoryIds(a);
+    if (ids.length > 1 && (a.metaTitle ?? spec.seo?.metaTitle ?? a.metaDescription ?? spec.seo?.metaDescription)) throw new Error('Meta-Title/-Description gelten nur für eine einzelne Kategorie. Bei mehreren Kategorien weglassen (danach je Kategorie mit propose_category_changes).');
+    const cats = await fetchAll('category', ids), missing = ids.filter(id => !cats.some(c => c.id === id));
+    if (missing.length) throw new Error(missing.length === 1 ? `Kategorie ${missing[0]} nicht gefunden` : `Kategorien nicht gefunden: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ' …' : ''}`);
+    const nameOf = (c: SwEntity) => c.translated?.name ?? c.name;
+    await rows('Kategorie', 'Kategorien', cats.map(c => ({ name: nameOf(c), cmsPageId: c.cmsPageId })));
+    if (cats.length === 1) {
+      const c = cats[0], name = nameOf(c);
+      if (a.metaTitle ?? spec.seo?.metaTitle) info(`Kategorie „${name}“`, 'Meta-Title', cut(c.translated?.metaTitle), cut(a.metaTitle ?? spec.seo?.metaTitle));
+      if (a.metaDescription ?? spec.seo?.metaDescription) info(`Kategorie „${name}“`, 'Meta-Description', cut(c.translated?.metaDescription), cut(a.metaDescription ?? spec.seo?.metaDescription));
+    }
   } else if (a.target === 'product') {
-    const ps = (await ro.search('product', { ids: a.productIds, limit: a.productIds!.length })).data, missing = a.productIds!.filter(id => !ps.some(p => p.id === id));
-    if (missing.length) throw new Error(`Produkt nicht gefunden: ${missing.join(', ')}`);
-    for (const p of ps) info(`Produkt „${p.translated?.name ?? p.name}“`, 'Layout', await layoutName(p.cmsPageId), spec.name);
+    const ps = await fetchAll('product', a.productIds!), missing = a.productIds!.filter(id => !ps.some(p => p.id === id));
+    if (missing.length) throw new Error(`Produkt nicht gefunden: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ' …' : ''}`);
+    await rows('Produkt', 'Produkte', ps.map(p => ({ name: p.translated?.name ?? p.name, cmsPageId: p.cmsPageId })));
   } else {
     const slug = landingSlug(a.url), sc = (await ro.salesChannels()).find(s => s.id === a.salesChannelId);
     if (!sc) throw new Error(`Verkaufskanal ${a.salesChannelId} nicht gefunden (list_sales_channels)`);
@@ -351,18 +375,31 @@ async function applyPublish(swW: Shopware, cs: ChangeSet, payload: PublishPayloa
     const sc = await swW.salesChannels(), domain = (a.salesChannelId ? sc.find(s => s.id === a.salesChannelId) : sc.find(s => s.domains?.length))?.domains?.[0]?.url ?? swW.base;
     const out: PublishedInfo = { cmsPageId: page.id, adminUrl: `${swW.base}/admin#/sw/cms/detail/${page.id}`, name: spec.name };
     const mt = a.metaTitle ?? spec.seo?.metaTitle, md = a.metaDescription ?? spec.seo?.metaDescription;
+    // Mehrere Ziele schonend parallel; beim ersten Fehler startet kein weiteres, dann wird alles zurückgenommen (atomar)
+    const eachAtomic = async <T,>(list: T[], fn: (x: T) => Promise<void>) => {
+      let i = 0, failed: { e: unknown } | null = null;
+      await Promise.all(Array.from({ length: Math.min(WRITE_CONCURRENCY, list.length) }, async () => {
+        while (!failed && i < list.length) { const x = list[i++]; try { await fn(x); } catch (e) { failed = { e }; } }
+      }));
+      if (failed) throw (failed as { e: unknown }).e;
+    };
     if (a.target === 'category') {
-      const categoryId = a.categoryId!, cur = await swW.get('category', categoryId);
-      if (!cur) throw new Error('Kategorie nicht mehr vorhanden');
-      await swW.update('category', categoryId, { cmsPageId: page.id, ...(mt ? { metaTitle: mt } : {}), ...(md ? { metaDescription: md } : {}) });
-      undo.push({ op: 'patch', entity: 'category', id: categoryId, data: { cmsPageId: cur.cmsPageId ?? null, ...(mt ? { metaTitle: cur.metaTitle ?? null } : {}), ...(md ? { metaDescription: cur.metaDescription ?? null } : {}) } });
-      out.storefront = `${domain}/navigation/${categoryId}`;
+      const ids = publishCategoryIds(a), single = ids.length === 1;
+      await eachAtomic(ids, async categoryId => {
+        const cur = await swW.get('category', categoryId);
+        if (!cur) throw new Error(single ? 'Kategorie nicht mehr vorhanden' : `Kategorie ${categoryId} nicht mehr vorhanden`);
+        const withMeta = single;
+        await swW.update('category', categoryId, { cmsPageId: page.id, ...(withMeta && mt ? { metaTitle: mt } : {}), ...(withMeta && md ? { metaDescription: md } : {}) });
+        undo.push({ op: 'patch', entity: 'category', id: categoryId, data: { cmsPageId: cur.cmsPageId ?? null, ...(withMeta && mt ? { metaTitle: cur.metaTitle ?? null } : {}), ...(withMeta && md ? { metaDescription: cur.metaDescription ?? null } : {}) } });
+      });
+      const links = ids.slice(0, 10).map(id => `${domain}/navigation/${id}`);
+      out.storefront = single ? links[0] : links;
     } else if (a.target === 'product') {
-      for (const id of a.productIds!) {
+      await eachAtomic(a.productIds!, async id => {
         const cur = await swW.get('product', id); if (!cur) throw new Error(`Produkt ${id} nicht mehr vorhanden`);
         await swW.update('product', id, { cmsPageId: page.id }); undo.push({ op: 'patch', entity: 'product', id, data: { cmsPageId: cur.cmsPageId ?? null } });
-      }
-      out.storefront = a.productIds!.map(id => `${domain}/detail/${id}`);
+      });
+      out.storefront = a.productIds!.slice(0, 10).map(id => `${domain}/detail/${id}`);
     } else {
       const slug = landingSlug(a.url), lpId = newId();
       await swW.create('landing-page', { id: lpId, name: spec.name, active: true, url: slug, cmsPageId: page.id, salesChannels: [{ id: a.salesChannelId }], metaTitle: mt ?? spec.name, metaDescription: md ?? '' });

@@ -202,3 +202,38 @@ test('shopwareLookup: erst IDs, dann Nummern; ohne Angaben kein Abruf; asLookup 
   assert.equal(asLookup(lookup), lookup);
   assert.equal(typeof asLookup(fake).mapUrls, 'function');
 });
+
+test('Vorschau: ohne Beispielprodukt/-kategorie wird ein echtes aktives Produkt mit Titelbild gewählt; genannte Werte bleiben', async () => {
+  const { withPreviewDefaults } = await import('../../../../src/server/platform/shopware/pages');
+  const calls: Record<string, unknown>[] = [];
+  const sw = { search: async (_e: string, c: Record<string, unknown>) => { calls.push(c); return { data: [{ id: 'p-real', categoryIds: ['c-real'] }] }; } } as never;
+  const pdp = { name: 'x', type: 'product_detail', sections: [] } as never;
+  assert.equal((await withPreviewDefaults(sw, pdp)).previewProductId, 'p-real');
+  const f = JSON.stringify(calls[0].filter);
+  assert.match(f, /"active"/); assert.match(f, /"coverId"/); assert.match(f, /"parentId"/);
+  const list = await withPreviewDefaults(sw, { name: 'x', type: 'product_list', sections: [] } as never);
+  assert.equal(list.previewCategoryId, 'c-real'); assert.equal(list.previewProductId, undefined);
+  const given = { name: 'x', type: 'product_detail', previewProductId: 'mine', sections: [] } as never;
+  assert.equal(await withPreviewDefaults(sw, given), given, 'genanntes Produkt bleibt');
+  assert.equal((await withPreviewDefaults(sw, { name: 'x', type: 'landingpage', sections: [] } as never)).previewProductId, undefined);
+  const broken = { search: async () => { throw new Error('Shop weg'); } } as never;
+  assert.equal((await withPreviewDefaults(broken, pdp)).previewProductId, undefined, 'Fehler → Platzhalter statt Abbruch');
+});
+
+test('Neutrale Produktzeilen (Shopware): Standardwährung, Texte aus translated, Bestand, Titelbild; Deckel und Seiten', async () => {
+  const { toNeutral, scanNeutral } = await import('../../../../src/server/platform/shopware/scan');
+  const { DEFAULT_CURRENCY } = await import('../../../../src/server/changes');
+  const n = toNeutral({ id: 'p1', productNumber: 'A-1', name: 'Roh', translated: { name: 'Vase', description: '<p>Text</p>', metaTitle: ' T ' }, stock: 4, coverId: 'm1',
+    price: [{ currencyId: 'fremd', gross: 1 }, { currencyId: DEFAULT_CURRENCY, gross: 19.9, listPrice: { gross: 25 } }] } as never);
+  assert.deepEqual(n, { id: 'p1', name: 'Vase', label: 'Vase (A-1)', description: '<p>Text</p>', metaTitle: 'T', metaDescription: '', price: 19.9, listPrice: 25, stock: 4, hasImage: true });
+  const pages: number[] = [];
+  const sw = { search: async (_e: string, c: { page?: number; limit?: number }) => {
+    pages.push(c.page ?? 1);
+    const data = c.page === 1 ? Array.from({ length: 250 }, (_, i) => ({ id: `a${i}`, productNumber: `N${i}`, name: `P${i}`, stock: 1, coverId: null })) : [{ id: 'z', productNumber: 'Z', name: 'Z', stock: 0, coverId: null }];
+    return { data, total: 251 };
+  } } as never;
+  const s = await scanNeutral(sw);
+  assert.equal(s.rows.length, 251); assert.equal(s.total, 251); assert.equal(s.capped, false); assert.deepEqual(pages, [1, 2]);
+  assert.equal(await scanNeutral(sw), s, 'je Lese-Client einmal');
+  assert.equal(s.rows[0].hasImage, false);
+});
