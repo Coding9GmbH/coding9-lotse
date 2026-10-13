@@ -101,6 +101,10 @@ Ein Tag `vX.Y.Z` veröffentlicht das Image automatisch (`.github/workflows/docke
 
 Gebaut wird für amd64 und arm64, mit SBOM und Provenance. `latest` gibt es erst nach dem ersten Release-Tag; vorher bleibt nur der Bau aus dem Quellcode (siehe unten). Neue GHCR-Pakete sind zunächst privat und müssen einmalig in den Paket-Einstellungen auf *Public* gestellt werden.
 
+## Dokumentation
+
+Die ausführliche Dokumentation liegt unter [`docs/`](docs/README.md): [Benutzerhandbuch](docs/benutzerhandbuch.md) (wie alles funktioniert), [Selbst hosten](docs/self-hosting.md), [Architektur](docs/architektur.md) und [Plattform-Schicht](docs/platform.md).
+
 ## Konzept: AI-first Verwaltung
 Chat statt Formulare. Du schreibst, was passieren soll („Ändere das Layout von Produkt XY“, „Senke alle Preise um 20 %“, „FAQ bei allen Produkten“). Der Agent **versteht → fragt gezielt zurück** (klickbare Antworten) **→ recherchiert (nur lesen) → zeigt Vorschau bzw. Alt→Neu-Vergleich → du gibst frei → der Server schreibt** (Audit-Log, Rückgängig).
 
