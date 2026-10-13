@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
-import { KNOWLEDGE_LEAD, RULE_MAX, RULE_SCOPES, type KnowledgeDoc, type KnowledgeLink, type KnowledgeRule, type RuleScope } from '@/lib/knowledge';
+import { KNOWLEDGE_LEAD, type KnowledgeDoc, type KnowledgeLink, type KnowledgeRule } from '@/lib/knowledge';
 import type { ProductRow } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
 import { IconClose, IconEdit, IconSearch, IconTrash, IconUpload } from '@/components/ui/icons';
+import { RulesEditor } from './RulesEditor';
 import styles from './Knowledge.module.css';
 
 const ACCEPT = '.pdf,.docx,.xlsx,.csv,.tsv,.txt,.md,.json';
@@ -15,7 +16,6 @@ const fmtSize = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 const typeOf = (d: KnowledgeDoc) => (d.fileName?.match(/\.([a-z0-9]+)$/i)?.[1] ?? 'txt').toUpperCase();
 const SOURCE: Record<KnowledgeDoc['source'], string> = { upload: 'hochgeladen', chat: 'aus dem Chat', text: 'Notiz aus dem Chat' };
-const SCOPES = Object.entries(RULE_SCOPES) as [RuleScope, string][];
 
 interface Job { name: string; error?: string }
 
@@ -189,74 +189,11 @@ function ProductPicker({ exclude, onPick, onClose }: { exclude: string[]; onPick
 }
 
 function RulesCard({ rules, setRules }: { rules: KnowledgeRule[]; setRules: React.Dispatch<React.SetStateAction<KnowledgeRule[]>> }) {
-  const [text, setText] = useState('');
-  const [scope, setScope] = useState<RuleScope>('all');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const add = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!text.trim()) return;
-    setBusy(true); setErr(null);
-    try { const r = await kapi.addRule(text, scope); setRules(rs => [...rs, r]); setText(''); } catch (x) { setErr(errorText(x)); } finally { setBusy(false); }
-  };
   return (
     <section className={styles.card} aria-labelledby="k-rules">
       <div className={styles.cardHead}><h2 id="k-rules">Eigene Regeln</h2>{rules.length > 0 && <span className={styles.count}>{rules.length}</span>}</div>
       <p className={styles.hint}>Kurze, feste Vorgaben für alle Texte, z. B. Wortwahl, Ansprache oder Schreibweisen. Sie gelten in jedem Chat zusätzlich zum Styleguide.</p>
-      <form className={styles.ruleForm} onSubmit={add}>
-        <textarea value={text} onChange={e => setText(e.target.value)} maxLength={RULE_MAX} rows={2} placeholder="z. B. Wir sagen nie „günstig“, sondern „fair kalkuliert“." aria-label="Neue Regel" />
-        <div className={styles.ruleBar}>
-          <select value={scope} onChange={e => setScope(e.target.value as RuleScope)} aria-label="Gilt für">{SCOPES.map(([k, v]) => <option key={k} value={k}>Gilt für: {v}</option>)}</select>
-          <small className={styles.muted}>{text.length}/{RULE_MAX}</small>
-          <Button type="submit" variant="primary" busy={busy} disabled={!text.trim()}>Regel hinzufügen</Button>
-        </div>
-        {err && <p className={styles.err}>{err}</p>}
-      </form>
-      {rules.length === 0 ? <p className={styles.empty}>Noch keine Regeln. Du kannst sie auch im Chat festlegen: „Merk dir: wir duzen unsere Kunden“.</p> : (
-        <ul className={styles.rules}>{rules.map(r => <RuleRow key={r.id} rule={r} onSave={n => setRules(rs => rs.map(x => (x.id === n.id ? n : x)))} onDelete={() => setRules(rs => rs.filter(x => x.id !== r.id))} />)}</ul>
-      )}
+      <RulesEditor rules={rules} setRules={setRules} />
     </section>
-  );
-}
-
-function RuleRow({ rule, onSave, onDelete }: { rule: KnowledgeRule; onSave: (r: KnowledgeRule) => void; onDelete: () => void }) {
-  const [mode, setMode] = useState<'view' | 'edit' | 'confirm'>('view');
-  const [text, setText] = useState(rule.text);
-  const [scope, setScope] = useState<RuleScope>(rule.scope);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const run = async (fn: () => Promise<void>) => { setBusy(true); setErr(null); try { await fn(); } catch (e) { setErr(errorText(e)); } finally { setBusy(false); } };
-
-  if (mode === 'edit') return (
-    <li className={styles.rule}>
-      <form className={styles.ruleEdit} onSubmit={e => { e.preventDefault(); run(async () => { onSave(await kapi.saveRule(rule.id, text, scope)); setMode('view'); }); }}>
-        <textarea value={text} onChange={e => setText(e.target.value)} maxLength={RULE_MAX} rows={2} aria-label="Regel" autoFocus />
-        <div className={styles.ruleBar}>
-          <select value={scope} onChange={e => setScope(e.target.value as RuleScope)} aria-label="Gilt für">{SCOPES.map(([k, v]) => <option key={k} value={k}>Gilt für: {v}</option>)}</select>
-          <Button type="submit" size="sm" variant="primary" busy={busy} disabled={!text.trim()}>Speichern</Button>
-          <Button size="sm" variant="ghost" onClick={() => { setText(rule.text); setScope(rule.scope); setMode('view'); }}>Abbrechen</Button>
-        </div>
-        {err && <p className={styles.err}>{err}</p>}
-      </form>
-    </li>
-  );
-  return (
-    <li className={styles.rule}>
-      <span className={`${styles.scope} ${styles['s_' + rule.scope]}`}>{RULE_SCOPES[rule.scope]}</span>
-      <p className={styles.ruleText}>{rule.text}</p>
-      <div className={styles.actions}>
-        {mode === 'confirm' ? (
-          <>
-            <Button size="sm" variant="danger" busy={busy} onClick={() => run(async () => { await kapi.deleteRule(rule.id); onDelete(); })} autoFocus>Löschen</Button>
-            <Button size="sm" variant="ghost" onClick={() => setMode('view')}>Abbrechen</Button>
-          </>
-        ) : (
-          <>
-            <Button size="sm" variant="ghost" onClick={() => setMode('edit')} aria-label="Regel bearbeiten" title="Bearbeiten"><IconEdit size={15} /></Button>
-            <Button size="sm" variant="ghost" onClick={() => setMode('confirm')} aria-label="Regel löschen" title="Löschen"><IconTrash size={15} /></Button>
-          </>
-        )}
-      </div>
-      {err && <p className={styles.err}>{err}</p>}
-    </li>
   );
 }

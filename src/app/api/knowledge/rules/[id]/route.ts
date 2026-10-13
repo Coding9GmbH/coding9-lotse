@@ -5,7 +5,7 @@ import { removeRule, updateRule } from '@/server/knowledge';
 
 export const dynamic = 'force-dynamic';
 
-const schema = z.object({ text: z.string().min(1).max(RULE_MAX).optional(), scope: z.enum(['all', 'products', 'pages', 'seo']).optional() });
+const schema = z.object({ text: z.string().min(1).max(RULE_MAX).optional(), scope: z.enum(['all', 'products', 'pages', 'seo']).optional(), target: z.object({ id: z.string().min(1).max(100), name: z.string().max(200).optional() }).nullable().optional() });
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

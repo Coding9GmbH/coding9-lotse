@@ -1,8 +1,10 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { Styleguide } from '@/lib/protocol';
+import type { KnowledgeRule } from '@/lib/knowledge';
+import { RulesEditor } from '@/components/knowledge/RulesEditor';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import styles from './dialogs.module.css';
@@ -73,8 +75,24 @@ function Body({ sg }: { sg: Styleguide }) {
           <div className={styles.pills}>{(sg.existingBlocks ?? []).map(x => <span key={x}>{x}</span>)}</div>
         </div>
       )}
+      <RulesSection />
       <p className={styles.note}>Alles Weitere änderst du per Chat („Setze die Ansprache auf Du …“). Lotse aktualisiert dann den Styleguide.</p>
     </>
+  );
+}
+
+/** Eigene Regeln (dieselben wie auf der Seite Wissen): feste Vorgaben für Texte, je Bereich oder Kategorie. */
+function RulesSection() {
+  const [rules, setRules] = useState<KnowledgeRule[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { api.knowledge.list().then(r => setRules(r.rules)).catch(e => setErr(errorText(e))); }, []);
+  return (
+    <div className={styles.sec}>
+      <h3>Eigene Regeln{rules?.length ? ` · ${rules.length}` : ''}</h3>
+      <p className={styles.note}>Feste Vorgaben für Texte, z. B. Mindestlänge, Wortwahl oder Besonderheiten einer Kategorie. Sie gelten in jedem Chat zusätzlich zum Styleguide.</p>
+      {err && <p className={styles.err} role="alert">{err}</p>}
+      {rules && <RulesEditor rules={rules} setRules={setRules as React.Dispatch<React.SetStateAction<KnowledgeRule[]>>} />}
+    </div>
   );
 }
 

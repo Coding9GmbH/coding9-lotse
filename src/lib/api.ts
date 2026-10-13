@@ -1,6 +1,6 @@
 // Typisierte fetch-Helfer für die Oberfläche (nur im Browser verwenden).
 import type { FileAttachment } from './attachments';
-import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope } from './knowledge';
+import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget } from './knowledge';
 import type { CodexLoginState, GscPublic, GscTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
   PublicSettings, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome,
@@ -67,8 +67,8 @@ export const api = {
     addDoc: (fileId: string) => request<KnowledgeDoc>('/api/knowledge', json('POST', { fileId })),
     patchDoc: (id: string, patch: { title?: string; links?: KnowledgeLink[] }) => request<KnowledgeDoc>(`/api/knowledge/docs/${encodeURIComponent(id)}`, json('PATCH', patch)),
     deleteDoc: (id: string) => request<unknown>(`/api/knowledge/docs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-    addRule: (text: string, scope: RuleScope) => request<KnowledgeRule>('/api/knowledge/rules', json('POST', { text, scope })),
-    saveRule: (id: string, text: string, scope: RuleScope) => request<KnowledgeRule>(`/api/knowledge/rules/${encodeURIComponent(id)}`, json('PUT', { text, scope })),
+    addRule: (text: string, scope: RuleScope, target: RuleTarget | null = null) => request<KnowledgeRule>('/api/knowledge/rules', json('POST', { text, scope, target })),
+    saveRule: (id: string, text: string, scope: RuleScope, target: RuleTarget | null = null) => request<KnowledgeRule>(`/api/knowledge/rules/${encodeURIComponent(id)}`, json('PUT', { text, scope, target })),
     deleteRule: (id: string) => request<unknown>(`/api/knowledge/rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
 };

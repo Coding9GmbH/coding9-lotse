@@ -101,16 +101,22 @@ export const wissen: Feature = {
         }))),
 
       tool('add_rule', `Speichert eine eigene Schreib-/Inhaltsregel des Shops (z. B. „Wir sagen nie günstig, sondern fair kalkuliert“). Bereiche: ${Object.entries(RULE_SCOPES).map(([k, v]) => `${k} = ${v}`).join(', ')}. Fragt den Nutzer selbst, bevor gespeichert wird. Gilt danach in jedem Chat. Ändert keine bestehenden Texte im Shop.`,
-        { text: z.string().describe('Kurze, eindeutige Regel in einem Satz'), scope: z.enum(['all', 'products', 'pages', 'seo']).optional() },
-        guard(async ({ text, scope }) => {
-          const answer = await session.askUser({ question: `Neue Regel für alle Texte (${RULE_SCOPES[scope ?? 'all']}):\n> ${text}\nSpeichern?`, options: [{ label: 'Ja, speichern' }, { label: 'Nein' }] });
+        { text: z.string().describe('Kurze, eindeutige Regel in einem Satz'), scope: z.enum(['all', 'products', 'pages', 'seo']).optional(), categoryId: z.string().optional().describe('Nur wenn die Regel nur für eine Kategorie (und deren Produkte) gelten soll; ohne = für den ganzen Shop') },
+        guard(async ({ text, scope, categoryId }) => {
+          let target: { id: string; name: string } | null = null;
+          if (categoryId) {
+            const c = (await lookup.findCategories([categoryId]))[0];
+            if (!c) return fail(`Kategorie ${categoryId} nicht gefunden (search_categories)`);
+            target = { id: c.id, name: c.name ?? c.id };
+          }
+          const answer = await session.askUser({ question: `Neue Regel für ${target ? `Kategorie „${target.name}“` : 'alle Texte'} (${RULE_SCOPES[scope ?? 'all']}):\n> ${text}\nSpeichern?`, options: [{ label: 'Ja, speichern' }, { label: 'Nein' }] });
           if (!yes(answer)) return ok({ status: 'nicht gespeichert', antwort: answer });
-          const r = addRule(text, scope ?? 'all');
+          const r = addRule(text, scope ?? 'all', target);
           return ok({ status: 'gespeichert', rule: r, hinweis: 'Gilt ab sofort in allen Chats.' });
         })),
 
       tool('list_rules', 'Listet alle eigenen Regeln des Shops (id, Bereich, Text).', {},
-        guard(async () => ok(listRules().map(r => ({ id: r.id, scope: r.scope, text: r.text }))))),
+        guard(async () => ok(listRules().map(r => ({ id: r.id, scope: r.scope, text: r.text, kategorie: r.target ? `${r.target.name} (${r.target.id})` : undefined }))))),
 
       tool('remove_rule', 'Löscht eine eigene Regel (id aus list_rules). Fragt den Nutzer vorher. Ändert keine Texte im Shop.',
         { id: z.string() },

@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { RULE_MAX, RULE_SCOPES, TITLE_MAX, type KnowledgeDoc, type KnowledgeLink, type KnowledgeRule, type KnowledgeSource, type RuleScope } from '@/lib/knowledge';
+import { RULE_MAX, RULE_SCOPES, TITLE_MAX, type KnowledgeDoc, type KnowledgeLink, type KnowledgeRule, type KnowledgeSource, type RuleScope, type RuleTarget } from '@/lib/knowledge';
 import { dataDir } from './db';
 import { deleteFile, getFile } from './files';
 import { buildIndex, containsLoose, fold, search, type SearchIndex } from './knowledge-search';
@@ -22,6 +22,9 @@ function open(): DatabaseSync {
     CREATE TABLE IF NOT EXISTS chunks (doc_id TEXT NOT NULL, idx INTEGER NOT NULL, page INTEGER, label TEXT, text TEXT NOT NULL, text_fold TEXT, PRIMARY KEY (doc_id, idx));
     CREATE TABLE IF NOT EXISTS rules (id TEXT PRIMARY KEY, text TEXT NOT NULL, scope TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
   `);
+  // Ältere Datenbanken: Kategorie-Bezug der Regeln nachrüsten
+  const ruleCols = d.prepare("SELECT name FROM pragma_table_info('rules')").all() as unknown as { name: string }[];
+  if (!ruleCols.some(c => c.name === 'target')) d.exec('ALTER TABLE rules ADD COLUMN target TEXT');
   // Ältere Datenbanken: gefaltete Textspalte (wörtliche Suche per LIKE statt alle Abschnitte in den Speicher zu laden) nachrüsten
   const cols = d.prepare("SELECT name FROM pragma_table_info('chunks')").all() as unknown as { name: string }[];
   if (!cols.some(c => c.name === 'text_fold')) {
@@ -160,8 +163,14 @@ export function productKnowledge(p: { id: string; number?: string | null; ean?: 
 }
 
 // ---------- Eigene Regeln ----------
-interface RuleRow { id: string; text: string; scope: string; created_at: string; updated_at: string }
-const toRule = (r: RuleRow): KnowledgeRule => ({ id: r.id, text: r.text, scope: r.scope as RuleScope, createdAt: r.created_at, updatedAt: r.updated_at });
+interface RuleRow { id: string; text: string; scope: string; target: string | null; created_at: string; updated_at: string }
+const parseTarget = (raw: string | null): RuleTarget | null => { try { const t = raw ? JSON.parse(raw) : null; return t?.id ? { id: String(t.id), name: String(t.name ?? t.id) } : null; } catch { return null; } };
+const toRule = (r: RuleRow): KnowledgeRule => ({ id: r.id, text: r.text, scope: r.scope as RuleScope, target: parseTarget(r.target), createdAt: r.created_at, updatedAt: r.updated_at });
+const cleanTarget = (t: { id: string; name?: string | null } | null | undefined): RuleTarget | null => {
+  if (!t) return null;
+  const id = String(t.id ?? '').trim().slice(0, 100); if (!id) return null;
+  return { id, name: String(t.name ?? id).replace(/\s+/g, ' ').trim().slice(0, 120) || id };
+};
 const cleanRule = (text: string) => {
   const t = text.replace(/\s+/g, ' ').trim();
   if (!t) throw new Error('Regel ist leer');
@@ -171,16 +180,18 @@ const cleanRule = (text: string) => {
 const checkScope = (s: string): RuleScope => { if (!(s in RULE_SCOPES)) throw new Error(`Unbekannter Bereich „${s}“`); return s as RuleScope; };
 
 export const listRules = (): KnowledgeRule[] => (db().prepare('SELECT * FROM rules ORDER BY created_at').all() as unknown as RuleRow[]).map(toRule);
-export function addRule(text: string, scope: string = 'all'): KnowledgeRule {
-  const t = now(), r: KnowledgeRule = { id: newId('r'), text: cleanRule(text), scope: checkScope(scope), createdAt: t, updatedAt: t };
+export function addRule(text: string, scope: string = 'all', target?: { id: string; name?: string | null } | null): KnowledgeRule {
+  const t = now(), r: KnowledgeRule = { id: newId('r'), text: cleanRule(text), scope: checkScope(scope), target: cleanTarget(target), createdAt: t, updatedAt: t };
   if (listRules().length >= 100) throw new Error('Höchstens 100 Regeln');
-  db().prepare('INSERT INTO rules (id, text, scope, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(r.id, r.text, r.scope, t, t);
+  db().prepare('INSERT INTO rules (id, text, scope, target, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(r.id, r.text, r.scope, r.target ? JSON.stringify(r.target) : null, t, t);
   return r;
 }
-export function updateRule(id: string, patch: { text?: string; scope?: string }): KnowledgeRule {
+/** target: undefined = unverändert, null = Begrenzung aufheben */
+export function updateRule(id: string, patch: { text?: string; scope?: string; target?: { id: string; name?: string | null } | null }): KnowledgeRule {
   const cur = listRules().find(r => r.id === id); if (!cur) throw new Error('Regel nicht gefunden');
   const text = patch.text != null ? cleanRule(patch.text) : cur.text, scope = patch.scope != null ? checkScope(patch.scope) : cur.scope;
-  db().prepare('UPDATE rules SET text = ?, scope = ?, updated_at = ? WHERE id = ?').run(text, scope, now(), id);
+  const target = patch.target === undefined ? cur.target : cleanTarget(patch.target);
+  db().prepare('UPDATE rules SET text = ?, scope = ?, target = ?, updated_at = ? WHERE id = ?').run(text, scope, target ? JSON.stringify(target) : null, now(), id);
   return listRules().find(r => r.id === id)!;
 }
 export const removeRule = (id: string): boolean => Number(db().prepare('DELETE FROM rules WHERE id = ?').run(id).changes) > 0;
@@ -191,10 +202,11 @@ export function rulesPromptBlock(rules: KnowledgeRule[] = listRules(), cap = PRO
   if (!rules.length) return '';
   const lines: string[] = []; let size = 0;
   for (const r of rules) {
-    const line = `- ${r.scope === 'all' ? '' : `[${RULE_SCOPES[r.scope]}] `}${r.text.replace(/\s+/g, ' ')}`;
+    const tags = [r.scope === 'all' ? '' : RULE_SCOPES[r.scope], r.target ? `nur Kategorie „${r.target.name.replace(/[„“\n]/g, ' ')}“ (${r.target.id})` : ''].filter(Boolean);
+    const line = `- ${tags.length ? `[${tags.join(' · ')}] ` : ''}${r.text.replace(/\s+/g, ' ')}`;
     if (lines.length >= cap.count || size + line.length > cap.chars) break;
     lines.push(line); size += line.length + 1;
   }
   const rest = rules.length - lines.length;
-  return `## Eigene Regeln des Shops (VERBINDLICH für alle Texte)\nVom Shop festgelegt; gelten zusätzlich zum Styleguide und gehen bei Widerspruch vor. In Klammern: nur für diesen Bereich.\n${lines.join('\n')}${rest > 0 ? `\n(+${rest} weitere Regeln: mit list_rules lesen, bevor du Texte schreibst)` : ''}`;
+  return `## Eigene Regeln des Shops (VERBINDLICH für alle Texte)\nVom Shop festgelegt; gelten zusätzlich zum Styleguide und gehen bei Widerspruch vor. In Klammern: nur für diesen Bereich. Regeln mit „nur Kategorie“ gelten ausschließlich für diese Kategorie, ihre Unterkategorien und Produkte darin (Zugehörigkeit per categoryIds prüfen); für alles andere ignorieren.\n${lines.join('\n')}${rest > 0 ? `\n(+${rest} weitere Regeln: mit list_rules lesen, bevor du Texte schreibst)` : ''}`;
 }

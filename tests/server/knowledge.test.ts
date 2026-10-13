@@ -155,6 +155,19 @@ test('Wissensbasis: speichern, suchen mit Produktbezug, Produktwissen, löschen'
   assert.throws(() => k.addDocument(k.extractFromText('   '), { title: 'leer' }), /Kein Text/);
 });
 
+test('Regeln: Kategorie-Bezug anlegen, ändern, aufheben und im Prompt kennzeichnen', async () => {
+  const k = await import('../../src/server/knowledge');
+  const r = k.addRule('SEO-Texte haben mindestens 2000 Zeichen.', 'seo', { id: 'cat-1', name: '  Outdoor\n Zelte ' });
+  assert.deepEqual(r.target, { id: 'cat-1', name: 'Outdoor Zelte' });
+  assert.deepEqual(k.listRules().find(x => x.id === r.id)?.target, { id: 'cat-1', name: 'Outdoor Zelte' });
+  assert.match(k.rulesPromptBlock(), /- \[SEO · nur Kategorie „Outdoor Zelte“ \(cat-1\)\] SEO-Texte haben mindestens 2000 Zeichen\./);
+  assert.deepEqual(k.updateRule(r.id, { text: 'Mindestens 1500 Zeichen.' }).target, { id: 'cat-1', name: 'Outdoor Zelte' }, 'target bleibt ohne Angabe');
+  assert.equal(k.updateRule(r.id, { target: null }).target, null, 'null hebt die Begrenzung auf');
+  assert.equal(k.addRule('Ohne Bezug').target, null);
+  assert.ok(k.removeRule(r.id));
+  for (const x of k.listRules()) k.removeRule(x.id);
+});
+
 test('Regeln: anlegen, prüfen, ändern, löschen; Prompt-Block gedeckelt', async () => {
   const k = await import('../../src/server/knowledge');
   const r = k.addRule('  Wir sagen nie   „günstig“, sondern „fair kalkuliert“. ', 'products');
@@ -165,7 +178,7 @@ test('Regeln: anlegen, prüfen, ändern, löschen; Prompt-Block gedeckelt', asyn
   assert.match(k.rulesPromptBlock(), /Eigene Regeln des Shops[\s\S]*- Wir sagen nie/);
   assert.ok(k.removeRule(r.id)); assert.equal(k.rulesPromptBlock(), '');
 
-  const many = Array.from({ length: 60 }, (_, i) => ({ id: `r${i}`, text: `Regel Nummer ${i} `.padEnd(120, '.'), scope: i % 2 ? 'seo' as const : 'all' as const, createdAt: '', updatedAt: '' }));
+  const many = Array.from({ length: 60 }, (_, i) => ({ id: `r${i}`, text: `Regel Nummer ${i} `.padEnd(120, '.'), scope: i % 2 ? 'seo' as const : 'all' as const, target: null, createdAt: '', updatedAt: '' }));
   const block = k.rulesPromptBlock(many);
   const lines = block.split('\n').filter(l => l.startsWith('- '));
   assert.ok(lines.length < 60 && block.length < k.PROMPT_RULES.chars + 400);

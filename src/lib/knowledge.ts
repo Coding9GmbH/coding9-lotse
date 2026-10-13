@@ -10,7 +10,9 @@ export interface KnowledgeDoc {
 
 export type RuleScope = 'all' | 'products' | 'pages' | 'seo';
 export const RULE_SCOPES: Record<RuleScope, string> = { all: 'Überall', products: 'Produkttexte', pages: 'Seiten', seo: 'SEO' };
-export interface KnowledgeRule { id: string; text: string; scope: RuleScope; createdAt: string; updatedAt: string }
+/** Optionale Begrenzung einer Regel auf eine Kategorie (gilt dann für diese Kategorie und deren Produkte/Seiten) */
+export interface RuleTarget { id: string; name: string }
+export interface KnowledgeRule { id: string; text: string; scope: RuleScope; target: RuleTarget | null; createdAt: string; updatedAt: string }
 
 export const RULE_MAX = 300;
 /** Lead der Wissensseite: lokal gespeichert, Auszüge und Regeln gehen an den Modellanbieter. */
