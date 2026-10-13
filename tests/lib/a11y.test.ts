@@ -44,18 +44,24 @@ test('markKeySelects wählt mit Enter oder Leertaste', () => {
 
 test('eingeklappte Navigation trägt denselben Namen wie das Label', () => {
   const nav = read('src/components/shell/SideNav.tsx');
-  for (const label of ['Neuer Chat', 'Arbeitsfläche', 'Wissen']) {
-    assert.match(nav, new RegExp(`aria-label=\\{tip\\('${label}'\\)\\}`));
+  for (const key of ['newChat', 'workspace', 'knowledge']) {
+    assert.match(nav, new RegExp(`aria-label=\\{tip\\(t\\.${key}\\)\\}[^>]*>\\s*<Icon\\w+ size=\\{\\d+\\} /><span className=\\{styles\\.label\\}>\\{t\\.${key}\\}`));
   }
-  assert.match(nav, /aria-label="Neuer Chat mit Kontext/);
-  assert.match(nav, /aria-label=\{tip\(s\.styleguide \? 'Styleguide' : 'Styleguide einrichten'\)\}/);
-  assert.match(nav, /aria-label=\{`Einstellungen\. \$\{st\.shop\.text\}/);
+  assert.match(nav, /aria-label=\{t\.newChatWithContext\}/);
+  assert.match(nav, /aria-label=\{tip\(s\.styleguide \? t\.styleguide : t\.styleguideSetup\)\}/);
+  assert.match(nav, /aria-label=\{t\.settingsLabel\(st\.shop\.text, st\.ai\.text\)\}/);
+  const msgs = read('src/lib/i18n/messages/nav.ts');
+  assert.match(msgs, /newChatWithContext: 'Neuer Chat mit Kontext/);
+  assert.match(msgs, /settingsLabel: \(shop: string, ai: string\) => `Einstellungen\. \$\{shop\}/);
 });
 
 test('Anmerken benennt das Feld und lässt Ziele per Tastatur wählen', () => {
   const pane = read('src/components/preview/PreviewPane.tsx');
-  assert.match(pane, /aria-label="Was soll anders sein\?"/);
-  assert.match(pane, /aria-label="Elemente in der Vorschau"/);
+  assert.match(pane, /aria-label=\{t\.whatDifferent\}/);
+  assert.match(pane, /aria-label=\{t\.targets\}/);
+  const msgs = read('src/lib/i18n/messages/preview.ts');
+  assert.match(msgs, /whatDifferent: 'Was soll anders sein\?'/);
+  assert.match(msgs, /targets: 'Elemente in der Vorschau'/);
   assert.match(pane, /markKeySelects/);
   const frame = read('src/lib/preview-frame.ts');
   assert.match(frame, /keydown/);
@@ -107,15 +113,17 @@ test('Kontrast: Koralle, Zeile, Fehler, Nebenfarbe, Schalter, Links', () => {
 
 test('Nachrichten, fertige Antwort, Fokusfalle und Vergleichsspalten', () => {
   const msg = read('src/components/chat/Message.tsx');
-  assert.match(msg, /visually-hidden">Du</);
+  assert.match(msg, /visually-hidden">\{t\.chat\.message\.you\}</);
+  assert.match(read('src/lib/i18n/messages/chat.ts'), /message: \{ you: 'Du' \}/);
   assert.match(msg, /visually-hidden">Lotse</);
   const log = read('src/components/chat/ChatLog.tsx');
   assert.match(log, /announceAnswer/);
   assert.match(log, /role="status"/);
   assert.doesNotMatch(log, /key=\{item\.text\}/);
   const card = read('src/components/chat/ChangeSetCard.tsx');
-  assert.match(card, /role="region" aria-label="Vorher"/);
-  assert.match(card, /role="region" aria-label="Nachher"/);
+  assert.match(card, /role="region" aria-label=\{t\.before\}/);
+  assert.match(card, /role="region" aria-label=\{t\.after\}/);
+  assert.match(read('src/lib/i18n/messages/chat.ts'), /before: 'Vorher',\n\s*after: 'Nachher'/);
   assert.match(read('src/components/context/ContextPanel.tsx'), /inertExcept/);
   assert.match(read('src/components/shell/AppShell.tsx'), /inertExcept/);
   assert.match(read('src/components/shell/AppShell.tsx'), /focus\(\)/);

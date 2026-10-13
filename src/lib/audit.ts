@@ -1,3 +1,4 @@
+import { DEFAULT_LOCALE, messages, type Locale } from './i18n';
 import type { AuditCheck, DraftAudit } from './protocol';
 
 // Qualitäts-Check: Prüfpunkte vereinheitlichen. Der Server liefert je nach Stand
@@ -6,7 +7,8 @@ import type { AuditCheck, DraftAudit } from './protocol';
 export type AuditArea = 'SEO' | 'CRO' | 'UX' | 'other';
 export interface AuditRow { area: AuditArea; ok: boolean; important: boolean; text: string; hint?: string }
 
-export const AREA_LABEL: Record<AuditArea, string> = { SEO: 'Suchmaschinen', CRO: 'Conversion', UX: 'Design & Lesbarkeit', other: 'Weitere Prüfungen' };
+export const AREA_LABEL: Record<AuditArea, string> = messages(DEFAULT_LOCALE).lib.auditArea;
+export const areaLabel = (area: AuditArea, locale: Locale = DEFAULT_LOCALE): string => messages(locale).lib.auditArea[area];
 
 const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
 const str = (v: unknown) => (typeof v === 'string' ? v : undefined);

@@ -5,12 +5,14 @@ import { api, errorText } from '@/lib/api';
 import type { CheckListItem } from '@/lib/custom-checks';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
+import { useT } from '@/lib/i18n/I18nProvider';
 import styles from './CheckManager.module.css';
 
 interface Props { open: boolean; onClose: () => void; onChanged: () => void; onNew: () => void }
 
 /** Prüfungen des Shop-Checks verwalten: an/aus, eigene löschen. Neue eigene Prüfungen entstehen im Chat. */
 export function CheckManager({ open, onClose, onChanged, onNew }: Props) {
+  const m = useT(), t = m.chat.checks;
   const [list, setList] = useState<CheckListItem[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -23,11 +25,11 @@ export function CheckManager({ open, onClose, onChanged, onNew }: Props) {
   const areas = [...new Set((list ?? []).map(c => c.area))];
   const off = (list ?? []).filter(c => !c.enabled).length;
   return (
-    <Dialog open={open} onClose={onClose} title="Prüfungen" wide
-      footer={<><Button onClick={() => { onClose(); onNew(); }}>Neue Prüfung im Chat anlegen</Button><Button variant="primary" onClick={onClose}>Fertig</Button></>}>
-      <p className={styles.lead}>Schalte Prüfungen aus, die für deinen Shop keine Rolle spielen. Eigene Prüfungen legst du im Chat an, z. B. „Prüfe, ob Produktbeschreibungen kürzer als 2000 Zeichen sind“.{off > 0 && <> {off} {off === 1 ? 'Prüfung ist' : 'Prüfungen sind'} aus.</>}</p>
+    <Dialog open={open} onClose={onClose} title={t.title} wide
+      footer={<><Button onClick={() => { onClose(); onNew(); }}>{t.newInChat}</Button><Button variant="primary" onClick={onClose}>{t.done}</Button></>}>
+      <p className={styles.lead}>{t.lead}{off > 0 && <> {t.offCount(off)}</>}</p>
       {err && <p className={styles.err} role="alert">{err}</p>}
-      {!list && !err && <p className={styles.muted}>Lade …</p>}
+      {!list && !err && <p className={styles.muted}>{t.loading}</p>}
       {areas.map(area => (
         <section key={area} className={styles.group}>
           <h3>{area}</h3>
@@ -37,11 +39,11 @@ export function CheckManager({ open, onClose, onChanged, onNew }: Props) {
                 <label>
                   <input type="checkbox" role="switch" checked={c.enabled} disabled={busy === c.id} onChange={() => void toggle(c)} />
                   <span className={styles.text}>
-                    <b>{c.title}</b>{c.custom && <em>eigene</em>}
+                    <b>{c.title}</b>{c.custom && <em>{t.custom}</em>}
                     {c.rule && <small>{c.rule}</small>}
                   </span>
                 </label>
-                {c.custom && <Button size="sm" variant="ghost" disabled={busy === c.id} onClick={() => void remove(c)} aria-label={`Prüfung ${c.title} löschen`}>Löschen</Button>}
+                {c.custom && <Button size="sm" variant="ghost" disabled={busy === c.id} onClick={() => void remove(c)} aria-label={t.deleteAria(c.title)}>{m.common.delete}</Button>}
               </li>
             ))}
           </ul>

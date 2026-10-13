@@ -1,12 +1,14 @@
 import { useMemo } from 'react';
 import type { Attachment, FileAttachment } from '@/lib/attachments';
 import { markdown } from '@/lib/markdown';
+import { useT } from '@/lib/i18n/I18nProvider';
 import styles from './Message.module.css';
 
 export function UserMessage({ text, attachments, files = [] }: { text: string; attachments: Attachment[]; files?: FileAttachment[] }) {
+  const t = useT();
   return (
     <div className={`${styles.msg} ${styles.user}`}>
-      <span className="visually-hidden">Du</span>
+      <span className="visually-hidden">{t.chat.message.you}</span>
       {text}
       {attachments.length > 0 && (
         <div className={styles.thumbs}>

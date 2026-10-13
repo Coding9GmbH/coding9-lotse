@@ -30,7 +30,7 @@ export const en: typeof de = {
   close: 'Close',
   delete: 'Delete',
   retry: 'Try again',
-  loading: 'Loading …',
+  loading: 'Loading…',
   justNow: 'just now',
   minutesAgo: (m: number) => `${m} min ago`,
   hoursAgo: (h: number) => `${h} h ago`,

@@ -3,16 +3,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { PublicSettings, ScopeKey, TestResult } from '@/lib/protocol';
-import { PLATFORM_KINDS, PLATFORM_SETTINGS, scopeDisplay, type PlatformField, type PlatformKind } from '@/lib/platforms';
-import { EGRESS_NOTICE } from '@/lib/privacy-copy';
-import { AI_MODELS, authOf, autosaveDirty, autosavePatch, connectionTestBlock, fieldValue, formFromSettings, hasSecret, platformAvailable, platformPending, savedConfigured, secretState, withAuth, withFieldValue, withSecret, type SecretKey, type SettingsForm } from '@/lib/settings-form';
+import { PLATFORM_KINDS, platformSettings, scopeDisplay, type PlatformField, type PlatformKind } from '@/lib/platforms';
+import { egressNotice } from '@/lib/privacy-copy';
+import { aiModels, authOf, autosaveDirty, autosavePatch, connectionTestBlock, fieldValue, formFromSettings, hasSecret, platformAvailable, platformPending, savedConfigured, secretState, withAuth, withFieldValue, withSecret, type SecretKey, type SettingsForm } from '@/lib/settings-form';
 import { useShell } from '@/components/shell/ShellProvider';
 import { Button } from '@/components/ui/Button';
 import { Segmented } from '@/components/ui/Segmented';
+import { LanguageSwitch } from '@/components/i18n/LanguageSwitch';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 import { CodexLogin } from './CodexLogin';
 import { GscSettings } from './GscSettings';
 import { LogsPanel } from './LogsPanel';
 import { SecretField } from './SecretField';
+import { rich as markup } from './Rich';
 import styles from './Settings.module.css';
 
 type TestTarget = 'shop' | 'ai';
@@ -23,6 +26,8 @@ const SCOPE_ORDER: ScopeKey[] = ['products', 'categories', 'cms', 'media', 'mark
 /** Einstellungen: Shop & KI verbinden, Bild-KI, KI-Zugriffsbereiche, Protokolle. */
 export function SettingsView() {
   const { refreshHealth } = useShell();
+  const { t, locale } = useI18n();
+  const ts = t.settings;
   const [saved, setSaved] = useState<PublicSettings | null>(null);
   const [form, setForm] = useState<SettingsForm | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -55,12 +60,12 @@ export function SettingsView() {
       setSaved(s);
       // Nur zurücksetzen, wenn seither nichts mehr eingegeben wurde; gewählte Plattform und KI bleiben (auch wenn sie noch nicht aktiv sind)
       setForm(cur => { if (cur !== sent) return cur; const next = formFromSettings(s); return { ...next, platform: sent.platform, ai: { ...next.ai, provider: sent.ai.provider } }; });
-      setNotice({ ok: true, text: 'Gespeichert' });
+      setNotice({ ok: true, text: ts.saved });
       refreshHealth();
     } catch (e) {
-      setNotice({ ok: false, text: `Nicht gespeichert: ${errorText(e)}` });
+      setNotice({ ok: false, text: ts.notSaved(errorText(e)) });
     } finally { inFlight.current = false; setSaving(false); }
-  }, [refreshHealth]);
+  }, [refreshHealth, ts]);
 
   useEffect(() => {
     if (!form || !saved || !dirty || saving || notice?.ok === false) return;
@@ -73,7 +78,7 @@ export function SettingsView() {
   }, [form, saved, dirty, saving, notice, kick, save]);
 
   const test = async (target: TestTarget) => {
-    if (connectionTestBlock(dirty)) return;
+    if (connectionTestBlock(dirty, locale)) return;
     setTests(t => ({ ...t, [target]: { running: true, result: null } }));
     let result: TestResult;
     try { result = await api.testSettings(target); } catch (e) { result = { ok: false, message: errorText(e) }; }
@@ -95,24 +100,31 @@ export function SettingsView() {
 
       <div className={styles.wrap}>
         <Toc items={[
-          { id: 'shop', label: 'Shop verbinden', state: saved ? (savedConfigured(saved, saved.platform ?? 'shopware') ? 'ok' : 'todo') : undefined },
-          { id: 'ai', label: 'KI verbinden', state: saved ? ((saved.ai.provider === 'codex' ? saved.ai.codexLoggedIn : saved.ai.hasApiKey || saved.ai.viaEnv) ? 'ok' : 'todo') : undefined },
-          { id: 'image', label: 'Bild-KI', note: 'optional' },
-          { id: 'scopes', label: 'KI-Zugriff' },
-          { id: 'gsc', label: 'Search Console', note: 'optional' },
-          { id: 'protokolle', label: 'Protokolle' },
+          { id: 'language', label: t.common.language },
+          { id: 'shop', label: ts.toc.shop, state: saved ? (savedConfigured(saved, saved.platform ?? 'shopware') ? 'ok' : 'todo') : undefined },
+          { id: 'ai', label: ts.toc.ai, state: saved ? ((saved.ai.provider === 'codex' ? saved.ai.codexLoggedIn : saved.ai.hasApiKey || saved.ai.viaEnv) ? 'ok' : 'todo') : undefined },
+          { id: 'image', label: ts.toc.image, note: ts.optional },
+          { id: 'scopes', label: ts.toc.scopes },
+          { id: 'gsc', label: ts.toc.gsc, note: ts.optional },
+          { id: 'protokolle', label: ts.toc.logs },
         ]} loaded={!!form && !!saved} />
 
         <main className={styles.content}>
           <div className={styles.titleRow}>
-            <h1 className={styles.h1}>Einstellungen</h1>
+            <h1 className={styles.h1}>{ts.title}</h1>
             {form && saved && <SaveState saving={saving} dirty={dirty} notice={notice} onRetry={() => { setNotice(null); void save(form, saved); }} />}
           </div>
-          <p className={styles.lead}>Änderungen werden automatisch gespeichert. Zugangsdaten werden verschlüsselt lokal gespeichert und nie an die KI weitergegeben. Gespeicherte Schlüssel werden hier nicht angezeigt.</p>
-          <p className={styles.lead}>{EGRESS_NOTICE}</p>
+          <p className={styles.lead}>{ts.lead}</p>
+          <p className={styles.lead}>{egressNotice(locale)}</p>
 
-          {loadError && <div className={styles.alert} role="alert">Einstellungen konnten nicht geladen werden: {loadError}</div>}
-          {!form && !loadError && <p className={styles.lead}>Lade …</p>}
+          <section id="language" className={styles.card} aria-labelledby="language-h">
+            <div className={styles.cardHead}><h2 id="language-h">{ts.languageHeading}</h2></div>
+            <p className={styles.hint}>{t.common.languageHint}</p>
+            <LanguageSwitch className={styles.langSeg} />
+          </section>
+
+          {loadError && <div className={styles.alert} role="alert">{ts.loadFailed(loadError)}</div>}
+          {!form && !loadError && <p className={styles.lead}>{ts.loading}</p>}
 
           {form && saved && (
             <form ref={formRef} onSubmit={e => e.preventDefault()} onBlur={() => setKick(k => k + 1)} noValidate>
@@ -122,47 +134,47 @@ export function SettingsView() {
               {/* ---- KI ---- */}
               <section id="ai" className={styles.card} aria-labelledby="ai-h">
                 <div className={styles.cardHead}>
-                  <h2 id="ai-h">KI verbinden</h2>
+                  <h2 id="ai-h">{ts.ai.heading}</h2>
                   <State ok={saved.ai.provider === 'codex' ? saved.ai.codexLoggedIn : saved.ai.hasApiKey || saved.ai.viaEnv} />
                 </div>
-                <Segmented label="KI-Anbieter" className={`${styles.authSeg} ${styles.providerSeg}`} value={form.ai.provider} onChange={provider => setAi({ provider })}
-                  options={[{ value: 'claude', label: 'Claude (API-Schlüssel)' }, { value: 'codex', label: 'ChatGPT-Abo' }]} />
-                {form.ai.provider !== saved.ai.provider && <p className={styles.info}>{form.ai.provider === 'codex' ? 'Nach der Anmeldung' : 'Sobald der API-Schlüssel hinterlegt ist'} wird diese KI für neue Nachrichten verwendet.</p>}
+                <Segmented label={ts.ai.provider} className={`${styles.authSeg} ${styles.providerSeg}`} value={form.ai.provider} onChange={provider => setAi({ provider })}
+                  options={[{ value: 'claude', label: ts.ai.claude }, { value: 'codex', label: ts.ai.codex }]} />
+                {form.ai.provider !== saved.ai.provider && <p className={styles.info}>{form.ai.provider === 'codex' ? ts.ai.switchCodex : ts.ai.switchClaude}</p>}
 
                 {form.ai.provider === 'claude' ? (
                   <>
-                    {saved.ai.viaEnv && <p className={styles.info}>Ein API-Schlüssel ist bereits über die Umgebungsvariable ANTHROPIC_API_KEY gesetzt. Ein hier hinterlegter Schlüssel hat Vorrang.</p>}
-                    <SecretField label="Anthropic-API-Schlüssel" has={saved.ai.hasApiKey} state={form.secrets.apiKey} onChange={v => setSecret('apiKey', v)}
-                      placeholder="sk-ant-api…" hint={<>Erstellen unter <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>, Abrechnung nach Verbrauch. Ein Claude-Abo (Pro/Max) kann Lotse nicht nutzen.</>} />
-                    <Field label="Modell">
+                    {saved.ai.viaEnv && <p className={styles.info}>{ts.ai.viaEnv}</p>}
+                    <SecretField label={ts.ai.apiKey} has={saved.ai.hasApiKey} state={form.secrets.apiKey} onChange={v => setSecret('apiKey', v)}
+                      placeholder="sk-ant-api…" hint={markup(ts.ai.apiKeyHint, { href: 'https://console.anthropic.com/settings/keys' })} />
+                    <Field label={ts.ai.model}>
                       <select value={form.ai.model} onChange={e => setAi({ model: e.target.value })}>
-                        {AI_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                        {!AI_MODELS.some(m => m.value === form.ai.model) && <option value={form.ai.model}>{form.ai.model}</option>}
+                        {aiModels(locale).map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                        {!aiModels(locale).some(m => m.value === form.ai.model) && <option value={form.ai.model}>{form.ai.model}</option>}
                       </select>
                     </Field>
                   </>
                 ) : (
                   <>
                     <CodexLogin loggedIn={saved.ai.codexLoggedIn} onChange={reloadAiState} />
-                    <Field label="Modell (optional)" hint="Leer lassen für den Codex-Standard deines Abos.">
-                      <input value={form.ai.codexModel} onChange={e => setAi({ codexModel: e.target.value })} placeholder="Standard" spellCheck={false} />
+                    <Field label={ts.ai.codexModel} hint={ts.ai.codexModelHint}>
+                      <input value={form.ai.codexModel} onChange={e => setAi({ codexModel: e.target.value })} placeholder={ts.ai.codexModelPlaceholder} spellCheck={false} />
                     </Field>
-                    <p className={styles.hint}>Codex bekommt in Lotse nur die Shop-Werkzeuge: keine Befehle, kein Dateizugriff, keine Websuche. Kunden- und Bestelldaten bleiben wie bei Claude gesperrt.</p>
+                    <p className={styles.hint}>{ts.ai.codexTools}</p>
                   </>
                 )}
-                <TestRow state={tests.ai} onTest={() => void test('ai')} disabled={saving || dirty || (form.ai.provider === 'codex' && !saved.ai.codexLoggedIn)} title={connectionTestBlock(dirty) ?? undefined} />
+                <TestRow state={tests.ai} onTest={() => void test('ai')} disabled={saving || dirty || (form.ai.provider === 'codex' && !saved.ai.codexLoggedIn)} title={connectionTestBlock(dirty, locale) ?? undefined} />
               </section>
 
               {/* ---- Bild-KI ---- */}
               <section id="image" className={styles.card} aria-labelledby="image-h">
                 <div className={styles.cardHead}>
-                  <h2 id="image-h">Bild-KI <span className={styles.opt}>optional</span></h2>
+                  <h2 id="image-h">{ts.image.heading} <span className={styles.opt}>{ts.optional}</span></h2>
                   {saved.image.hasKey && <State ok />}
                 </div>
-                <p className={styles.hint}>Damit kann Lotse passende Bilder für Seiten erzeugen. Ohne Schlüssel nutzt Lotse vorhandene Medien und Grafiken.</p>
+                <p className={styles.hint}>{ts.image.hint}</p>
                 <div className={styles.grid}>
-                  <SecretField label="OpenAI-API-Schlüssel" has={saved.image.hasKey} state={form.secrets.openaiKey} onChange={v => setSecret('openaiKey', v)} placeholder="sk-…" />
-                  <Field label="Bild-Modell" hint="Leer = gpt-image-1">
+                  <SecretField label={ts.image.apiKey} has={saved.image.hasKey} state={form.secrets.openaiKey} onChange={v => setSecret('openaiKey', v)} placeholder="sk-…" />
+                  <Field label={ts.image.model} hint={ts.image.modelHint}>
                     <input placeholder="gpt-image-1" value={form.image.model} onChange={e => set(f => ({ ...f, image: { model: e.target.value } }))} />
                   </Field>
                 </div>
@@ -170,11 +182,11 @@ export function SettingsView() {
 
               {/* ---- KI-Zugriff ---- */}
               <section id="scopes" className={styles.card} aria-labelledby="scopes-h">
-                <div className={styles.cardHead}><h2 id="scopes-h">KI-Zugriff</h2></div>
-                <p className={styles.hint}>Welche Bereiche des Shops darf die KI <b>lesen</b>? Geschrieben wird ohnehin nur nach deiner Freigabe.</p>
+                <div className={styles.cardHead}><h2 id="scopes-h">{ts.scopes.heading}</h2></div>
+                <p className={styles.hint}>{markup(ts.scopes.hint)}</p>
                 <ul className={styles.scopes}>
                   {SCOPE_ORDER.filter(k => k in form.scopes).map(k => {
-                    const info = scopeDisplay(form.platform, k, saved.scopeInfo?.[k] ?? { label: k, hint: '' });
+                    const info = scopeDisplay(form.platform, k, saved.scopeInfo?.[k] ?? { label: k, hint: '' }, locale);
                     return (
                       <li key={k}>
                         <label className={styles.scope}>
@@ -186,7 +198,7 @@ export function SettingsView() {
                     );
                   })}
                 </ul>
-                <p className={styles.locked}>🔒 Kunden-, Bestell- und Zahlungsdaten sowie Zugangsdaten sind immer gesperrt, unabhängig von diesen Schaltern.</p>
+                <p className={styles.locked}>{ts.scopes.locked}</p>
               </section>
 
             </form>
@@ -195,7 +207,7 @@ export function SettingsView() {
           {form && saved && <GscSettings />}
 
           <section id="protokolle" className={styles.card} aria-labelledby="logs-h">
-            <div className={styles.cardHead}><h2 id="logs-h">Protokolle</h2></div>
+            <div className={styles.cardHead}><h2 id="logs-h">{ts.logs.heading}</h2></div>
             <LogsPanel />
           </section>
         </main>
@@ -206,7 +218,9 @@ export function SettingsView() {
 
 /** Shop verbinden: Plattform wählen (Shopware / Shopify / Magento / OpenMage), dann deren Felder laut lib/platforms.ts. */
 function ShopSection({ form, saved, set, test, onTest, saving, dirty, pending }: { form: SettingsForm; saved: PublicSettings; set: (fn: (f: SettingsForm) => SettingsForm) => void; test: TestState; onTest: () => void; saving: boolean; dirty: boolean; pending: boolean }) {
-  const kind = form.platform, d = PLATFORM_SETTINGS[kind], available = platformAvailable(saved, kind);
+  const { t, locale } = useI18n();
+  const ts = t.settings.shop;
+  const kind = form.platform, d = platformSettings(kind, locale), available = platformAvailable(saved, kind);
   const mode = d.auth.find(m => m.key === authOf(form, kind)) ?? d.auth[0];
   const input = (f: PlatformField) => f.secret
     ? <SecretField key={`${kind}.${f.key}`} label={f.label} has={hasSecret(saved, kind, f.key)} state={secretState(form, kind, f.key)} onChange={v => set(x => withSecret(x, kind, f.key, v))}
@@ -222,25 +236,25 @@ function ShopSection({ form, saved, set, test, onTest, saving, dirty, pending }:
   return (
     <section id="shop" className={styles.card} aria-labelledby="shop-h">
       <div className={styles.cardHead}>
-        <h2 id="shop-h">Shop verbinden</h2>
+        <h2 id="shop-h">{ts.heading}</h2>
         <State ok={savedConfigured(saved, kind)} />
       </div>
-      <Segmented<PlatformKind> label="Shop-Plattform" className={`${styles.authSeg} ${styles.providerSeg} ${PLATFORM_KINDS.length > 3 ? styles.authSegLong : ''}`} value={kind} onChange={platform => set(f => ({ ...f, platform }))}
-        options={PLATFORM_KINDS.map(k => ({ value: k, label: PLATFORM_SETTINGS[k].label, title: PLATFORM_SETTINGS[k].product }))} />
-      {pending && <p className={styles.info}>Sobald die Zugangsdaten vollständig sind, ist {d.label} der verbundene Shop. Bis dahin bleibt {PLATFORM_SETTINGS[saved.platform ?? 'shopware'].label} verbunden. Es ist immer genau ein Shop verbunden.</p>}
-      {!available && <p className={styles.info}>Die {d.label}-Anbindung ist in Vorbereitung. Du kannst die Zugangsdaten schon hinterlegen; die Werkzeuge für {d.label} folgen.</p>}
+      <Segmented<PlatformKind> label={ts.platform} className={`${styles.authSeg} ${styles.providerSeg} ${PLATFORM_KINDS.length > 3 ? styles.authSegLong : ''}`} value={kind} onChange={platform => set(f => ({ ...f, platform }))}
+        options={PLATFORM_KINDS.map(k => { const p = platformSettings(k, locale); return { value: k, label: p.label, title: p.product }; })} />
+      {pending && <p className={styles.info}>{ts.pending(d.label, platformSettings(saved.platform ?? 'shopware', locale).label)}</p>}
+      {!available && <p className={styles.info}>{ts.coming(d.label)}</p>}
       <div className={styles.grid}>{d.fields.map(input)}</div>
 
       {d.auth.length > 1 && (
         <div className={styles.authHead}>
-          <span className={styles.label}>Zugang</span>
-          <Segmented label={d.authLabel ?? 'Art des Zugangs'} className={`${styles.authSeg} ${d.auth.some(m => m.label.length > 24) ? styles.authSegLong : ''}`} value={mode.key} onChange={auth => set(f => withAuth(f, kind, auth))}
+          <span className={styles.label}>{ts.access}</span>
+          <Segmented label={d.authLabel ?? ts.accessKind} className={`${styles.authSeg} ${d.auth.some(m => m.label.length > 24) ? styles.authSegLong : ''}`} value={mode.key} onChange={auth => set(f => withAuth(f, kind, auth))}
             options={d.auth.map(m => ({ value: m.key, label: m.label }))} />
         </div>
       )}
       {mode.hint && <p className={styles.hint}>{rich(mode.hint)}</p>}
       <div className={styles.grid}>{mode.fields.map(input)}</div>
-      <TestRow state={test} onTest={onTest} disabled={saving || !available || dirty || pending} title={pending ? 'Erst die Zugangsdaten vollständig eingeben.' : connectionTestBlock(dirty) ?? undefined} />
+      <TestRow state={test} onTest={onTest} disabled={saving || !available || dirty || pending} title={pending ? ts.incomplete : connectionTestBlock(dirty, locale) ?? undefined} />
     </section>
   );
 }
@@ -262,6 +276,7 @@ type TocItem = { id: string; label: string; state?: 'ok' | 'todo'; note?: string
 
 /** Abschnitte links: markiert den sichtbaren Abschnitt und zeigt, was eingerichtet ist und was noch fehlt. */
 function Toc({ items, loaded }: { items: TocItem[]; /** Abschnitte gerendert (Einstellungen geladen) */ loaded: boolean }) {
+  const t = useI18n().t.settings;
   const [current, setCurrent] = useState(items[0]?.id);
   const ids = items.map(i => i.id).join(',');
   useEffect(() => {
@@ -289,13 +304,13 @@ function Toc({ items, loaded }: { items: TocItem[]; /** Abschnitte gerendert (Ei
     return () => { cancelAnimationFrame(frame); target.removeEventListener('scroll', onScroll); window.removeEventListener('hashchange', read); };
   }, [ids, loaded]); // erst nach dem Laden gibt es alle Abschnitte
   return (
-    <nav className={styles.toc} aria-label="Abschnitte">
-      <span className={styles.tocHead}>Auf dieser Seite</span>
+    <nav className={styles.toc} aria-label={t.toc.label}>
+      <span className={styles.tocHead}>{t.toc.head}</span>
       {items.map(i => (
         <a key={i.id} href={`#${i.id}`} aria-current={current === i.id ? 'true' : undefined} onClick={() => setCurrent(i.id)}>
           <span>{i.label}</span>
-          {i.state === 'ok' && <i className={styles.tocOk} aria-label="eingerichtet" />}
-          {i.state === 'todo' && <i className={styles.tocTodo} aria-label="fehlt noch" />}
+          {i.state === 'ok' && <i className={styles.tocOk} aria-label={t.toc.ok} />}
+          {i.state === 'todo' && <i className={styles.tocTodo} aria-label={t.toc.todo} />}
           {i.note && !i.state && <small>{i.note}</small>}
         </a>
       ))}
@@ -305,23 +320,26 @@ function Toc({ items, loaded }: { items: TocItem[]; /** Abschnitte gerendert (Ei
 
 /** Speicherstand oben neben der Überschrift: speichert … / gespeichert / Fehler mit „Erneut versuchen“. */
 function SaveState({ saving, dirty, notice, onRetry }: { saving: boolean; dirty: boolean; notice: { ok: boolean; text: string } | null; onRetry: () => void }) {
+  const t = useI18n().t;
   const failed = notice && !notice.ok;
   return (
     <span className={`${styles.saveState} ${failed ? styles.saveBad : saving || dirty ? '' : styles.saveOk}`} role="status" aria-live="polite">
-      {failed ? <>{notice.text}<button type="button" onClick={onRetry}>Erneut versuchen</button></>
-        : saving || dirty ? 'Speichert …' : 'Alles gespeichert'}
+      {failed ? <>{notice.text}<button type="button" onClick={onRetry}>{t.common.retry}</button></>
+        : saving || dirty ? t.settings.saving : t.settings.allSaved}
     </span>
   );
 }
 
 function State({ ok }: { ok: boolean }) {
-  return <span className={`${styles.state} ${ok ? styles.stateOk : styles.stateNo}`}>{ok ? 'eingerichtet' : 'nicht eingerichtet'}</span>;
+  const t = useI18n().t.settings;
+  return <span className={`${styles.state} ${ok ? styles.stateOk : styles.stateNo}`}>{ok ? t.configured : t.notConfigured}</span>;
 }
 
 function TestRow({ state, onTest, disabled, title }: { state: TestState; onTest: () => void; disabled: boolean; title?: string }) {
+  const t = useI18n().t.settings;
   return (
     <div className={styles.testRow}>
-      <Button onClick={onTest} busy={state.running} disabled={disabled} title={title}>{state.running ? 'Teste …' : 'Verbindung testen'}</Button>
+      <Button onClick={onTest} busy={state.running} disabled={disabled} title={title}>{state.running ? t.testing : t.test}</Button>
       {state.result && (
         <span className={state.result.ok ? styles.ok : styles.bad} role="status">{state.result.ok ? '✓' : '✗'} {state.result.message}</span>
       )}

@@ -2,6 +2,7 @@
 // Derselbe Reducer verarbeitet live gestreamte Ereignisse UND das Wiederabspielen eines gespeicherten Chats –
 // so sieht ein geöffneter Chat exakt so aus wie während des Live-Laufs (nur ohne aktive Knöpfe).
 
+import { DEFAULT_LOCALE, INTL_LOCALE, messages, type Locale } from './i18n';
 import { parseAttachments, type Attachment, type FileAttachment } from './attachments';
 import { toolLabel } from './labels';
 import type { ChangeSet, ChatDetail, ChatEvent, DraftAudit, PublishedInfo, Styleguide, Target, UndoOutcome } from './protocol';
@@ -53,6 +54,8 @@ export interface ChatState {
   cmsOverrides: Record<string, string>;
   busy: boolean;
   status: string | null;
+  /** Sprache der Status-Texte (Oberflächensprache); bleibt beim Leeren des Verlaufs erhalten */
+  locale: Locale;
 }
 
 export type Mode = 'live' | 'replay';
@@ -75,24 +78,27 @@ export type ChatAction =
   | { type: 'undo'; csId: string; phase: UndoPhase; undoResults?: UndoOutcome[] }
   | { type: 'select_target'; target: Target | null }
   | { type: 'set_tab'; tab: PreviewTab }
-  | { type: 'set_styleguide'; sg: Styleguide | null };
+  | { type: 'set_styleguide'; sg: Styleguide | null }
+  | { type: 'set_locale'; locale: Locale };
 
 export const initialChatState: ChatState = {
   items: [], seq: 0, curText: null, stepBox: null, target: null, draft: null, liveOverride: null, liveBust: 0,
-  tab: 'live', styleguide: null, cmsOverrides: {}, busy: false, status: null,
+  tab: 'live', styleguide: null, cmsOverrides: {}, busy: false, status: null, locale: DEFAULT_LOCALE,
 };
 
-const THINKING = 'Lotse denkt nach …';
+const texts = (s: Pick<ChatState, 'locale'>) => messages(s.locale).lib.chat;
+const thinking = (s: Pick<ChatState, 'locale'>) => texts(s).thinking;
 
-function liveStatus(ev: ChatEvent): string | null {
+function liveStatus(ev: ChatEvent, locale: Locale): string | null {
+  const t = messages(locale).lib.chat, n = (x: number) => x.toLocaleString(INTL_LOCALE[locale]);
   switch (ev.t) {
-    case 'text_start': return 'Schreibt Antwort …';
-    case 'draft_partial': return 'Baut die Seite auf …';
-    case 'question': return 'Wartet auf deine Antwort';
-    case 'changeset': return 'Wartet auf deine Freigabe';
-    case 'tool': return `${toolLabel(ev.name)} …`;
-    case 'changeset_progress': return `Wendet an: ${ev.done.toLocaleString('de-DE')} / ${ev.total.toLocaleString('de-DE')}`;
-    case 'changeset_result': case 'tool_result': case 'image': return THINKING;
+    case 'text_start': return t.writing;
+    case 'draft_partial': return t.building;
+    case 'question': return t.waitingAnswer;
+    case 'changeset': return t.waitingApproval;
+    case 'tool': return t.tool(toolLabel(ev.name, locale));
+    case 'changeset_progress': return t.applyProgress(n(ev.done), n(ev.total));
+    case 'changeset_result': case 'tool_result': case 'image': return t.thinking;
     default: return null;
   }
 }
@@ -152,7 +158,7 @@ function applyPublished(s: ChatState, info: PublishedInfo, live: boolean): ChatS
 function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
   const live = mode === 'live';
   let s = state;
-  if (live && s.busy) { const st = liveStatus(ev); if (st) s = { ...s, status: st }; }
+  if (live && s.busy) { const st = liveStatus(ev, s.locale); if (st) s = { ...s, status: st }; }
 
   switch (ev.t) {
     case 'start': return s;
@@ -184,7 +190,7 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
       const prev = s.draft;
       return {
         ...s, tab: live ? 'prev' : s.tab,
-        draft: { html: ev.html, name: ev.name ?? prev?.name ?? 'Entwurf', pageType: ev.pageType ?? prev?.pageType ?? '', partial: true, spec: prev?.spec ?? null, audit: prev?.audit ?? null, rev: (prev?.rev ?? 0) + 1 },
+        draft: { html: ev.html, name: ev.name ?? prev?.name ?? texts(s).draft, pageType: ev.pageType ?? prev?.pageType ?? '', partial: true, spec: prev?.spec ?? null, audit: prev?.audit ?? null, rev: (prev?.rev ?? 0) + 1 },
       };
     }
     case 'draft': {
@@ -227,7 +233,7 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
 
 /** Verlaufs-Ansicht leeren (Styleguide und veröffentlichte Layouts bleiben bekannt). */
 const cleared = (s: ChatState): ChatState => ({
-  ...initialChatState, styleguide: s.styleguide, cmsOverrides: s.cmsOverrides, liveBust: s.liveBust,
+  ...initialChatState, styleguide: s.styleguide, cmsOverrides: s.cmsOverrides, liveBust: s.liveBust, locale: s.locale,
 });
 
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
@@ -241,7 +247,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case 'reset': return cleared(state);
     case 'run_start': {
       const s = applyEvent({ ...state, busy: true, curText: null, stepBox: null }, { t: 'user', text: action.text }, 'live');
-      return { ...s, status: THINKING };
+      return { ...s, status: thinking(s) };
     }
     case 'run_end': return { ...settleSteps(state, 'done'), busy: false, status: null, curText: null, stepBox: null };
     case 'unsend': {
@@ -255,25 +261,26 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // als abgeschlossen angenommene Schritte laufen weiter, wenn die Runde noch läuft
       const reopened = items.map(i => (i.kind === 'steps' && i.steps.some(x => x.stale)
         ? { ...i, steps: i.steps.map(x => (x.stale ? { ...x, state: 'run' as const, stale: undefined } : x)) } : i));
-      return { ...state, items: reopened, busy: true, status: (action.last && liveStatus(action.last)) || THINKING };
+      return { ...state, items: reopened, busy: true, status: (action.last && liveStatus(action.last, state.locale)) || thinking(state) };
     }
     case 'error': return push(state, { kind: 'error', text: action.text })[0];
     case 'status': return { ...state, status: action.text };
     case 'answer':
       return {
         ...update(state, 'question', i => i.approvalId === action.approvalId, i => ({ ...i, answer: action.answer, interactive: false })),
-        status: state.busy ? THINKING : state.status,
+        status: state.busy ? thinking(state) : state.status,
       };
     case 'decide':
       return {
         ...update(state, 'changeset', i => i.approvalId === action.approvalId, i => ({ ...i, interactive: false, decision: action.allow, sent: { allow: action.allow, selected: action.selected } })),
-        status: state.busy ? (action.allow ? 'Wendet Änderungen an …' : THINKING) : state.status,
+        status: state.busy ? (action.allow ? texts(state).applying : thinking(state)) : state.status,
       };
     case 'undo': return update(state, 'changeset', i => i.cs.id === action.csId, i => ({ ...i, undo: action.phase, result: action.undoResults && i.result ? { ...i.result, undoResults: action.undoResults, undone: action.phase === 'done' } : i.result }));
     case 'select_target':
       return { ...state, target: action.target, liveOverride: null, draft: action.target ? null : state.draft, tab: 'live' };
     case 'set_tab': return { ...state, tab: action.tab };
     case 'set_styleguide': return { ...state, styleguide: action.sg };
+    case 'set_locale': return { ...state, locale: action.locale };
   }
 }
 
@@ -302,8 +309,9 @@ export const writeInFlight = (s: ChatState): boolean =>
   s.items.some(i => i.kind === 'changeset' && !!i.sent?.allow && !i.result);
 
 /** Stoppen vor der Freigabe lehnt ab und schreibt nichts. Während des Schreibens bleibt der Knopf stehen, bricht aber nichts ab. */
-export function stopControl(writing: boolean): { label: string; title: string; stops: boolean } {
+export function stopControl(writing: boolean, locale: Locale = DEFAULT_LOCALE): { label: string; title: string; stops: boolean } {
+  const t = messages(locale).lib.chat;
   return writing
-    ? { label: 'Schreiben läuft', title: 'Der Shop wird gerade geschrieben. Das läuft weiter und lässt sich nicht abbrechen.', stops: false }
-    : { label: 'Stoppen', title: 'Laufende Anfrage abbrechen. Es wird nichts geschrieben.', stops: true };
+    ? { label: t.writeRunning, title: t.writeRunningTitle, stops: false }
+    : { label: t.stop, title: t.stopTitle, stops: true };
 }

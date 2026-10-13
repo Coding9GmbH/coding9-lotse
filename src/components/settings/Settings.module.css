@@ -138,3 +138,4 @@
 @keyframes codexPulse { 50% { opacity: .3; } }
 .codexErr { color: var(--warn); font-size: 13px; }
 .providerSeg { margin-bottom: 16px; }
+.langSeg { max-width: 160px; }

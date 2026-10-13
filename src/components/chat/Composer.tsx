@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef } from 'react';
 import type { PendingAttachment } from '@/hooks/useAttachments';
 import { stopControl } from '@/lib/chat-state';
 import { Button } from '@/components/ui/Button';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 import styles from './Composer.module.css';
 
 interface Props {
@@ -32,7 +33,8 @@ const MAX_H = 140;
 /** Eingabe: wachsendes Textfeld, Enter sendet (Umschalt+Enter = Zeilenumbruch), Bilder per Knopf/Einfügen. */
 export function Composer({ value, onChange, onSubmit, onStop, writing, busy, placeholder, home, atts, onFiles, onRemoveAtt, inputRef, extra, disabled = false }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const stop = stopControl(!!writing);
+  const { locale, t: m } = useI18n(), t = m.chat.composer;
+  const stop = stopControl(!!writing, locale);
 
   useLayoutEffect(() => {
     const t = inputRef.current;
@@ -46,30 +48,30 @@ export function Composer({ value, onChange, onSubmit, onStop, writing, busy, pla
   return (
     <>
       {atts.length > 0 && (
-        <div className={styles.atts} aria-label="Anhänge">
+        <div className={styles.atts} aria-label={t.attachments}>
           {atts.map(a => (
             <div key={a.key} className={`${styles.att} ${a.uploading ? styles.up : ''}`} aria-busy={a.uploading}>
               {a.local
                 // eslint-disable-next-line @next/next/no-img-element -- lokale Vorschau (blob:)
                 ? <img src={a.local} alt={a.name} />
                 : <span className={styles.doc} title={a.name}>📄<small>{a.name}</small></span>}
-              <button type="button" title="Entfernen" aria-label={`${a.name} entfernen`} onClick={() => onRemoveAtt(a.key)}>×</button>
+              <button type="button" title={t.remove} aria-label={t.removeAria(a.name)} onClick={() => onRemoveAtt(a.key)}>×</button>
             </div>
           ))}
         </div>
       )}
       <form className={`${styles.form} ${home ? styles.home : ''}`} onSubmit={e => { e.preventDefault(); onSubmit(); }}>
-        <Button className={styles.attach} disabled={disabled} title="Bilder oder Dateien anhängen: CSV, Excel, PDF, Text (auch per Einfügen oder Drag & Drop)" aria-label="Bilder oder Dateien anhängen"
+        <Button className={styles.attach} disabled={disabled} title={t.attachTitle} aria-label={t.attachAria}
           onClick={() => fileRef.current?.click()}>📎</Button>
         <input ref={fileRef} type="file" accept="image/*,.csv,.tsv,.txt,.md,.json,.xlsx,.xls,.pdf,.docx" multiple hidden
           onChange={e => { const f = [...(e.target.files ?? [])]; e.target.value = ''; if (f.length) onFiles(f); }} />
-        <textarea ref={inputRef} rows={1} value={value} placeholder={placeholder} aria-label="Nachricht an Lotse" disabled={disabled}
+        <textarea ref={inputRef} rows={1} value={value} placeholder={placeholder} aria-label={t.inputAria} disabled={disabled}
           onChange={e => onChange(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSubmit(); } }}
           onPaste={e => { const f = [...(e.clipboardData?.files ?? [])]; if (f.length) { e.preventDefault(); onFiles(f); } }} />
         {busy && onStop
           ? <Button className={styles.send} onClick={stop.stops ? onStop : undefined} disabled={!stop.stops} title={stop.title}>{stop.label}</Button>
-          : <Button type="submit" variant="primary" busy={busy} disabled={disabled} className={styles.send}>{busy ? 'Läuft …' : 'Senden'}</Button>}
+          : <Button type="submit" variant="primary" busy={busy} disabled={disabled} className={styles.send}>{busy ? t.running : t.send}</Button>}
         {extra && <div className={styles.extra}>{extra}</div>}
       </form>
     </>

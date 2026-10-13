@@ -1,24 +1,27 @@
 // Anzeige-Texte für den Shop-Check (Startseite und Werkzeug), ohne DOM.
+import { DEFAULT_LOCALE, INTL_LOCALE, messages, type Locale } from './i18n';
 import type { CheckFinding, CheckRun } from './protocol';
 
 /** „7 Punkte, 3 davon wichtig“ */
-export function summaryText(findings: CheckFinding[]): string {
-  if (!findings.length) return 'Alles im grünen Bereich';
+export function summaryText(findings: CheckFinding[], locale: Locale = DEFAULT_LOCALE): string {
+  const t = messages(locale).lib.shopcheck;
+  if (!findings.length) return t.allGood;
   const n = findings.length, hi = findings.filter(f => f.severity === 'hoch').length;
-  const head = `${n} ${n === 1 ? 'Punkt' : 'Punkte'}`;
+  const head = t.points(String(n), n);
   if (!hi) return head;
-  return n === 1 ? `${head}, wichtig` : hi === n ? `${head}, alle wichtig` : `${head}, ${hi} davon wichtig`;
+  return n === 1 ? t.oneImportant(head) : hi === n ? t.allImportant(head) : t.someImportant(head, hi);
 }
 
 /** „34 von 120 Produkten“, „mindestens 34 von 12.000 Produkten“ (gedeckelt), „3 betroffen“ */
-export function countText(f: Pick<CheckFinding, 'count' | 'total' | 'unit' | 'atLeast'>): string {
-  const n = (x: number) => x.toLocaleString('de-DE');
-  const pre = f.atLeast ? 'mindestens ' : '';
-  if (f.total == null) return `${pre}${n(f.count)} betroffen`;
-  return `${pre}${n(f.count)} von ${n(f.total)}${f.unit ? ` ${f.unit}` : ''}`;
+export function countText(f: Pick<CheckFinding, 'count' | 'total' | 'unit' | 'atLeast'>, locale: Locale = DEFAULT_LOCALE): string {
+  const n = (x: number) => x.toLocaleString(INTL_LOCALE[locale]), t = messages(locale).lib.shopcheck;
+  const pre = f.atLeast ? t.atLeast : '';
+  if (f.total == null) return `${pre}${t.affected(n(f.count))}`;
+  return `${pre}${t.ofTotal(n(f.count), n(f.total))}${f.unit ? ` ${f.unit}` : ''}`;
 }
 
-export const SEVERITY_LABEL: Record<CheckFinding['severity'], string> = { hoch: 'Wichtig', mittel: 'Mittel', niedrig: 'Hinweis' };
+export const SEVERITY_LABEL: Record<CheckFinding['severity'], string> = messages(DEFAULT_LOCALE).lib.shopcheck.severity;
+export const severityLabel = (severity: CheckFinding['severity'], locale: Locale = DEFAULT_LOCALE): string => messages(locale).lib.shopcheck.severity[severity];
 
 /** Zustand eines Durchlaufs: „unvollständig“, sobald mindestens die Hälfte der Prüfungen scheiterte (z. B. Shop nicht erreichbar).
  *  Dann gibt es weder „Alles im grünen Bereich“ noch 6 Std. Ruhe. */

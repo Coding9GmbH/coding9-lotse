@@ -9,7 +9,8 @@ import { annotationMessage, type Annotation } from '@/lib/annotations';
 import { attachmentMessage, parseAttachments } from '@/lib/attachments';
 import { fixForChat, loadFixes, rememberFix, sentFix, type FixMap } from '@/lib/fixes';
 import { chatReducer, initialChatState, isHome, isStillRunning, pendingQuestion, showPreview, stopControl, writeInFlight } from '@/lib/chat-state';
-import { DEFAULT_PLACEHOLDER, placeholderFor, SUGGESTIONS } from '@/lib/labels';
+import { defaultPlaceholder, placeholderFor, suggestions } from '@/lib/labels';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 import { CHAT_COOKIE, setupReady } from '@/lib/nav';
 import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, CheckFinding, Health, Target } from '@/lib/protocol';
 import { liveSrc, withBust } from '@/lib/urls';
@@ -44,9 +45,10 @@ const narrow = () => typeof window !== 'undefined' && window.matchMedia('(max-wi
 export function Workspace({ initialChatId, initialChat }: { initialChatId: string; initialChat: ChatDetail | null }) {
   const shell = useShell();
   const { health, setup, chats, reloadChats: loadHistory, setActiveChatId, setContextName, setStyleguide: shareStyleguide } = shell;
+  const { locale, t: { workspace: t, context: tc } } = useI18n();
   // Startzustand direkt aus den Server-Daten (gespeicherter Chat, Styleguide) – so springt beim Laden nichts
   const [state, dispatch] = useReducer(chatReducer, null, () => {
-    const base = { ...initialChatState, styleguide: shell.styleguide };
+    const base = { ...initialChatState, locale, styleguide: shell.styleguide };
     return initialChat?.events?.length ? chatReducer(base, { type: 'replay', chat: initialChat }) : base;
   });
   const [chatId, setChatId] = useState<string | null>(initialChatId);
@@ -55,7 +57,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const [categoryError, setCategoryError] = useState<string | null>(null);
   const [contextOpen, setContextOpen] = useState(false);
   const [sgLoaded, setSgLoaded] = useState(shell.styleguideKnown);
-  const [exampleProduct, setExampleProduct] = useState('Produkt XY');
+  const [exampleProduct, setExampleProduct] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [sgOpen, setSgOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
@@ -89,6 +91,9 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     return () => { off = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- einmalig beim Start
 
+  // Sprache gewechselt: Statustexte des Chats folgen ihr
+  useEffect(() => { dispatch({ type: 'set_locale', locale }); }, [locale]);
+
   const { target, busy, styleguide: sg } = state;
   // Solange Shop oder KI fehlen, gibt es nichts zu senden (unbekannter Stand oder Ladefehler: nicht sperren)
   const locked = !shell.healthFailed && !setupReady(setup);
@@ -97,7 +102,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
 
   // Navigation (links) mit dem Zustand der Arbeitsfläche versorgen
   useEffect(() => { setActiveChatId(chatId); return () => setActiveChatId(null); }, [chatId, setActiveChatId]);
-  useEffect(() => { setContextName(target ? (target.name ?? 'Neue Landingpage') : null); return () => setContextName(null); }, [target, setContextName]);
+  useEffect(() => { setContextName(target ? (target.name ?? tc.newLanding) : null); return () => setContextName(null); }, [target, setContextName, tc.newLanding]);
   useEffect(() => { if (sgLoaded) shareStyleguide(sg); }, [sg, sgLoaded, shareStyleguide]);
   const home = isHome(state);
   const pv = showPreview(state);
@@ -107,7 +112,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     const o = state.cmsOverrides;
     return categories && Object.keys(o).length ? categories.map(c => (o[c.id] ? { ...c, cmsPage: o[c.id] } : c)) : categories;
   }, [categories, state.cmsOverrides]);
-  const exampleCategory = cats?.find(c => c.parentId && c.active)?.name ?? 'Kategorie';
+  const exampleCategory = cats?.find(c => c.parentId && c.active)?.name ?? t.exampleCategory;
   const live = liveSrc(target, state.liveOverride, cfg?.paths);
   const liveUrl = live ? withBust(live, state.liveBust) : null;
 
@@ -155,11 +160,11 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const stop = () => {
     if (!chatId) return;
     if (writeInFlight(state)) {
-      dispatch({ type: 'status', text: stopControl(true).title });
+      dispatch({ type: 'status', text: stopControl(true, locale).title });
       return;
     }
-    dispatch({ type: 'status', text: 'Wird abgebrochen …' });
-    api.stop(chatId).catch(e => reportError(`Abbrechen fehlgeschlagen: ${errorText(e)}`));
+    dispatch({ type: 'status', text: t.stopping });
+    api.stop(chatId).catch(e => reportError(t.stopFailed(errorText(e))));
   };
 
   /** Andere Ansicht: Verbindung zum laufenden Chat trennen (die Runde läuft auf dem Server weiter). */
@@ -173,26 +178,26 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const answer = useCallback((approvalId: string, a: string) => {
     if (!chatId || !a) return;
     dispatch({ type: 'answer', approvalId, answer: a });
-    api.answer(chatId, approvalId, a).catch(e => reportError(`Antwort konnte nicht gesendet werden: ${errorText(e)}`));
-  }, [chatId, reportError]);
+    api.answer(chatId, approvalId, a).catch(e => reportError(t.answerFailed(errorText(e))));
+  }, [chatId, reportError, t]);
 
   const send = (text = input) => {
     const message = text.trim();
     if (question && message) { setInput(''); answer(question.approvalId, message); return; }
     if ((!message && !attachments.atts.length) || busyRef.current || locked) return;
-    if (attachments.uploading) { dispatch({ type: 'status', text: 'Anhänge werden noch hochgeladen …' }); return; }
+    if (attachments.uploading) { dispatch({ type: 'status', text: t.uploading }); return; }
     // Auftrag aus dem Shop-Check: Befund mit diesem Chat verknüpfen („in Arbeit“ auf der Startseite)
     const fix = pendingFix.current;
     if (fix && chatId && sentFix(fix.prompt, message)) setFixes(m => rememberFix(m, fix.id, { chatId, title: fix.title, at: new Date().toISOString() }));
     pendingFix.current = null;
-    const full = attachmentMessage(message, attachments.done, attachments.files);
+    const full = attachmentMessage(message, attachments.done, attachments.files, locale);
     attachments.clear();
     setInput('');
     void run(full);
   };
 
   // Styleguide-Onboarding bekommt immer einen frischen Chat: neuer Kontext, nichts aus dem bisherigen Verlauf
-  const onboard = () => { const id = newChat(); void run('Erstelle den Styleguide für meinen Shop.', { onboarding: true, chatId: id }); };
+  const onboard = () => { const id = newChat(); void run(t.onboard, { onboarding: true, chatId: id }); };
 
   const decide = (approvalId: string, allow: boolean, selected?: string[]) => {
     if (!chatId) return;
@@ -202,22 +207,22 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     dispatch({ type: 'decide', approvalId, allow, selected });
     api.approve(chatId, approvalId, allow, selected).catch(e => {
       const status = e instanceof ApiError ? e.status : 0;
-      const text = approveError(status, alreadySent);
+      const text = approveError(status, alreadySent, locale);
       if (!text) return;
       reportError(status === 404 ? text : `${text}: ${errorText(e)}`);
     });
   };
 
   const undo = async (csId: string) => {
-    if (!chatId || !window.confirm('Alle Änderungen dieses Sets auf die vorherigen Werte zurücksetzen?')) return;
+    if (!chatId || !window.confirm(t.undoConfirm)) return;
     dispatch({ type: 'undo', csId, phase: 'running' });
     try {
       const r = await api.undo(chatId, csId);
       dispatch({ type: 'undo', csId, phase: r.ok ? 'done' : r.undoResults ? 'idle' : 'failed', undoResults: r.undoResults }); // teilweise: erneut klicken setzt den Rest zurück
-      if (!r.ok && r.error) reportError(`Rückgängig ${r.undoResults ? `unvollständig (${r.done ?? 0} von ${r.total ?? 0} Schritten)` : 'fehlgeschlagen'}: ${r.error}`);
+      if (!r.ok && r.error) reportError(t.undoResult(r.undoResults ? t.undoPartial(r.done ?? 0, r.total ?? 0) : t.undoFailedWord, r.error));
     } catch (e) {
       dispatch({ type: 'undo', csId, phase: 'failed' });
-      reportError(`Rückgängig fehlgeschlagen: ${errorText(e)}`);
+      reportError(t.undoFailed(errorText(e)));
     }
   };
 
@@ -253,8 +258,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       },
       onError: msg => {
         if (gen !== runGen.current) return;
-        if (/not found/i.test(msg)) { reportError('Dieser Chat existiert nicht mehr.'); loadHistory(); }
-        else reportError(`Chat konnte nicht geladen werden: ${msg}`);
+        if (/not found/i.test(msg)) { reportError(t.chatGone); loadHistory(); }
+        else reportError(t.chatLoadFailed(msg));
       },
     });
     if (gen !== runGen.current || !found) return;
@@ -262,7 +267,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   };
 
   const deleteChat = async (id: string) => {
-    try { await api.deleteChat(id); } catch (e) { reportError(`Löschen fehlgeschlagen: ${errorText(e)}`); }
+    try { await api.deleteChat(id); } catch (e) { reportError(t.deleteFailed(errorText(e))); }
     if (id === chatId) newChat(); else loadHistory();
   };
 
@@ -333,8 +338,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
 
   const fixFinding = (f: CheckFinding) => { pendingFix.current = { id: f.id, title: f.title, prompt: f.fixPrompt }; setInput(f.fixPrompt); inputRef.current?.focus(); };
   const fixLink = !home ? fixForChat(fixes, chatId) : null;
-  const placeholder = locked ? 'Erst Shop und KI verbinden (Einstellungen) …' : question ? 'Antwort eintippen oder oben anklicken …' : target ? placeholderFor(target.kind, target.name) : DEFAULT_PLACEHOLDER;
-  const chips = !busy && target ? SUGGESTIONS[target.kind] : [];
+  const placeholder = locked ? t.lockedPlaceholder : question ? t.answerPlaceholder : target ? placeholderFor(target.kind, target.name, locale) : defaultPlaceholder(locale);
+  const chips = !busy && target ? suggestions(target.kind, locale) : [];
   const mode = home ? 'home' : pv ? 'pv' : 'work';
   const overlay = pv && previewOpen; // schmaler Viewport: Vorschau über dem Chat (Desktop zeigt sie ohnehin rechts)
 
@@ -352,14 +357,14 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       <main className={styles.main}>
         <ContextPanel open={contextOpen} onClose={() => setContextOpen(false)} categories={cats} categoryError={categoryError} target={target} onSelect={selectTarget} />
 
-        <section className={styles.chat} aria-label="Chat" onDragOver={onDrop} onDrop={onDrop}>
+        <section className={styles.chat} aria-label={t.chat} onDragOver={onDrop} onDrop={onDrop}>
           {home ? (
             <>
               <HomeHead />
               {composer}
               {status}
               <ChatLog className={styles.homeLog} items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)}>
-                <HomeContent health={homeHealth} loadFailed={shell.healthFailed} hasStyleguide={sgLoaded ? !!sg : null} product={exampleProduct} category={exampleCategory}
+                <HomeContent health={homeHealth} loadFailed={shell.healthFailed} hasStyleguide={sgLoaded ? !!sg : null} product={exampleProduct ?? t.exampleProduct} category={exampleCategory}
                   recent={chats ?? []} onExample={t => { setInput(t); inputRef.current?.focus(); }} onFix={fixFinding} fixes={fixes} onOpenChat={id => void openChat(id)} onOnboard={onboard} />
               </ChatLog>
             </>
@@ -367,13 +372,13 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
             <>
               {pv && (
                 <div className={styles.pvBar}>
-                  <Button size="sm" onClick={() => setPreviewOpen(true)}>{state.draft ? 'Entwurf ansehen' : 'Vorschau'}</Button>
+                  <Button size="sm" onClick={() => setPreviewOpen(true)}>{state.draft ? t.viewDraft : t.preview}</Button>
                 </div>
               )}
               {fixLink && (
                 <div className={styles.fixBar}>
-                  <span>Aus dem Shop-Check: <b>{fixLink.title}</b></span>
-                  <button type="button" onClick={() => newChat()}>Zur Übersicht</button>
+                  <span>{t.fromShopCheck} <b>{fixLink.title}</b></span>
+                  <button type="button" onClick={() => newChat()}>{t.overview}</button>
                 </div>
               )}
               {target && <TargetCard target={target} cfg={cfg} onClear={() => selectTarget(null)} />}
@@ -388,7 +393,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
         <PreviewPane className={styles.right} tab={state.tab} onTab={t => dispatch({ type: 'set_tab', tab: t })} draft={state.draft}
           liveUrl={liveUrl} onOpenAudit={() => setAuditOpen(true)} busy={busy} onClose={overlay ? () => setPreviewOpen(false) : undefined}
           notes={notes} onAddNote={a => setNotes(l => [...l, { ...a, id: crypto.randomUUID() }])} onRemoveNote={id => setNotes(l => l.filter(n => n.id !== id))}
-          onClearNotes={() => setNotes([])} onSubmitNotes={where => { if (busyRef.current || !notes.length) return; const msg = annotationMessage(notes, where); setNotes([]); void run(msg); }} />
+          onClearNotes={() => setNotes([])} onSubmitNotes={where => { if (busyRef.current || !notes.length) return; const msg = annotationMessage(notes, where, locale); setNotes([]); void run(msg); }} />
       </main>
 
       <AuditDialog audit={state.draft?.audit ?? null} open={auditOpen} onClose={() => setAuditOpen(false)} />

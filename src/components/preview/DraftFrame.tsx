@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import type { DraftView } from '@/lib/chat-state';
 import { FRAME_TAG, isFrameMessage, type ToFrame } from '@/lib/preview-frame';
 
-interface Props { draft: DraftView | null; className?: string; hidden: boolean }
+interface Props { draft: DraftView | null; className?: string; hidden: boolean; title: string }
 
 /** Nachricht an das Vorschau-Dokument (opaker Origin → targetOrigin "*", das Dokument prüft event.source) */
 export const postToFrame = (f: HTMLIFrameElement, m: ToFrame) => f.contentWindow?.postMessage({ lotse: FRAME_TAG, ...m }, '*');
@@ -21,7 +21,7 @@ export const PREVIEW_SANDBOX = 'allow-scripts allow-forms';
  * Während des Streamens (draft_partial) wird per postMessage nur der <body> ausgetauscht, Theme-CSS und Scroll-Position bleiben.
  * Der fertige Entwurf lädt das Dokument neu (damit Skripte laufen) und stellt die zuletzt gemeldete Scroll-Position wieder her.
  */
-export function DraftFrame({ draft, className, hidden }: Props) {
+export function DraftFrame({ draft, className, hidden, title }: Props) {
   const ref = useRef<HTMLIFrameElement>(null);
   const ready = useRef(false);
   const scrollY = useRef(0);
@@ -49,5 +49,5 @@ export function DraftFrame({ draft, className, hidden }: Props) {
     return () => f.removeEventListener('load', onLoad);
   }, [draft]);
 
-  return <iframe ref={ref} sandbox="allow-scripts" className={className} hidden={hidden} data-kind="prev" title="Entwurf mit dem Theme des Shops" />;
+  return <iframe ref={ref} sandbox="allow-scripts" className={className} hidden={hidden} data-kind="prev" title={title} />;
 }

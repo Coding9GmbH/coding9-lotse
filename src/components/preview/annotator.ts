@@ -3,6 +3,7 @@
 // die Logik dort liefert lib/preview-frame.ts).
 import { describeElement } from '@/lib/annotations';
 import { markKeySelects } from '@/lib/a11y';
+import { DEFAULT_LOCALE, type Locale } from '@/lib/i18n';
 import { FRAME_CSS, isFrameMessage, MEANINGFUL } from '@/lib/preview-frame';
 import { isSandboxed, postToFrame } from './DraftFrame';
 
@@ -35,22 +36,22 @@ function sectionTitle(el: Element): string | undefined {
   return t ? (t.length > 60 ? `${t.slice(0, 57)}…` : t) : undefined;
 }
 
-function hitOf(tag: string, text: string, alt: string, isButton: boolean, section: string, path: string): FrameTarget {
-  return { label: describeElement(tag, { text, alt, isButton }), section: section || undefined, path };
+function hitOf(tag: string, text: string, alt: string, isButton: boolean, section: string, path: string, locale: Locale): FrameTarget {
+  return { label: describeElement(tag, { text, alt, isButton }, locale), section: section || undefined, path };
 }
 
 /** Entwurf (sandboxed): Markier-Modus im Dokument einschalten, Klicks kommen als Nachricht zurück. */
-function attachByMessage(frame: HTMLIFrameElement, onPick: (p: Pick) => void, onTargets?: (list: FrameTarget[]) => void): () => void {
+function attachByMessage(frame: HTMLIFrameElement, onPick: (p: Pick) => void, onTargets: ((list: FrameTarget[]) => void) | undefined, locale: Locale): () => void {
   const onMsg = (e: MessageEvent) => {
     if (e.source !== frame.contentWindow || !isFrameMessage(e.data)) return;
     const d = e.data;
     if (d.t === 'targets') {
       const raw = Array.isArray(d.items) ? d.items as Record<string, unknown>[] : [];
-      onTargets?.(raw.slice(0, 40).map(item => hitOf(str(item.tag, 30), str(item.text), str(item.alt), !!item.isButton, str(item.section, 80), str(item.path))));
+      onTargets?.(raw.slice(0, 40).map(item => hitOf(str(item.tag, 30), str(item.text), str(item.alt), !!item.isButton, str(item.section, 80), str(item.path), locale)));
       return;
     }
     if (d.t !== 'pick') return;
-    onPick({ ...hitOf(str(d.tag, 30), str(d.text), str(d.alt), !!d.isButton, str(d.section, 80), str(d.path)), x: Number(d.x) || 0, y: Number(d.y) || 0 });
+    onPick({ ...hitOf(str(d.tag, 30), str(d.text), str(d.alt), !!d.isButton, str(d.section, 80), str(d.path), locale), x: Number(d.x) || 0, y: Number(d.y) || 0 });
   };
   const bind = () => postToFrame(frame, { t: 'mark', on: true });
   window.addEventListener('message', onMsg);
@@ -59,15 +60,15 @@ function attachByMessage(frame: HTMLIFrameElement, onPick: (p: Pick) => void, on
   return () => { window.removeEventListener('message', onMsg); frame.removeEventListener('load', bind); postToFrame(frame, { t: 'mark', on: false }); };
 }
 
-function asPick(el: Element, x: number, y: number): Pick {
+function asPick(el: Element, x: number, y: number, locale: Locale): Pick {
   const isButton = el.tagName === 'BUTTON' || el.classList.contains('btn') || /button/.test(el.className.toString());
   const text = (el as HTMLElement).innerText ?? el.textContent ?? '';
-  return { ...hitOf(el.tagName, text, (el as HTMLImageElement).alt ?? '', isButton, sectionTitle(el) ?? '', cssPath(el)), x, y };
+  return { ...hitOf(el.tagName, text, (el as HTMLImageElement).alt ?? '', isButton, sectionTitle(el) ?? '', cssPath(el), locale), x, y };
 }
 
-/** Schaltet den Markier-Modus in einem iframe ein; liefert die Abmeldefunktion. */
-export function attachAnnotator(frame: HTMLIFrameElement, onPick: (p: Pick) => void, onTargets?: (list: FrameTarget[]) => void): () => void {
-  if (isSandboxed(frame)) return attachByMessage(frame, onPick, onTargets);
+/** Schaltet den Markier-Modus in einem iframe ein; liefert die Abmeldefunktion. `locale`: Sprache der Element-Bezeichnungen. */
+export function attachAnnotator(frame: HTMLIFrameElement, onPick: (p: Pick) => void, onTargets?: (list: FrameTarget[]) => void, locale: Locale = DEFAULT_LOCALE): () => void {
+  if (isSandboxed(frame)) return attachByMessage(frame, onPick, onTargets, locale);
   let doc: Document | null = null, hovered: Element | null = null;
   const over = (e: Event) => {
     const t = target(e.target as Element);
@@ -78,13 +79,13 @@ export function attachAnnotator(frame: HTMLIFrameElement, onPick: (p: Pick) => v
   const click = (e: MouseEvent) => {
     e.preventDefault(); e.stopPropagation();
     const t = target(e.target as Element); if (!t) return;
-    onPick(asPick(t, e.clientX, e.clientY));
+    onPick(asPick(t, e.clientX, e.clientY, locale));
   };
   const key = (e: KeyboardEvent) => {
     if (!markKeySelects(e.key)) return;
     const t = target(e.target as Element); if (!t) return;
     e.preventDefault(); e.stopPropagation();
-    onPick(asPick(t, 0, 0));
+    onPick(asPick(t, 0, 0, locale));
   };
   const block = (e: Event) => { e.preventDefault(); e.stopPropagation(); }; // keine Navigation/Formulare im Markier-Modus
 
@@ -97,7 +98,7 @@ export function attachAnnotator(frame: HTMLIFrameElement, onPick: (p: Pick) => v
     const list = [...doc.querySelectorAll(MEANINGFUL)].slice(0, 40).map(el => {
       const node = el as HTMLElement;
       if (node.tabIndex < 0) node.tabIndex = 0;
-      return asPick(el, 0, 0);
+      return asPick(el, 0, 0, locale);
     });
     onTargets?.(list);
     doc.addEventListener('mouseover', over, true);

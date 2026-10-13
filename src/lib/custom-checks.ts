@@ -1,5 +1,6 @@
 // Eigene Shop-Prüfungen (deklarativ, plattform-neutral): Bedingungen über neutrale Produktfelder, ohne Code.
 // Rein (Server, Oberfläche, Tests). Gespeichert wird lokal (server/custom-checks.ts), ausgewertet je Plattform über scanProducts.
+import { DEFAULT_LOCALE, INTL_LOCALE, messages, type Locale } from './i18n';
 import type { CheckSeverity } from './protocol';
 
 /** Neutrale Sicht auf ein aktives Produkt, gleich für Shopware, Shopify, Magento und OpenMage. null = auf dieser Plattform nicht lesbar. */
@@ -13,18 +14,21 @@ export interface NeutralProduct {
 export interface NeutralScan { rows: NeutralProduct[]; total: number; capped: boolean }
 
 export type FieldKind = 'number' | 'bool';
+const FIELD_LABEL = messages(DEFAULT_LOCALE).lib.checks.fields;
+/** Felder für Bedingungen; label = deutsch (KI, Server), je Sprache: checkFieldLabel(field, locale) */
 export const CHECK_FIELDS = {
-  descriptionWords: { label: 'Wörter der Beschreibung', kind: 'number' },
-  descriptionChars: { label: 'Zeichen der Beschreibung (ohne HTML)', kind: 'number' },
-  metaTitleChars: { label: 'Zeichen des Meta-Titles', kind: 'number' },
-  metaDescriptionChars: { label: 'Zeichen der Meta-Description', kind: 'number' },
-  nameChars: { label: 'Zeichen des Produktnamens', kind: 'number' },
-  price: { label: 'Preis (brutto)', kind: 'number' },
-  listPrice: { label: 'Streichpreis', kind: 'number' },
-  stock: { label: 'Bestand', kind: 'number' },
-  hasImage: { label: 'Hat ein Bild', kind: 'bool' },
+  descriptionWords: { label: FIELD_LABEL.descriptionWords, kind: 'number' },
+  descriptionChars: { label: FIELD_LABEL.descriptionChars, kind: 'number' },
+  metaTitleChars: { label: FIELD_LABEL.metaTitleChars, kind: 'number' },
+  metaDescriptionChars: { label: FIELD_LABEL.metaDescriptionChars, kind: 'number' },
+  nameChars: { label: FIELD_LABEL.nameChars, kind: 'number' },
+  price: { label: FIELD_LABEL.price, kind: 'number' },
+  listPrice: { label: FIELD_LABEL.listPrice, kind: 'number' },
+  stock: { label: FIELD_LABEL.stock, kind: 'number' },
+  hasImage: { label: FIELD_LABEL.hasImage, kind: 'bool' },
 } as const satisfies Record<string, { label: string; kind: FieldKind }>;
 export type CheckField = keyof typeof CHECK_FIELDS;
+export const checkFieldLabel = (f: CheckField, locale: Locale = DEFAULT_LOCALE): string => messages(locale).lib.checks.fields[f];
 
 export const CHECK_OPS = { lt: '<', lte: '≤', gt: '>', gte: '≥', eq: '=', neq: '≠' } as const;
 export type CheckOp = keyof typeof CHECK_OPS;
@@ -68,18 +72,21 @@ function holds(v: number | boolean | null, c: CheckCondition): boolean {
 export const matches = (p: NeutralProduct, chk: Pick<CustomCheck, 'match' | 'conditions'>): boolean =>
   chk.conditions.length > 0 && (chk.match === 'any' ? chk.conditions.some(c => holds(fieldValue(p, c.field), c)) : chk.conditions.every(c => holds(fieldValue(p, c.field), c)));
 
-export const conditionText = (c: CheckCondition): string => {
-  const f = CHECK_FIELDS[c.field];
-  return f.kind === 'bool' ? `${f.label}: ${c.value === true ? 'ja' : 'nein'}` : `${f.label} ${CHECK_OPS[c.op]} ${Number(c.value).toLocaleString('de-DE')}`;
+export const conditionText = (c: CheckCondition, locale: Locale = DEFAULT_LOCALE): string => {
+  const f = CHECK_FIELDS[c.field], t = messages(locale).lib.checks, label = t.fields[c.field];
+  return f.kind === 'bool' ? `${label}: ${c.value === true ? t.yes : t.no}` : `${label} ${CHECK_OPS[c.op]} ${Number(c.value).toLocaleString(INTL_LOCALE[locale])}`;
 };
-export const conditionsText = (chk: Pick<CustomCheck, 'match' | 'conditions'>) => chk.conditions.map(conditionText).join(chk.match === 'any' ? ' ODER ' : ' UND ');
+export const conditionsText = (chk: Pick<CustomCheck, 'match' | 'conditions'>, locale: Locale = DEFAULT_LOCALE) => {
+  const t = messages(locale).lib.checks;
+  return chk.conditions.map(c => conditionText(c, locale)).join(chk.match === 'any' ? t.or : t.and);
+};
 
 /** Auswertung: Anzahl + Beispiele mit dem auslösenden Wert, damit der Befund nachvollziehbar ist */
-export function evaluate(rows: NeutralProduct[], chk: Pick<CustomCheck, 'match' | 'conditions'>) {
+export function evaluate(rows: NeutralProduct[], chk: Pick<CustomCheck, 'match' | 'conditions'>, locale: Locale = DEFAULT_LOCALE) {
   const hits = rows.filter(p => matches(p, chk));
   const detail = (p: NeutralProduct) => {
     const c = chk.conditions[0], v = fieldValue(p, c.field);
-    return v == null || typeof v === 'boolean' ? p.label : `${p.label}: ${CHECK_FIELDS[c.field].label} ${Number(v).toLocaleString('de-DE')}`;
+    return v == null || typeof v === 'boolean' ? p.label : `${p.label}: ${checkFieldLabel(c.field, locale)} ${Number(v).toLocaleString(INTL_LOCALE[locale])}`;
   };
   return { count: hits.length, sample: hits.slice(0, 5).map(p => ({ id: p.id, label: detail(p) })) };
 }
@@ -114,25 +121,11 @@ export function parseCheckInput(raw: unknown): Omit<CustomCheck, 'id' | 'created
 }
 
 // ---- Titel der eingebauten Prüfungen (Verwaltungsliste) ----
-const BY_SUFFIX: Record<string, string> = {
-  'meta-description': 'Produkte ohne Meta-Description', 'meta-title': 'Produkte ohne Meta-Title', 'meta-title-long': 'Zu lange Meta-Titles',
-  'meta-title-duplicate': 'Doppelte Meta-Titles', 'description-thin': 'Dünne Produktbeschreibungen', 'no-image': 'Produkte ohne Bild',
-  'alt-missing': 'Bilder ohne Alt-Text', 'stock-zero': 'Aktiv und lieferbar ohne Bestand', 'stock-oversell': 'Bestellbar ohne Bestand',
-  'sold-out': 'Aktiv, aber ausverkauft', 'price-zero': 'Preis ist 0', 'below-purchase': 'Preis unter Einkaufspreis',
-  'list-price': 'Streichpreis nicht über dem Preis', 'special-not-below': 'Sonderpreis nicht unter dem Preis', 'price-spread': 'Auffällige Preisspanne der Varianten',
-  'description-links': 'Kaputte Links in Produkttexten', 'page-links': 'Kaputte Links in Seiten', 'cms-links': 'Kaputte Links in CMS-Seiten',
-  'category-meta': 'Kategorien ohne Meta-Description', 'category-description': 'Kategorien ohne Beschreibung', collections: 'Kollektionen ohne Meta/Beschreibung',
-  translations: 'Fehlende Übersetzungen',
-};
-const BY_ID: Record<string, string> = {
-  'recht.gpsr': 'GPSR-Pflichtangaben', 'recht.grundpreis': 'Grundpreisangaben', 'recht.rechtstexte': 'Rechtstexte',
-  'bfsg.texte': 'Barrierefreiheit: Texte', 'bfsg.kontrast': 'Barrierefreiheit: Kontraste',
-  'gsc.low-ctr': 'Search Console: niedrige Klickrate', 'gsc.measure-due': 'Search Console: Messung fällig',
-};
-export function builtinTitle(id: string): string {
-  if (BY_ID[id]) return BY_ID[id];
+export function builtinTitle(id: string, locale: Locale = DEFAULT_LOCALE): string {
+  const t = messages(locale).lib.checks, byId = t.byId as Record<string, string>;
+  if (byId[id]) return byId[id];
   const suffix = id.split('.').slice(1).join('.');
-  return BY_SUFFIX[suffix] ?? id;
+  return (t.bySuffix as Record<string, string>)[suffix] ?? id;
 }
 
 /** Eintrag der Verwaltungsliste (GET /api/shopcheck/checks) */

@@ -1,6 +1,11 @@
 // Shop-Plattformen (Shopware 6, Shopify, Magento 2, OpenMage): Kennung, Name und Zugangsfelder für die Einstellungen.
 // Reine Daten + Hilfsfunktionen, gemeinsam für Server (settings.ts, platform/*) und Oberfläche (SettingsView).
 // Die Adapter selbst liegen unter src/server/platform/<kind>/ (siehe docs/platform.md).
+// Texte (Feldnamen, Hinweise) stehen je Sprache in i18n/messages/lib.ts (direkt importiert: proxy.ts lädt diese Datei auch).
+import { DEFAULT_LOCALE, type Locale } from './i18n/locales';
+import { de as deLib, en as enLib } from './i18n/messages/lib';
+
+const LIB: Record<Locale, typeof deLib> = { de: deLib, en: enLib };
 
 export type PlatformKind = 'shopware' | 'shopify' | 'magento' | 'openmage';
 export const PLATFORM_KINDS: readonly PlatformKind[] = ['shopware', 'shopify', 'magento', 'openmage'];
@@ -50,91 +55,99 @@ export interface PlatformSettingsDescriptor {
   available: boolean;
 }
 
-const B = '**';
-export const PLATFORM_SETTINGS: Record<PlatformKind, PlatformSettingsDescriptor> = {
-  shopware: {
+type PlatformTexts = typeof deLib.platforms;
+
+/** Beschreibung einer Plattform mit den Texten einer Sprache (Struktur, Umgebungsvariablen und Pfade sind sprachunabhängig). */
+const DESCRIBE: Record<PlatformKind, (t: PlatformTexts) => PlatformSettingsDescriptor> = {
+  shopware: ({ urlPlaceholder, authLabel, shopware: x }) => ({
     kind: 'shopware', label: 'Shopware', product: 'Shopware 6', available: true,
     storefrontPaths: ['widgets', 'checkout', 'account', 'navigation', 'detail', 'search', 'bundles', 'theme', 'media', 'thumbnail', 'store-api'],
     fields: [
-      { key: 'url', label: 'Shop-URL', type: 'url', placeholder: 'https://mein-shop.de', hint: 'Adresse deines Shopware-6-Shops, z. B. https://mein-shop.de', env: 'SHOPWARE_URL', autoComplete: 'url' },
-      { key: 'publicUrl', label: 'Öffentliche URL (optional)', type: 'url', placeholder: 'https://mein-shop.de', hint: 'Nur nötig, wenn Lotse den Shop intern unter einer anderen Adresse erreicht (z. B. in Docker).', env: 'SHOPWARE_PUBLIC_URL', optional: true },
+      { key: 'url', label: x.url.label, type: 'url', placeholder: urlPlaceholder, hint: x.url.hint, env: 'SHOPWARE_URL', autoComplete: 'url' },
+      { key: 'publicUrl', label: x.publicUrl.label, type: 'url', placeholder: urlPlaceholder, hint: x.publicUrl.hint, env: 'SHOPWARE_PUBLIC_URL', optional: true },
     ],
-    authLabel: 'Art des Zugangs',
+    authLabel,
     auth: [
-      { key: 'integration', label: 'Integration (empfohlen)',
-        hint: `Lege im Shopware-Admin unter ${B}Einstellungen → System → Integrationen${B} eine neue Integration an (mit Administrator-Rechten) und kopiere Zugangs-ID und Sicherheitsschlüssel hierher.`,
+      { key: 'integration', label: x.integration.label, hint: x.integration.hint,
         fields: [
-          { key: 'clientId', label: 'Zugangs-ID', placeholder: 'SWIA…', env: 'SHOPWARE_CLIENT_ID', autoComplete: 'off' },
-          { key: 'clientSecret', label: 'Sicherheitsschlüssel', secret: true, env: 'SHOPWARE_CLIENT_SECRET' },
+          { key: 'clientId', label: x.clientId, placeholder: 'SWIA…', env: 'SHOPWARE_CLIENT_ID', autoComplete: 'off' },
+          { key: 'clientSecret', label: x.clientSecret, secret: true, env: 'SHOPWARE_CLIENT_SECRET' },
         ] },
-      { key: 'user', label: 'Admin-Benutzer',
-        hint: 'Alternative zur Integration: ein Admin-Benutzer mit Schreibrechten. Ist zusätzlich eine Integration hinterlegt, wird die Integration verwendet.',
+      { key: 'user', label: x.userMode.label, hint: x.userMode.hint,
         fields: [
-          { key: 'user', label: 'Admin-Benutzer', env: 'SHOPWARE_USER', autoComplete: 'username' },
-          { key: 'password', label: 'Passwort', secret: true, env: 'SHOPWARE_PASSWORD', autoComplete: 'current-password' },
+          { key: 'user', label: x.user, env: 'SHOPWARE_USER', autoComplete: 'username' },
+          { key: 'password', label: x.password, secret: true, env: 'SHOPWARE_PASSWORD', autoComplete: 'current-password' },
         ] },
     ],
-  },
-  shopify: {
-    kind: 'shopify', label: 'Shopify', product: 'Shopify', available: true, categoryNoun: { one: 'Kollektion', many: 'Kollektionen' },
+  }),
+  shopify: ({ urlPlaceholder, authLabel, shopify: x }) => ({
+    kind: 'shopify', label: 'Shopify', product: 'Shopify', available: true, categoryNoun: x.category,
     storefrontPaths: ['cdn', 'products', 'collections', 'pages', 'cart', 'search'],
     fields: [
-      { key: 'storeDomain', label: 'Shop-Domain', placeholder: 'mein-shop.myshopify.com', hint: 'Die myshopify.com-Adresse deines Shops (nicht die eigene Domain).', env: 'SHOPIFY_STORE_DOMAIN', autoComplete: 'off' },
-      { key: 'publicUrl', label: 'Öffentliche URL (optional)', type: 'url', placeholder: 'https://mein-shop.de', hint: 'Eigene Domain des Shops für Links und Vorschau. Leer = Hauptdomain aus Shopify.', env: 'SHOPIFY_PUBLIC_URL', optional: true },
-      { key: 'apiVersion', label: 'API-Version (optional)', placeholder: '2026-10', hint: 'Leer = von Lotse getestete Version (2026-10).', env: 'SHOPIFY_API_VERSION', optional: true },
+      { key: 'storeDomain', label: x.storeDomain.label, placeholder: x.storeDomain.placeholder, hint: x.storeDomain.hint, env: 'SHOPIFY_STORE_DOMAIN', autoComplete: 'off' },
+      { key: 'publicUrl', label: x.publicUrl.label, type: 'url', placeholder: urlPlaceholder, hint: x.publicUrl.hint, env: 'SHOPIFY_PUBLIC_URL', optional: true },
+      { key: 'apiVersion', label: x.apiVersion.label, placeholder: '2026-10', hint: x.apiVersion.hint, env: 'SHOPIFY_API_VERSION', optional: true },
     ],
-    authLabel: 'Art des Zugangs',
+    authLabel,
     auth: [
-      { key: 'app', label: 'App aus dem Dev Dashboard (für neue Apps)',
-        hint: `Kopiere Client-ID und Client-Secret aus den Einstellungen der App im ${B}Shopify Dev Dashboard${B} (dev.shopify.com), nachdem du die App in deinem Shop installiert hast.`,
+      { key: 'app', label: x.app.label, hint: x.app.hint,
         fields: [
-          { key: 'clientId', label: 'Client-ID', env: 'SHOPIFY_CLIENT_ID', autoComplete: 'off' },
-          { key: 'clientSecret', label: 'Client-Secret', secret: true, env: 'SHOPIFY_CLIENT_SECRET' },
+          { key: 'clientId', label: x.clientId, env: 'SHOPIFY_CLIENT_ID', autoComplete: 'off' },
+          { key: 'clientSecret', label: x.clientSecret, secret: true, env: 'SHOPIFY_CLIENT_SECRET' },
         ] },
-      { key: 'token', label: 'Admin-API-Token (bestehende eigene App)',
-        hint: `Kopiere das Admin-API-Zugriffstoken aus der eigenen App unter ${B}Einstellungen → Apps und Vertriebskanäle → Apps entwickeln${B}.`,
-        fields: [{ key: 'accessToken', label: 'Admin-API-Zugriffstoken', secret: true, placeholder: 'shpat_…', env: 'SHOPIFY_ACCESS_TOKEN' }] },
+      { key: 'token', label: x.token.label, hint: x.token.hint,
+        fields: [{ key: 'accessToken', label: x.accessToken, secret: true, placeholder: 'shpat_…', env: 'SHOPIFY_ACCESS_TOKEN' }] },
     ],
-  },
-  magento: {
+  }),
+  magento: ({ urlPlaceholder, authLabel, magento: x }) => ({
     kind: 'magento', label: 'Magento', product: 'Magento 2 (Adobe Commerce)', available: true,
     storefrontPaths: ['static', 'media', 'pub', 'catalog', 'checkout', 'customer/section'],
     fields: [
-      { key: 'url', label: 'Shop-URL', type: 'url', placeholder: 'https://mein-shop.de', hint: 'Basis-Adresse deines Magento-2-Shops (REST-API unter /rest/…).', env: 'MAGENTO_URL', autoComplete: 'url' },
-      { key: 'publicUrl', label: 'Öffentliche URL (optional)', type: 'url', placeholder: 'https://mein-shop.de', hint: 'Nur nötig, wenn Lotse den Shop intern unter einer anderen Adresse erreicht (z. B. in Docker).', env: 'MAGENTO_PUBLIC_URL', optional: true },
-      { key: 'storeCode', label: 'Store-View (optional)', placeholder: 'default', hint: 'Code der Store-View, deren Texte Lotse liest und schreibt. Leer = default.', env: 'MAGENTO_STORE_CODE', optional: true },
-      { key: 'priceBasis', label: 'Preise im Magento-Admin', env: 'MAGENTO_PRICE_BASIS', optional: true,
-        options: [{ value: '', label: 'Bitte wählen' }, { value: 'gross', label: 'inkl. MwSt. (brutto)' }, { value: 'net', label: 'exkl. MwSt. (netto, Magento-Standard)' }],
-        hint: `Wie im Magento-Admin unter ${B}Stores → Konfiguration → Verkäufe → Steuer → Berechnungseinstellungen → Katalogpreise${B} eingestellt. Ohne Angabe ändert Lotse keine Preise.` },
+      { key: 'url', label: x.url.label, type: 'url', placeholder: urlPlaceholder, hint: x.url.hint, env: 'MAGENTO_URL', autoComplete: 'url' },
+      { key: 'publicUrl', label: x.publicUrl.label, type: 'url', placeholder: urlPlaceholder, hint: x.publicUrl.hint, env: 'MAGENTO_PUBLIC_URL', optional: true },
+      { key: 'storeCode', label: x.storeCode.label, placeholder: 'default', hint: x.storeCode.hint, env: 'MAGENTO_STORE_CODE', optional: true },
+      { key: 'priceBasis', label: x.priceBasis.label, env: 'MAGENTO_PRICE_BASIS', optional: true,
+        options: [{ value: '', label: x.priceBasisOptions.none }, { value: 'gross', label: x.priceBasisOptions.gross }, { value: 'net', label: x.priceBasisOptions.net }],
+        hint: x.priceBasis.hint },
     ],
-    authLabel: 'Art des Zugangs',
+    authLabel,
     auth: [
-      { key: 'integration', label: 'Integration (empfohlen)',
-        hint: `Lege im Magento-Admin unter ${B}System → Erweiterungen → Integrationen${B} eine Integration mit Zugriff auf Katalog, Inhalte und Marketing an, aktiviere sie und kopiere das Zugriffstoken hierher.`,
-        fields: [{ key: 'accessToken', label: 'Zugriffstoken', secret: true, env: 'MAGENTO_ACCESS_TOKEN' }] },
-      { key: 'user', label: 'Admin-Benutzer',
-        hint: 'Alternative zur Integration: ein Admin-Benutzer mit den nötigen Rechten (ohne Zwei-Faktor-Anmeldung für die API). Ist zusätzlich ein Zugriffstoken hinterlegt, wird das Token verwendet.',
+      { key: 'integration', label: x.integration.label, hint: x.integration.hint,
+        fields: [{ key: 'accessToken', label: x.accessToken, secret: true, env: 'MAGENTO_ACCESS_TOKEN' }] },
+      { key: 'user', label: x.userMode.label, hint: x.userMode.hint,
         fields: [
-          { key: 'user', label: 'Admin-Benutzer', env: 'MAGENTO_USER', autoComplete: 'username' },
-          { key: 'password', label: 'Passwort', secret: true, env: 'MAGENTO_PASSWORD', autoComplete: 'current-password' },
+          { key: 'user', label: x.user, env: 'MAGENTO_USER', autoComplete: 'username' },
+          { key: 'password', label: x.password, secret: true, env: 'MAGENTO_PASSWORD', autoComplete: 'current-password' },
         ] },
     ],
-  },
-  openmage: {
+  }),
+  openmage: ({ urlPlaceholder, openmage: x }) => ({
     kind: 'openmage', label: 'OpenMage', product: 'OpenMage (Magento 1)', available: true,
     storefrontPaths: ['skin', 'js', 'media', 'catalog', 'catalogsearch', 'checkout', 'cms', 'index.php'],
     fields: [
-      { key: 'url', label: 'Shop-URL', type: 'url', placeholder: 'https://mein-shop.de', hint: `Basis-Adresse deines OpenMage-Shops (Magento 1). Im Shop muss das Lotse-Modul ${B}Lotse_Connector${B} installiert und aktiv sein (Ordner integrations/openmage, JSON-API unter /lotse-api/v1).`, env: 'OPENMAGE_URL', autoComplete: 'url' },
-      { key: 'publicUrl', label: 'Öffentliche URL (optional)', type: 'url', placeholder: 'https://mein-shop.de', hint: 'Nur nötig, wenn Lotse den Shop intern unter einer anderen Adresse erreicht (z. B. in Docker).', env: 'OPENMAGE_PUBLIC_URL', optional: true },
-      { key: 'storeCode', label: 'Store-View (optional)', placeholder: 'default', hint: 'Code der Store-View, deren Texte Lotse liest und schreibt. Leer = Standard-Store-View des Shops.', env: 'OPENMAGE_STORE_CODE', optional: true },
+      { key: 'url', label: x.url.label, type: 'url', placeholder: urlPlaceholder, hint: x.url.hint, env: 'OPENMAGE_URL', autoComplete: 'url' },
+      { key: 'publicUrl', label: x.publicUrl.label, type: 'url', placeholder: urlPlaceholder, hint: x.publicUrl.hint, env: 'OPENMAGE_PUBLIC_URL', optional: true },
+      { key: 'storeCode', label: x.storeCode.label, placeholder: 'default', hint: x.storeCode.hint, env: 'OPENMAGE_STORE_CODE', optional: true },
     ],
     auth: [
-      { key: 'token', label: 'API-Token',
-        hint: `Kopiere den Token aus dem OpenMage-Admin unter ${B}System → Konfiguration → Lotse → API${B}, wo er nur einmal angezeigt wird.`,
-        fields: [{ key: 'token', label: 'API-Token', secret: true, placeholder: 'lotse_…', env: 'OPENMAGE_TOKEN' }] },
+      { key: 'token', label: x.token.label, hint: x.token.hint,
+        fields: [{ key: 'token', label: x.tokenField, secret: true, placeholder: 'lotse_…', env: 'OPENMAGE_TOKEN' }] },
     ],
-  },
+  }),
 };
+
+const describeAll = (t: PlatformTexts) => Object.fromEntries(PLATFORM_KINDS.map(k => [k, DESCRIBE[k](t)])) as Record<PlatformKind, PlatformSettingsDescriptor>;
+/** Plattformen mit deutschen Texten (Server, Adapter); für die Oberfläche je Sprache: platformSettings(kind, locale). */
+export const PLATFORM_SETTINGS: Record<PlatformKind, PlatformSettingsDescriptor> = describeAll(deLib.platforms);
+const BY_LOCALE: Partial<Record<Locale, Record<PlatformKind, PlatformSettingsDescriptor>>> = { [DEFAULT_LOCALE]: PLATFORM_SETTINGS };
+/** Beschreibung einer Plattform mit Feldnamen, Hinweisen und Platzhaltern in der gewünschten Sprache. */
+export function platformSettings(kind: PlatformKind, locale: Locale = DEFAULT_LOCALE): PlatformSettingsDescriptor {
+  const all = BY_LOCALE[locale] ??= describeAll(LIB[locale]?.platforms ?? deLib.platforms);
+  return all[kind];
+}
+/** Name der Kategorien in der Oberfläche (Shopify: Kollektion), sonst Kategorie */
+export const categoryNoun = (kind: PlatformKind | null | undefined, locale: Locale = DEFAULT_LOCALE): { one: string; many: string } =>
+  (kind && platformSettings(kind, locale).categoryNoun) || (LIB[locale] ?? deLib).platforms.category;
 
 const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 const ALL_STOREFRONT_PATHS = [...new Set(PLATFORM_KINDS.flatMap(k => PLATFORM_SETTINGS[k].storefrontPaths))].sort((a, b) => b.length - a.length);
@@ -148,32 +161,14 @@ export const storefrontPrefix = (pathname: string): string | null => STOREFRONT_
 export const STOREFRONT_PREFIX_HEADER = 'x-lotse-storefront-prefix';
 export const isStorefrontPathOf = (kind: PlatformKind, prefix: string) => PLATFORM_SETTINGS[kind].storefrontPaths.includes(prefix);
 
-const SCOPE_FACE: Record<Exclude<PlatformKind, 'shopware'>, Record<string, { label: string; hint: string }>> = {
-  shopify: {
-    cms: { label: 'Seiten', hint: 'Seiten, Kollektionen und Produktvorlagen' },
-    products: { label: 'Produkte', hint: 'Name, Nr., Preise, Bestand, Texte, Bilder, Varianten und Tags' },
-    categories: { label: 'Kollektionen', hint: 'Struktur, Texte und SEO-Felder' },
-    shop: { label: 'Shop-Grunddaten', hint: 'Domains, Sprachen, Währungen und Theme' },
-  },
-  magento: {
-    cms: { label: 'CMS-Seiten', hint: 'Seiten und Blöcke' },
-    products: { label: 'Produkte', hint: 'Name, Nr., Preise, Bestand, Texte, Bilder und Eigenschaften' },
-    shop: { label: 'Shop-Grunddaten', hint: 'Store-Views, Sprachen und Währungen' },
-  },
-  openmage: {
-    cms: { label: 'CMS-Seiten', hint: 'Seiten und Blöcke' },
-    products: { label: 'Produkte', hint: 'Name, Nr., Preise, Bestand, Texte, Bilder und Eigenschaften' },
-    shop: { label: 'Shop-Grunddaten', hint: 'Store-Views, Sprachen und Währungen' },
-  },
-};
-
-/** Sichtbarer Bereichsname. Shopware behält Einkaufswelten; die anderen Plattformen nicht. */
-export function scopeDisplay(kind: PlatformKind, key: string, info: { label: string; hint: string }): { label: string; hint: string } {
-  if (kind === 'shopware') return info;
-  return SCOPE_FACE[kind][key] ?? {
+/** Sichtbarer Bereichsname. Shopware behält Einkaufswelten; die anderen Plattformen nicht. Deutsch: info vom Server bleibt die Grundlage. */
+export function scopeDisplay(kind: PlatformKind, key: string, info: { label: string; hint: string }, locale: Locale = DEFAULT_LOCALE): { label: string; hint: string } {
+  const t = (LIB[locale] ?? deLib).scopes, base = locale === DEFAULT_LOCALE ? info : (t.base as Record<string, { label: string; hint: string }>)[key] ?? info;
+  if (kind === 'shopware') return base;
+  return (t[kind] as Record<string, { label: string; hint: string } | undefined>)[key] ?? (locale === DEFAULT_LOCALE ? {
     label: info.label.replace(/Einkaufswelten-Layouts/g, 'Seiten'),
     hint: info.hint.replace(/Produktstreams/g, 'Gruppen').replace(/Verkaufskanäle(?: & Domains)?/g, 'Vertrieb'),
-  };
+  } : base);
 }
 
 export const platformLabel = (kind: PlatformKind) => PLATFORM_SETTINGS[kind].label;

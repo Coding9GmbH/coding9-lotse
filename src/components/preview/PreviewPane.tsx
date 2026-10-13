@@ -9,6 +9,7 @@ import type { DraftView, PreviewTab } from '@/lib/chat-state';
 import { Button } from '@/components/ui/Button';
 import { IconClose, IconPin } from '@/components/ui/icons';
 import { Segmented } from '@/components/ui/Segmented';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 import { attachAnnotator, drawPins, type FrameTarget, type Pick } from './annotator';
 import { DraftFrame, PREVIEW_SANDBOX } from './DraftFrame';
 import styles from './PreviewPane.module.css';
@@ -40,6 +41,7 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
   const [targets, setTargets] = useState<FrameTarget[]>([]);
   const [wasMarking, setWasMarking] = useState(false);
   const [text, setText] = useState('');
+  const { locale, t: { common: c, preview: t } } = useI18n();
   if (marking !== wasMarking) {
     setWasMarking(marking);
     if (!marking) setTargets([]);
@@ -65,8 +67,8 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
     if (!marking) return;
     const f = canMark ? frame() : null;
     if (!f) return;
-    return attachAnnotator(f, place, setTargets);
-  }, [marking, canMark, tab, draft?.rev, liveUrl]); // eslint-disable-line react-hooks/exhaustive-deps -- frame() und place lesen nur das DOM
+    return attachAnnotator(f, place, setTargets, locale);
+  }, [marking, canMark, tab, draft?.rev, liveUrl, locale]); // eslint-disable-line react-hooks/exhaustive-deps -- frame() und place lesen nur das DOM
 
   // Nummern an den markierten Elementen (auch nach dem Neuladen des Entwurfs)
   useEffect(() => {
@@ -87,46 +89,46 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
   const empty = (tab === 'live' && !liveUrl) || (tab === 'prev' && !draft);
 
   return (
-    <section className={[styles.right, className].filter(Boolean).join(' ')} aria-label="Vorschau">
+    <section className={[styles.right, className].filter(Boolean).join(' ')} aria-label={t.aria}>
       <div className={styles.bar}>
         <div className={styles.ttl}>
           {draft ? (
             <>
-              {draft.name || 'Entwurf'}<small>{draft.pageType}</small>
+              {draft.name || t.draft}<small>{draft.pageType}</small>
               {draft.partial
-                ? <span className={styles.badge}><i aria-hidden="true" />wird geschrieben …</span>
+                ? <span className={styles.badge}><i aria-hidden="true" />{t.writing}</span>
                 : audit && (
-                  <button type="button" className={`${styles.score} ${styles[scoreClass(audit.score)]}`} title="SEO-, Conversion- und Design-Check" onClick={onOpenAudit}>
+                  <button type="button" className={`${styles.score} ${styles[scoreClass(audit.score)]}`} title={t.scoreTitle} onClick={onOpenAudit}>
                     SEO/CRO {audit.score}
                   </button>
                 )}
             </>
-          ) : 'Vorschau'}
+          ) : t.title}
         </div>
-        <Segmented label="Ansicht" className={styles.seg} value={tab === 'spec' ? 'prev' : tab} onChange={onTab} options={[
-          { value: 'live', label: 'Aktuell', title: 'Die echte Seite im Shop' },
-          { value: 'prev', label: 'Entwurf', title: 'Entwurf mit dem Theme des Shops' },
+        <Segmented label={t.view} className={styles.seg} value={tab === 'spec' ? 'prev' : tab} onChange={onTab} options={[
+          { value: 'live', label: t.live, title: t.liveTitle },
+          { value: 'prev', label: t.draft, title: t.draftTitle },
         ]} />
         <Button size="sm" className={`${styles.mark} ${marking ? styles.markOn : ''}`} aria-pressed={marking} disabled={!canMark && !marking}
-          title="Elemente in der Vorschau anklicken und notieren, was anders sein soll. Gesammelt an Lotse senden."
+          title={t.markTitle}
           onClick={() => { setMarking(m => !m); setPick(null); }}>
-          <IconPin size={15} />{marking ? 'Markieren beenden' : 'Anmerken'}
+          <IconPin size={15} />{marking ? t.markStop : t.mark}
         </Button>
         <button type="button" className={styles.vp} onClick={() => setMobile(m => !m)} aria-pressed={mobile}
-          title={mobile ? 'Desktop-Ansicht' : 'Mobil-Ansicht'} aria-label={mobile ? 'Desktop-Ansicht' : 'Mobil-Ansicht'}>
+          title={mobile ? t.desktop : t.mobile} aria-label={mobile ? t.desktop : t.mobile}>
           {mobile ? '🖥️' : '📱'}
         </button>
-        {onClose && <button type="button" className={styles.close} onClick={onClose} aria-label="Vorschau schließen" title="Zurück zum Chat"><IconClose size={18} /></button>}
+        {onClose && <button type="button" className={styles.close} onClick={onClose} aria-label={t.close} title={t.backToChat}><IconClose size={18} /></button>}
       </div>
       <div ref={viewRef} className={`${styles.view} ${mobile ? styles.m : ''} ${marking ? styles.marking : ''}`}>
-        {marking && !pick && <div className={styles.markHint}>Klicke auf ein Element oder wähle es aus der Liste</div>}
+        {marking && !pick && <div className={styles.markHint}>{t.markHint}</div>}
         {marking && !pick && targets.length > 0 && (
-          <ul className={styles.targets} aria-label="Elemente in der Vorschau">
-            {targets.map((t, i) => (
-              <li key={`${t.path}-${i}`}>
-                <button type="button" onClick={() => place({ ...t, x: 24, y: 24 })}
-                  onKeyDown={e => { if (!markKeySelects(e.key)) return; e.preventDefault(); place({ ...t, x: 24, y: 24 }); }}>
-                  {t.label}
+          <ul className={styles.targets} aria-label={t.targets}>
+            {targets.map((x, i) => (
+              <li key={`${x.path}-${i}`}>
+                <button type="button" onClick={() => place({ ...x, x: 24, y: 24 })}
+                  onKeyDown={e => { if (!markKeySelects(e.key)) return; e.preventDefault(); place({ ...x, x: 24, y: 24 }); }}>
+                  {x.label}
                 </button>
               </li>
             ))}
@@ -135,32 +137,32 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
         {pick && (
           <form className={styles.pop} style={{ left: pick.left, top: pick.top }} onSubmit={e => { e.preventDefault(); save(); }}>
             <b>{pick.label}</b>
-            {pick.section && <small>Abschnitt „{pick.section}“</small>}
-            <textarea autoFocus rows={3} value={text} onChange={e => setText(e.target.value)} aria-label="Was soll anders sein?" placeholder="Was soll anders sein? z. B. „dunkler und größer“"
+            {pick.section && <small>{t.section(pick.section)}</small>}
+            <textarea autoFocus rows={3} value={text} onChange={e => setText(e.target.value)} aria-label={t.whatDifferent} placeholder={t.whatDifferentPlaceholder}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); } if (e.key === 'Escape') setPick(null); }} />
             <div className={styles.popBtns}>
-              <Button size="sm" onClick={() => setPick(null)}>Abbrechen</Button>
-              <Button size="sm" variant="primary" type="submit" disabled={!text.trim()}>Merken</Button>
+              <Button size="sm" onClick={() => setPick(null)}>{c.cancel}</Button>
+              <Button size="sm" variant="primary" type="submit" disabled={!text.trim()}>{t.keep}</Button>
             </div>
           </form>
         )}
         {notes.length > 0 && (
-          <section className={styles.notes} aria-label="Änderungswünsche">
-            <header><b>Änderungswünsche</b><span>{notes.length}</span></header>
+          <section className={styles.notes} aria-label={t.notes}>
+            <header><b>{t.notes}</b><span>{notes.length}</span></header>
             <ol>
               {notes.map((n, i) => (
                 <li key={n.id}>
                   <i>{i + 1}</i>
                   <div><small>{n.label}</small>{n.note}</div>
-                  <button type="button" aria-label={`Wunsch ${i + 1} entfernen`} title="Entfernen" onClick={() => onRemoveNote(n.id)}>×</button>
+                  <button type="button" aria-label={t.removeNote(i + 1)} title={t.remove} onClick={() => onRemoveNote(n.id)}>×</button>
                 </li>
               ))}
             </ol>
             <footer>
-              <Button size="sm" variant="ghost" onClick={onClearNotes}>Verwerfen</Button>
-              <Button size="sm" variant="primary" disabled={busy} title={busy ? 'Lotse arbeitet noch, danach senden' : undefined}
+              <Button size="sm" variant="ghost" onClick={onClearNotes}>{t.discard}</Button>
+              <Button size="sm" variant="primary" disabled={busy} title={busy ? t.busyTitle : undefined}
                 onClick={() => { onSubmitNotes(where); setMarking(false); setPick(null); }}>
-                {busy ? 'Lotse arbeitet …' : `${notes.length === 1 ? 'Wunsch' : `${notes.length} Wünsche`} an Lotse senden`}
+                {busy ? t.busy : t.send(notes.length)}
               </Button>
             </footer>
           </section>
@@ -168,12 +170,12 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
         {empty && (
           <div className={styles.empty}>
             {tab === 'live'
-              ? <div><b>Noch keine Seite</b>Wähle ein Ziel, dann siehst du hier die echte Seite aus dem Shop.</div>
-              : <div><b>Noch kein Entwurf</b>Der Entwurf baut sich hier live auf, während Lotse schreibt.</div>}
+              ? <div><b>{t.noPage}</b>{t.noPageText}</div>
+              : <div><b>{t.noDraft}</b>{t.noDraftText}</div>}
           </div>
         )}
-        {liveUrl && <iframe className={styles.frame} src={liveUrl} hidden={tab !== 'live'} data-kind="live" title="Aktuelle Seite im Shop" sandbox={PREVIEW_SANDBOX} />}
-        <DraftFrame draft={draft} className={styles.frame} hidden={(tab !== 'prev' && tab !== 'spec') || !draft} />
+        {liveUrl && <iframe className={styles.frame} src={liveUrl} hidden={tab !== 'live'} data-kind="live" title={t.liveFrame} sandbox={PREVIEW_SANDBOX} />}
+        <DraftFrame draft={draft} className={styles.frame} hidden={(tab !== 'prev' && tab !== 'spec') || !draft} title={t.draftFrame} />
       </div>
     </section>
   );

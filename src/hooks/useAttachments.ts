@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { Attachment, FileAttachment } from '@/lib/attachments';
+import { useT } from '@/lib/i18n/I18nProvider';
 
 export interface PendingAttachment extends Partial<Attachment> { key: string; name: string; local: string; uploading: boolean; file?: FileAttachment }
 
@@ -11,6 +12,7 @@ export function useAttachments(onError: (message: string) => void) {
   const [atts, setAtts] = useState<PendingAttachment[]>([]);
   const seq = useRef(0);
   const urls = useRef(new Set<string>());
+  const uploadFailed = useT().lib.chat.uploadFailed;
 
   useEffect(() => () => { for (const u of urls.current) URL.revokeObjectURL(u); }, []);
 
@@ -24,7 +26,7 @@ export function useAttachments(onError: (message: string) => void) {
           setAtts(a => a.map(x => (x.key === key ? { ...x, uploading: false, file: { fileId: r.fileId, name: r.name, mime: r.mime, size: r.size } } : x)));
         } catch (e) {
           setAtts(a => a.filter(x => x.key !== key));
-          onError(`Upload fehlgeschlagen: ${errorText(e)}`);
+          onError(uploadFailed(errorText(e)));
         }
         continue;
       }
@@ -36,10 +38,10 @@ export function useAttachments(onError: (message: string) => void) {
         setAtts(a => a.map(x => (x.key === key ? { ...x, mediaId: r.mediaId, url: r.url, uploading: false } : x)));
       } catch (e) {
         setAtts(a => a.filter(x => x.key !== key));
-        onError(`Upload fehlgeschlagen: ${errorText(e)}`);
+        onError(uploadFailed(errorText(e)));
       }
     }
-  }, [onError]);
+  }, [onError, uploadFailed]);
 
   const remove = useCallback((key: string) => setAtts(a => a.filter(x => x.key !== key)), []);
   const clear = useCallback(() => setAtts([]), []);

@@ -1,3 +1,4 @@
+import { DEFAULT_LOCALE, messages, type Locale } from './i18n';
 import { activeAuthMode, PLATFORM_KINDS, PLATFORM_SETTINGS, plainKeys, secretKeys, type PlatformKind } from './platforms';
 import type { AiProvider, PlatformPatch, PublicSettings, ScopeKey, SettingsPatch } from './protocol';
 
@@ -97,14 +98,15 @@ export const autosaveDirty = (f: SettingsForm, saved: PublicSettings): boolean =
   JSON.stringify(autosavePatch(f, saved)) !== JSON.stringify(buildPatch(formFromSettings(saved)));
 
 /** null = Test erlaubt. Sonst der Hinweis: ungespeicherte Eingaben, auch ein Plattformwechsel, werden nicht mitgeschrieben. */
-export const connectionTestBlock = (dirty: boolean): string | null =>
-  (dirty ? 'Einen Moment: Speichern läuft automatisch. Getestet wird nur, was gespeichert ist.' : null);
+export const connectionTestBlock = (dirty: boolean, locale: Locale = DEFAULT_LOCALE): string | null =>
+  (dirty ? messages(locale).lib.settings.testBlocked : null);
 
-export const AI_MODELS: { value: string; label: string }[] = [
-  { value: '', label: 'Standard (empfohlen)' },
-  { value: 'sonnet', label: 'Sonnet: schnell und günstig' },
-  { value: 'opus', label: 'Opus: stärkstes Modell' },
-];
+/** Claude-Modelle zur Auswahl, Beschriftung in der gewünschten Sprache */
+export const aiModels = (locale: Locale = DEFAULT_LOCALE): { value: string; label: string }[] => {
+  const m = messages(locale).lib.settings.aiModels;
+  return [{ value: '', label: m.default }, { value: 'sonnet', label: m.sonnet }, { value: 'opus', label: m.opus }];
+};
+export const AI_MODELS: { value: string; label: string }[] = aiModels();
 
 
 // ---- Generisches Plattform-Formular: Werte lesen/setzen, egal ob Shopware (feste Felder) oder Shopify/Magento/OpenMage ----
