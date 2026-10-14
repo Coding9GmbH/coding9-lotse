@@ -3,9 +3,9 @@ import 'server-only';
 // zu fertigen Aufträgen, die der Nutzer mit einem Klick in einen neuen Chat legt. Nur lesen; geschrieben wird erst nach Freigabe im Chat.
 import { SEO_DONE_RECHECK_DAYS, type SeoItem, type SeoMark, type SeoOnpage, type SeoOverview } from '@/lib/protocol';
 import type { ShopLookup } from '../platform/types';
-import { BASE_DAYS, contentGaps, MIN_IMPRESSIONS, pct, range, round } from './gsc-logic';
+import { BASE_DAYS, contentGaps, expectedCtr, MIN_IMPRESSIONS, pct, range, round } from './gsc-logic';
 import { clearGscCache, getGscConfig, searchAnalyticsCached } from './gsc-google';
-import { findOpportunities } from './gsc';
+import { findOpportunities, rankingInsights } from './gsc';
 import { addressParam, clearSistrixCache, getSistrixConfig, rowsOf, sistrixCached, type Row, type SistrixConfig } from './sistrix-api';
 import { pickProject } from './sistrix';
 import { getSettings } from '../settings';
@@ -21,9 +21,11 @@ const META_RULES = 'Meta-Title höchstens 60 Zeichen, Meta-Description 120 bis 1
 async function gscItems(lookup: ShopLookup): Promise<SeoItem[]> {
   const cfg = getGscConfig(); if (!cfg) return [];
   const out: SeoItem[] = [];
+  const ranking = await rankingInsights(cfg, lookup, { top: 6 });
+  const declined = new Set(ranking.decline.map(d => d.ref?.id).filter(Boolean)); // Klickverlust geht vor: dort zuerst die Ursache klären
   const opp = await findOpportunities(cfg, lookup, { top: 8, queries: true, minImpressions: Math.max(MIN_IMPRESSIONS, 20) });
   for (const { o, ref, queries } of opp.items) {
-    if (!ref || ref.kind === 'home' || !ref.id) continue; // nicht zuordenbar oder nur im Admin änderbar: kein Auftrag
+    if (!ref || ref.kind === 'home' || !ref.id || declined.has(ref.id)) continue; // nicht zuordenbar oder nur im Admin änderbar: kein Auftrag
     const qs = queries.map(q => `„${q.keys[0]}“ (${q.impressions} Impr.)`).slice(0, 4);
     out.push({
       id: `gsc:meta:${ref.id}`, source: 'gsc', kind: 'meta', impact: o.potentialClicks,
@@ -42,6 +44,54 @@ async function gscItems(lookup: ShopLookup): Promise<SeoItem[]> {
       detail: g.reason === 'keine Seite auf Seite 1' ? `Beste Position ${num(g.bestPosition)}: keine Seite rankt gut` : 'Die beste Seite passt thematisch nicht zur Suchanfrage',
       metrics: [{ label: 'Impressionen', value: String(g.impressions) }, { label: 'Klicks', value: String(g.clicks) }, { label: 'Beste Position', value: num(g.bestPosition) }],
       prompt: `Zur Suchanfrage „${g.query}“ gibt es laut Search Console ${g.impressions} Impressionen, aber ${g.reason === 'keine Seite auf Seite 1' ? `keine Seite rankt gut (beste Position ${num(g.bestPosition)})` : `die beste Seite (${g.bestPage}) passt thematisch nicht`}. Prüfe mit search_categories und search_products, ob eine bestehende Kategorie dazu passt. Dann schlage vor, deren Text zu ergänzen, und nur falls nichts passt, eine neue Landingpage. Bestätige den Umfang vorher per Rückfrage.`,
+    });
+  }
+  out.push(...rankingItems(ranking, new Set(out.filter(i => i.kind === 'meta').map(i => i.id.replace(/^gsc:meta:/, '')))));
+  return out;
+}
+
+const quote = (qs: { query: string; impressions: number; position: number }[], n = 3) => qs.slice(0, n).map(q => `„${q.query}“ (Position ${num(q.position)}, ${q.impressions} Impr.)`).join(', ');
+
+/** Rankings aus der Search Console: kurz vor Seite 1, eigene Seiten gegeneinander, Klickverluste.
+ *  Je Seite nur ein Hebel: Klickverlust vor Meta-Daten (metaIds) vor „kurz vor Seite 1“. */
+export function rankingItems(r: Pick<Awaited<ReturnType<typeof rankingInsights>>, 'striking' | 'cannibal' | 'decline'>, metaIds: Set<string>): SeoItem[] {
+  const out: SeoItem[] = [], declined = new Set(r.decline.map(d => d.ref?.id).filter(Boolean));
+  // Anfragen mit Kannibalisierung nicht zusätzlich auf einer der Seiten stärken: erst die Hauptseite klären
+  const contested = new Set(r.cannibal.map(c => c.x.query));
+  for (const { x: raw, ref } of r.striking) {
+    if (!ref?.id || ref.kind === 'home' || metaIds.has(ref.id) || declined.has(ref.id)) continue;
+    const queries = raw.queries.filter(q => !contested.has(q.query));
+    if (!queries.length) continue;
+    const x = { ...raw, queries, impressions: queries.reduce((n, q) => n + q.impressions, 0), potentialClicks: queries.reduce((n, q) => n + Math.max(0, Math.round(q.impressions * (expectedCtr(3) - q.ctr))), 0) };
+    out.push({
+      id: `gsc:striking:${ref.id}`, source: 'gsc', kind: 'striking', impact: x.potentialClicks,
+      title: `Kurz vor Seite 1: ${ref.name ?? x.page}`,
+      detail: `${KIND_LABEL[ref.kind]} · ${quote(x.queries, 2)}`,
+      metrics: [{ label: 'Impressionen', value: String(x.impressions) }, { label: 'Beste Anfrage', value: `Pos. ${num(x.queries[0].position)}` }, { label: 'Potenzial', value: `+${x.potentialClicks} Klicks` }],
+      prompt: `${KIND_LABEL[ref.kind]} „${ref.name}“ (ID ${ref.id}) rankt laut Search Console knapp hinter den Top-Plätzen: ${quote(x.queries, 4)}. Lies die Seite mit ${TOOL_FOR[ref.kind] ?? 'dem passenden Lesewerkzeug'} und prüfe, ob diese Suchanfragen in Meta-Title, Überschriften und Text abgedeckt sind und die Suchintention beantwortet wird. Schlage gezielte Ergänzungen vor (Title mit der wichtigsten Anfrage vorn, ein Abschnitt oder FAQ zu offenen Fragen, ${META_RULES}) und nenne Seiten, die intern mit passendem Ankertext hierher verlinken sollten. Als Änderungsset, Umfang vorher per Rückfrage bestätigen.`,
+    });
+  }
+  for (const { x, refs } of r.cannibal) {
+    const named = x.pages.map((p, i) => ({ p, ref: refs[i] })).filter(v => v.ref?.id);
+    if (named.length < 2) continue; // nur, wenn mindestens zwei Seiten im Shop zuordenbar sind
+    const list = named.map(({ p, ref }) => `${KIND_LABEL[ref!.kind] ?? 'Seite'} „${ref!.name}“ (ID ${ref!.id}, Position ${num(p.position)}, ${Math.round(p.share * 100)} % der Impressionen)`).join('; ');
+    out.push({
+      id: `gsc:cannibal:${x.query}`, source: 'gsc', kind: 'cannibal', impact: Math.round(x.impressions * 0.03),
+      title: `Seiten konkurrieren um „${x.query}“`,
+      detail: named.map(({ ref }) => ref!.name).join(' · '),
+      metrics: [{ label: 'Impressionen', value: String(x.impressions) }, { label: 'Seiten', value: String(named.length) }, { label: 'Beste Position', value: num(x.bestPosition) }],
+      prompt: `Für die Suchanfrage „${x.query}“ (${x.impressions} Impressionen, beste Position ${num(x.bestPosition)}) teilen sich laut Search Console mehrere eigene Seiten die Rankings: ${list}. Lies alle Seiten und schlage eine Hauptseite vor, die die Suchintention am besten trifft. Schärfe die anderen Seiten auf ihr eigenes Thema (Meta-Title, Überschrift, Text ohne die Anfrage als Hauptbegriff) und ergänze dort einen internen Link mit passendem Ankertext auf die Hauptseite. Weiterleitungen oder Zusammenlegen nur nach Rückfrage. Bestätige Hauptseite und Umfang per Rückfrage, dann ein Änderungsset.`,
+    });
+  }
+  for (const { x, ref } of r.decline) {
+    if (!ref?.id || ref.kind === 'home') continue;
+    const lost = x.before.clicks - x.after.clicks;
+    out.push({
+      id: `gsc:decline:${ref.id}`, source: 'gsc', kind: 'decline', impact: lost * 3, // verlorene Klicks wiegen schwerer als geschätztes Potenzial
+      title: `Klicks verloren: ${ref.name ?? x.page}`,
+      detail: `${KIND_LABEL[ref.kind]} · ${x.before.clicks} → ${x.after.clicks} Klicks gegenüber den 28 Tagen davor${ref.active === false ? ' · im Shop inaktiv' : ''}`,
+      metrics: [{ label: 'Klicks', value: `${Math.round(x.change * 100)} %` }, { label: 'ggü. Shop', value: `${Math.round(x.vsSite * 100)} %` }, { label: 'Position', value: `${num(x.before.position)} → ${num(x.after.position)}` }],
+      prompt: `${KIND_LABEL[ref.kind]} „${ref.name}“ (ID ${ref.id}) hat laut Search Console ${x.before.clicks} → ${x.after.clicks} Klicks (${Math.round(x.change * 100)} %, stärker als der ganze Shop) und Position ${num(x.before.position)} → ${num(x.after.position)} im Vergleich zu den 28 Tagen davor. Finde die Ursache, bevor du etwas änderst: Welche Suchanfragen haben verloren (gsc_performance, dimension query, Filter auf die Seite)? Ist die Seite aktiv, sichtbar, lieferbar, wurde URL, Title oder Text kürzlich geändert? Lies die Seite mit ${TOOL_FOR[ref.kind] ?? 'dem passenden Lesewerkzeug'}. Fasse die wahrscheinlichste Ursache zusammen und schlage erst dann Gegenmaßnahmen vor; Texte nur ändern, wenn das die Ursache ist.`,
     });
   }
   return out;

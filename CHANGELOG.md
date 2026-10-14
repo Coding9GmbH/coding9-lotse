@@ -13,6 +13,8 @@ Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags reko
 - SEO-Bereich: Gibt es im Sistrix-Konto mehrere Optimizer-Projekte, wählst du das Projekt des Shops direkt dort aus; die Wahl gilt auch für die KI-Werkzeuge und den Shop-Check.
 - SEO-Bereich: Hebel lassen sich als „Erledigt“ (taucht wieder auf, wenn die Quelle ihn eine Woche später noch meldet) oder „Ignoriert“ (dauerhaft) ausblenden und jederzeit wieder einblenden; was eine Quelle nicht mehr meldet, verschwindet von selbst.
 - SEO-Bereich zeigt die SEO-Befunde aus dem Shop-Check, die Arbeitsfläche eine Karte mit den wichtigsten offenen SEO-Hebeln; „In Bearbeitung“ gilt in beiden Richtungen.
+- SEO-Bereich und KI: neue Search-Console-Auswertungen „Kurz vor Seite 1“ (Suchanfragen auf Position 4 bis 15 mit geschätztem Gewinn), „Kannibalisierung“ (eigene Seiten konkurrieren um dieselbe Suchanfrage) und „Klickverlust“ (deutlich weniger Klicks als in den 28 Tagen davor, bereinigt um den Trend des ganzen Shops), jeweils mit fertigem Auftrag nach SEO-Best-Practice.
+- Shop-Check: neue Prüfungen für Kannibalisierung und Klickverluste aus der Search Console.
 
 ### Geändert
 - Ist die Internetrecherche aus (Standard), sagt die KI das offen und verweist auf den Schalter, statt Angaben zu erfinden.

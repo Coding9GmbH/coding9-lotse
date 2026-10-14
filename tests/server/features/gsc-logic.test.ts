@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addDays, aggregate, compareEffect, contentGaps, ctrZ, expectedCtr, measureWindow, opportunities, pathRegex, range, relevance } from '../../../src/server/features/gsc-logic';
+import { addDays, aggregate, cannibalization, compareEffect, contentGaps, ctrZ, declines, expectedCtr, measureWindow, opportunities, pathRegex, range, relevance, strikingDistance } from '../../../src/server/features/gsc-logic';
 
 const row = (keys: string[], clicks: number, impressions: number, position: number) => ({ keys, clicks, impressions, ctr: impressions ? clicks / impressions : 0, position });
 
@@ -97,4 +97,41 @@ test('pathRegex: Umlaute und Leerzeichen treffen die percent-kodierte URL der Se
   assert.ok(re.test('https://shop.de/küche/vase-kiesel'));
   assert.ok(re.test('https://shop.de/en/Wohnen%20Deko/'));
   assert.ok(!re.test('https://shop.de/k%C3%BCche/vase-kiesel/2'));
+});
+
+test('kurz vor Seite 1: Anfragen auf Position 4 bis 15 je Seite gebündelt, nach Potenzial sortiert', () => {
+  const S = 'https://shop.de/vasen/', P = 'https://shop.de/becher';
+  const rows = [
+    row(['vasen steinzeug', S], 6, 400, 6.2), row(['vase gross', S + '?p=2'], 2, 120, 9), // Parameter zählt zur selben Seite
+    row(['becher', P], 3, 300, 12), row(['becher set', P], 40, 500, 2.1), // Position 2: schon oben, kein Kandidat
+    row(['vasen', S], 1, 30, 7), // zu wenig Nachfrage
+    row(['tasse', P], 0, 900, 25), // zu weit hinten
+  ];
+  const s = strikingDistance(rows);
+  assert.deepEqual(s.map(x => x.page), [S, P]);
+  assert.deepEqual(s[0].queries.map(q => q.query), ['vasen steinzeug', 'vase gross']);
+  assert.equal(s[0].potentialClicks, Math.round(400 * (expectedCtr(3) - 6 / 400)) + Math.round(120 * (expectedCtr(3) - 2 / 120)));
+});
+
+test('Kannibalisierung: zwei eigene Seiten teilen sich eine Anfrage, keine steht oben', () => {
+  const C = 'https://shop.de/vasen/', P = 'https://shop.de/vase-kiesel';
+  const split = [row(['vase steinzeug', C], 4, 300, 8), row(['vase steinzeug', P], 3, 200, 11), row(['vase steinzeug', 'https://shop.de/blog'], 0, 20, 40)];
+  const c = cannibalization(split);
+  assert.equal(c.length, 1); assert.deepEqual(c[0].pages.map(p => p.page), [C, P], 'kleine Anteile und weit hinten zählen nicht');
+  assert.equal(c[0].pages[0].share, 0.58);
+  assert.equal(cannibalization([row(['vase', C], 90, 400, 2), row(['vase', P], 2, 200, 9)]).length, 0, 'eine Seite steht klar oben: kein Problem');
+  assert.equal(cannibalization([row(['vase', C], 5, 300, 8), row(['vase', C + '?sort=price'], 2, 200, 9)]).length, 0, 'Parameter-Varianten sind dieselbe Seite');
+  assert.equal(cannibalization([row(['x', C], 1, 40, 8), row(['x', P], 1, 40, 9)]).length, 0, 'zu wenig Impressionen');
+});
+
+test('Verluste: deutlich weniger Klicks, stärker als der ganze Shop', () => {
+  const A = 'https://shop.de/a', B = 'https://shop.de/b', C = 'https://shop.de/c';
+  const before = [row([A], 100, 2000, 3), row([B], 100, 2000, 3), row([C], 15, 300, 5)];
+  const after = [row([A], 40, 1800, 6), row([B], 85, 2000, 3), row([C], 2, 300, 9)];
+  const d = declines(before, after);
+  assert.deepEqual(d.map(x => x.page), [A], 'B: kleiner Rückgang; C: zu wenig Klicks vorher');
+  assert.equal(d[0].change, -0.6);
+  // Ganzer Shop bricht ebenso ein (Saison): keine einzelne Seite auffällig
+  assert.equal(declines([row([A], 100, 1, 3), row([B], 100, 1, 3)], [row([A], 45, 1, 3), row([B], 40, 1, 3)]).length, 0);
+  assert.equal(declines(before, []).length, 2, 'Seite ganz ohne Klicks danach zählt als Verlust');
 });

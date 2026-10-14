@@ -7,11 +7,12 @@ import type { FixMap } from '@/lib/fixes';
 import type { SeoItem, SeoOverview } from '@/lib/protocol';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { Button } from '@/components/ui/Button';
-import { seoGroup } from '@/components/seo/groups';
 import styles from './ShopCheck.module.css';
+import own from './SeoCard.module.css';
 
 const TOP = 3;
-const ORDER = { tech: 0, keyword: 1, content: 2, check: 3 } as const;
+/** Dringlichkeit: echte Verluste, dann technische Fehler, eigene Seiten im Wettbewerb, kurz vor Seite 1, übrige Hebel, zuletzt Warnungen */
+const rank = (i: SeoItem) => (i.kind === 'decline' ? 0 : i.kind === 'onpage' ? (i.impact >= 10_000 ? 1 : 5) : i.kind === 'cannibal' ? 2 : i.kind === 'striking' ? 3 : 4);
 
 export interface FixTask { id: string; title: string; prompt: string }
 
@@ -25,14 +26,13 @@ export function SeoCard({ onTask, fixes, onOpenChat }: { onTask: (t: FixTask) =>
     return () => { off = true; };
   }, []);
   if (o === undefined) return null;
-  // offen = nicht erledigt/ignoriert; technische Fehler zuerst, dann Keywords, dann Search Console (je Quelle nach Wirkung)
-  const open = (o?.items ?? []).filter(i => !i.mark).map((i, n) => ({ i, n }))
-    .sort((a, b) => ORDER[seoGroup(a.i)] - ORDER[seoGroup(b.i)] || (b.i.impact >= 10_000 ? 1 : 0) - (a.i.impact >= 10_000 ? 1 : 0) || a.n - b.n).map(x => x.i);
+  // offen = nicht erledigt/ignoriert, nach Dringlichkeit, dann nach Wirkung
+  const open = (o?.items ?? []).filter(i => !i.mark).sort((a, b) => rank(a) - rank(b) || b.impact - a.impact);
   const row = (i: SeoItem) => {
     const fix = fixes[i.id];
     return (
-      <div key={i.id} className={styles.row}>
-        <span className={`${styles.sev} ${styles[i.kind === 'onpage' ? (i.impact >= 10_000 ? 'hoch' : 'mittel') : 'niedrig']}`}>{t.kinds[i.kind]}</span>
+      <div key={i.id} className={`${styles.row} ${own.row}`}>
+        <span className={`${styles.sev} ${styles[(i.kind === 'onpage' && i.impact >= 10_000) || i.kind === 'decline' ? 'hoch' : i.kind === 'onpage' ? 'mittel' : 'niedrig']}`}>{t.kinds[i.kind]}</span>
         <div className={styles.body}>
           <div className={styles.line}><b>{i.title}</b></div>
           <p className={styles.hint}>{i.detail}</p>

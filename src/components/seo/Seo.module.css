@@ -10,7 +10,7 @@
 .link { color: var(--green-d); font-weight: 600; }
 
 /* Kennzahlen, zugleich Filter */
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 0 0 16px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 10px; margin: 0 0 16px; }
 .tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); text-align: left; cursor: pointer; }
 .tile:hover { border-color: var(--green); }
 .tile[aria-pressed="true"] { background: var(--dark); border-color: var(--dark); color: #fff; }

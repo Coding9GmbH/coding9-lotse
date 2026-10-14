@@ -14,14 +14,14 @@ import { SEO_CHECK_AREAS, seoGroup, type SeoGroup } from './groups';
 import styles from './Seo.module.css';
 
 const COLLAPSED = 5;
-const GROUPS: SeoGroup[] = ['tech', 'keyword', 'content', 'check'];
+const GROUPS: SeoGroup[] = ['tech', 'ranking', 'keyword', 'content', 'check'];
 
 /** Eine Zeile, egal ob SEO-Hebel oder Shop-Check-Befund */
 interface Row { id: string; kind: string; title: string; detail: string; metrics: { label: string; value: string }[]; prompt: string; sev?: CheckSeverity; mark?: SeoMark; markable: boolean }
 
 const fromItem = (i: SeoItem, kinds: Record<SeoItem['kind'], string>): Row => ({
   id: i.id, kind: kinds[i.kind], title: i.title, detail: i.detail, metrics: i.metrics, prompt: i.prompt, mark: i.mark, markable: true,
-  sev: i.kind === 'onpage' ? (i.impact >= 10_000 ? 'hoch' : 'mittel') : undefined,
+  sev: i.kind === 'onpage' ? (i.impact >= 10_000 ? 'hoch' : 'mittel') : i.kind === 'decline' ? 'hoch' : undefined,
 });
 const fromFinding = (f: CheckFinding, locale: Locale): Row => ({
   id: f.id, kind: f.area, title: f.title, detail: [countText(f, locale), f.hint].filter(Boolean).join(' · '), metrics: [], prompt: f.fixPrompt, sev: f.severity, markable: false,
@@ -66,13 +66,13 @@ export function SeoView() {
 
   const day = (iso: string) => new Date(iso).toLocaleDateString(INTL_LOCALE[locale]);
   const none = data && !data.gsc && !data.sistrix;
-  const rows: Record<SeoGroup, Row[]> = { tech: [], keyword: [], content: [], check: checks.map(f => fromFinding(f, locale)) };
+  const rows: Record<SeoGroup, Row[]> = { tech: [], ranking: [], keyword: [], content: [], check: checks.map(f => fromFinding(f, locale)) };
   for (const i of data?.items ?? []) rows[seoGroup(i)].push(fromItem(i, t.kinds));
   const visible = (g: SeoGroup) => rows[g].filter(r => showHidden || !r.mark);
   const openCount = (g: SeoGroup) => rows[g].filter(r => !r.mark).length;
   const hiddenCount = GROUPS.reduce((n, g) => n + rows[g].filter(r => r.mark).length, 0);
   const techErrors = rows.tech.some(r => !r.mark && r.sev === 'hoch');
-  const active = (g: SeoGroup) => (g === 'tech' || g === 'keyword' ? !!data?.sistrix : g === 'content' ? !!data?.gsc : checks.length > 0);
+  const active = (g: SeoGroup) => (g === 'tech' || g === 'keyword' ? !!data?.sistrix : g === 'content' || g === 'ranking' ? !!data?.gsc : checks.length > 0);
   const shown = GROUPS.filter(g => active(g) && (!filter || filter === g));
 
   const row = (r: Row) => {
@@ -135,6 +135,7 @@ export function SeoView() {
           <div className={styles.tiles} role="group" aria-label={t.filters.all}>
             {tile(null, t.tiles.open, GROUPS.filter(active).reduce((n, g) => n + openCount(g), 0))}
             {data.sistrix && tile('tech', t.tiles.tech, openCount('tech'), techErrors)}
+            {data.gsc && tile('ranking', t.tiles.ranking, openCount('ranking'), rows.ranking.some(r => !r.mark && r.sev === 'hoch'))}
             {data.sistrix && tile('keyword', t.tiles.keyword, openCount('keyword'))}
             {data.gsc && tile('content', t.filters.content, openCount('content'))}
             {checks.length > 0 && tile('check', t.tiles.check, openCount('check'))}
@@ -151,7 +152,7 @@ export function SeoView() {
               </div>
               {g === 'tech' && data.onpage && <Onpage o={data.onpage} busy={busy} onPick={h => void pickProject(h)} />}
               {cut.length ? <ul className={styles.list}>{cut.map(row)}</ul>
-                : (g !== 'tech' || data.onpage?.status === 'ok') && <p className={styles.muted}>{t.empty}</p>}
+                : (g !== 'tech' || !data.onpage || data.onpage.status === 'ok') && <p className={styles.muted}>{t.empty}</p>}
               {more && <button type="button" className={styles.more} onClick={() => setOpen(o => ({ ...o, [g]: !o[g] }))}>{open[g] ? t.showLess : t.showAll(list.length)}</button>}
             </section>
           );

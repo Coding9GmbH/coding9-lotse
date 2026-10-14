@@ -108,3 +108,23 @@ test('Quelle fällt aus: Fehler wird gemeldet, nichts bricht, nichts wird gespei
   assert.deepEqual(o.items, []);
   assert.equal(seoOverviewStored()?.generatedAt, before, 'fehlerhafter Stand überschreibt den letzten guten nicht');
 });
+
+test('Rankings im SEO-Bereich: je Seite ein Hebel, umkämpfte Anfragen nicht zusätzlich stärken', () => {
+  const m = (clicks: number, impressions: number, position: number) => ({ clicks, impressions, ctr: clicks / impressions, position });
+  const vase = { kind: 'product' as const, id: 'p1', name: 'Vase' }, kat = { kind: 'category' as const, id: 'c1', name: 'Vasen' }, becher = { kind: 'product' as const, id: 'p2', name: 'Becher' }, plaid = { kind: 'product' as const, id: 'p3', name: 'Plaid' };
+  const items = S.rankingItems({
+    striking: [
+      { x: { page: '/vase', impressions: 900, clicks: 5, potentialClicks: 80, queries: [{ query: 'vase steinzeug', ...m(2, 600, 8) }, { query: 'vase gross', ...m(3, 300, 9) }] }, ref: vase },
+      { x: { page: '/becher', impressions: 500, clicks: 5, potentialClicks: 40, queries: [{ query: 'becher', ...m(5, 500, 7) }] }, ref: becher },
+      { x: { page: '/plaid', impressions: 400, clicks: 2, potentialClicks: 30, queries: [{ query: 'plaid', ...m(2, 400, 9) }] }, ref: plaid },
+    ],
+    cannibal: [{ x: { query: 'vase steinzeug', impressions: 1000, clicks: 4, bestPosition: 8, pages: [{ page: '/vase', share: 0.6, ...m(2, 600, 8) }, { page: '/vasen', share: 0.4, ...m(2, 400, 10) }] }, refs: [vase, kat] }],
+    decline: [{ x: { page: '/becher', before: m(80, 900, 3), after: m(30, 800, 6), change: -0.63, vsSite: -0.6 }, ref: becher }],
+  } as never, new Set(['p3']));
+  assert.deepEqual(items.map(i => i.id).sort(), ['gsc:cannibal:vase steinzeug', 'gsc:decline:p2', 'gsc:striking:p1']);
+  const vaseItem = items.find(i => i.id === 'gsc:striking:p1')!;
+  assert.doesNotMatch(vaseItem.prompt, /vase steinzeug/, 'umkämpfte Anfrage fällt weg, erst Hauptseite klären');
+  assert.match(vaseItem.prompt, /„vase gross“/);
+  assert.match(items.find(i => i.kind === 'cannibal')!.prompt, /Hauptseite/);
+  assert.match(items.find(i => i.kind === 'decline')!.prompt, /Ursache/);
+});

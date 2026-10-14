@@ -210,7 +210,7 @@ export interface GscTestResult extends TestResult { sites: string[] }
 export interface SistrixPublic { hasKey: boolean; domain: string; country: string; /** Optimizer-Projekt (Hash), leer = automatisch */ project: string; connected: boolean; updatedAt: string | null }
 export interface SistrixTestResult extends TestResult { credits: number | null }
 /** SEO-Übersicht: Hebel aus Search Console und Sistrix als fertige Aufträge (prompt) für einen neuen Chat */
-export interface SeoItem { id: string; source: 'gsc' | 'sistrix'; kind: 'meta' | 'gap' | 'keyword' | 'onpage'; title: string; detail: string; metrics: { label: string; value: string }[]; /** Sortierwert (geschätzte Wirkung) */ impact: number; prompt: string; /** vom Nutzer erledigt/ignoriert: ausgeblendet */ mark?: SeoMark }
+export interface SeoItem { id: string; source: 'gsc' | 'sistrix'; kind: 'meta' | 'gap' | 'striking' | 'cannibal' | 'decline' | 'keyword' | 'onpage'; title: string; detail: string; metrics: { label: string; value: string }[]; /** Sortierwert (geschätzte Wirkung) */ impact: number; prompt: string; /** vom Nutzer erledigt/ignoriert: ausgeblendet */ mark?: SeoMark }
 /** Erledigt = ausgeblendet, bis eine Abholung mindestens SEO_DONE_RECHECK_DAYS später den Hebel noch meldet; Ignoriert = dauerhaft ausgeblendet */
 export interface SeoMark { state: 'done' | 'ignored'; at: string }
 export const SEO_DONE_RECHECK_DAYS = 7;

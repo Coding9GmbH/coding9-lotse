@@ -1,0 +1,3 @@
+/* Wie die Shop-Check-Zeilen, aber mit breiterer Spalte für Etiketten wie „Kannibalisierung“ */
+.row { grid-template-columns: 136px 1fr auto; }
+@media (max-width: 600px) { .row { grid-template-columns: 1fr auto; } }

@@ -169,7 +169,7 @@ test('Chancen, Ausgangswert beim Anwenden, Messung danach und Shop-Check', async
   // Shop-Check: Chancen + fällige Messungen (nur wenn verbunden)
   const { listChecks } = await import('../../../src/server/checks');
   const checks = listChecks().filter(c => c.area === 'Search Console');
-  assert.deepEqual(checks.map(c => c.id).sort(), ['gsc.low-ctr', 'gsc.measure-due']);
+  assert.deepEqual(checks.map(c => c.id).sort(), ['gsc.cannibalization', 'gsc.decline', 'gsc.low-ctr', 'gsc.measure-due']);
   const due = await checks.find(c => c.id === 'gsc.measure-due')!.run(ro) as { count: number; title: string };
   assert.equal(due.count, 0, 'die vollständig gemessene und die überholte Messung sind erledigt; die neue ist noch nicht fällig');
   const low = await checks.find(c => c.id === 'gsc.low-ctr')!.run(ro) as { count: number; title: string };
@@ -192,6 +192,29 @@ test('Ausgangswert für SEO-URL mit Umlaut und Sprachpräfix: Google kennt die S
   assert.deepEqual(b!.urls, [page], 'URLs aus den Search-Console-Zeilen');
   assert.match(b!.pathRegex, /k%C3%BCche/);
   assert.ok(new RegExp(b!.pathRegex).test('https://www.shop.de/küche/vase-kiesel'), 'rohe Form bleibt treffbar');
+  G.saveGsc({ key: null });
+  fake.data = [];
+});
+
+test('Rankings: kurz vor Seite 1, Kannibalisierung und Verluste gegen den Vorzeitraum, dem Shop zugeordnet', async () => {
+  G.saveGsc({ key: KEY, property: 'sc-domain:shop.de' }); G.clearGscCache();
+  const ro = fakeReader(shopDb()), now = new Date('2026-10-14T12:00:00Z');
+  const VASE = 'https://www.shop.de/Vase-Kiesel-22-cm/HH-VASE-22', CAT = 'https://www.shop.de/Wohnen/Vasen/', BECHER = 'https://www.shop.de/Becher/HH-BECH-350';
+  const cur = days('2026-09-14', 28), prev = days('2026-08-17', 28); // Zeiträume bis 2026-10-11 (heute minus 3 Tage) und die 28 Tage davor
+  fake.data = [
+    ...cur.map(d => ({ date: d, page: VASE, query: 'vase steinzeug', clicks: 0, impressions: 10, position: 8 })),
+    ...cur.map(d => ({ date: d, page: CAT, query: 'vase steinzeug', clicks: 0, impressions: 8, position: 9 })),
+    ...prev.map(d => ({ date: d, page: BECHER, query: 'becher', clicks: 3, impressions: 30, position: 3 })),
+    ...cur.map(d => ({ date: d, page: BECHER, query: 'becher', clicks: 1, impressions: 30, position: 7 })),
+    ...[...prev, ...cur].map(d => ({ date: d, page: 'https://www.shop.de/', query: 'haus holm', clicks: 10, impressions: 20, position: 1 })), // stabiler Shop-Trend
+  ];
+  const r = await F.rankingInsights(G.getGscConfig()!, ro, {}, now);
+  assert.equal(r.period.endDate, '2026-10-11'); assert.equal(r.previous.endDate, '2026-09-13');
+  assert.deepEqual(r.cannibal.map(c => c.x.query), ['vase steinzeug']);
+  assert.deepEqual(r.cannibal[0].refs.map(x => x?.id).sort(), [P1, C1].sort(), 'beide Seiten dem Shop zugeordnet');
+  assert.ok(r.striking.some(s => s.ref?.id === P1), 'Vase rankt auf Position 8: kurz vor Seite 1');
+  assert.deepEqual(r.decline.map(d => d.ref?.id), [P2], 'Becher: 84 → 28 Klicks');
+  assert.equal(r.decline[0].x.before.clicks, 84);
   G.saveGsc({ key: null });
   fake.data = [];
 });
