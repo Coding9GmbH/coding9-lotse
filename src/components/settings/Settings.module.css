@@ -138,4 +138,5 @@
 @keyframes codexPulse { 50% { opacity: .3; } }
 .codexErr { color: var(--warn); font-size: 13px; }
 .providerSeg { margin-bottom: 16px; }
+.alphaTag { margin-left: 6px; padding: 0 6px; border-radius: 99px; background: var(--warn-bg); color: var(--warn); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; vertical-align: 1px; }
 .langSeg { max-width: 160px; }

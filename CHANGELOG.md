@@ -11,6 +11,7 @@ Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags reko
 - KI-Zugriff: neuer Schalter „Internetrecherche“ (Einstellungen → KI-Zugriff → Internet). Ist er an, darf die KI im Internet suchen und öffentliche Webseiten lesen, etwa Herstellerangaben, Datenblätter oder Pflichtangaben, und nennt dabei ihre Quellen; geschrieben wird weiterhin nur nach Freigabe.
 
 ### Geändert
+- Shopify, Magento 2 und OpenMage sind jetzt als „Alpha“ gekennzeichnet (Plattformauswahl, Hinweis unter „Shop verbinden“, Statuszeile in der Seitenleiste und README), weil bisher nur Shopware aktiv getestet wird.
 - Ist die Internetrecherche aus (Standard), sagt die KI das offen und verweist auf den Schalter, statt Angaben zu erfinden.
 
 ## [0.7.2] – 2026-10-14
