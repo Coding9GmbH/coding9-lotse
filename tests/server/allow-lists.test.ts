@@ -24,6 +24,7 @@ const SHOPWARE_ENTITIES = {
   shop: ['sales-channel', 'sales-channel-domain', 'theme', 'language', 'locale', 'currency'],
   gsc: [],
   sistrix: [],
+  web: [],
 };
 
 const SHOPWARE_GET_ALLOW = [/^\/_info\/version$/, /^\/_action\/theme\/[0-9a-f]{32}\/configuration$/];

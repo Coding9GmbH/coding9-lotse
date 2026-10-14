@@ -26,6 +26,17 @@ test('Hersteller sind ein eigener Bereich, nicht mehr bei den Produkten; Integra
   assert.ok(['manufacturers', 'gsc', 'sistrix'].every(k => DEFAULT_SCOPES[k as keyof typeof DEFAULT_SCOPES] === true && SCOPE_KEYS.includes(k as never)));
 });
 
+test('Internetrecherche ist ein eigener Schalter ohne Shop-Entitäten und standardmäßig aus; einschalten bleibt gespeichert', () => {
+  assert.deepEqual(SCOPES.web.entities, []);
+  assert.equal(DEFAULT_SCOPES.web, false);
+  assert.ok(SCOPE_KEYS.filter(k => k !== 'web').every(k => DEFAULT_SCOPES[k]), 'alle übrigen Bereiche bleiben an');
+  assert.equal(getSettings().scopes.web, false);
+  updateSettings({ scopes: { web: true } });
+  assert.equal(getSettings().scopes.web, true);
+  updateSettings({ scopes: { web: false } });
+  assert.equal(getSettings().scopes.web, false);
+});
+
 test('Bereich „Hersteller“ aus: Lesen von Herstellern wird abgewiesen, Produkte bleiben lesbar', async () => {
   const events: { op: string; entity: string; denied?: string }[] = [];
   const g = createGuard({ getScopes: () => ({ ...DEFAULT_SCOPES, manufacturers: false }), onAccess: a => events.push(a) });

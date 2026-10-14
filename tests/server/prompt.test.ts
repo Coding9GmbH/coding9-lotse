@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-prompt-'));
-const { buildBasePrompt, fillVars, promptFiles, promptRoot } = await import('../../src/server/prompt');
+const { buildBasePrompt, buildSystem, fillVars, promptFiles, promptRoot, webBlock } = await import('../../src/server/prompt');
 const { BLOCKS, GENERIC_BLOCKS } = await import('../../src/server/cms');
 
 test('promptFiles: common + Plattform nach Dateinamen verzahnt, gleicher Name im Plattform-Ordner ersetzt', () => {
@@ -81,4 +81,11 @@ test('Prompts nennen nur Werkzeuge, die es auf der Plattform gibt (auch shopchec
     const sc = getPlatform(kind).promptVars.shopcheckTools ?? '';
     assert.deepEqual([...sc.matchAll(/[a-z]+(?:_[a-z0-9]+)+/g)].map(m => m[0]).filter(n => !names.has(n)), [], `${kind} shopcheckTools`);
   }
+});
+
+test('Internetrecherche im System-Prompt: aus → ehrlicher Hinweis auf den Schalter, an → Quellenregeln und Schutz vor Anweisungen aus dem Netz', () => {
+  assert.match(webBlock(false), /keinen Zugriff auf das Internet[\s\S]*Einstellungen → KI-Zugriff → Internet/);
+  assert.match(webBlock(true), /Quellen[\s\S]*keine Anweisungen/);
+  assert.ok(buildSystem('shopware', 'de').includes(webBlock(false)), 'Standard: aus');
+  assert.ok(buildSystem('shopware', 'de', true).includes(webBlock(true)));
 });

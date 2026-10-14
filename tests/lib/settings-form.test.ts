@@ -7,9 +7,9 @@ const saved: PublicSettings = {
   shopware: { url: 'https://shop.test', publicUrl: '', user: '', clientId: 'SWIA1', hasPassword: false, hasClientSecret: true, configured: true },
   ai: { provider: 'claude', hasApiKey: true, model: '', viaEnv: false, docker: false, codexModel: '', codexLoggedIn: false },
   image: { hasKey: false, model: '' },
-  scopes: { products: true, manufacturers: true, categories: true, cms: true, media: true, marketing: true, shop: false, gsc: true, sistrix: true },
+  scopes: { products: true, manufacturers: true, categories: true, cms: true, media: true, marketing: true, shop: false, gsc: true, sistrix: true, web: false },
   scopeInfo: {
-    manufacturers: { label: 'Hersteller', hint: '' }, gsc: { label: 'Search Console', hint: '' }, sistrix: { label: 'Sistrix', hint: '' },
+    manufacturers: { label: 'Hersteller', hint: '' }, gsc: { label: 'Search Console', hint: '' }, sistrix: { label: 'Sistrix', hint: '' }, web: { label: 'Internetrecherche', hint: '' },
     marketing: { label: 'Marketing', hint: '' },
     products: { label: 'Produkte', hint: '' }, categories: { label: 'Kategorien', hint: '' }, cms: { label: 'Layouts', hint: '' },
     media: { label: 'Medien', hint: '' }, shop: { label: 'Shop', hint: '' },

@@ -1,6 +1,6 @@
 import 'server-only';
 // OpenAI Codex (ChatGPT-Abo) als alternative KI-Laufzeit.
-// Sicherheitsmodell wie bei Claude: Codex bekommt KEINE eigenen Werkzeuge (Shell, Dateien, Web, Bilder, Plugins …),
+// Sicherheitsmodell wie bei Claude: Codex bekommt KEINE eigenen Werkzeuge (Shell, Dateien, Bilder, Plugins …; Websuche nur, wenn eingeschaltet),
 // nur unsere Shop-Tools über MCP. Zusätzlich verbietet ein Berechtigungsprofil jeden Dateizugriff („:root“ = deny, nicht eskalierbar),
 // Freigaben fragt Codex nie nach, und der Prozess sieht keine Zugangsdaten aus der Umgebung.
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -57,12 +57,12 @@ const DISABLED_FEATURES = [
 // Dateien/Umgebung – geprüft). Einziges Schreibwerkzeug darin ist apply_patch; das blockiert das Berechtigungsprofil.
 
 /** Konfiguration für jeden Lauf (als `--config`-Überschreibungen). */
-export function codexConfig(opts: { mcpUrl: string; instructions: string }) {
+export function codexConfig(opts: { mcpUrl: string; instructions: string; web?: boolean }) {
   return {
     config: {
       developer_instructions: opts.instructions,
       approval_policy: 'never',
-      web_search: 'disabled',
+      web_search: opts.web ? 'live' : 'disabled', // Websuche nur bei eingeschalteter Internetrecherche (Einstellungen → KI-Zugriff)
       project_doc_max_bytes: 0, // keine AGENTS.md o. Ä. aus dem Arbeitsverzeichnis
       // Rückfragen und Freigaben warten auf den Menschen: der Code-Modus soll den Werkzeugaufruf nicht nach Sekunden
       // „zurückgeben“ (sonst beendet das Modell seinen Zug und die Antwort geht verloren)
