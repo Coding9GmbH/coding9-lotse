@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ChatEvent } from '@/lib/protocol';
-import { startFakeMagento, type FakeProduct } from '../../../../src/server/platform/magento/fake';
+import { startFakeMagento, type FakeProduct } from '../../../support/magento-fake';
 
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-magento-scope-'));
 const prod = (id: number, sku: string, v: Record<string, unknown>, extra: Partial<FakeProduct> = {}): FakeProduct => ({ id, sku, type_id: 'simple', attribute_set_id: 4, website_ids: [1], media: [], vals: { 0: { status: 1, visibility: 4, url_key: sku.toLowerCase(), ...v } }, ...extra });
