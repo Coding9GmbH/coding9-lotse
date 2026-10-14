@@ -102,7 +102,7 @@ export function pinnedFetch(url: string, init: { headers?: Record<string, string
   const host = u.hostname.replace(/^\[|\]$/g, '');
   if (net.isIP(host) && isPrivateIp(host)) return Promise.reject(new Error(`${url}: ${LOCAL_MSG}`)); // IP-Literal: kein Lookup
   return new Promise((resolve, reject) => {
-    const req = mod.request(u, { method: 'GET', headers: init.headers, signal: init.signal, lookup: lookup as unknown as typeof dns.lookup }, res => {
+    const req = mod.request(u, { method: 'GET', headers: { ...init.headers, 'accept-encoding': 'identity' }, signal: init.signal, lookup: lookup as unknown as typeof dns.lookup }, res => {
       const h = new Headers();
       for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) for (const x of [v].flat()) h.append(k, x);
       const status = res.statusCode ?? 502, empty = [101, 204, 205, 304].includes(status);

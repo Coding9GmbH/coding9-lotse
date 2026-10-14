@@ -11,7 +11,7 @@ Lotse läuft standardmäßig nur auf deinem Rechner (`127.0.0.1`). Du kannst es 
 | Funktion | Verhalten |
 |---|---|
 | **Login** | `LOTSE_PASSWORD` gesetzt → jede Seite und jeder API-Aufruf verlangt HTTP Basic Auth. Der **Passwortwert** zählt, der Benutzername ist beliebig (z. B. `lotse`). Das Passwort wird zeitkonstant verglichen (UTF-8, Umlaute gehen). |
-| **Login-Bremse** | Nach 10 falschen Passwörtern in 15 Minuten antwortet Lotse der Absender-Adresse 5 Minuten lang `429` (im Arbeitsspeicher, nach Neustart zurückgesetzt). Hinter einem lokalen Reverse-Proxy zählt der letzte Eintrag in `X-Forwarded-For`. |
+| **Login-Bremse** | Nach 10 falschen Passwörtern in 15 Minuten antwortet Lotse der Absender-Adresse 5 Minuten lang `429` (im Arbeitsspeicher, nach Neustart zurückgesetzt). Hinter einem lokalen Reverse-Proxy zählt der letzte Eintrag in `X-Forwarded-For`; läuft der Proxy auf einem anderen Rechner (oder als Kubernetes-Ingress), seine Adresse in `LOTSE_TRUSTED_PROXIES` eintragen (IPs oder IPv4-CIDR, kommagetrennt) – sonst teilen sich alle Nutzer einen Zähler. |
 | **Hostname-Freigabe** | Nur `localhost`, `127.0.0.1` und `[::1]` (und nur von dort) sowie die Namen aus `ALLOWED_HOSTS` werden bedient. Alles andere antwortet `403 Host nicht erlaubt` (Schutz gegen DNS-Rebinding). „Von dort“ prüft Lotse an der echten Socket-Adresse, nicht nur an `X-Forwarded-For` (das kann ein Client selbst setzen). |
 | **Schutz vor fremden Seiten** | Schreibende Aufrufe brauchen die Kennung der Oberfläche (`x-lotse: 1`), und ein `Origin` muss zum `Host` passen (CSRF). |
 | **Gesundheitsabfrage** | `GET /api/ping` ist ohne Login erreichbar (liefert nur `{"ok":true,"version":…}`), z. B. für Docker-Healthcheck oder Monitoring. |

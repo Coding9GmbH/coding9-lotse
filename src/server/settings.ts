@@ -63,6 +63,16 @@ export function shopOrigin(v: string | undefined): string {
   const s = (v ?? '').trim(); if (!s) return '';
   try { return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : `https://${s}`).origin.toLowerCase(); } catch { return s.toLowerCase(); }
 }
+/** Geparkte Zugangsdaten: { origin, <feld>: versiegelt } – nicht wirksam, kommen nur zurück, wenn die Adresse wieder genau dorthin zeigt.
+ *  So löscht ein kurz geleertes oder vertipptes Adressfeld (Auto-Speichern) nichts endgültig, und an eine fremde Adresse gehen sie nie. */
+const PARKED = '_parked';
+function parkSecrets(sec: Section, secret: string[], before: string, after: string) {
+  const held = secret.filter(k => sec[k]);
+  if (before && held.length) { sec[PARKED] = JSON.stringify({ origin: before, ...Object.fromEntries(held.map(k => [k, sec[k]])) }); for (const k of held) delete sec[k]; return; }
+  if (held.length || !sec[PARKED]) return;
+  let parked: Record<string, string> = {}; try { parked = JSON.parse(sec[PARKED]); } catch {}
+  if (after && parked.origin === after) { for (const k of secret) if (parked[k]) sec[k] = parked[k]; delete sec[PARKED]; }
+}
 /** Wirksame Verbindungsadresse einer Plattform (gespeichert, sonst Umgebung) */
 const connOrigin = (kind: PlatformKind, sec: Section = {}) => { const e = connEnv(kind); return shopOrigin(pick(sec[CONN_URL[kind]], e ? env[e] : undefined)); };
 /** Geheimnis aus der Umgebung nur zur Adresse aus der Umgebung: zeigt die gespeicherte URL woandershin, bleibt es weg. */
@@ -112,10 +122,12 @@ function mergeSettings(s: StoredSettings, p: SettingsPatch): StoredSettings {
     if (!patch) return; const sec: Section = { ...(s[name] ?? {}) }; out[name] = sec;
     for (const k of plain) if (patch[k] !== undefined) sec[k] = String(patch[k]).trim();
     if (name !== 'ai' && name !== 'image') { // Shop-Adresse auf andere Herkunft: gespeicherte Geheimnisse verwerfen (neue aus dem Patch gelten)
-      const kind = name as PlatformKind, before = connOrigin(kind, s[kind]);
-      if (before && before !== connOrigin(kind, sec)) for (const k of secret) delete sec[k];
+      const kind = name as PlatformKind, before = connOrigin(kind, s[kind]), after = connOrigin(kind, sec);
+      if (before !== after) parkSecrets(sec, secret, before, after);
     }
-    for (const k of secret) { const v = patch[k]; if (v === null) delete sec[k]; else if (v !== undefined && v !== '') { const sealed = seal(String(v).trim()); if (sealed) sec[k] = sealed; } } // leer = unverändert, null = löschen
+    let fresh = false;
+    for (const k of secret) { const v = patch[k]; if (v === null) delete sec[k]; else if (v !== undefined && v !== '') { const sealed = seal(String(v).trim()); if (sealed) { sec[k] = sealed; fresh = true; } } } // leer = unverändert, null = löschen
+    if (fresh) delete sec[PARKED]; // neu eingegeben: geparkte alte Zugangsdaten sind überholt
   };
   if (p.platform !== undefined && isPlatformKind(p.platform)) out.platform = p.platform;
   section('shopware', ['url', 'publicUrl', 'user', 'clientId'], ['password', 'clientSecret']);

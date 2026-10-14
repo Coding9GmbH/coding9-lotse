@@ -9,9 +9,9 @@ Jede Änderung bekommt einen eigenen Abschnitt mit neuer Versionsnummer (siehe [
 
 ### Sicherheit
 - Shop-Vorschau-Proxy: Jede Antwort, die kein HTML ist (SVG, XML, XHTML, CSS, JS, Schriften, Bilder), läuft in einer CSP-Sandbox mit `nosniff`; der MIME-Typ wird ohne Groß-/Kleinschreibung geprüft. Vorher konnte ein Skript in einer SVG aus den Shop-Medien auf Lotses eigener Adresse laufen.
-- Gespeicherte Zugangsdaten werden verworfen, sobald sich die Shop-Adresse (Schema, Host oder Port) ändert, damit sie nicht an einen fremden Server gehen. Die Oberfläche bittet dann um erneute Eingabe.
+- Gespeicherte Zugangsdaten gelten nicht mehr, sobald die Shop-Adresse auf eine andere Herkunft (Schema, Host oder Port) zeigt, damit sie nie an einen fremden Server gehen; die Oberfläche bittet um erneute Eingabe. Zeigt die Adresse wieder auf die alte Herkunft (z. B. nach einem Tippfehler), sind sie wieder da.
 - Host-Prüfung nutzt die echte Socket-Adresse: `Host: localhost` plus gefälschtes `X-Forwarded-For` öffnet keinen Zugang von außen mehr.
-- Login-Bremse: nach 10 falschen Passwörtern in 15 Minuten je Adresse 5 Minuten Sperre (429). Passwörter mit Umlauten funktionieren.
+- Login-Bremse: nach 10 falschen Passwörtern in 15 Minuten je Adresse 5 Minuten Sperre (429). Steht der Reverse-Proxy auf einem anderen Rechner, dessen Adresse in `LOTSE_TRUSTED_PROXIES` eintragen. Passwörter mit Umlauten funktionieren.
 - Sicherheits-Header für Oberfläche und API (`X-Frame-Options: DENY`, `frame-ancestors 'none'`, `object-src 'none'`, `base-uri`, `form-action`).
 - Warnung beim Start und in den Einstellungen, wenn `ALLOWED_HOSTS` ohne `LOTSE_PASSWORD` gesetzt ist.
 - Bild-Downloads: Schutz gegen DNS-Rebinding (geprüfte IP wird für die Verbindung festgehalten), Größenlimit 20 MB, Cloud-Metadaten- und Link-Local-Adressen immer gesperrt.
@@ -38,6 +38,9 @@ Jede Änderung bekommt einen eigenen Abschnitt mit neuer Versionsnummer (siehe [
 - README positioniert Lotse als Multi-Plattform-Werkzeug (Shopware 6, Shopify, Magento 2, OpenMage) mit Abschnitt „Unterstützte Shopsysteme“.
 - CI: Build, Smoke-Test und E2E laufen auch bei Pull Requests, `npm audit` (ab high) als Prüfschritt, Actions per Commit-SHA gepinnt; jeder PR braucht einen CHANGELOG-Eintrag und eine höhere Version.
 - Test-Fakes (Google Search Console, Magento, OpenMage) liegen unter `tests/support/` statt im Produktionscode.
+
+### Behoben
+- Docker-Schnellstart in der README setzt `LOTSE_BIND=127.0.0.1`; ohne kam im Browser „Host nicht erlaubt“.
 
 ## [0.4.0] – 2026-10-13
 

@@ -94,6 +94,12 @@ test('Login-Bremse: Schlüssel je Client, Fenster läuft ab, Speicher begrenzt',
   assert.equal(clientKey('127.0.0.1', '198.51.100.1, 203.0.113.5'), '203.0.113.5', 'lokaler Reverse-Proxy: letzter Hop');
   assert.equal(clientKey('127.0.0.1', null), '127.0.0.1');
   assert.equal(clientKey(null, null), 'unbekannt');
+  process.env.LOTSE_TRUSTED_PROXIES = '10.0.5.0/24, 192.0.2.7';
+  try {
+    assert.equal(clientKey('10.0.5.9', '198.51.100.1, 203.0.113.8'), '203.0.113.8', 'vertrauter Proxy (CIDR): letzter Hop');
+    assert.equal(clientKey('192.0.2.7', '203.0.113.9'), '203.0.113.9', 'vertrauter Proxy (IP)');
+    assert.equal(clientKey('10.0.6.9', '203.0.113.8'), '10.0.6.9', 'außerhalb des Netzes: Peer zählt');
+  } finally { delete process.env.LOTSE_TRUSTED_PROXIES; }
   const t0 = 1_000_000;
   for (let i = 0; i < 9; i++) loginFailed('a', t0);
   loginFailed('a', t0 + 16 * 60_000); // Fenster abgelaufen: zählt neu

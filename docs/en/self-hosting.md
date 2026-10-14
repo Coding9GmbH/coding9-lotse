@@ -11,7 +11,7 @@ By default, Lotse only runs on your own machine (`127.0.0.1`). You can also run 
 | Feature | Behavior |
 |---|---|
 | **Login** | `LOTSE_PASSWORD` set → every page and every API call requires HTTP Basic Auth. Only the **password value** counts; the user name is arbitrary (e.g. `lotse`). The password is compared in constant time (UTF-8, non-ASCII characters work). |
-| **Login throttle** | After 10 wrong passwords within 15 minutes Lotse answers that source address with `429` for 5 minutes (in memory, reset on restart). Behind a local reverse proxy the last entry in `X-Forwarded-For` counts. |
+| **Login throttle** | After 10 wrong passwords within 15 minutes Lotse answers that source address with `429` for 5 minutes (in memory, reset on restart). Behind a local reverse proxy the last entry in `X-Forwarded-For` counts; if the proxy runs on another machine (or as a Kubernetes ingress), add its address to `LOTSE_TRUSTED_PROXIES` (IPs or IPv4 CIDR, comma-separated) – otherwise all users share one counter. |
 | **Host name allowlist** | Only `localhost`, `127.0.0.1` and `[::1]` (and only from there) plus the names from `ALLOWED_HOSTS` are served. Everything else responds with `403 Host nicht erlaubt` (“host not allowed”; protection against DNS rebinding). “From there” is checked against the real socket address, not only `X-Forwarded-For` (a client can set that itself). |
 | **Protection against foreign sites** | Write calls require the interface marker (`x-lotse: 1`), and an `Origin` must match the `Host` (CSRF). |
 | **Health check** | `GET /api/ping` is reachable without login (returns only `{"ok":true,"version":…}`), e.g. for a Docker health check or monitoring. |

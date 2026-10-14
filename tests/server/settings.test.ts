@@ -83,6 +83,21 @@ test('Shop-Adresse auf andere Herkunft: gespeicherte Geheimnisse werden verworfe
   assert.equal(getSettings().shopware.password, 'erst-passwort', 'Ersteinrichtung (vorher keine Adresse) behält das Geheimnis');
 });
 
+test('Adressfeld kurz geleert oder vertippt: Zugangsdaten sind geparkt, nicht gelöscht, und kommen bei derselben Herkunft zurück', () => {
+  updateSettings({ shopware: { url: 'https://haus.shop', user: 'admin', password: 'pw-haus', clientSecret: null } });
+  updateSettings({ shopware: { url: '' } }); // Auto-Speichern beim Leeren
+  assert.equal(getSettings().shopware.password, '', 'leere Adresse: nicht wirksam');
+  updateSettings({ shopware: { url: 'https://haus.sho' } }); // vertippt
+  assert.equal(getSettings().shopware.password, '', 'fremde Herkunft: nicht wirksam');
+  assert.equal(publicSettings().shopware.hasPassword, false);
+  updateSettings({ shopware: { url: 'https://haus.shop/' } });
+  assert.equal(getSettings().shopware.password, 'pw-haus', 'alte Herkunft wiederhergestellt: Zugangsdaten wieder da');
+  updateSettings({ shopware: { url: 'https://anders.shop' } }); updateSettings({ shopware: { password: 'pw-anders' } });
+  updateSettings({ shopware: { url: 'https://haus.shop' } });
+  assert.equal(getSettings().shopware.password, '', 'neu eingegebene Zugangsdaten verwerfen die geparkten');
+  assert.equal(JSON.stringify(publicSettings()).includes('_parked'), false, 'Parkplatz erreicht die Oberfläche nie');
+});
+
 test('Herkunftswechsel gilt für alle Plattformen (Shopify-Domain, Magento, OpenMage)', () => {
   updateSettings({ shopify: { storeDomain: 'laden.myshopify.com', accessToken: 'shpat_alt', clientId: 'cid', clientSecret: 'sec' }, magento: { url: 'https://m.shop', accessToken: 'mtok', user: 'u', password: 'mpw' }, openmage: { url: 'https://om.shop', token: 'lotse_tok' } });
   updateSettings({ shopify: { storeDomain: 'https://laden.myshopify.com/' } });

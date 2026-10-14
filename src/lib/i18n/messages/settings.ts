@@ -37,7 +37,7 @@ export const de = {
     access: 'Zugang',
     accessKind: 'Art des Zugangs',
     incomplete: 'Erst die Zugangsdaten vollständig eingeben.',
-    secretsReset: 'Die Shop-Adresse zeigt auf einen anderen Server. Die gespeicherten Zugangsdaten wurden deshalb verworfen – bitte neu eingeben.',
+    secretsReset: 'Die Shop-Adresse zeigt auf einen anderen Server. Die gespeicherten Zugangsdaten gelten deshalb nicht mehr – bitte neu eingeben. Stellst du die alte Adresse wieder her, sind sie wieder da.',
   },
   ai: {
     heading: 'KI verbinden',
@@ -173,7 +173,7 @@ export const en: typeof de = {
     access: 'Access',
     accessKind: 'Type of access',
     incomplete: 'Enter the complete credentials first.',
-    secretsReset: 'The shop address points to a different server, so the stored credentials were discarded. Please enter them again.',
+    secretsReset: 'The shop address points to a different server, so the stored credentials no longer apply. Please enter them again. If you restore the previous address, they come back.',
   },
   ai: {
     heading: 'Connect AI',

@@ -23,7 +23,7 @@ Seiten & Einkaufswelten, Preise, Texte & SEO per Chat. Die KI liest nur, geschri
 
 ```bash
 docker run -d --name lotse --restart unless-stopped \
-  -p 127.0.0.1:3333:3333 -v lotse-data:/data \
+  -p 127.0.0.1:3333:3333 -e LOTSE_BIND=127.0.0.1 -v lotse-data:/data \
   --read-only --tmpfs /tmp:size=256m,mode=1777 --tmpfs /app/.next/cache:size=64m,uid=1000,gid=1000 \
   --cap-drop ALL --security-opt no-new-privileges:true \
   --pids-limit 512 --memory 2g --cpus 2 \

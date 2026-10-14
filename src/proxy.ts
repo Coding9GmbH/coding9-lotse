@@ -13,7 +13,7 @@ function privateHop(hop: string): boolean {
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 198 && (b === 18 || b === 19));
 }
 /** Im Container mit Loopback-Publish (LOTSE_BIND) erreicht nur der eigene Rechner den Port; Next setzt dort X-Forwarded-For auf das Bridge-Gateway. */
-const dockerLoopbackPublish = () => process.env.AICB_DOCKER === '1' && LOOPBACK_HOPS.has((process.env.LOTSE_BIND ?? '').toLowerCase());
+const dockerLoopbackPublish = () => process.env.AICB_DOCKER === '1' && LOOPBACK_HOPS.has((process.env.LOTSE_BIND ?? '').trim().toLowerCase());
 const allowedHosts = () => new Set([...LOCAL_HOSTS, ...extraAllowedHosts(process.env.ALLOWED_HOSTS)]);
 
 /** Host ohne Port. [::1]:3333 bleibt [::1]; nacktes ::1 verliert nicht die letzte Gruppe. */
@@ -39,10 +39,19 @@ export function hostAllowed(host: string, forwardedFor: string | null, peer: str
 // ---- Login-Bremse: nach FAIL_MAX falschen Passwörtern in FAIL_WINDOW sperrt die Adresse für BLOCK_MS (429). Speicher begrenzt. ----
 const FAIL_MAX = 10, FAIL_WINDOW = 15 * 60_000, BLOCK_MS = 5 * 60_000, MAX_TRACKED = 5_000;
 const failures = new Map<string, { n: number; since: number; until: number }>();
-/** Wer zählt: die Socket-Adresse; steht davor ein lokaler Reverse-Proxy, der letzte Eintrag in X-Forwarded-For (den hat der Proxy angehängt). */
+const ipv4 = (ip: string) => { const m = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/); return m ? m.slice(1).reduce((n, x) => n * 256 + Number(x), 0) : null; };
+/** LOTSE_TRUSTED_PROXIES: Reverse-Proxy auf einem anderen Rechner (IPs oder IPv4-CIDR, kommagetrennt) – deren X-Forwarded-For zählt für die Login-Bremse */
+export function trustedProxy(ip: string, list = process.env.LOTSE_TRUSTED_PROXIES ?? ''): boolean {
+  return list.split(',').map(e => e.trim().toLowerCase()).filter(Boolean).some(e => {
+    const [net, bits] = e.split('/'); if (bits === undefined) return normalizeIp(net) === ip;
+    const a = ipv4(ip), b = ipv4(net), n = Number(bits);
+    return a !== null && b !== null && n >= 0 && n <= 32 && (n === 0 || (a >>> (32 - n)) === (b >>> (32 - n)));
+  });
+}
+/** Wer zählt: die Socket-Adresse; steht davor ein lokaler oder vertrauter Reverse-Proxy, der letzte Eintrag in X-Forwarded-For (den hat der Proxy angehängt). */
 export function clientKey(peer: string | null, forwardedFor: string | null): string {
   const p = normalizeIp(peer ?? ''), last = hopsOf(forwardedFor).at(-1);
-  return (p && !localHop(p) ? p : last || p) || 'unbekannt';
+  return (p && !localHop(p) && !trustedProxy(p) ? p : last || p) || 'unbekannt';
 }
 /** Restliche Sperrzeit in ms (0 = nicht gesperrt) */
 export function loginBlocked(key: string, now = Date.now()): number {
