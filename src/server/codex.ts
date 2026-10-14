@@ -50,6 +50,8 @@ const DISABLED_FEATURES = [
   'shell_tool', 'unified_exec', 'unified_exec_tty', 'shell_snapshot', 'view_image', 'image_generation', 'multi_agent', 'plugins', 'apps',
   'hooks', 'skill_search', 'skill_mcp_dependency_install', 'computer_use', 'browser_use', 'browser_use_external', 'in_app_browser',
   'tool_suggest', 'goals', 'sleep_tool', 'memories', 'workspace_dependencies', 'worktrees', 'realtime_conversation',
+  // zusätzlich (Stand codex 0.162, `codex features list`): Remote-Plugins, Browser-Vollzugriff, Rechte-Anfrage-Werkzeug, eigenständige Websuche
+  'remote_plugin', 'plugin_sharing', 'browser_use_full_cdp_access', 'browser_annotation_api', 'request_permissions_tool', 'exec_permission_approvals', 'standalone_web_search',
 ];
 // Bewusst AN: code_mode_host. Neuere Modelle rufen Tools nur über den Code-Modus auf (JavaScript-Isolat ohne require/fetch/
 // Dateien/Umgebung – geprüft). Einziges Schreibwerkzeug darin ist apply_patch; das blockiert das Berechtigungsprofil.
