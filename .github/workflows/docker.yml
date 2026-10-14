@@ -48,6 +48,16 @@ jobs:
           curl -fs -o /dev/null localhost:3333/
           curl -fs -o /dev/null localhost:3333/settings
 
+  # Jede Änderung: höhere Version + CHANGELOG-Abschnitt (siehe CONTRIBUTING.md). Dependabot-PRs sind ausgenommen.
+  release-check:
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false, fetch-depth: 0 }
+      - run: node .github/scripts/check-release.mjs "origin/${BASE_REF}"
+        env: { BASE_REF: '${{ github.base_ref }}' }
+
   # Ende-zu-Ende: echte Oberfläche gegen Shopify-Fake + Fake-KI (Vorschlag → Anwenden → Rückgängig, Einstellungen, Wissen, axe)
   e2e:
     runs-on: ubuntu-latest

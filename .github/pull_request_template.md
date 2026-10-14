@@ -12,6 +12,7 @@
 ## Checkliste / Checklist
 - [ ] `npm run check` grün / green (Typecheck, ESLint, Tests)
 - [ ] Tests ergänzt oder angepasst / tests added or updated
+- [ ] Version erhöht (`npm version patch|minor --no-git-tag-version`) und Abschnitt in `CHANGELOG.md` / version bumped and `CHANGELOG.md` section added
 - [ ] Neue UI-Texte in `de` und `en` (`src/lib/i18n/messages/`) / new UI strings in `de` and `en`
 - [ ] Sicherheitsgrenzen unverändert: KI nur lesend, Schreiben nur im Executor nach Freigabe / security boundaries unchanged: AI read-only, writes only in the executor after approval
 - [ ] Doku angepasst, falls nötig (README, `docs/`, beide Sprachen) / docs updated if needed (README, `docs/`, both languages)

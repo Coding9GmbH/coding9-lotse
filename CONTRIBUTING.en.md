@@ -27,6 +27,14 @@ The UI is available in German and English.
 ## Pull requests
 - Small, focused changes; one topic per PR.
 - Add or update tests; `npm run check` must be green.
-- Record every user-visible change under "Unveröffentlicht" (unreleased) in [`CHANGELOG.md`](CHANGELOG.md).
+- Every PR bumps the version and gets its own section in [`CHANGELOG.md`](CHANGELOG.md), see [Versions & changelog](#versions--changelog). CI checks this (`release-check`).
 - The security boundaries stay in place: the AI only reads (`ReadOnly…` clients), and writing happens exclusively in the executor after approval. Changes that weaken this need a thorough justification.
 - By contributing, you agree that your contribution is published under the [MIT license](LICENSE).
+
+## Versions & changelog
+Every change (every PR) gets a new version, so it is always clear what a release contains.
+1. **Bump the version** following [SemVer](https://semver.org/): `npm version patch --no-git-tag-version` for fixes, `minor` for new features or behaviour changes, `major` for breaking changes (e.g. configuration that must be changed by hand). This updates `package.json` and `package-lock.json`.
+2. **Write the changelog**: add a section `## [x.y.z] – YYYY-MM-DD` at the top of [`CHANGELOG.md`](CHANGELOG.md) (the changelog is kept in German), with the matching headings (`### Sicherheit`, `### Hinzugefügt`, `### Geändert`, `### Behoben`, `### Entfernt`) and one sentence per change from the user's point of view – what is different and what they may need to do (new environment variable, migration, changed behaviour). Add the compare link `[x.y.z]: https://github.com/Coding9GmbH/coding9-lotse/compare/v<previous>...v<x.y.z>` at the bottom.
+3. Check: `node .github/scripts/check-release.mjs origin/main`.
+
+If `main` has moved on and already used the same version, take the next number after merging. Dependency-only updates from Dependabot are exempt; they go into the changelog with the next version.
