@@ -1,5 +1,5 @@
 import 'server-only';
-// Shopware-6-Adapter: hüllt den bestehenden Code (shopware.ts, changes.ts, runtime.ts, features/*) in den Plattform-Vertrag.
+// Shopware 6 adapter: wraps the existing code (shopware.ts, changes.ts, runtime.ts, features/*) in the platform contract.
 import type { CategoryRow, ProductRow } from '@/lib/protocol';
 import { PLATFORM_SETTINGS } from '@/lib/platforms';
 import { applyChangeSet, undoOps } from '../../changes';
@@ -14,7 +14,7 @@ import { shopwareLookup } from './lookup';
 import { shopwarePages } from './pages';
 import { SHOPWARE_TOOL_NAMES, shopwareTools } from './tools';
 
-/** Geschützter Lese-Client wie im Chat: Freigabeliste (policy.ts), Bereiche aus den Einstellungen, Zugriffsprotokoll unter chat. */
+/** Guarded read client as in the chat: allow-list (policy.ts), scopes from the settings, access log under chat. */
 export const shopwareReader = (chat: string) => new ReadOnlyShopware(shop(), createGuard({ getScopes: () => getSettings().scopes, onAccess: a => accessAdd({ chat, ...a }) }));
 
 export const shopware: PlatformAdapter = {
@@ -44,7 +44,7 @@ export const shopware: PlatformAdapter = {
   },
 
   openSession(chat) {
-    const reader = shopwareReader(chat); // privilegierter Client bleibt im Server, wird NIE an die KI gegeben
+    const reader = shopwareReader(chat); // privileged client stays on the server, is NEVER given to the AI
     return { reader, lookup: shopwareLookup(reader), storefrontFetch, themeCss };
   },
   lookup: reader => shopwareLookup(reader as ShopReader),
@@ -53,7 +53,7 @@ export const shopware: PlatformAdapter = {
   loadChecks: async () => { await import('../../features'); },
   scanProducts: async r => (await import('./scan')).scanNeutral(r as ShopReader),
 
-  // Nach erfolgreichem Schreiben (auch Rückgängig) den Shopware-Cache leeren, damit Veröffentlichungen und Änderungen sofort sichtbar sind
+  // After a successful write (including undo) clear the Shopware cache so publications and changes are visible immediately
   async apply(cs, payload, selected, ctx) {
     const res = await applyChangeSet(shop(), cs, payload, selected, ctx);
     if ((res.counts?.applied ?? res.results.filter(r => r.ok).length) > 0) await clearShopCache(shop(), `apply:${cs.kind}`);
@@ -67,9 +67,9 @@ export const shopware: PlatformAdapter = {
   pages: shopwarePages,
 
   context: {
-    // Kontext-Auswahl der Oberfläche (Mensch, nicht KI): wie bisher über den privilegierten Client
+    // UI context selection (human, not AI): via the privileged client as before
     async categories() {
-      const out: CategoryRow[] = []; // seitenweise: große Shops haben weit mehr als 500 Kategorien
+      const out: CategoryRow[] = []; // paginated: large shops have far more than 500 categories
       for (let page = 1; page <= 40; page++) {
         const r = await shop().search('category', { limit: 500, page, sort: [{ field: 'level', order: 'ASC' }, { field: 'name', order: 'ASC' }], associations: { cmsPage: {} } });
         out.push(...r.data.map((c): CategoryRow => ({ id: c.id, name: c.translated?.name ?? c.name, parentId: c.parentId, active: c.active, type: c.type, cmsPage: c.cmsPage?.name ?? null })));

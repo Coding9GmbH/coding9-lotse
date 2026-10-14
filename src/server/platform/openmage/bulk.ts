@@ -1,6 +1,6 @@
 import 'server-only';
-// OpenMage-Stapelverarbeitung: EINE Regel auf alle Produkte eines Filters (auch Tausende). Lesen seitenweise über den geschützten
-// Lese-Client, Karte mit Gruppen + Stichprobe, Schreiben in Blöcken mit Fortschritt; Rückgängig je Produkt exakt.
+// OpenMage bulk edit: ONE rule applied to all products of a filter (even thousands). Reading page by page via the guarded
+// read client, card with groups + sample, writing in chunks with progress; undo exact per product.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { errMsg, newIdSafe, pool, resolvePrice, WRITE_CONCURRENCY, type ApplyCtx, type ApplyResult, type PriceSpec } from './kit';
 import type { OmClient } from './client';
@@ -18,7 +18,7 @@ export interface BulkFilter { categoryId?: string; term?: string; minPrice?: num
 export interface BulkChange { price?: PriceSpec; listPrice?: PriceSpec | 'currentPrice'; active?: boolean; specialFromDate?: string | null; specialToDate?: string | null }
 interface Plan { id: string; sku: string; group: 'ok' | 'warn'; price?: { write: PriceWrite; expect: PriceWrite }; status?: number }
 
-/** Alle Produkte des Filters (seitenweise); Suchbegriff über Name ODER SKU (?term=, bei älteren Modulen zwei Abfragen), Preisspanne auf den Verkaufspreis */
+/** All products of the filter (paged); search term over name OR SKU (?term=, two queries with older modules), price range on the selling price */
 export async function resolveBulk(ro: OmReader, f: BulkFilter): Promise<{ rows: OmProduct[]; scanned: number; total: number }> {
   const base: ProductQuery = { ...(f.categoryId ? { category_id: f.categoryId } : {}), ...(f.active != null ? { status: f.active ? 1 : 2 } : {}), ...(f.typeId ? { type: f.typeId } : {}), ...(f.skus?.length ? { skus: f.skus.slice(0, 200).join(',') } : {}), sort: 'entity_id', dir: 'asc', limit: PAGE };
   const queries: ProductQuery[] = !f.term ? [base] : await ro.hasTermFilter() ? [{ ...base, term: f.term }] : [{ ...base, name: f.term }, { ...base, sku: f.term }];

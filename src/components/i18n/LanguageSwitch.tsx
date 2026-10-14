@@ -4,7 +4,7 @@ import { LOCALES, LOCALE_NAMES } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { Segmented } from '@/components/ui/Segmented';
 
-/** Sprachwahl (Oberfläche + KI-Antworten); speichert im Cookie, gilt sofort. */
+/** Language picker (UI + AI replies); stored in a cookie, takes effect immediately. */
 export function LanguageSwitch({ className }: { className?: string }) {
   const { locale, t, setLocale } = useI18n();
   return (

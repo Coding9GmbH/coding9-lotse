@@ -30,7 +30,7 @@
 .badge i { width: 7px; height: 7px; border-radius: 50%; background: var(--green-d); animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: .3; } }
 
-/* Anmerken: Elemente in der Vorschau markieren und Wünsche sammeln */
+/* Annotate: mark elements in the preview and collect requests */
 .bar .mark { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 14px; font-size: 13px; font-weight: 600; line-height: 1; border-radius: 10px; color: var(--ink); white-space: nowrap; }
 .bar .mark svg { color: var(--coral-d, var(--coral)); flex: none; }
 .bar .mark:hover:not(:disabled) { border-color: var(--coral); }

@@ -1,4 +1,4 @@
-/* Linke Navigation im CODING-9-Dunkel. Breite über --nav-w (AppShell), eingeklappt als Icon-Leiste. */
+/* Left navigation in CODING 9 dark. Width via --nav-w (AppShell), collapsed as an icon bar. */
 .nav {
   --fg: #fff;
   --fg-2: #ffffffb8;
@@ -20,7 +20,7 @@
 }
 .nav button { font: inherit; color: inherit; }
 
-/* ---- Kopf ---- */
+/* ---- Header ---- */
 .top { display: flex; align-items: center; gap: 8px; min-height: 36px; margin: 0 0 10px; padding-left: 4px; }
 .brand { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; color: var(--fg); border-radius: 8px; text-decoration: none; }
 .brand:hover { text-decoration: none; }
@@ -33,7 +33,7 @@
 .iconBtn:hover { background: var(--hover); color: var(--fg); }
 .closeBtn { display: none; }
 
-/* ---- Neuer Chat: ruhig, mit „mit Kontext“ daneben ---- */
+/* ---- New chat: understated, with "mit Kontext" next to it ---- */
 .start { display: flex; gap: 6px; margin-bottom: 14px; }
 .newChat, .withContext {
   display: flex; align-items: center; justify-content: center; height: 40px; border: 1px solid #ffffff1f; border-radius: 9px;
@@ -45,7 +45,7 @@
 .withContext:hover, .newChat:hover { background: #ffffff14; border-color: #ffffff33; color: var(--fg); }
 .newChat:disabled, .withContext:disabled { opacity: .38; cursor: not-allowed; background: #ffffff0a; border-color: #ffffff1f; }
 
-/* ---- Einrichtung (solange Shop oder KI fehlen) ---- */
+/* ---- Setup (while shop or AI is missing) ---- */
 .setup { display: flex; flex-direction: column; gap: 4px; margin: 0 0 14px; padding: 12px 12px 10px; border-radius: 10px; background: #ff786d14; border: 1px solid #ff786d40; color: var(--fg-2); font-size: 12.5px; text-decoration: none; }
 .setup:hover { text-decoration: none; background: #ff786d1f; color: var(--fg); }
 .setupHead { display: flex; justify-content: space-between; margin-bottom: 4px; color: var(--fg); }
@@ -55,7 +55,7 @@
 .setupDone { color: var(--fg-3); text-decoration: line-through; }
 .setupDone::before { border-color: var(--green); background: var(--green); box-shadow: inset 0 0 0 2px var(--dark); }
 
-/* ---- Bereiche ---- */
+/* ---- Sections ---- */
 .items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
 .item {
   position: relative; display: flex; align-items: center; gap: 11px; width: 100%; min-height: 36px; padding: 0 10px;
@@ -77,7 +77,7 @@
 .pip { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
 .pipWarn { background: var(--coral); }
 
-/* ---- Verlauf ---- */
+/* ---- History ---- */
 .history { display: flex; flex-direction: column; min-height: 0; flex: 1; margin-top: 18px; }
 .histHead { display: flex; align-items: baseline; gap: 8px; padding: 0 10px 6px; }
 .histHead h2 { margin: 0; font: 600 12px/1.4 var(--body); color: var(--fg-3); }
@@ -116,7 +116,7 @@
 .confirmBtns button { flex: 1; height: 28px; border: 1px solid #ffffff2e; border-radius: 7px; background: transparent; font-size: 12.5px; cursor: pointer; }
 .confirmBtns .yes { background: var(--coral); border-color: var(--coral); color: var(--dark); font-weight: 600; }
 
-/* ---- Fuß: Einstellungen mit Verbindungsstatus ---- */
+/* ---- Footer: settings with connection status ---- */
 .railFill { flex: 1; display: flex; flex-direction: column; margin-top: 18px; }
 .foot { margin: 8px -4px 0; padding-top: 8px; border-top: 1px solid var(--hair); }
 .settings { position: relative; display: flex; align-items: center; gap: 11px; padding: 8px 10px 8px 14px; border-radius: 8px; color: var(--fg-2); font-size: 13.5px; font-weight: 500; text-decoration: none; }
@@ -126,13 +126,13 @@
 .dot { width: 7px; height: 7px; border-radius: 50%; background: #8a8a94; }
 .ok { background: var(--green); }
 .err { background: var(--coral); }
-/* Sprachwahl über den Einstellungen (nur ausgeklappt) */
+/* Language picker above the settings (expanded only) */
 .foot .lang { margin: 0 6px 6px; background: #ffffff0a; }
 .foot .lang button { padding: 3px 0; font-size: 12px; color: var(--fg-3); }
 .foot .lang button:hover { color: var(--fg); }
 .foot .lang button[aria-checked="true"] { background: #ffffff1a; color: var(--fg); box-shadow: none; }
 
-/* ---- Eingeklappt: schmale Icon-Leiste mit Tooltips ---- */
+/* ---- Collapsed: narrow icon bar with tooltips ---- */
 .collapsed { padding-inline: 12px; }
 .collapsed .word, .collapsed .label, .collapsed .swatches, .collapsed .hint, .collapsed .ctx, .collapsed .dots, .collapsed .withContext,
 .collapsed .setupHead, .collapsed .setupStep { display: none; }
@@ -158,11 +158,11 @@
 .collapsed [data-tip] { position: relative; }
 .collapsed [data-tip]:hover::after, .collapsed [data-tip]:focus-visible::after { opacity: 1; translate: 0 -50%; }
 
-/* ---- Mobil: Schublade über dem Inhalt ---- */
+/* ---- Mobile: drawer over the content ---- */
 @media (max-width: 720px) {
   .nav { position: fixed; inset: 0 auto 0 0; width: min(300px, 86vw); padding-top: calc(14px + env(safe-area-inset-top, 0px));
     translate: -100% 0; visibility: hidden; transition: translate .25s cubic-bezier(.2, .8, .2, 1), visibility 0s linear .25s; }
-  /* Schatten nur im geöffneten Zustand – sonst scheint er am linken Rand in die Seite */
+  /* Shadow only when open, otherwise it bleeds into the page at the left edge */
   .drawerOpen { translate: 0 0; visibility: visible; box-shadow: 0 0 60px #00000059; transition: translate .25s cubic-bezier(.2, .8, .2, 1); }
   .collapseBtn { display: none; }
   .closeBtn { display: grid; }
@@ -172,7 +172,7 @@
   .nav, .nav * { transition: none !important; }
 }
 
-/* Chat-Status im Verlauf: läuft (dreht), wartet auf dich (Koralle), fertig (grün, bis geöffnet) */
+/* Chat status in the history: running (spins), waiting for you (coral), done (green until opened) */
 .state { display: inline-block; flex: none; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; vertical-align: 1px; }
 .state.running { width: 10px; height: 10px; border: 2px solid color-mix(in srgb, var(--green) 30%, transparent); border-top-color: var(--green); animation: navSpin .8s linear infinite; vertical-align: 0; }
 .state.waiting { background: var(--coral); box-shadow: 0 0 0 3px color-mix(in srgb, var(--coral) 22%, transparent); }
@@ -185,7 +185,7 @@
 @keyframes navPulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .state.running, .pipLive { animation: none; } }
 
-/* Ältere Chats nachladen (Verlauf kommt seitenweise) */
+/* Load older chats (history is paged) */
 .more { display: block; width: 100%; margin: 6px 0 10px; padding: 6px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--fg-3); font: inherit; font-size: 12.5px; cursor: pointer; transition: background .12s, color .12s; }
 .more:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
 .more:disabled { cursor: progress; }

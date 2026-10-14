@@ -1,13 +1,13 @@
 import 'server-only';
-// Kleine Helfer für die Route-Handler: JSON-Body lesen + mit zod prüfen (400 mit deutscher Meldung), Body-Limit.
+// Small helpers for route handlers: read JSON body + validate with zod (400 with German message), body limit.
 import { z } from 'zod';
 
-const JSON_LIMIT = 2 * 1024 * 1024; // wie bisher express.json({ limit: '2mb' })
+const JSON_LIMIT = 2 * 1024 * 1024; // as before express.json({ limit: '2mb' })
 
 export { errMsg } from './util';
 export const jsonError = (status: number, error: string) => Response.json({ error }, { status });
 
-/** Liest den Body mit Größenlimit (Abbruch, sobald das Limit überschritten ist). null = zu groß. */
+/** Reads the body with a size limit (aborts as soon as the limit is exceeded). null = too large. */
 export async function readBodyLimited(req: Request, max: number): Promise<Buffer | null> {
   const len = Number(req.headers.get('content-length') ?? '');
   if (Number.isFinite(len) && len > max) return null;
@@ -24,10 +24,10 @@ export async function readBodyLimited(req: Request, max: number): Promise<Buffer
   return Buffer.concat(chunks);
 }
 
-const deError = z.locales.de().localeError; // deutsche Fehlermeldungen nur für die REST-Prüfung (Tool-Schemas bleiben unverändert)
+const deError = z.locales.de().localeError; // German error messages only for REST validation (tool schemas stay unchanged)
 const describe = (err: z.ZodError) => err.issues.slice(0, 3).map(i => `${i.path.join('.') || 'Body'}: ${i.message}`).join('; ');
 
-/** JSON-Body lesen und prüfen. Liefert entweder die Daten oder eine fertige Fehlerantwort. */
+/** Read and validate the JSON body. Returns either the data or a ready-made error response. */
 export async function parseJson<S extends z.ZodType>(req: Request, schema: S, onError: (msg: string, status: number) => Response = (m, s) => jsonError(s, m)):
   Promise<{ ok: true; data: z.infer<S> } | { ok: false; res: Response }> {
   const buf = await readBodyLimited(req, JSON_LIMIT);

@@ -1,14 +1,14 @@
 <?php
 /**
- * Reine Netz-Logik ohne Magento-Abhängigkeit: IP-Freigabeliste (IPv4/IPv6, einzelne Adressen und CIDR), Client-IP hinter Proxys.
- * Wird vom Helper genutzt und von tests/unit.php direkt eingebunden.
+ * Pure network logic without Magento dependency: IP allowlist (IPv4/IPv6, single addresses and CIDR), client IP behind proxies.
+ * Used by the helper and included directly by tests/unit.php.
  */
 class Lotse_Connector_Model_Net
 {
     /**
-     * Client-IP für die Freigabeliste. Ohne vertrauenswürdigen Proxy zählt REMOTE_ADDR. Mit Proxy zählt aus X-Forwarded-For
-     * der Eintrag, den der Proxy selbst ANGEHÄNGT hat (bei einem Proxy der letzte, bei $hops Proxys hintereinander der
-     * $hops-letzte); die vorderen Einträge kommen vom Client und sind fälschbar. Fehlt der Eintrag, zählt REMOTE_ADDR.
+     * Client IP for the allowlist. Without a trusted proxy, REMOTE_ADDR counts. With a proxy, the X-Forwarded-For entry
+     * that the proxy itself APPENDED counts (with one proxy the last one, with $hops proxies in a row the
+     * $hops-th from the end); the earlier entries come from the client and can be forged. If the entry is missing, REMOTE_ADDR counts.
      */
     public static function clientIp($remote, $forwardedFor, $trustProxy, $hops = 1)
     {
@@ -31,12 +31,12 @@ class Lotse_Connector_Model_Net
     }
 
     /**
-     * Zerlegt die Freigabeliste (Zeilen, Kommas, Semikolons, Leerzeichen) in Einträge.
+     * Splits the allowlist (lines, commas, semicolons, spaces) into entries.
      * @return string[]
      */
     public static function parseAllowlist($raw)
     {
-        $raw = preg_replace('/#[^\n]*/', '', (string) $raw); // Kommentare bis Zeilenende
+        $raw = preg_replace('/#[^\n]*/', '', (string) $raw); // comments up to end of line
         $out = [];
         foreach (preg_split('/[\s,;]+/', $raw) as $p) {
             $p = trim($p);
@@ -48,8 +48,8 @@ class Lotse_Connector_Model_Net
     }
 
     /**
-     * Prüft, ob $ip in der Freigabeliste steht. Leere Liste = alles erlaubt.
-     * Ungültige Einträge werden ignoriert (sie geben nie frei).
+     * Checks whether $ip is on the allowlist. Empty list = everything allowed.
+     * Invalid entries are ignored (they never grant access).
      */
     public static function isAllowed($ip, array $allowlist)
     {
@@ -68,7 +68,7 @@ class Lotse_Connector_Model_Net
         return false;
     }
 
-    /** Nicht öffentlich routbare Bereiche (Loopback, privat, Link-Local, Multicast, Dokumentation, CGNAT). */
+    /** Non-publicly-routable ranges (loopback, private, link-local, multicast, documentation, CGNAT). */
     public const NON_PUBLIC = [
         '0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.0.0.0/24',
         '192.0.2.0/24', '192.168.0.0/16', '198.18.0.0/15', '198.51.100.0/24', '203.0.113.0/24', '224.0.0.0/4', '240.0.0.0/4',
@@ -76,8 +76,8 @@ class Lotse_Connector_Model_Net
     ];
 
     /**
-     * Darf der Server diese Adresse von sich aus ansprechen (Schutz vor SSRF auf interne Dienste)?
-     * IPv4-gemappte (::ffff:a.b.c.d) und NAT64-Adressen (64:ff9b::/96) werden als IPv4 geprüft.
+     * May the server contact this address on its own (protection against SSRF on internal services)?
+     * IPv4-mapped (::ffff:a.b.c.d) and NAT64 addresses (64:ff9b::/96) are checked as IPv4.
      */
     public static function isPublicIp($ip)
     {
@@ -98,7 +98,7 @@ class Lotse_Connector_Model_Net
         return true;
     }
 
-    /** @param string $packed inet_pton-Form der Client-IP */
+    /** @param string $packed inet_pton form of the client IP */
     public static function matches($packed, $entry)
     {
         $bits = null;

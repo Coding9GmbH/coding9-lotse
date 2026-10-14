@@ -7,7 +7,7 @@ import type { SistrixOverview } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
 import styles from './Home.module.css';
 
-/** Mini-Verlauf als Linie (keine Achsen: es zählt die Richtung, der Index ist eine relative Zahl) */
+/** Mini history as a line (no axes: the direction is what matters, the index is a relative number) */
 function Spark({ values }: { values: number[] }) {
   if (values.length < 2) return null;
   const w = 120, h = 32, min = Math.min(...values), max = Math.max(...values), span = max - min || 1;
@@ -17,7 +17,7 @@ function Spark({ values }: { values: number[] }) {
 
 const num = (n: number) => n.toLocaleString('de-DE', { maximumFractionDigits: n < 1 ? 4 : 2 });
 
-/** Startseiten-Karte „Sistrix-Sichtbarkeit“: erscheint nur, wenn Sistrix verbunden ist. */
+/** Home page card "Sistrix-Sichtbarkeit" (Sistrix visibility): only appears when Sistrix is connected. */
 export function SistrixCard({ onAsk }: { onAsk: (text: string) => void }) {
   const t = useT().chat.home;
   const [o, setO] = useState<SistrixOverview | null>(null);

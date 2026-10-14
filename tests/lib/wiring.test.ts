@@ -1,35 +1,35 @@
-// Verdrahtung, die sich ohne Browser nur am Quelltext prüfen lässt (wie a11y/layout): Echtzeit-Verlauf, Sperre ohne Einrichtung,
-// Shop-Check-Neuprüfung nach Änderungen und nach Rückgängig.
+// Wiring that can only be checked against the source without a browser (like a11y/layout): real-time history, lock without setup,
+// shop check re-run after changes and after undo.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const read = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 
-test('neuer Chat erscheint sofort im Verlauf: Abruf beim start-Ereignis der Runde', () => {
+test('new chat appears in the history immediately: fetch on the turn\'s start event', () => {
   const ws = read('src/components/workspace/Workspace.tsx');
   assert.match(ws, /if \(event\.t === 'start'\) loadHistory\(\)/);
 });
 
-test('ohne Shop und KI: Eingabe, Neuer Chat, mit Kontext, Styleguide und Wissen gesperrt', () => {
+test('without shop and AI: input, new chat, with context, style guide and knowledge base locked', () => {
   const ws = read('src/components/workspace/Workspace.tsx');
-  assert.match(ws, /const locked = !shell\.healthFailed && !setupReady\(setup\)/, 'Ladefehler sperrt nicht');
+  assert.match(ws, /const locked = !shell\.healthFailed && !setupReady\(setup\)/, 'load error does not lock');
   assert.match(ws, /disabled=\{locked\}/);
-  assert.match(ws, /\|\| locked\) return;/, 'send() sendet nicht');
+  assert.match(ws, /\|\| locked\) return;/, 'send() does not send');
   const composer = read('src/components/chat/Composer.tsx');
   for (const el of ['textarea', 'attach', 'send']) assert.match(composer, new RegExp(`${el}[^>]*disabled=\\{disabled\\}|disabled=\\{disabled\\}[^>]*${el}`));
   const nav = read('src/components/shell/SideNav.tsx');
   assert.match(nav, /const ready = setupReady\(s\.setup\)/);
-  assert.equal(nav.match(/disabled=\{!ready\}/g)?.length, 3, 'Neuer Chat, mit Kontext, Styleguide');
-  assert.match(nav, /ready \? \(\s*<Link href="\/wissen"/, 'Wissen nur eingerichtet als Link');
+  assert.equal(nav.match(/disabled=\{!ready\}/g)?.length, 3, 'new chat, with context, style guide');
+  assert.match(nav, /ready \? \(\s*<Link href="\/wissen"/, 'knowledge base is a link only when set up');
 });
 
-test('Shop-Check prüft nach angewendeten Änderungen und nach Rückgängig neu', () => {
+test('shop check re-runs after applied changes and after undo', () => {
   assert.match(read('src/server/features/shopcheck.ts'), /onApplied\('shopcheck', \(\) => \{ void recheckShopCheck\(\); \}\)/);
   assert.match(read('src/app/api/changesets/undo/route.ts'), /if \(out\.results\.some\(r => r\.ok\)\) void recheckShopCheck\(\)/);
 });
 
-test('Einstellungen: kein Speichern-Knopf mehr, Speicherstand oben', () => {
+test('settings: no save button anymore, save status at the top', () => {
   const view = read('src/components/settings/SettingsView.tsx');
   assert.doesNotMatch(view, />Speichern</);
   assert.doesNotMatch(view, /savebar/);

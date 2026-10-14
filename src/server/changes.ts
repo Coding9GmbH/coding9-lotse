@@ -1,5 +1,5 @@
 import 'server-only';
-// Änderungs-Schicht: Die KI SCHLÄGT NUR VOR (Diff) – geschrieben wird ausschließlich hier, nach menschlicher Freigabe.
+// Change layer: the AI ONLY PROPOSES (diff); writing happens exclusively here, after human approval.
 import type { ChangeAsset, ChangeItem, ChangeSet, PublishedInfo, UndoOp } from '@/lib/protocol';
 import { withScript } from '@/lib/script-scan';
 import { auditAdd } from './db';
@@ -15,7 +15,7 @@ import { errMsg } from './util';
 
 export const DEFAULT_CURRENCY = 'b7d2554b0ce847cd82f3ac9bd1c0dfca';
 export const MAX_ITEMS = 300;
-// Schont den Shop: höchstens so viele Schreibzugriffe gleichzeitig (Standard 2, max. 8)
+// Spares the shop: at most this many concurrent writes (default 2, max. 8)
 export const WRITE_CONCURRENCY = Math.min(8, Math.max(1, parseInt(process.env.LOTSE_WRITE_CONCURRENCY ?? '', 10) || 2));
 
 type FieldKind = 'str' | 'html' | 'price' | 'int' | 'bool' | 'faq';
@@ -34,11 +34,11 @@ export const CATEGORY_FIELDS: Record<string, FieldDef> = {
 };
 
 export const eur = (v: number | null | undefined) => (v == null ? '–' : `${Number(v).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`);
-/** Text auf eine Zeile kürzen (Vorher/Nachher in Änderungskarten); leer → „–“ */
+/** Shorten text to one line (before/after in change cards); empty → "–" */
 export const cut = (t: unknown, n = 220) => { const s = String(t ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n) + '…' : s || '–'; };
 export const net = (gross: number, rate: number) => Math.round((gross / (1 + rate / 100)) * 10000) / 10000;
 const cents = (v: number) => Math.round(v * 100) / 100;
-// Rundungsmodus nur in der Form ".99" / ".95" / ".00" (Komma erlaubt, führende 0 erlaubt); alles andere ist ein Fehler statt ein falscher Preis ("99" → 99 €)
+// Rounding mode only in the form ".99" / ".95" / ".00" (comma allowed, leading 0 allowed); anything else is an error rather than a wrong price ("99" → 99 €)
 const ROUND_MODE = /^0?\.\d{1,2}$/;
 const roundTo = (v: number, mode: string | undefined) => {
   const m = String(mode ?? 'none').trim().replace(',', '.');
@@ -48,7 +48,7 @@ const roundTo = (v: number, mode: string | undefined) => {
   return cents(Math.max(f, Math.round(v - f) + f));
 };
 
-// Preisregel serverseitig rechnen (kein LLM-Kopfrechnen): Zahl | {set} | {percent, round?} | {add, round?}
+// Compute the price rule server-side (no LLM mental arithmetic): number | {set} | {percent, round?} | {add, round?}
 export type PriceSpec = number | null | { set?: number; percent?: number; add?: number; round?: string };
 export function resolvePrice(cur: number | null, spec: PriceSpec): number | null {
   if (spec === null) return null;
@@ -82,11 +82,11 @@ function validate(def: FieldDef, field: string, v: unknown) {
   return v;
 }
 
-// ---- Stale-Write-Guard: Zwischen Vorschlag und Freigabe darf sich der geänderte Wert im Shop nicht verändert haben ----
-// Sonst gibt der Mensch einen Diff frei, der nicht mehr stimmt (zweiter Chat, Admin-Nutzer). Der Builder merkt sich den Rohwert (beforeRaw),
-// der Executor vergleicht ihn mit dem frischen Stand und schreibt das Element nicht; die übrigen laufen weiter. Ohne beforeRaw (Altbestand) keine Prüfung.
+// ---- Stale-write guard: between proposal and approval the changed value must not have changed in the shop ----
+// Otherwise the human approves a diff that is no longer accurate (second chat, admin user). The builder remembers the raw value (beforeRaw),
+// the executor compares it with the fresh state and does not write that item; the rest continue. Without beforeRaw (legacy data) no check.
 export const STALE = 'inzwischen geändert, bitte neu vorschlagen';
-/** Werte vergleichbar machen: leer = null = ''; Zahlen auf 4 Stellen; Text ohne Formatierungsunterschiede (Whitespace); Objekte mit sortierten Schlüsseln */
+/** Make values comparable: empty = null = ''; numbers to 4 decimals; text without formatting differences (whitespace); objects with sorted keys */
 export function normValue(v: unknown): string {
   if (v == null || v === '') return '';
   if (typeof v === 'number') return String(Math.round(v * 10000) / 10000);
@@ -97,7 +97,7 @@ export function normValue(v: unknown): string {
   return String(v);
 }
 export const isStale = (fresh: unknown, before: unknown) => before !== undefined && normValue(fresh) !== normValue(before);
-/** Wirft, wenn der frische Wert nicht mehr dem beim Vorschlag gemerkten entspricht */
+/** Throws if the fresh value no longer matches the one remembered at proposal time */
 export function assertFresh(label: string, fresh: unknown, before: unknown) { if (isStale(fresh, before)) throw new Error(`${label}: ${STALE}`); }
 
 export interface ProposeArgs { title: string; reason: string; changes: { id: string; fields: Record<string, unknown> }[] }
@@ -107,7 +107,7 @@ async function build(ro: ShopReader, entity: 'product' | 'category', FIELDS: Rec
   const ids = [...new Set(changes.map(c => c.id))];
   const rows = (await ro.search(entity, { ids, limit: ids.length, associations: entity === 'product' ? { tax: {} } : {} })).data;
   const by: Record<string, SwEntity> = Object.fromEntries(rows.map(r => [r.id, r]));
-  // Varianten erben Preis (price = null) vom Hauptprodukt → aktueller Wert ist der des Hauptprodukts
+  // Variants inherit the price (price = null) from the parent product → current value is the parent product's
   const parentIds = entity === 'product' ? [...new Set(rows.filter(r => r.parentId && !r.price).map(r => r.parentId as string))] : [];
   const parents: Record<string, SwEntity> = parentIds.length ? Object.fromEntries((await ro.search('product', { ids: parentIds, limit: parentIds.length, associations: { tax: {} } })).data.map(r => [r.id, r])) : {};
   const items: ChangeItem[] = [], skipped: { id: string; reason: string }[] = []; let unchanged = 0;
@@ -140,7 +140,7 @@ async function build(ro: ShopReader, entity: 'product' | 'category', FIELDS: Rec
           if (field === 'price') {
             if (price === 0) warn.push('Preis 0 €');
             if (curVal > 0 && price != null) { const d = ((price - curVal) / curVal) * 100; if (Math.abs(d) >= 30) warn.push(`Preisänderung ${d > 0 ? '+' : ''}${d.toFixed(0)} %`); }
-          } else if (inherited && !changes.some(c => c.id === ch.id && c.fields?.price != null)) warn.push(`Preis wird fixiert (bisher geerbt: ${eur(p?.gross)})`); // nur Streichpreis → eigener Preis, folgt dem Hauptprodukt nicht mehr
+          } else if (inherited && !changes.some(c => c.id === ch.id && c.fields?.price != null)) warn.push(`Preis wird fixiert (bisher geerbt: ${eur(p?.gross)})`); // list price only → own price, no longer follows the parent product
         } else {
           afterRaw = validate(def, field, raw);
           const curVal = cur[field] ?? cur.translated?.[field] ?? null; beforeRaw = curVal;
@@ -154,23 +154,23 @@ async function build(ro: ShopReader, entity: 'product' | 'category', FIELDS: Rec
       } catch (e) { skipped.push({ id: ch.id, reason: `${field}: ${errMsg(e)}` }); }
     }
   }
-  await checkHtmlItems(ro, items.filter(i => FIELDS[i.field ?? '']?.kind === 'html')); // Links in Beschreibungen prüfen
+  await checkHtmlItems(ro, items.filter(i => FIELDS[i.field ?? '']?.kind === 'html')); // check links in descriptions
   if (!items.length) throw new Error(`Keine Änderung nötig bzw. nichts anwendbar (${unchanged} unverändert, ${skipped.length} übersprungen: ${skipped.slice(0, 3).map(s => s.reason).join('; ')})`);
   return { id: newId(), kind: entity === 'product' ? 'products' : 'categories', entity, title, reason, items, skipped, unchanged, atomic: false };
 }
 export const buildProductChangeSet = (ro: ShopReader, a: ProposeArgs) => build(ro, 'product', PRODUCT_FIELDS, a);
 export const buildCategoryChangeSet = (ro: ShopReader, a: ProposeArgs) => build(ro, 'category', CATEGORY_FIELDS, a);
 
-// ---- Neue Produkte anlegen (z. B. aus hochgeladenen Fotos) ----
+// ---- Create new products (e.g. from uploaded photos) ----
 export interface NewProductInput {
   name: string; description: string; price: number; stock?: number; active?: boolean; productNumber?: string;
   metaTitle?: string; metaDescription?: string; keywords?: string; ean?: string; manufacturer?: string; taxRate?: number;
   categoryIds?: string[];
-  /** Bilder: mediaId aus Uploads/Medienverwaltung oder „staged:…“; das erste wird Titelbild */
+  /** Images: mediaId from uploads/media management or "staged:…"; the first one becomes the cover image */
   images?: string[];
 }
 export interface NewProductsArgs { title: string; reason: string; products: NewProductInput[] }
-/** Payload je neuem Produkt (afterRaw eines Items) – der Executor legt daraus das Produkt an */
+/** Payload per new product (an item's afterRaw); the executor creates the product from it */
 export interface NewProductPayload extends NewProductInput { productNumber: string; taxId: string; taxRate: number; images: string[]; categoryIds: string[]; stock: number; active: boolean }
 
 const slugNum = (name: string) => name.normalize('NFKD').replace(/[^\w\s-]/g, '').trim().split(/\s+/).slice(0, 3).map(w => w.slice(0, 4).toUpperCase()).join('-') || 'NEU';
@@ -244,25 +244,25 @@ async function createProduct(swW: Shopware, p: NewProductPayload): Promise<UndoO
   return undo;
 }
 
-// ---- Veröffentlichung einer Seite als Änderungsset ----
-/** Geltungsbereich bei Layouts für mehrere Seiten: Shopware löst ihn beim Vorschlag in feste IDs (categoryIds/productIds) auf, damit die Freigabe genau das schreibt, was gezeigt wurde. */
+// ---- Publishing a page as a change set ----
+/** Scope for layouts covering several pages: Shopware resolves it into fixed IDs (categoryIds/productIds) at proposal time, so the approval writes exactly what was shown. */
 export interface PublishScopeArgs { categoryIds?: string[]; allCategories?: boolean; productsInCategoryId?: string; allProducts?: boolean; scopeLabel?: string }
 export interface PublishArgs extends PublishScopeArgs { target: 'category' | 'product' | 'landingpage'; categoryId?: string; productIds?: string[]; url?: string; salesChannelId?: string; metaTitle?: string; metaDescription?: string }
-/** Ziele einer Veröffentlichung (Kategorien bzw. Produkte) in fester Reihenfolge */
+/** Targets of a publication (categories or products) in fixed order */
 export const publishCategoryIds = (a: PublishArgs) => (a.categoryIds?.length ? a.categoryIds : a.categoryId ? [a.categoryId] : []);
-/** Ab so vielen Zielen zeigt die Übersicht eine Zusammenfassung mit Stichprobe statt einer Zeile je Seite */
+/** From this many targets on, the overview shows a summary with a sample instead of one row per page */
 const BULK_ROWS = 15, BULK_SAMPLE = 8;
 export interface PublishPayload { spec: PageSpec; args: PublishArgs }
-/** Landingpage-Pfad: Kleinbuchstaben, Ziffern, - _ und /, ohne Leerzeichen, Query oder Fragment (Shopware prüft die URL nicht) */
+/** Landing page path: lowercase letters, digits, - _ and /, without spaces, query or fragment (Shopware does not validate the URL) */
 export function landingSlug(url: unknown): string {
   const s = String(url ?? '').trim().toLowerCase().replace(/^\/+|\/+$/g, '');
   if (!s || /[^a-z0-9/_-]/.test(s) || s.includes('//')) throw new Error(`url „${String(url ?? '')}“ ungültig: nur Kleinbuchstaben, Ziffern, Bindestrich, Unterstrich und / (ohne Leerzeichen, Umlaute, ? oder #)`);
   return s;
 }
 const metaLen = (label: string, v: string | undefined) => { if (v && v.length > 255) throw new Error(`${label}: max. 255 Zeichen (${v.length})`); };
-/** Shopware-Kategorietypen: nur „page“ (Listing) zeigt ein CMS-Layout. „folder“ (Strukturelement) hat keine eigene Seite, „link“ leitet weiter. */
+/** Shopware category types: only "page" (listing) shows a CMS layout. "folder" (structure element) has no page of its own, "link" redirects. */
 const CATEGORY_TYPE_LABEL: Record<string, string> = { folder: 'Strukturelement (ohne eigene Seite)', link: 'Link (leitet weiter)' };
-/** Wirft, wenn eine Kategorie kein Layout anzeigen kann; der Typ fehlt = Listing (ältere Daten) */
+/** Throws if a category cannot show a layout; missing type = listing (older data) */
 export function assertLayoutCategory(c: SwEntity) {
   const type = c.type as string | null | undefined;
   if (!type || type === 'page') return;
@@ -282,7 +282,7 @@ export async function buildPublishChangeSet(ro: ShopReader, spec: PageSpec, a: P
   const layoutName = async (id: string | null | undefined) => (id ? (await ro.get('cms-page', id))?.name ?? id : 'kein eigenes Layout');
   const layoutNames = new Map<string, string>();
   const layoutOf = async (id: string | null | undefined) => { if (!id) return 'kein eigenes Layout'; if (!layoutNames.has(id)) layoutNames.set(id, await layoutName(id)); return layoutNames.get(id)!; };
-  /** Eine Zeile je Ziel; bei vielen Zielen eine Zusammenfassung (wie viele ersetzen ein eigenes Layout) plus Stichprobe */
+  /** One row per target; with many targets a summary (how many replace their own layout) plus a sample */
   const rows = async (noun: string, nounPl: string, list: { name: string; cmsPageId?: string | null }[]) => {
     if (list.length <= BULK_ROWS) { for (const t of list) info(`${noun} „${t.name}“`, 'Layout', await layoutOf(t.cmsPageId), spec.name); return; }
     const own = list.filter(t => t.cmsPageId).length;
@@ -298,7 +298,7 @@ export async function buildPublishChangeSet(ro: ShopReader, spec: PageSpec, a: P
     if (ids.length > 1 && (a.metaTitle ?? spec.seo?.metaTitle ?? a.metaDescription ?? spec.seo?.metaDescription)) throw new Error('Meta-Title/-Description gelten nur für eine einzelne Kategorie. Bei mehreren Kategorien weglassen (danach je Kategorie mit propose_category_changes).');
     const cats = await fetchAll('category', ids), missing = ids.filter(id => !cats.some(c => c.id === id));
     if (missing.length) throw new Error(missing.length === 1 ? `Kategorie ${missing[0]} nicht gefunden` : `Kategorien nicht gefunden: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ' …' : ''}`);
-    for (const c of cats) assertLayoutCategory(c); // Strukturelement/Link zeigen kein Layout: vor der Freigabe ablehnen, nicht erst beim Schreiben
+    for (const c of cats) assertLayoutCategory(c); // structure element/link show no layout: reject before approval, not only when writing
     const nameOf = (c: SwEntity) => c.translated?.name ?? c.name;
     await rows('Kategorie', 'Kategorien', cats.map(c => ({ name: nameOf(c), cmsPageId: c.cmsPageId })));
     if (cats.length === 1) {
@@ -321,11 +321,11 @@ export async function buildPublishChangeSet(ro: ShopReader, spec: PageSpec, a: P
   return { id: newId(), kind: 'page', title: `Seite veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec) };
 }
 
-// ================= EXECUTOR (einziger schreibender Code) =================
+// ================= EXECUTOR (the only writing code) =================
 export const pool = async <T, R>(list: T[], n: number, fn: (x: T) => Promise<R>) => { const out: R[] = []; let i = 0; await Promise.all(Array.from({ length: Math.min(n, list.length) }, async () => { while (i < list.length) { const k = i++; out[k] = await fn(list[k]); } })); return out; };
 
 const fieldSet = () => singleton('fieldSet', () => ({ ok: false }));
-export async function ensureFieldSet(swW: Shopware) { // einmalig: Zusatzfeld-Set "aicb_content" (JSON-Feld aicb_blocks) am Produkt
+export async function ensureFieldSet(swW: Shopware) { // one-time: custom field set "aicb_content" (JSON field aicb_blocks) on the product
   if (fieldSet().ok) return;
   const ex = (await swW.search('custom-field-set', { filter: [{ type: 'equals', field: 'name', value: 'aicb_content' }], limit: 1 })).data[0];
   if (!ex) await swW.create('custom-field-set', { id: newId(), name: 'aicb_content', config: { label: { 'de-DE': 'AI Content Builder', 'en-GB': 'AI Content Builder' } }, relations: [{ id: newId(), entityName: 'product' }],
@@ -333,16 +333,16 @@ export async function ensureFieldSet(swW: Shopware) { // einmalig: Zusatzfeld-Se
   fieldSet().ok = true;
 }
 
-/** Frischer Wert eines Feldes im Stand cur (Preisfelder aus dem wirksamen, ggf. geerbten Preiseintrag cp) */
+/** Fresh value of a field in state cur (price fields from the effective, possibly inherited price entry cp) */
 const freshValue = (cur: SwEntity, cp: SwEntity, field: string) =>
   field === 'price' ? cp.gross ?? null : field === 'listPrice' ? cp.listPrice?.gross ?? null : field === 'faq' ? cur.customFields?.aicb_blocks?.faq ?? null : cur[field] ?? cur.translated?.[field] ?? null;
 
-/** Schreibt die Items einer Entität in einem PATCH. Inzwischen geänderte Felder (stale) werden nicht geschrieben, die übrigen schon. */
+/** Writes an entity's items in one PATCH. Fields changed in the meantime (stale) are not written, the others are. */
 async function applyEntity(swW: Shopware, entity: string, entityId: string, items: ChangeItem[]): Promise<{ undo: UndoOp | null; stale: Map<string, string> }> {
   const cur = await swW.get(entity, entityId, entity === 'product' ? { associations: { tax: {} } } : {});
   if (!cur) throw new Error('Datensatz nicht mehr vorhanden');
   const hasPrice = items.some(i => i.field === 'price' || i.field === 'listPrice');
-  // Variante ohne eigenen Preis/Steuersatz: Werte des Hauptprodukts als Grundlage (Rückgängig stellt die Vererbung wieder her)
+  // Variant without its own price/tax rate: parent product's values as the basis (undo restores the inheritance)
   const parent = hasPrice && entity === 'product' && cur.parentId && (!cur.price || !cur.tax) ? await swW.get('product', cur.parentId, { associations: { tax: {} } }) : null;
   const prices: SwEntity[] = cur.price ?? parent?.price ?? [], cp = prices[0] ?? {};
   const stale = new Map<string, string>(), live: ChangeItem[] = [];
@@ -376,7 +376,7 @@ async function applyEntity(swW: Shopware, entity: string, entityId: string, item
   return { undo: { op: 'patch', entity, id: entityId, data: undo, wrote: data }, stale };
 }
 
-/** counts: Gesamtzahlen, wenn results gekürzt ist (Stapelverarbeitung: Gruppen + Stichprobe + Fehler statt Tausender Zeilen) */
+/** counts: totals when results is truncated (bulk edit: groups + sample + errors instead of thousands of rows) */
 export interface ApplyResult { results: { itemId: string; ok: boolean; error?: string }[]; undo: UndoOp[]; published?: PublishedInfo; error?: string; counts?: { applied: number; failed: number } }
 async function applyPublish(swW: Shopware, cs: ChangeSet, payload: PublishPayload, ctx?: ApplyCtx): Promise<ApplyResult> {
   const { spec, args: a } = payload, undo = trackedUndo(ctx, cs.items.length);
@@ -387,7 +387,7 @@ async function applyPublish(swW: Shopware, cs: ChangeSet, payload: PublishPayloa
     const sc = await swW.salesChannels(), domain = (a.salesChannelId ? sc.find(s => s.id === a.salesChannelId) : sc.find(s => s.domains?.length))?.domains?.[0]?.url ?? swW.base;
     const out: PublishedInfo = { cmsPageId: page.id, adminUrl: `${swW.base}/admin#/sw/cms/detail/${page.id}`, name: spec.name };
     const mt = a.metaTitle ?? spec.seo?.metaTitle, md = a.metaDescription ?? spec.seo?.metaDescription;
-    // Mehrere Ziele schonend parallel; beim ersten Fehler startet kein weiteres, dann wird alles zurückgenommen (atomar)
+    // Several targets gently in parallel; after the first error no further one starts, then everything is rolled back (atomic)
     const eachAtomic = async <T,>(list: T[], fn: (x: T) => Promise<void>) => {
       let i = 0, failed: { e: unknown } | null = null;
       await Promise.all(Array.from({ length: Math.min(WRITE_CONCURRENCY, list.length) }, async () => {
@@ -400,7 +400,7 @@ async function applyPublish(swW: Shopware, cs: ChangeSet, payload: PublishPayloa
       await eachAtomic(ids, async categoryId => {
         const cur = await swW.get('category', categoryId);
         if (!cur) throw new Error(single ? 'Kategorie nicht mehr vorhanden' : `Kategorie ${categoryId} nicht mehr vorhanden`);
-        assertLayoutCategory(cur); // Typ kann sich seit der Freigabe geändert haben
+        assertLayoutCategory(cur); // type may have changed since the approval
         const withMeta = single;
         await swW.update('category', categoryId, { cmsPageId: page.id, ...(withMeta && mt ? { metaTitle: mt } : {}), ...(withMeta && md ? { metaDescription: md } : {}) });
         undo.push({ op: 'patch', entity: 'category', id: categoryId, data: { cmsPageId: cur.cmsPageId ?? null, ...(withMeta && mt ? { metaTitle: cur.metaTitle ?? null } : {}), ...(withMeta && md ? { metaDescription: cur.metaDescription ?? null } : {}) } });
@@ -420,24 +420,24 @@ async function applyPublish(swW: Shopware, cs: ChangeSet, payload: PublishPayloa
     }
     return { results: cs.items.map(i => ({ itemId: i.id, ok: true })), undo, published: out };
   } catch (e) {
-    // atomar: schlägt ein späterer Schritt fehl, wird das schon angelegte Layout (und Zuweisungen) sofort zurückgenommen, sonst bliebe es ohne Rückgängig-Schritt im Shop
+    // atomic: if a later step fails, the already created layout (and assignments) is rolled back immediately, otherwise it would remain in the shop without an undo step
     const error = errMsg(e), back = await undoOps(swW, undo), rest = undo.filter((_, i) => !back[undo.length - 1 - i].ok);
     return { results: cs.items.map(i => ({ itemId: i.id, ok: false, error })), undo: rest, error: rest.length ? `${error} (Rückabwicklung unvollständig: ${back.find(b => !b.ok)?.error})` : `${error} (nichts geändert, Layout wieder entfernt)` };
   }
 }
 
-// ---- Erweiterbar: Feature-Module (src/server/features) registrieren hier ihre Executor (Shopware; andere Plattformen: platform/appliers.ts) ----
-/** Zwischenstand beim Anwenden (bisherige Ergebnisse + Rückgängig-Schritte): die Session sichert ihn in der DB, damit ein Absturz mittendrin kein Rückgängig verliert */
+// ---- Extensible: feature modules (src/server/features) register their executors here (Shopware; other platforms: platform/appliers.ts) ----
+/** Intermediate state while applying (results so far + undo steps): the session saves it in the DB so a crash midway loses no undo */
 export interface ApplyPartial { results: ApplyResult['results']; undo: UndoOp[] }
-/** progress: Fortschritt großer Sets an die Oberfläche melden (done/total Datensätze); partial nach jedem Element/Häppchen mitgeben */
+/** progress: report progress of large sets to the UI (done/total records); pass partial after each item/chunk */
 export interface ApplyCtx { progress?: (done: number, total: number, partial?: ApplyPartial) => void }
 export type Applier = (swW: Shopware, cs: ChangeSet, payload: unknown, selected: Set<string>, ctx?: ApplyCtx) => Promise<ApplyResult>;
 const APPLIERS = singleton('appliers', () => new Map<string, Applier>());
 export const registerApplier = (kind: string, fn: Applier) => { APPLIERS.set(kind, fn); };
-/** Für Applier mit eigener Schleife: tick() nach jedem Datensatz (auch bei Fehler) meldet den bisherigen Stand; done = Zahl der Ergebnisse */
+/** For appliers with their own loop: tick() after each record (also on error) reports the state so far; done = number of results */
 export const partialTicker = (ctx: ApplyCtx | undefined, total: number, partial: ApplyPartial) => () => ctx?.progress?.(partial.results.length, total, partial);
-/** Rückgängig-Liste, die jeden neuen Schritt sofort als Zwischenstand meldet: für Applier mit mehreren Schreibschritten je Datensatz
- * (Promotion, Veröffentlichung, Varianten), bei denen erst am Ende Ergebnisse entstehen; results = bisherige Ergebnisse, falls es welche gibt */
+/** Undo list that reports each new step immediately as intermediate state: for appliers with several write steps per record
+ * (promotion, publication, variants) where results only appear at the end; results = results so far, if any */
 export function trackedUndo(ctx: ApplyCtx | undefined, total: number, results: ApplyResult['results'] = []): UndoOp[] {
   const undo: UndoOp[] = [];
   if (!ctx?.progress) return undo;
@@ -446,7 +446,7 @@ export function trackedUndo(ctx: ApplyCtx | undefined, total: number, results: A
   return undo;
 }
 
-/** Standard-Executor: jedes ausgewählte Element einzeln (schonend parallel); fn liefert die Rückgängig-Schritte. */
+/** Default executor: each selected item individually (gently in parallel); fn returns the undo steps. */
 export async function applyEach(cs: ChangeSet, selected: Set<string>, fn: (it: ChangeItem) => Promise<UndoOp | UndoOp[]>, ctx?: ApplyCtx): Promise<ApplyResult> {
   const results: ApplyResult['results'] = [], undo: UndoOp[] = [], list = cs.items.filter(i => selected.has(i.id) && i.entity !== 'info');
   let done = 0;
@@ -486,14 +486,14 @@ export async function applyChangeSet(swW: Shopware, cs: ChangeSet, payload: unkn
   return { results, undo };
 }
 
-// Shopware löscht SEO-URLs gelöschter Produkte/Kategorien/Landingpages nicht, sondern markiert sie nur (isDeleted).
-// Was Lotse angelegt hat und rückgängig macht, soll spurlos verschwinden – sonst sammeln sich verwaiste URL-Zeilen an.
+// Shopware does not delete SEO URLs of deleted products/categories/landing pages, it only marks them (isDeleted).
+// What Lotse created and undoes should vanish without a trace, otherwise orphaned URL rows pile up.
 const SEO_ROUTED = new Set(['product', 'category', 'landing-page']);
 async function dropSeoUrls(swW: Shopware, foreignKey: string) {
   try {
     const rows = (await swW.search('seo-url', { limit: 500, filter: [{ type: 'equals', field: 'foreignKey', value: foreignKey }] })).data;
     for (const row of rows) await swW.req('DELETE', `/seo-url/${row.id}`).catch(() => {});
-  } catch { /* nur Aufräumen – das eigentliche Rückgängig ist bereits erfolgt */ }
+  } catch { /* cleanup only; the actual undo has already happened */ }
 }
 
 const isDelete = (op: UndoOp) => op.op === 'delete' || (op.op === 'req' && (op.method ?? 'DELETE') === 'DELETE');
@@ -520,15 +520,15 @@ export async function undoOps(swW: Shopware, undo: UndoOp[]) {
       else { await swW.req('DELETE', `/${op.entity}/${op.id}`); if (SEO_ROUTED.has(op.entity)) await dropSeoUrls(swW, op.id); }
       r.push({ ok: true });
     }
-    // Löschen ist idempotent: schon weg (z. B. per Kaskade mit einem zuvor rückgängig gemachten Stream) = Ziel erreicht
+    // Deleting is idempotent: already gone (e.g. by cascade with a previously undone stream) = goal reached
     catch (e) { r.push(isDelete(op) && (e as { status?: number }).status === 404 ? { ok: true } : { ok: false, error: errMsg(e) }); }
   }
   return r;
 }
 
-// ---- Nach dem Anwenden: Beobachter (z. B. Search Console merkt sich die Ausgangswerte geänderter Metas) ----
-/** items = erfolgreich angewendete Elemente; Fehler im Beobachter stören den Ablauf nie. */
-/** ro = Shopware-Lese-Client (nur Shopware); lookup = plattform-neutrale Lesefunktionen (fehlt nur bei Altaufrufen/Tests → aus ro) */
+// ---- After applying: observers (e.g. Search Console remembers the baseline values of changed metas) ----
+/** items = successfully applied items; errors in an observer never disrupt the flow. */
+/** ro = Shopware read client (Shopware only); lookup = platform-neutral read functions (missing only in legacy calls/tests → from ro) */
 export interface AppliedCtx { ro: ShopReader; lookup?: ShopLookup; platform?: PlatformKind; chatId: string }
 export type AppliedHook = (cs: ChangeSet, items: ChangeItem[], ctx: AppliedCtx) => void | Promise<void>;
 const APPLIED = singleton('applied-hooks', () => new Map<string, AppliedHook>());

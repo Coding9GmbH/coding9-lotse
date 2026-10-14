@@ -1,15 +1,15 @@
 /**
- * Lokaler Ersatz für die Anthropic Messages API (nur für E2E-Tests). Der echte Claude-Code-Prozess des Agent SDK
- * spricht über ANTHROPIC_BASE_URL mit diesem Server; das „Modell“ folgt einem festen Drehbuch statt zu denken.
+ * Local stand-in for the Anthropic Messages API (E2E tests only). The real Claude Code process of the Agent SDK
+ * talks to this server via ANTHROPIC_BASE_URL; the "model" follows a fixed script instead of thinking.
  *
  *   npx tsx tests/support/anthropic-fake/server.ts --port 3602
  *
- * Drehbuch (Steuerung über die letzte Nutzernachricht):
- *  - enthält sie `[e2e:propose <Produkt-ID> <Feld>=<Wert>]`, ruft das Modell `propose_product_changes` auf
- *    und antwortet nach dem Werkzeugergebnis mit „Erledigt: <status>“
- *  - sonst antwortet es mit einem kurzen Text („Hallo aus dem Test-Modell.“)
+ * Script (controlled via the last user message):
+ *  - if it contains `[e2e:propose <product-id> <field>=<value>]`, the model calls `propose_product_changes`
+ *    and, after the tool result, replies with "Erledigt: <status>"
+ *  - otherwise it replies with a short text ("Hallo aus dem Test-Modell.")
  *
- * Steuer-Endpunkte: GET /__fake/requests (empfangene Anfragen, gekürzt), POST /__fake/reset, GET /__fake/health.
+ * Control endpoints: GET /__fake/requests (received requests, truncated), POST /__fake/reset, GET /__fake/health.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -26,9 +26,9 @@ const blocks = (m: Msg): Block[] => (typeof m.content === 'string' ? [{ type: 't
 const textOf = (m: Msg) => blocks(m).filter(b => b.type === 'text').map(b => b.text ?? '').join('\n');
 const resultText = (b: Block) => (typeof b.content === 'string' ? b.content : Array.isArray(b.content) ? b.content.map(c => (c as Block).text ?? '').join('') : '');
 
-/** Nächster Zug des Drehbuchs: Text oder Werkzeugaufruf. */
+/** Next move of the script: text or tool call. */
 export function nextTurn(body: MessagesBody): { text?: string; tool?: { name: string; input: unknown } } {
-  // Nur Nutzer-/Assistenten-Nachrichten zählen (der CLI hängt je nach Umgebung weitere Rollen an)
+  // Only user/assistant messages count (the CLI appends further roles depending on the environment)
   const last = (body.messages ?? []).filter(m => m.role === 'user' || m.role === 'assistant').at(-1);
   if (!last) return { text: GREETING };
   const toolResult = blocks(last).find(b => b.type === 'tool_result');
@@ -98,7 +98,7 @@ export async function startFakeAnthropic(opts: { port?: number; host?: string; q
         reply(res, body);
         return;
       }
-      // Alles andere (Telemetrie, Konto-Abfragen): leise mit leerem JSON beantworten
+      // Everything else (telemetry, account queries): quietly answer with empty JSON
       res.setHeader('content-type', 'application/json'); res.end('{}');
     } catch (e) {
       res.writeHead(500, { 'content-type': 'application/json' });

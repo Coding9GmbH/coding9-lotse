@@ -1,8 +1,8 @@
 import 'server-only';
-// Shopify: Lieferanten-Import (CSV/Excel). Datei lesen und Zuordnung speichern wie bei Shopware (features/import.ts); Abgleich per SKU,
-// sonst Barcode (EAN). Vorhandene Produkte: nur zugeordnete, geänderte Felder (Preise nur mit updatePrices); neue Produkte als Entwurf,
-// Variantenfamilien (Hauptartikel-Nr. + Varianten-Achsen) als ein Produkt mit Optionen. Kollektionen werden nie angelegt.
-// Planung rein (testbar), Executor schonend parallel und in Stapeln, jedes Produkt mit exakten Rückgängig-Schritten.
+// Shopify: supplier import (CSV/Excel). Reading the file and saving the mapping work as in Shopware (features/import.ts); matching by SKU,
+// otherwise barcode (EAN). Existing products: only mapped, changed fields (prices only with updatePrices); new products as drafts,
+// variant families (parent product no. + variant axes) as one product with options. Collections are never created.
+// Planning is pure (testable), the executor runs gently in parallel and in batches, every product with exact undo steps.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
@@ -30,7 +30,7 @@ export interface ShopifyImportOptions {
   mode?: 'both' | 'create' | 'update'; updateFields?: string[]; updatePrices?: boolean; active?: boolean;
   categoryMap?: Record<string, string>; defaultCategoryId?: string; offset?: number; limit?: number;
 }
-/** vorhandene Variante (Abgleich per SKU/Barcode) mit ihrem Produkt */
+/** existing variant (matched by SKU/barcode) with its product */
 export interface CatalogVariant { variantId: string; productId: string; sku: string | null; barcode: string | null; price: string | null; compareAtPrice: string | null; product: { title: string; descriptionHtml: string; vendor: string; tags: string[]; seo: { title: string | null; description: string | null }; collections: string[]; media: number; variants: number } }
 export interface ShopifyImportCatalog { bySku: Map<string, CatalogVariant>; byBarcode: Map<string, CatalogVariant>; collections: { id: string; title: string; handle: string; manual: boolean }[]; taxesIncluded: boolean; currency: string; notes: string[] }
 
@@ -39,14 +39,14 @@ interface Base { key: string; line: number; group: Group; label: string }
 export interface ShopifyCreatePlan extends Base { kind: 'create'; product: NewProductPayload; options?: { name: string; values: string[] }[]; variants?: { options: Record<string, string>; price: number; listPrice?: number | null; sku?: string; barcode?: string }[] }
 export interface ShopifyUpdatePlan extends Base {
   kind: 'update'; productId: string;
-  /** Produktfelder (title, descriptionHtml, vendor, seo, tags) und je Variante Preis, Vergleichspreis, Barcode */
+  /** Product fields (title, descriptionHtml, vendor, seo, tags) and per variant price, compare-at price, barcode */
   product: Json; variants: { id: string; price?: number; compareAtPrice?: number | null; barcode?: string }[]; join: string[]; images: string[];
 }
 export type ShopifyImportPlan = ShopifyCreatePlan | ShopifyUpdatePlan;
 export interface ShopifyImportPayload { plans: ShopifyImportPlan[] }
 export interface ShopifyImportStats { rows: number; create: number; update: number; variantRows: number; skipped: number; unchanged: number; nextOffset: number | null; unknownCategories: string[]; ignored: string[]; notes: string[] }
 
-/** Felder, die Shopify nicht hat bzw. die Lotse auf Shopify nicht schreibt (Hinweis statt stiller Verlust) */
+/** Fields Shopify does not have or that Lotse does not write on Shopify (notice instead of silent loss) */
 const IGNORED: Partial<Record<keyof ImportMapping, string>> = {
   stock: 'Bestand (in Lotse für Shopify nur lesbar; Lagerbestände je Standort im Shopify-Admin)', purchasePrice: 'Einkaufspreis', manufacturerNumber: 'Hersteller-Nr.',
   weight: 'Gewicht', width: 'Breite', height: 'Höhe', length: 'Länge', deliveryTime: 'Lieferzeit', properties: 'Eigenschaften (Shopify-Filter laufen über Optionen, Tags und Metafelder)',
@@ -54,14 +54,14 @@ const IGNORED: Partial<Record<keyof ImportMapping, string>> = {
 const low = (s: string) => s.trim().toLocaleLowerCase('de-DE');
 const https = (u: string) => /^https:\/\//i.test(u);
 
-/** Preis laut Datei → Shopify-Preis (Shopify speichert Preise so, wie der Shop sie anzeigt: brutto bei „Preise inkl. Steuer“) */
+/** Price from the file → Shopify price (Shopify stores prices as the shop displays them: gross with "prices include tax") */
 export function shopifyPrice(r: Pick<Rec, 'gross' | 'net' | 'taxRate'>, taxesIncluded: boolean, defaultTax = 19): { price?: number; converted?: string } {
   const rate = r.taxRate ?? defaultTax, round = (n: number) => Math.round(n * 100) / 100;
   if (taxesIncluded) return r.gross != null ? { price: r.gross } : r.net != null ? { price: round(r.net * (1 + rate / 100)), converted: `Preis aus Netto + ${rate} % berechnet` } : {};
   return r.net != null ? { price: r.net } : r.gross != null ? { price: round(r.gross / (1 + rate / 100)), converted: `Netto aus Brutto − ${rate} % berechnet (Shop-Preise ohne Steuer)` } : {};
 }
 
-/** Kollektion(en) aus Kategorie-Text: Titel oder Handle (letztes Pfad-Segment), categoryMap hat Vorrang; nur manuelle Kollektionen */
+/** Collection(s) from category text: title or handle (last path segment), categoryMap takes precedence; manual collections only */
 export function resolveCollections(text: string | undefined, cat: ShopifyImportCatalog, map: Record<string, string> = {}): { ids: string[]; missing: string[]; smart: string[] } {
   const ids: string[] = [], missing: string[] = [], smart: string[] = [];
   for (const t of String(text ?? '').split(/\s*[|;\n]\s*/).filter(Boolean)) {
@@ -96,7 +96,7 @@ export function planShopifyImport(t: Table, m: ImportMapping, cat: ShopifyImport
   };
   const tagsOf = (r: Rec) => normTags((r.keywords ?? '').split(/[,;|]/));
 
-  // ---- doppelte Artikelnummern in der Datei: erste Zeile gilt ----
+  // ---- duplicate product numbers in the file: first row wins ----
   const firstLine = new Map<string, number>(), rows: Rec[] = [];
   for (const r of recs) {
     if (r.number && firstLine.has(r.number)) { skip(r, `Artikelnummer doppelt in der Datei (gilt Zeile ${firstLine.get(r.number)})`); continue; }
@@ -104,7 +104,7 @@ export function planShopifyImport(t: Table, m: ImportMapping, cat: ShopifyImport
     rows.push(r);
   }
 
-  // ---- Variantenfamilien (Hauptartikel-Nr.): neue Familien als ein Produkt; vorhandene Varianten werden aktualisiert, neue über propose_variants ----
+  // ---- variant families (parent product no.): new families as one product; existing variants are updated, new ones via propose_variants ----
   const parentNos = new Set(rows.filter(r => r.parent && r.parent !== r.number).map(r => r.parent!));
   const families = new Map<string, Rec[]>();
   for (const r of rows) if (r.parent && parentNos.has(r.parent) && r.parent !== r.number) families.set(r.parent, [...(families.get(r.parent) ?? []), r]);
@@ -121,11 +121,11 @@ export function planShopifyImport(t: Table, m: ImportMapping, cat: ShopifyImport
     out.push({ plan: { kind: 'create', key: `n${r.line}`, line: r.line, group: warn.length ? 'create-warn' : 'create', label: `${r.name}${r.number ? ` (${r.number})` : ''}`, product }, diffs: [], warn });
   };
 
-  /** Zeilen zu vorhandenen Varianten (je Produkt gebündelt) und Hauptzeilen vorhandener Familien (Quelle der Produktfelder) */
+  /** Rows for existing variants (grouped per product) and parent rows of existing families (source of the product fields) */
   const existing: Rec[] = [], heads = new Map<string, Rec>();
   for (const r of rows) {
-    if (r.parent && families.has(r.parent) && r.parent !== r.number) continue; // Variante: über die Familie
-    if (r.number && families.has(r.number)) continue; // Hauptzeile einer Familie
+    if (r.parent && families.has(r.parent) && r.parent !== r.number) continue; // variant: handled via the family
+    if (r.number && families.has(r.number)) continue; // parent row of a family
     const c = match(r);
     if (!c) { if (mode === 'update') skip(r, 'nicht im Shop (Modus „nur aktualisieren“)'); else createSimple(r); continue; }
     if (mode === 'create') { skip(r, 'schon im Shop (Modus „nur neu anlegen“)'); continue; }
@@ -135,7 +135,7 @@ export function planShopifyImport(t: Table, m: ImportMapping, cat: ShopifyImport
   for (const [parentNo, kids] of families) {
     const head = rows.find(r => r.number === parentNo), first = kids[0], headHit = head ? match(head) : null, hits = kids.filter(k => match(k));
     if (hits.length || headHit) {
-      // vorhandenes Produkt: passende Varianten aktualisieren, neue Varianten nur über propose_variants (Optionen/Werte prüft dort der Nutzer)
+      // existing product: update matching variants, new variants only via propose_variants (the user reviews options/values there)
       kids.filter(k => !match(k)).forEach(k => skip(k, `neue Variante: Produkt ${parentNo} ist schon im Shop. Neue Varianten an vorhandenen Produkten über propose_variants`));
       const mine = [...hits, ...(headHit ? [head!] : [])];
       if (mode === 'create') { mine.forEach(k => skip(k, 'schon im Shop (Modus „nur neu anlegen“)')); continue; }
@@ -150,7 +150,7 @@ export function planShopifyImport(t: Table, m: ImportMapping, cat: ShopifyImport
     if (axes.length > 3) { kids.forEach(k => skip(k, `Familie ${parentNo}: Shopify erlaubt höchstens 3 Optionen (${axes.join(', ')})`)); continue; }
     const warn: string[] = [], variants: NonNullable<ShopifyCreatePlan['variants']> = [], seen = new Set<string>();
     for (const k of kids) {
-      const { price, converted } = shopifyPrice(k.gross != null || k.net != null ? k : { ...k, gross: head?.gross, net: head?.net }, cat.taxesIncluded); // eigener Preis (auch 0) vor dem der Hauptzeile
+      const { price, converted } = shopifyPrice(k.gross != null || k.net != null ? k : { ...k, gross: head?.gross, net: head?.net }, cat.taxesIncluded); // own price (even 0) before that of the parent row
       const opt = Object.fromEntries(axes.map(a => [a, k.axes.find(x => x.group === a)?.value ?? '']));
       if (Object.values(opt).some(v => !v)) { skip(k, `Wert für ${axes.filter(a => !opt[a]).join(', ')} fehlt`); continue; }
       const sig = JSON.stringify(opt); if (seen.has(sig)) { skip(k, `Kombination ${Object.values(opt).join(' / ')} doppelt`); continue; }
@@ -169,7 +169,7 @@ export function planShopifyImport(t: Table, m: ImportMapping, cat: ShopifyImport
     out.push({ plan: { kind: 'create', key: `f${first.line}`, line: first.line, group: warn.length ? 'create-warn' : 'create', label: `${name} (${parentNo})`, product, options, variants }, diffs: [], warn });
   }
 
-  // ---- vorhandene Produkte: je Produkt EIN Update (keine parallelen Schreibzugriffe auf dasselbe Produkt), nur zugeordnete, geänderte Felder ----
+  // ---- existing products: ONE update per product (no parallel writes to the same product), only mapped, changed fields ----
   const byProduct = new Map<string, Rec[]>();
   for (const r of existing) { const pid = match(r)!.productId; byProduct.set(pid, [...(byProduct.get(pid) ?? []), r]); }
   for (const [pid, all] of byProduct) {
@@ -182,8 +182,8 @@ export function planShopifyImport(t: Table, m: ImportMapping, cat: ShopifyImport
       diffs.push({ label, before: show(before).slice(0, 120), after: show(after).slice(0, 120) }); apply();
     };
     /**
-     * Produktfeld aus der Datei: Hauptzeile der Familie, sonst der gemeinsame Wert aller Zeilen. Hat das Produkt mehrere Varianten, gilt ein
-     * Titel ohne Hauptzeile nur, wenn mindestens zwei Zeilen übereinstimmen (eine einzelne Variantenzeile trägt meist den Variantennamen).
+     * Product field from the file: the family's parent row, otherwise the common value of all rows. If the product has several variants, a
+     * title without a parent row only counts if at least two rows agree (a single variant row usually carries the variant name).
      */
     const pick = <T>(key: string, label: string, get: (r: Rec) => T | undefined): T | undefined => {
       if (!upd.has(key)) return undefined;
@@ -204,7 +204,7 @@ export function planShopifyImport(t: Table, m: ImportMapping, cat: ShopifyImport
     set('metaDescription', 'Meta-Description', p.seo.description, metaDescription, () => { prod.seo = { ...(prod.seo ?? p.seo), description: metaDescription }; });
     const fileTags = normTags(src.flatMap(tagsOf)), tags = normTags([...p.tags, ...fileTags]);
     if (fileTags.length) set('keywords', 'Tags', p.tags.join(', '), tags.join(', '), () => { prod.tags = tags; });
-    // je Variante: Barcode, Preis, Vergleichspreis
+    // per variant: barcode, price, compare-at price
     for (const r of group) {
       const c = match(r)!, v: ShopifyUpdatePlan['variants'][number] = { id: c.variantId }, tag = multi ? `${c.sku ?? c.barcode ?? shortId(c.variantId)}: ` : '';
       if (upd.has('ean') && r.ean && c.barcode !== r.ean) { diffs.push({ label: 'Barcode', before: `${tag}${c.barcode ?? '–'}`, after: `${tag}${r.ean}` }); v.barcode = r.ean; }
@@ -260,7 +260,7 @@ export function planShopifyImport(t: Table, m: ImportMapping, cat: ShopifyImport
 }
 export const isSelectedPlan = (p: ShopifyImportPlan, selected: Set<string>) => selected.has(`p:${p.key}`) || selected.has(`grp:${p.group}`);
 
-// ======================= Katalog (geschützter Reader der KI) =======================
+// ======================= Catalog (the AI's guarded reader) =======================
 const VARIANT_SEL = 'id sku barcode price compareAtPrice product { id title descriptionHtml vendor tags seo { title description } mediaCount { count } variantsCount { count } collections(first: 20) { nodes { id } } }';
 export async function loadShopifyCatalog(q: Q, recs: Rec[], needCollections: boolean): Promise<ShopifyImportCatalog> {
   const cat: ShopifyImportCatalog = { bySku: new Map(), byBarcode: new Map(), collections: [], taxesIncluded: true, currency: 'EUR', notes: [] };
@@ -271,7 +271,7 @@ export async function loadShopifyCatalog(q: Q, recs: Rec[], needCollections: boo
     if (cv.sku) cat.bySku.set(cv.sku, cv); if (cv.barcode) cat.byBarcode.set(cv.barcode, cv);
   };
   for (const [field, vals] of [['sku', [...new Set(recs.flatMap(r => [r.number, r.parent]).filter((x): x is string => !!x))]], ['barcode', [...new Set(recs.map(r => r.ean).filter((x): x is string => !!x))]]] as const) {
-    // Abfragekosten unter 1000: 10 Werte je Abfrage, höchstens 25 Treffer (Variante + Produkt + 20 Kollektionen ≈ 30 Punkte)
+    // Query cost under 1000: 10 values per query, at most 25 hits (variant + product + 20 collections ≈ 30 points)
     for (let i = 0; i < vals.length; i += 10) {
       const chunk = vals.slice(i, i + 10);
       const r = await q<Json>(`query ImportMatch($first: Int!, $query: String) { productVariants(first: $first, query: $query) { nodes { ${VARIANT_SEL} } } }`, { first: 25, query: chunk.map(v => qField(field, v)).join(' OR ') });
@@ -306,14 +306,14 @@ async function applyUpdate(client: ShopifyClient, p: ShopifyUpdatePlan, undo: Un
     if (x.barcode) { vIn.barcode = x.barcode; vBack.barcode = v.barcode ?? null; }
     if (Object.keys(vIn).length > 1) { vIns.push(vIn); vBacks.push(vBack); }
   }
-  // alle Varianten eines Produkts in einem Aufruf (productVariantsBulkUpdate, bis 250 Varianten)
+  // all variants of a product in one call (productVariantsBulkUpdate, up to 250 variants)
   if (vIns.length) await runRecording(client, M.variantsUpdate, { productId: p.productId, variants: vIns }, undo, reqOp('variants', p.productId, M.variantsUpdate, { productId: p.productId, variants: vBacks }));
   if (p.images.length) await applyImages(client, { productId: p.productId, add: p.images.map(image => ({ image, alt: cur.title })), remove: [], order: p.images }, undo);
 }
 
 /**
- * Neues Produkt anlegen. Scheitert ein Schritt nach productCreate (Varianten, Kollektion, Veröffentlichung), wird das halb angelegte
- * Produkt sofort wieder entfernt; gelingt das nicht, bleibt es als Entwurf bis Rückgängig (die Meldung sagt es).
+ * Create a new product. If a step after productCreate fails (variants, collection, publication), the half-created
+ * product is removed right away; if that fails, it stays as a draft until undo (the message says so).
  */
 async function applyCreate(client: ShopifyClient, p: ShopifyCreatePlan, undo: UndoOp[]): Promise<string> {
   const mine: UndoOp[] = [];
@@ -328,7 +328,7 @@ async function applyCreate(client: ShopifyClient, p: ShopifyCreatePlan, undo: Un
 }
 async function createOne(client: ShopifyClient, p: ShopifyCreatePlan, undo: UndoOp[]): Promise<string> {
   if (!p.options?.length) { const mine: UndoOp[] = []; try { await createProduct(client, p.product, mine); } finally { undo.push(...mine); } return shortId((mine.find(o => o.op === 'delete' && o.entity === 'product'))?.id ?? ''); }
-  // Variantenfamilie: Produkt mit Optionen anlegen, dann alle Varianten (die automatisch angelegte Einzelvariante wird ersetzt)
+  // Variant family: create product with options, then all variants (the automatically created single variant is replaced)
   const x = p.product, media = x.images.map(u => ({ originalSource: u, mediaContentType: 'IMAGE', alt: x.name }));
   const r = await runCreating<Json>(client, M.productCreate, {
     product: { title: x.name, descriptionHtml: x.description, status: x.active ? 'ACTIVE' : 'DRAFT', ...(x.vendor ? { vendor: x.vendor } : {}), ...(x.tags.length ? { tags: x.tags } : {}),
@@ -338,8 +338,8 @@ async function createOne(client: ShopifyClient, p: ShopifyCreatePlan, undo: Undo
     media: media.length ? media : null,
   }, undo, 'product', () => productIdsByTitle(client, x.name));
   const gid = r.product.id; undo.push(deleteOp('product', gid));
-  // Shopify legt mit productOptions eine Variante mit den ersten Werten an: diese aktualisieren, die übrigen anlegen.
-  // (Laut Shopify-Doku ginge auch alles per REMOVE_STANDALONE_VARIANT; der lokale Fake meldet dann „already exists“. So geht beides.)
+  // With productOptions Shopify creates one variant with the first values: update it, create the rest.
+  // (Per the Shopify docs everything could also go via REMOVE_STANDALONE_VARIANT; the local fake then reports "already exists". This way works for both.)
   const input = (v: NonNullable<ShopifyCreatePlan['variants']>[number]) => ({ price: money(v.price, x.currency), ...(v.listPrice ? { compareAtPrice: money(v.listPrice, x.currency) } : {}), ...(v.sku ? { inventoryItem: { sku: v.sku } } : {}), ...(v.barcode ? { barcode: v.barcode } : {}) });
   const optionValues = (v: NonNullable<ShopifyCreatePlan['variants']>[number]) => Object.entries(v.options).map(([optionName, name]) => ({ optionName, name }));
   const auto: Json[] = (await client.gql<Json>('query NewVariants($id: ID!) { product(id: $id) { variants(first: 5) { nodes { id selectedOptions { name value } } } } }', { id: gid })).product?.variants?.nodes ?? [];
@@ -362,7 +362,7 @@ export async function applyShopifyImport(client: ShopifyClient, cs: ChangeSet, p
       else { await applyUpdate(client, p, mine); report.updated.push({ id: shortId(p.productId), line: p.line }); }
       ok.set(p.key, 1);
     } catch (e) { fail.set(p.key, errMsg(e)); report.failed.push({ line: p.line, label: p.label, error: errMsg(e) }); }
-    finally { undo.push(...mine); partial.push({ itemId: `p:${p.key}`, ok: !fail.has(p.key), ...(fail.has(p.key) ? { error: fail.get(p.key) } : {}) }); ctx?.progress?.(++done, plans.length, { results: partial, undo }); } // auch bei Teilfehlern: angelegte Produkte bleiben rückgängig machbar
+    finally { undo.push(...mine); partial.push({ itemId: `p:${p.key}`, ok: !fail.has(p.key), ...(fail.has(p.key) ? { error: fail.get(p.key) } : {}) }); ctx?.progress?.(++done, plans.length, { results: partial, undo }); } // even on partial failures: created products remain undoable
   });
   REPORTS.set(cs.id, report);
   const results = cs.items.filter(i => selected.has(i.id) && i.entity !== 'info').map(i => {
@@ -373,7 +373,7 @@ export async function applyShopifyImport(client: ShopifyClient, cs: ChangeSet, p
   return { results, undo, counts: { applied: ok.size, failed: fail.size } };
 }
 
-// ======================= Werkzeuge =======================
+// ======================= Tools =======================
 const optionsShape = z.object({
   mode: z.enum(['both', 'create', 'update']).optional().describe('both = vorhandene aktualisieren + neue anlegen (Standard), create = nur neue, update = nur vorhandene'),
   updateFields: z.array(z.string()).optional().describe(`Zielfelder, die bei VORHANDENEN Produkten überschrieben werden. Standard: ${DEFAULT_UPDATE.join(', ')}`),

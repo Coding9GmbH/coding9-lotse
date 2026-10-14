@@ -1,6 +1,6 @@
 import 'server-only';
-// Mehrsprachigkeit: Sprachen/Domains/hreflang lesen, Texte je Sprache lesen und Übersetzungen (Produkte, Kategorien,
-// Landingpages, Einkaufswelten-Elemente, Alt-Texte) als Änderungsset vorschlagen. Rückgängig stellt den vorherigen Stand je Sprache her.
+// Multilingual support: read languages/domains/hreflang, read texts per language and propose translations (products, categories,
+// landing pages, Shopping Experience elements, alt texts) as a change set. Undo restores the previous state per language.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
@@ -16,14 +16,14 @@ const SC_TYPES: Record<string, string> = { '8a243080f92e4c719546314b577cf82b': '
 const cut = (t: unknown, n = 160) => { const s = String(t ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n) + '…' : s; };
 const textOf = (v: unknown) => (typeof v === 'string' ? plain(v) : '');
 
-// ---- Sprachen ----
+// ---- Languages ----
 export interface Lang { id: string; name: string; locale: string; parentId: string | null; system: boolean }
 export async function loadLanguages(ro: ShopReader): Promise<Lang[]> {
   const r = await ro.search('language', { limit: 100, associations: { locale: {} } });
   return r.data.map(l => ({ id: l.id, name: l.translated?.name ?? l.name, locale: l.locale?.code ?? '', parentId: l.parentId ?? null, system: l.id === SYSTEM_LANGUAGE }))
     .sort((a, b) => Number(b.system) - Number(a.system) || a.name.localeCompare(b.name));
 }
-/** Sprache per ID, Locale („en-GB“, auch „en“ wenn eindeutig) oder Name */
+/** Language by ID, locale ("en-GB", also "en" if unambiguous) or name */
 export function resolveLang(langs: Lang[], ref: string): Lang {
   const r = String(ref ?? '').trim().toLowerCase();
   const hit = langs.find(l => l.id === r) ?? langs.find(l => l.locale.toLowerCase() === r) ?? langs.find(l => l.name.toLowerCase() === r);
@@ -32,7 +32,7 @@ export function resolveLang(langs: Lang[], ref: string): Lang {
   if (pre.length === 1) return pre[0];
   throw new Error(`Sprache „${ref}“ unbekannt${pre.length > 1 ? ' (mehrdeutig)' : ''}. Vorhanden: ${langs.map(l => `${l.name} (${l.locale})`).join(', ')}`);
 }
-/** Rückfallkette einer Sprache: eigene → Elternsprache → Systemsprache */
+/** Fallback chain of a language: own → parent language → system language */
 export const fallbackChain = (langs: Lang[], l: Lang): Lang[] => { const out = [l]; let p = l.parentId ? langs.find(x => x.id === l.parentId) : undefined; while (p && !out.includes(p)) { out.push(p); p = p.parentId ? langs.find(x => x.id === p!.parentId) : undefined; } const sys = langs.find(x => x.system); if (sys && !out.includes(sys)) out.push(sys); return out; };
 
 export async function languageOverview(ro: ShopReader) {
@@ -58,7 +58,7 @@ export async function languageOverview(ro: ShopReader) {
   };
 }
 
-// ---- Übersetzbare Felder ----
+// ---- Translatable fields ----
 type TrKind = 'str' | 'html' | 'faq';
 export type TrEntity = 'product' | 'category' | 'landing-page';
 interface TrField { label: string; kind: TrKind; max?: number }
@@ -75,11 +75,11 @@ const isEmpty = (v: unknown) => v == null || (typeof v === 'string' && !textOf(v
 const faqText = (f: { q: string; a: string }[] | null | undefined) => (f ?? []).map(i => `F: ${i.q}\nA: ${i.a}`).join('\n\n');
 const label = (entity: TrEntity, r: SwEntity | undefined, id: string) => { const n = r?.translated?.name ?? r?.name ?? id; return entity === 'product' && r?.productNumber ? `${n} (${r.productNumber})` : n; };
 
-/** Liest dieselben Datensätze je Sprache (eigene Werte + geerbte Werte) */
+/** Reads the same records per language (own values + inherited values) */
 async function readPerLanguage(ro: ShopReader, entity: TrEntity, ids: string[], langs: Lang[]) {
   const def = TR_ENTITIES[entity], fields = Object.keys(def.fields).filter(f => f !== 'faq');
   const includes = { [def.alias]: ['id', 'productNumber', 'parentId', ...fields, 'customFields', 'translated'] };
-  const out = new Map<string, Map<string, SwEntity>>(); // languageId → id → Zeile
+  const out = new Map<string, Map<string, SwEntity>>(); // languageId → id → row
   await Promise.all(langs.map(async l => { const r = await ro.search(entity, { ids, limit: ids.length, includes }, { languageId: l.id }); out.set(l.id, new Map(r.data.map(x => [x.id, x]))); }));
   return out;
 }
@@ -98,8 +98,8 @@ export async function readTranslations(ro: ShopReader, a: ReadArgs) {
   const ids = page.data.map(r => r.id), total = idList ? idList.length : page.total ?? page.data.length;
   const per = ids.length ? await readPerLanguage(ro, a.entity, ids, langs) : new Map();
   const max = a.full ? 20000 : 600;
-  const gaps = new Set<string>(); // Datensätze mit Lücken in einer Nicht-Systemsprache
-  const keyOf = (l: Lang) => (l.locale && langs.filter(x => x.locale === l.locale).length === 1 ? l.locale : `${l.locale || l.name} (${l.id})`); // gleiche Locale zweimal → ID anhängen
+  const gaps = new Set<string>(); // records with gaps in a non-system language
+  const keyOf = (l: Lang) => (l.locale && langs.filter(x => x.locale === l.locale).length === 1 ? l.locale : `${l.locale || l.name} (${l.id})`); // same locale twice → append ID
   const rows = page.data.map(base => {
     const languages: Record<string, unknown> = {};
     for (const l of langs) {
@@ -122,15 +122,15 @@ export async function readTranslations(ro: ShopReader, a: ReadArgs) {
   };
 }
 
-// ---- Änderungsset: Übersetzungen von Produkten/Kategorien/Landingpages ----
-/** afterRaw eines Übersetzungs-Items */
+// ---- Change set: translations of products/categories/landing pages ----
+/** afterRaw of a translation item */
 export interface TrRaw { languageId: string; field: string; value: unknown }
-/** afterRaw eines Element-Items (cms-slot): nur die geänderten Config-Schlüssel; die übrige Config liest der Executor beim Schreiben frisch und ungekürzt
- *  aus dem Shop (Sprache baseLanguageId) und mischt den Patch hinein. So landet weder die komplette Element-Konfiguration im Änderungsset noch eine
- *  vom Lese-Guard bereinigte Fassung (sensible Schlüssel entfernt) als Übersetzung im Shop. */
+/** afterRaw of an element item (cms-slot): only the changed config keys; the executor reads the rest of the config fresh and untruncated when writing
+ *  from the shop (language baseLanguageId) and merges the patch in. This way neither the full element config ends up in the change set nor a
+ *  version scrubbed by the read guard (sensitive keys removed) as a translation in the shop. */
 export interface SlotRaw { languageId: string; field: 'config'; patch: Record<string, unknown>; baseLanguageId: string }
-/** Eigener Wert einer Sprache (Stale-Write-Guard): beim Vorschlag aus der Zeile der Sprache, beim Schreiben aus der Übersetzungszeile.
- *  Element-Config nur in den gepatchten Schlüsseln (die übrige Config liegt nicht im Set); leerer Patch (Texte sichern) = die Sprache hatte keine eigene Config. */
+/** Own value of a language (stale-write guard): when proposing from the language's row, when writing from the translation row.
+ *  Element config only in the patched keys (the rest of the config is not in the set); empty patch (texts saved) = the language had no own config. */
 export function ownOf(row: SwEntity | undefined | null, r: TrRaw | SlotRaw): unknown {
   if ('patch' in r) { const cfg = row?.config ?? null, keys = Object.keys(r.patch); return keys.length ? Object.fromEntries(keys.map(k => [k, cfg?.[k] ?? null])) : cfg; }
   return r.field === 'faq' ? ownFaq(row ?? undefined) : row?.[r.field] ?? null;
@@ -167,7 +167,7 @@ export async function buildTranslationChangeSet(ro: ShopReader, a: TrArgs): Prom
   const per = await readPerLanguage(ro, a.entity, ids, langs);
   const items: ChangeItem[] = [], skipped: { id: string; reason: string }[] = []; let unchanged = 0;
   const seen = new Set<string>(), explicit = new Set<string>();
-  for (const c of a.changes) { try { const l = resolveLang(langs, c.language); Object.keys(c.fields ?? {}).forEach(f => explicit.add(`${c.id}:${l.id}:${f}`)); } catch { /* unten gemeldet */ } }
+  for (const c of a.changes) { try { const l = resolveLang(langs, c.language); Object.keys(c.fields ?? {}).forEach(f => explicit.add(`${c.id}:${l.id}:${f}`)); } catch { /* reported below */ } }
   const push = (it: ChangeItem) => { if (seen.has(it.id)) { skipped.push({ id: it.entityId!, reason: `${it.label}: ${it.fieldLabel} doppelt, nur der erste Wert zählt` }); return; } seen.add(it.id); items.push(it); };
   for (const ch of a.changes) {
     let lang: Lang; try { lang = resolveLang(langs, ch.language); } catch (e) { skipped.push({ id: ch.id, reason: errMsg(e) }); continue; }
@@ -181,15 +181,15 @@ export async function buildTranslationChangeSet(ro: ShopReader, a: TrArgs): Prom
         const value = checkVal(f, field, raw, lang, row.translated?.name ?? name);
         const own = ownVal(row, field), eff = effVal(row, field);
         const cmp = field === 'faq' ? (value as Faq | null)?.items ?? null : value;
-        // FAQ null bei vorhandenem eigenen aicb_blocks (z. B. {faq: null}) ist eine Änderung: erst danach erbt die Sprache wieder
+        // FAQ null with an existing own aicb_blocks (e.g. {faq: null}) is a change: only then does the language inherit again
         if (JSON.stringify(cmp) === JSON.stringify(own) && !(field === 'faq' && value == null && row.customFields?.aicb_blocks != null)) { unchanged++; continue; }
         const warn = seoWarn(field, value);
         if (!lang.system && value != null && field !== 'name' && field !== 'url' && JSON.stringify(cmp) === JSON.stringify(ownVal(sysRow, field))) warn.push(`identisch mit ${sys.name}, nicht übersetzt?`);
         const rowOf = (l: Lang) => per.get(l.id)?.get(ch.id);
-        // null: welcher Text danach sichtbar ist (erster eigener Wert in der Rückfallkette)
+        // null: which text is visible afterwards (first own value in the fallback chain)
         const inheritsAfter = value == null ? fallbackChain(langs, lang).slice(1).map(l => ({ l, v: ownVal(rowOf(l), field) })).find(x => !isEmpty(x.v)) : undefined;
         if (value == null && field === 'faq' && Object.keys(row.customFields?.aicb_blocks ?? {}).some(k => k !== 'faq' && k !== 'faq_html')) warn.push('aicb_blocks enthält weitere eigene Inhalte: FAQ wird in dieser Sprache entfernt, erbt aber nicht');
-        // Systemsprache wird geändert: betroffen sind Sprachen, die das Feld bis zur Systemsprache durchgehend erben (ohne explizite eigene Angabe im Set)
+        // System language is changed: affected are languages that inherit the field all the way to the system language (without an explicit own entry in the set)
         const heirs = lang.system ? langs.filter(l => { if (l.system) return false; const ch2 = fallbackChain(langs, l); const before = ch2.slice(0, ch2.findIndex(x => x.system)); return before.every(x => isEmpty(ownVal(rowOf(x), field)) && !explicit.has(`${ch.id}:${x.id}:${field}`)); }) : [];
         const hv = ownVal(sysRow, field), saved: Lang[] = [], mixed: Lang[] = [], follow: Lang[] = [];
         for (const h of heirs) {
@@ -207,7 +207,7 @@ export async function buildTranslationChangeSet(ro: ShopReader, a: TrArgs): Prom
           before: isEmpty(own) ? (isEmpty(eff) ? '–' : `erbt: ${show(field, eff)}`) : show(field, own),
           after: value == null ? (inheritsAfter ? `eigene Übersetzung entfernen (erbt ${inheritsAfter.l.name}: ${show(field, inheritsAfter.v)})` : 'eigenen Wert entfernen (danach leer)') : show(field, value),
           afterRaw: { languageId: lang.id, field, value } satisfies TrRaw, beforeRaw: own ?? null, html, warn });
-        // erbende Sprachen behalten ihren sichtbaren Text (eigener Wert = bisheriger Text der Systemsprache)
+        // inheriting languages keep their visible text (own value = previous text of the system language)
         for (const h of saved) {
           const blocks = sysRow.customFields?.aicb_blocks;
           push({ id: `${ch.id}:${h.id}:${field}`, entity: a.entity, entityId: ch.id, label: `${name} · ${h.name}`, field, fieldLabel: `${f.label} (${h.locale}) sichern`,
@@ -220,10 +220,10 @@ export async function buildTranslationChangeSet(ro: ShopReader, a: TrArgs): Prom
   return { id: newId(), kind: 'translations', entity: a.entity, noun: def.noun, applyLabel: 'Übersetzungen übernehmen', title: a.title, reason: a.reason, items, skipped, unchanged, atomic: false };
 }
 
-// ---- Einkaufswelten: Element-Texte je Sprache ----
+// ---- Shopping Experiences: element texts per language ----
 const cmsCriteria = { associations: { sections: { sort: [{ field: 'position' }], associations: { blocks: { sort: [{ field: 'position' }], associations: { slots: {} } } } } } };
 export interface PageSlot { key: string; id: string; slot: string; type: string; block: string; blockNo: number; config: Cfg | null; own: Cfg | null; mediaId: string | null }
-/** Slots in Lesereihenfolge; key „s{n}“ ist stabil, solange sich der Aufbau nicht ändert. config = wirksam (mit Vererbung), own = eigener Wert der Sprache */
+/** Slots in reading order; key "s{n}" is stable as long as the layout does not change. config = effective (with inheritance), own = the language's own value */
 export async function loadPageSlots(ro: ShopReader, cmsPageId: string, languageId: string): Promise<{ page: SwEntity; slots: PageSlot[] }> {
   const page = await ro.get('cms-page', cmsPageId, cmsCriteria, { languageId });
   if (!page) throw new Error(`CMS-Layout ${cmsPageId} nicht gefunden`);
@@ -237,14 +237,14 @@ export async function loadPageSlots(ro: ShopReader, cmsPageId: string, languageI
   }
   return { page, slots };
 }
-// Alt-Texte der Bilder je Sprache (ohne Freigabe der Medienbibliothek: keine Alt-Texte)
+// Image alt texts per language (without access to the media library: no alt texts)
 async function mediaAlts(ro: ShopReader, ids: string[], languageId: string) {
   if (!ids.length) return new Map<string, SwEntity>();
   const r = await ro.search('media', { ids, limit: ids.length }, { languageId }).catch(() => ({ data: [] as SwEntity[] }));
   return new Map(r.data.map(m => [m.id, m]));
 }
 
-/** Standard-Quellsprache: Systemsprache; ist sie selbst das Ziel, die Standardsprache einer Storefront (z. B. Deutsch) */
+/** Default source language: system language; if it is the target itself, a storefront's default language (e.g. German) */
 async function defaultSource(ro: ShopReader, langs: Lang[], tgt: Lang | null): Promise<Lang> {
   const sys = langs.find(l => l.system)!;
   if (!tgt?.system) return sys;
@@ -278,7 +278,7 @@ export async function readPageTexts(ro: ShopReader, a: PageTextsArgs) {
 
 async function linkIndex(ro: ShopReader, links: string[], tgt: Lang): Promise<LinkIndex> {
   const sc = await ro.salesChannels();
-  // nur echte Storefront-Domains (Headless-Kanäle haben Pseudo-Domains wie „default.headless0“)
+  // only real storefront domains (headless channels have pseudo domains like "default.headless0")
   const domains: Domain[] = sc.flatMap(s => (s.domains ?? []).map((d: SwEntity) => ({ url: String(d.url), languageId: d.languageId, salesChannelId: s.id }))).filter(d => /^https?:\/\//.test(d.url));
   const ix: LinkIndex = { domains, targetLanguageId: tgt.id, targetLanguageName: tgt.name, bySeoPath: new Map(), targetSeo: new Map() };
   const paths = [...new Set(links.map(u => shopPath(u, domains)).filter(p => p?.path).map(p => p!.path))];
@@ -303,14 +303,14 @@ export async function buildPageTranslationChangeSet(ro: ShopReader, a: PageTrArg
   if (src.id === tgt.id) throw new Error('Quell- und Zielsprache sind gleich');
   const { page, slots } = await loadPageSlots(ro, a.cmsPageId, src.id);
   const tslots = new Map((await loadPageSlots(ro, a.cmsPageId, tgt.id)).slots.map(s => [s.id, s]));
-  // Erben andere Sprachen von der Zielsprache (Systemsprache), behalten sie ihren sichtbaren Text
+  // If other languages inherit from the target language (system language), they keep their visible text
   const heirs = tgt.system && a.keepInherited !== false ? await Promise.all(langs.filter(l => !l.system).map(async l => ({ l, slots: new Map((await loadPageSlots(ro, a.cmsPageId, l.id)).slots.map(s => [s.id, s])) }))) : [];
   const texts = a.texts ?? {}, errs: string[] = [], plans: { s: PageSlot; segs: SlotSeg[]; apply: (t: Record<string, string>) => unknown }[] = [];
   const known = new Set<string>();
   for (const s of slots) {
     const { segs, apply } = slotTexts(s.config as Cfg, s.key);
     segs.forEach(g => { known.add(g.key); const t = texts[g.key]; if (t === undefined) return; const e = checkSeg(g, t); if (e) errs.push(`${g.key}: ${e}`); });
-    if (segs.length || configLinks(s.config as Cfg).length) plans.push({ s, segs, apply }); // auch reine Link-Elemente (z. B. Bild mit Ziel-URL)
+    if (segs.length || configLinks(s.config as Cfg).length) plans.push({ s, segs, apply }); // also pure link elements (e.g. image with target URL)
   }
   const mids = [...new Set(slots.map(s => s.mediaId).filter((x): x is string => !!x))];
   const [sm, tm] = await Promise.all([mediaAlts(ro, mids, src.id), mediaAlts(ro, mids, tgt.id)]);
@@ -338,12 +338,12 @@ export async function buildPageTranslationChangeSet(ro: ShopReader, a: PageTrArg
     const hs = heirs.filter(h => !h.slots.get(b.s.id)?.own);
     if (hs.length) warn.push(`${hs.map(h => h.l.name).join(', ')}: bisheriger Text wird gesichert (erbt sonst ${tgt.name})`);
     else if (tgt.system && a.keepInherited === false) warn.push('Systemsprache: Sprachen ohne eigene Texte zeigen danach diese Fassung');
-    const src0 = (b.s.config ?? {}) as Record<string, unknown>, patch = Object.fromEntries(Object.entries(config).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(src0[k]))); // nur Schlüssel mit Text-/Link-Änderung
+    const src0 = (b.s.config ?? {}) as Record<string, unknown>, patch = Object.fromEntries(Object.entries(config).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(src0[k]))); // only keys with a text/link change
     const raw: SlotRaw = { languageId: tgt.id, field: 'config', patch, baseLanguageId: src.id };
     items.push({ id: `${b.s.id}:${tgt.id}`, entity: 'cms-slot', entityId: b.s.id, label: lbl, field: 'config', fieldLabel: `${b.segs.length ? 'Texte' : 'Link'} (${tgt.locale})`,
       before: own ? cut(lines(own) || '–') : `erbt ${fallbackChain(langs, tgt)[1]?.name ?? ''}: ${cut(lines(t?.config ?? b.s.config), 120)}`, after: b.segs.length ? cut(b.segs.map(g => plain(texts[g.key] ?? '')).join(' · ')) : cut(changed.map(c => c.to).join(', ')),
       afterRaw: raw, beforeRaw: ownOf({ config: own }, raw), html: { before: lines(own ?? t?.config ?? b.s.config).slice(0, 4000), after: lines(config).slice(0, 4000) }, warn });
-    // erbende Sprachen: der Executor liest ihre bisher sichtbare Config frisch aus dem Shop und schreibt sie als eigenen Wert
+    // inheriting languages: the executor reads their previously visible config fresh from the shop and writes it as their own value
     for (const h of hs) items.push({ id: `${b.s.id}:${h.l.id}`, entity: 'cms-slot', entityId: b.s.id, label: lbl, field: 'config', fieldLabel: `Texte (${h.l.locale}) sichern`, before: 'erbt', after: 'eigener Wert = bisheriger Text', afterRaw: { languageId: h.l.id, field: 'config', patch: {}, baseLanguageId: h.l.id } satisfies SlotRaw, beforeRaw: null, warn: [] });
   }
   for (const [k, mid] of altKeys) {
@@ -358,8 +358,8 @@ export async function buildPageTranslationChangeSet(ro: ShopReader, a: PageTrArg
 }
 
 // ================= EXECUTOR =================
-/** Schreibdaten + exakte Rückgängig-Schritte für eine Entität: rows = bisherige Übersetzungszeilen (alle Sprachen). Pur, damit testbar.
- *  pre (falls gesetzt) wird vor data geschrieben: Zusatzfelder werden von Shopware je Schlüssel gemergt; Schlüssel entfernen geht nur über leeren + neu setzen. */
+/** Write data + exact undo steps for an entity: rows = existing translation rows (all languages). Pure, so it is testable.
+ *  pre (if set) is written before data: Shopware merges custom fields per key; removing keys only works by clearing + setting again. */
 export function planTranslationWrite(entity: string, id: string, rows: SwEntity[], raws: TrRaw[]): { pre: Record<string, unknown> | null; data: Record<string, unknown>; undo: UndoOp[] } {
   const translations: Record<string, Record<string, unknown>> = {}, reset: Record<string, Record<string, unknown>> = {}, undo: UndoOp[] = [], drops: UndoOp[] = [];
   const byLang = new Map<string, TrRaw[]>(); for (const r of raws) byLang.set(r.languageId, [...(byLang.get(r.languageId) ?? []), r]);
@@ -370,7 +370,7 @@ export function planTranslationWrite(entity: string, id: string, rows: SwEntity[
         const cf = (row?.customFields ?? {}) as Record<string, unknown>, blocks = (cf.aicb_blocks ?? {}) as Record<string, unknown>, f = r.value as (Faq & { html?: string }) | null;
         prev.customFields = row?.customFields ?? null;
         if (f) { next.customFields = { aicb_blocks: { ...blocks, faq: f.items, faq_html: f.html ?? faqHtml(f) } }; continue; }
-        // FAQ entfernen: eigenes aicb_blocks muss weg, sonst überdeckt es den geerbten Wert (Merge je Schlüssel der obersten Ebene)
+        // Remove FAQ: own aicb_blocks must go, otherwise it shadows the inherited value (merge per top-level key)
         const other = Object.fromEntries(Object.entries(blocks).filter(([k]) => k !== 'faq' && k !== 'faq_html')), rest = Object.fromEntries(Object.entries(cf).filter(([k]) => k !== 'aicb_blocks'));
         const left = Object.keys(other).length ? { ...rest, aicb_blocks: other } : rest;
         next.customFields = Object.keys(left).length ? left : null;
@@ -378,18 +378,18 @@ export function planTranslationWrite(entity: string, id: string, rows: SwEntity[
       } else { next[r.field] = r.value; prev[r.field] = row?.[r.field] ?? null; }
     }
     translations[lang] = next;
-    // Gab es noch keine Übersetzungszeile, wird sie beim Rückgängigmachen wieder entfernt (Sprache erbt dann wie vorher)
+    // If there was no translation row yet, undo removes it again (the language then inherits as before)
     if (row) undo.push({ op: 'patch', entity, id, data: { translations: { [lang]: prev } } });
     else drops.push({ op: 'req', entity, id, method: 'DELETE', path: `/${entity}/${id}/translations/${lang}` });
-    // Zusatzfelder werden von Shopware gemergt: erst leeren, dann den alten Stand vollständig setzen (Undo läuft rückwärts)
+    // Shopware merges custom fields: clear first, then set the old state completely (undo runs backwards)
     if (row && prev.customFields) undo.push({ op: 'patch', entity, id, data: { translations: { [lang]: { customFields: null } } } });
   }
-  // Undo läuft rückwärts: erst die alten Werte zurück, DANN neue Zeilen löschen. Sonst erbt die Sprache kurz den neuen Text
-  // (z. B. Deutsch → englische Systemsprache) und Shopware legt dafür SEO-URLs an, die als Weiterleitung liegen bleiben.
+  // Undo runs backwards: restore the old values first, THEN delete new rows. Otherwise the language briefly inherits the new text
+  // (e.g. German → English system language) and Shopware creates SEO URLs for it that linger as redirects.
   return { pre: Object.keys(reset).length ? { translations: reset } : null, data: { translations }, undo: [...drops, ...undo] };
 }
 
-/** Element-Config (SlotRaw): aktuelle wirksame Config der Sprache baseLanguageId mit dem privilegierten Client lesen (ungekürzt) und den Patch hineinmischen */
+/** Element config (SlotRaw): read the current effective config of language baseLanguageId with the privileged client (untruncated) and merge the patch in */
 export async function resolveRaw(swW: Pick<Shopware, 'get'>, entity: string, id: string, r: TrRaw | SlotRaw): Promise<TrRaw> {
   if (!('patch' in r)) return r;
   const base = (await swW.get(entity, id, {}, { languageId: r.baseLanguageId }))?.translated?.config ?? {};
@@ -408,13 +408,13 @@ export async function applyTranslations(swW: Shopware, cs: ChangeSet, _payload: 
       const cur = (await swW.search(entity, { ids: [id!], limit: 1, associations: { translations: {} } })).data[0];
       if (!cur) throw new Error('Datensatz nicht mehr vorhanden');
       const rows: SwEntity[] = cur.translations ?? [];
-      // Sprache inzwischen anders übersetzt (anderer Chat, Admin): dieses Item nicht schreiben, die übrigen des Datensatzes schon
+      // Language translated differently in the meantime (other chat, admin): skip this item, but write the record's others
       live = its.filter(it => { const r = it.afterRaw as TrRaw | SlotRaw; try { assertFresh(it.fieldLabel, ownOf(rows.find(x => x.languageId === r.languageId), r), it.beforeRaw); return true; } catch (e) { results.push({ itemId: it.id, ok: false, error: errMsg(e) }); return false; } });
       if (!live.length) return;
       const raws = await Promise.all(live.map(i => resolveRaw(swW, entity, id!, i.afterRaw as TrRaw | SlotRaw)));
       if (entity === 'product' && raws.some(r => r.field === 'faq' && r.value)) await ensureFieldSet(swW);
       const plan = planTranslationWrite(entity, id!, rows, raws);
-      if (plan.pre) { await swW.update(entity, id!, plan.pre); undo.push(...plan.undo); } // pre nur bei vorhandenen Zeilen → Undo-Patches stellen auch einen Teilstand exakt her
+      if (plan.pre) { await swW.update(entity, id!, plan.pre); undo.push(...plan.undo); } // pre only for existing rows → undo patches restore even a partial state exactly
       await swW.update(entity, id!, plan.data);
       if (!plan.pre) undo.push(...plan.undo);
       live.forEach(i => results.push({ itemId: i.id, ok: true }));
@@ -426,7 +426,7 @@ export async function applyTranslations(swW: Shopware, cs: ChangeSet, _payload: 
 registerApplier('translations', applyTranslations);
 registerApplier('page-translation', applyTranslations);
 
-// ================= WERKZEUGE =================
+// ================= TOOLS =================
 const ENTITY = z.enum(['product', 'category', 'landing-page']);
 const resolvePageId = async (ro: ShopReader, a: { cmsPageId?: string; categoryId?: string; productId?: string; landingPageId?: string }) => {
   if (a.cmsPageId) return a.cmsPageId;

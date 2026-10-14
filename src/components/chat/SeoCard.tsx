@@ -11,12 +11,12 @@ import styles from './ShopCheck.module.css';
 import own from './SeoCard.module.css';
 
 const TOP = 3;
-/** Dringlichkeit: echte Verluste, dann technische Fehler, eigene Seiten im Wettbewerb, kurz vor Seite 1, übrige Hebel, zuletzt Warnungen */
+/** Urgency: real losses, then technical errors, own pages competing, just short of page 1, other levers, warnings last */
 const rank = (i: SeoItem) => (i.kind === 'decline' ? 0 : i.kind === 'site' ? (i.impact >= 20_000 ? 1 : i.impact >= 5_000 ? 4 : 5) : i.kind === 'onpage' ? (i.impact >= 10_000 ? 1 : 5) : i.kind === 'cannibal' ? 2 : i.kind === 'striking' ? 3 : 4);
 
 export interface FixTask { id: string; title: string; prompt: string }
 
-/** Arbeitsfläche: die wichtigsten offenen SEO-Hebel aus dem gespeicherten Stand des SEO-Bereichs (holt nie neu, kostet keine Credits). */
+/** Workspace: the most important open SEO levers from the saved state of the SEO section (never refetches, costs no credits). */
 export function SeoCard({ onTask, fixes, onOpenChat }: { onTask: (t: FixTask) => void; fixes: FixMap; onOpenChat: (id: string) => void }) {
   const { t: all } = useI18n(), t = all.seo;
   const [o, setO] = useState<SeoOverview | null | undefined>(undefined);
@@ -26,7 +26,7 @@ export function SeoCard({ onTask, fixes, onOpenChat }: { onTask: (t: FixTask) =>
     return () => { off = true; };
   }, []);
   if (o === undefined) return null;
-  // offen = nicht erledigt/ignoriert, nach Dringlichkeit, dann nach Wirkung
+  // open = not done/ignored, by urgency, then by impact
   const open = (o?.items ?? []).filter(i => !i.mark).sort((a, b) => rank(a) - rank(b) || b.impact - a.impact);
   const row = (i: SeoItem) => {
     const fix = fixes[i.id];

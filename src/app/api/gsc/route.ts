@@ -4,7 +4,7 @@ import { gscPublic, saveGsc } from '@/server/features/gsc-google';
 
 export const dynamic = 'force-dynamic';
 
-// Google Search Console: Schlüssel (JSON des Service-Kontos) nur hinein, nie heraus. Zurück kommt nur client_email.
+// Google Search Console: the key (service account JSON) only goes in, never out. Only client_email is returned.
 const schema = z.object({ key: z.string().max(20_000).optional(), property: z.string().max(500).optional() });
 
 export function GET() {

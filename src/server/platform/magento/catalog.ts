@@ -1,6 +1,6 @@
 import 'server-only';
-// Magento: Änderungssets für Produkte, Kategorien, Übersetzungen, URL-Schlüssel und Kategorie-Zuordnungen (bauen + Executor).
-// Bauen liest über den geschützten Lese-Client; der Executor liest die Vorher-Werte neu und schreibt mit dem privilegierten Client.
+// Magento: change sets for products, categories, translations, URL keys and category assignments (build + executor).
+// Building reads via the protected read client; the executor re-reads the before values and writes with the privileged client.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { assertFresh, isStale, STALE } from '../../changes';
 import { applyEach, errMsg, MAX_ITEMS, newIdSafe, partialTicker, pool, resolvePrice, WRITE_CONCURRENCY, type ApplyCtx, type ApplyResult, type PriceSpec } from './kit';
@@ -11,7 +11,7 @@ import { getEnt, reg, reqOp, writeScoped, writeStore } from './write';
 
 type Kind = 'str' | 'html' | 'price' | 'date' | 'int' | 'bool' | 'visibility' | 'num';
 interface FieldDef { label: string; kind: Kind; attr?: string }
-/** Felder für propose_product_changes (Namen wie bei Shopware, wo sie passen) → Magento-Attribut */
+/** Fields for propose_product_changes (names as in Shopware where they fit) → Magento attribute */
 export const M_PRODUCT_FIELDS: Record<string, FieldDef> = {
   name: { label: 'Name', kind: 'str', attr: 'name' }, description: { label: 'Beschreibung', kind: 'html', attr: 'description' }, shortDescription: { label: 'Kurzbeschreibung', kind: 'html', attr: 'short_description' },
   metaTitle: { label: 'Meta-Title', kind: 'str', attr: 'meta_title' }, metaDescription: { label: 'Meta-Description', kind: 'str', attr: 'meta_description' }, keywords: { label: 'Meta-Keywords', kind: 'str', attr: 'meta_keyword' },
@@ -23,7 +23,7 @@ export const M_CATEGORY_FIELDS: Record<string, FieldDef> = {
   metaTitle: { label: 'Meta-Title', kind: 'str', attr: 'meta_title' }, metaDescription: { label: 'Meta-Description', kind: 'str', attr: 'meta_description' }, keywords: { label: 'Meta-Keywords', kind: 'str', attr: 'meta_keywords' },
   active: { label: 'Aktiv', kind: 'bool', attr: 'is_active' },
 };
-/** Eigene Produktattribute (propose_product_changes fields.attributes): erlaubte Eingabetypen */
+/** Custom product attributes (propose_product_changes fields.attributes): allowed input types */
 const ATTR_INPUTS = new Set(['text', 'textarea', 'select', 'boolean']);
 const PRICE_KEYS = ['price', 'listPrice', 'specialFromDate', 'specialToDate'];
 const cut = (t: unknown, n = 220) => { const s = plain(t); return s.length > n ? `${s.slice(0, n)}…` : s || '–'; };
@@ -44,10 +44,10 @@ function validate(def: FieldDef, v: unknown): unknown {
 const shown = (def: FieldDef, v: unknown) => (def.kind === 'bool' ? (v ? 'ja' : 'nein') : def.kind === 'visibility' ? VISIBILITY[Number(v)] ?? String(v ?? '–') : def.kind === 'int' || def.kind === 'num' ? String(v ?? '–') : cut(v));
 
 export interface ProposeArgs { title: string; reason: string; changes: { id: string; fields: Record<string, unknown> }[] }
-/** Payload der Sets products/categories: Store-View beim Bauen + SKU je Produkt-ID (Magento schreibt per SKU) */
+/** Payload of the products/categories sets: store view at build time + SKU per product ID (Magento writes by SKU) */
 export interface CatalogPayload { store: string; skus?: Record<string, string> }
 
-/** Bestand (MSI): nur mit genau einer aktiven Quelle sicher änderbar */
+/** Stock (MSI): only safely changeable with exactly one active source */
 export async function stockSource(ro: MagentoReader): Promise<{ source: string } | { reason: string }> {
   const src = await ro.sources().catch(() => null);
   if (!src) return { reason: 'Bestand ist ohne Magento Inventory (MSI) über Lotse nicht änderbar' };
@@ -55,7 +55,7 @@ export async function stockSource(ro: MagentoReader): Promise<{ source: string }
   return on.length === 1 ? { source: String(on[0].source_code) } : { reason: `${on.length} Lagerquellen (MSI): Bestand bitte je Quelle in Magento pflegen` };
 }
 
-// ================= Produkte =================
+// ================= Products =================
 export async function buildProductChangeSet(ro: MagentoReader, { title, reason, changes }: ProposeArgs): Promise<{ cs: ChangeSet; payload: CatalogPayload }> {
   if (!changes?.length) throw new Error('changes ist leer');
   if (changes.length > MAX_ITEMS) throw new Error(`Maximal ${MAX_ITEMS} Produkte pro Änderungsset, bitte aufteilen.`);
@@ -74,7 +74,7 @@ export async function buildProductChangeSet(ro: MagentoReader, { title, reason, 
     if (!p) { skipped.push({ id: String(ch.id), reason: 'nicht gefunden' }); continue; }
     const id = String(p.id), label = productLabel(p); skus[id] = p.sku;
     const f = { ...(ch.fields ?? {}) }, push = (field: string, fieldLabel: string, before: string, after: string, afterRaw: unknown, warn: string[] = [], html?: ChangeItem['html'], beforeRaw?: unknown) => items.push({ id: `${id}:${field}`, entity: 'product', entityId: id, label, field, fieldLabel, before, after, afterRaw, ...(beforeRaw !== undefined ? { beforeRaw } : {}), warn, ...(html ? { html } : {}) });
-    // Preise: price/listPrice/Sonderpreis-Zeitraum ergeben EINE Zeile mit den Magento-Werten
+    // Prices: price/listPrice/special price period result in ONE row with the Magento values
     if (PRICE_KEYS.some(k => k in f)) {
       try {
         if (p.type_id === 'configurable' || p.type_id === 'bundle' || p.type_id === 'grouped') throw new Error(`Preis eines ${p.type_id}-Produkts kommt aus seinen Einzelprodukten, dort ändern`);
@@ -148,8 +148,8 @@ export async function buildProductChangeSet(ro: MagentoReader, { title, reason, 
 }
 
 /**
- * Preisprüfung vor dem Schreiben im Scope des Vorschlags (Store-View der Einstellungen, in der der Vorschlag gerechnet wurde):
- * bei Preis-Scope „Website“ löst ein Website-Preis so keine falsche Meldung „inzwischen geändert“ aus.
+ * Price check before writing, in the proposal's scope (store view from the settings in which the proposal was computed):
+ * with price scope "Website", a website price thus doesn't trigger a false "changed in the meantime" message.
  */
 export async function assertPriceUnchanged(c: MagentoClient, sku: string, store: string, expect: PriceWrite): Promise<void> {
   const cur = await getEnt(c, 'product', sku, store);
@@ -158,9 +158,9 @@ export async function assertPriceUnchanged(c: MagentoClient, sku: string, store:
   if (Object.keys(exp).some(k => !sameValue(day(now[k]), day(exp[k])))) throw new Error('Preis wurde inzwischen in Magento geändert, bitte neu vorschlagen');
 }
 /**
- * Nach dem globalen Schreiben der Preisfelder: zeigt die Store-View den neuen Wert? Ein Website-Preis (Preis-Scope „Website“)
- * verdeckt den globalen Wert; dann Fehler statt Erfolg, die Rückgängig-Schritte des Schreibvorgangs hängen am Fehler.
- * Datumsfelder werden nicht verglichen (special_from_date setzt Magento beim Speichern selbst).
+ * After writing the price fields globally: does the store view show the new value? A website price (price scope "Website")
+ * hides the global value; then an error instead of success, the write's undo steps are attached to the error.
+ * Date fields are not compared (Magento sets special_from_date itself on save).
  */
 export async function assertPriceInView(c: MagentoClient, sku: string, store: string, write: PriceWrite, undo: UndoOp[]): Promise<void> {
   const keys = (['price', 'special_price'] as const).filter(k => k in write);
@@ -171,7 +171,7 @@ export async function assertPriceInView(c: MagentoClient, sku: string, store: st
 
 type ApplyPiece = { undo: UndoOp[]; failed?: { id: string; error: string }[] };
 
-/** Frischer Attributwert. Preis und Bestand haben eigene Prüfungen (Preisformat, Lagerquelle). Ohne beforeRaw keine Prüfung. */
+/** Fresh attribute value. Price and stock have their own checks (price format, stock source). Without beforeRaw no check. */
 function splitStale(its: ChangeItem[], freshOf: (it: ChangeItem) => unknown): { live: ChangeItem[]; failed: { id: string; error: string }[] } {
   const live: ChangeItem[] = [], failed: { id: string; error: string }[] = [];
   for (const it of its) {
@@ -236,7 +236,7 @@ async function applyProduct(c: MagentoClient, store: string, sku: string, its: C
   return { undo, ...(failed.length ? { failed } : {}) };
 }
 
-/** Gruppiert die Zeilen je Datensatz. Veraltete Felder (failed) gelten nur für ihre Zeile, der Rest wird geschrieben. */
+/** Groups the rows per record. Stale fields (failed) apply only to their row, the rest is written. */
 async function applyGrouped(cs: ChangeSet, selected: Set<string>, fn: (id: string, its: ChangeItem[]) => Promise<UndoOp[] | ApplyPiece>, ctx?: ApplyCtx): Promise<ApplyResult> {
   const groups = new Map<string, ChangeItem[]>();
   let n = 0;
@@ -257,7 +257,7 @@ async function applyGrouped(cs: ChangeSet, selected: Set<string>, fn: (id: strin
       else { undo.push(...out.undo); mark(its, out.failed, undefined, ''); }
     } catch (e) {
       const extra = (e as { undo?: UndoOp[] }).undo ?? [], okIds = (e as { okIds?: string[] }).okIds, msg = errMsg(e);
-      undo.push(...extra); // teilweise geschrieben: Rückgängig-Schritte behalten; okIds = Zeilen, die schon stehen
+      undo.push(...extra); // partially written: keep the undo steps; okIds = rows already written
       mark(its, (e as { failed?: { id: string; error: string }[] }).failed, okIds, msg);
     }
     finally { tick(); }
@@ -270,7 +270,7 @@ reg.register('products', (c, cs, payload, selected, ctx) => {
   return applyGrouped(cs, selected, (id, its) => { const sku = p.skus?.[id]; if (!sku) throw new Error('SKU fehlt'); return applyProduct(c, p.store, sku, its); }, ctx);
 });
 
-// ================= Kategorien =================
+// ================= Categories =================
 export async function buildCategoryChangeSet(ro: MagentoReader, { title, reason, changes }: ProposeArgs): Promise<{ cs: ChangeSet; payload: CatalogPayload }> {
   if (!changes?.length) throw new Error('changes ist leer');
   if (changes.length > MAX_ITEMS) throw new Error(`Maximal ${MAX_ITEMS} Kategorien pro Änderungsset, bitte aufteilen.`);
@@ -304,7 +304,7 @@ reg.register('categories', (c, cs, payload, selected, ctx) => applyGrouped(cs, s
   catch (e) { return withFailed(e, [], failed); }
 }, ctx));
 
-// ================= Übersetzungen (Store-Views) =================
+// ================= Translations (store views) =================
 const TR_FIELDS: Record<'product' | 'category', Record<string, FieldDef>> = {
   product: { name: M_PRODUCT_FIELDS.name, description: M_PRODUCT_FIELDS.description, shortDescription: M_PRODUCT_FIELDS.shortDescription, metaTitle: M_PRODUCT_FIELDS.metaTitle, metaDescription: M_PRODUCT_FIELDS.metaDescription, keywords: M_PRODUCT_FIELDS.keywords },
   category: { name: M_CATEGORY_FIELDS.name, description: M_CATEGORY_FIELDS.description, metaTitle: M_CATEGORY_FIELDS.metaTitle, metaDescription: M_CATEGORY_FIELDS.metaDescription, keywords: M_CATEGORY_FIELDS.keywords },
@@ -313,7 +313,7 @@ export const TRANSLATION_FIELDS = TR_FIELDS;
 export interface TranslationArgs { title: string; reason: string; entity: 'product' | 'category'; changes: { id: string; store: string; fields: Record<string, unknown> }[] }
 export interface TranslationPayload { refs: Record<string, string> }
 
-/** Store-Views mit Locale (ohne admin) */
+/** Store views with locale (without admin) */
 export async function storeViewList(ro: MagentoReader) {
   const [views, cfgs] = await Promise.all([ro.storeViews(), ro.storeConfigs()]);
   return views.filter(v => v.code !== 'admin' && Number(v.id) !== 0).map(v => ({ id: Number(v.id), code: String(v.code), name: String(v.name), active: !!v.is_active, websiteId: Number(v.website_id), locale: cfgs.find(c => c.code === v.code)?.locale ?? null, isDefault: v.code === ro.storeCode }));
@@ -339,7 +339,7 @@ export async function buildTranslationChangeSet(ro: MagentoReader, a: Translatio
       if (!def) { skipped.push({ id, reason: `Feld "${field}" nicht übersetzbar` }); continue; }
       try {
         const cur = attr(inView, def.attr!), g = attr(glob, def.attr!), own = !sameValue(cur, g);
-        const sticky = a.entity === 'category' && def.attr === 'name'; // Magento-REST kann „Standardwert verwenden“ für Kategorienamen nicht setzen
+        const sticky = a.entity === 'category' && def.attr === 'name'; // Magento REST can't set "Use Default Value" for category names
         if (raw === null) {
           if (!own) { unchanged++; continue; }
           if (sticky) { skipped.push({ id, reason: 'Eigenen Kategorienamen einer Store-View entfernt nur der Magento-Admin („Standardwert verwenden“)' }); continue; }
@@ -375,7 +375,7 @@ reg.register('translations', (c, cs, payload, selected, ctx) => {
   }).then(() => ({ results, undo }));
 });
 
-// ================= URL-Schlüssel (SEO-URLs) mit Weiterleitung =================
+// ================= URL keys (SEO URLs) with redirect =================
 export interface SeoUrlArgs { title: string; reason: string; entity: 'product' | 'category'; changes: { id: string; urlKey: string }[] }
 export async function buildSeoUrlChangeSet(ro: MagentoReader, a: SeoUrlArgs): Promise<{ cs: ChangeSet; payload: CatalogPayload }> {
   if (!a.changes?.length) throw new Error('changes ist leer');
@@ -409,7 +409,7 @@ reg.register('seo-urls', (c, cs, payload, selected, ctx) => {
   return applyEach(cs, selected, it => writeScoped(c, e, e === 'product' ? p.skus![it.entityId!] : it.entityId!, p.store, { url_key: it.afterRaw }, {}, { save_rewrites_history: true }), ctx);
 });
 
-// ================= Kategorie-Zuordnung von Produkten =================
+// ================= Category assignment of products =================
 export interface CategoryProductsArgs { title: string; reason: string; categoryId: string; add?: { productId: string; position?: number }[]; remove?: string[] }
 export async function buildCategoryProductsChangeSet(ro: MagentoReader, a: CategoryProductsArgs): Promise<{ cs: ChangeSet; payload: { categoryId: string } }> {
   const cat = await ro.category(a.categoryId);
@@ -437,7 +437,7 @@ export async function buildCategoryProductsChangeSet(ro: MagentoReader, a: Categ
 }
 reg.register('category-products', async (c, cs, payload, selected, ctx) => {
   const cid = Number((payload as { categoryId: string }).categoryId);
-  // nacheinander: Magento speichert dabei jedes Mal die ganze Kategorie, parallel schlägt das fehl
+  // one after another: Magento saves the whole category each time, in parallel this fails
   const results: ApplyResult['results'] = [], undo: UndoOp[] = [], list = cs.items.filter(i => selected.has(i.id) && i.entity !== 'info'), tick = partialTicker(ctx, list.length, { results, undo });
   for (const it of list) {
     try { undo.push(await linkOne(it)); results.push({ itemId: it.id, ok: true }); } catch (e) { results.push({ itemId: it.id, ok: false, error: errMsg(e) }); } finally { tick(); }
@@ -453,5 +453,5 @@ reg.register('category-products', async (c, cs, payload, selected, ctx) => {
   }
 });
 
-/** Ausgabe-Hilfen für Werkzeuge */
+/** Output helpers for tools */
 export const priceView = (p: MRecord) => { const s = priceState(p); return { price: money(s.selling), priceValue: s.selling, listPrice: s.list, regularPrice: s.regular, specialPrice: s.special, specialFrom: s.from, specialTo: s.to, specialActive: s.active }; };

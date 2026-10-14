@@ -1,7 +1,7 @@
-// Shop-Plattformen (Shopware 6, Shopify, Magento 2, OpenMage): Kennung, Name und Zugangsfelder für die Einstellungen.
-// Reine Daten + Hilfsfunktionen, gemeinsam für Server (settings.ts, platform/*) und Oberfläche (SettingsView).
-// Die Adapter selbst liegen unter src/server/platform/<kind>/ (siehe docs/platform.md).
-// Texte (Feldnamen, Hinweise) stehen je Sprache in i18n/messages/lib.ts (direkt importiert: proxy.ts lädt diese Datei auch).
+// Shop platforms (Shopware 6, Shopify, Magento 2, OpenMage): ID, name and credential fields for the settings.
+// Pure data + helpers, shared by server (settings.ts, platform/*) and UI (SettingsView).
+// The adapters themselves live under src/server/platform/<kind>/ (see docs/platform.md).
+// Texts (field names, hints) live per language in i18n/messages/lib.ts (imported directly: proxy.ts loads this file too).
 import { DEFAULT_LOCALE, type Locale } from './i18n/locales';
 import { de as deLib, en as enLib } from './i18n/messages/lib';
 
@@ -12,54 +12,54 @@ export const PLATFORM_KINDS: readonly PlatformKind[] = ['shopware', 'shopify', '
 export const DEFAULT_PLATFORM: PlatformKind = 'shopware';
 export const isPlatformKind = (v: unknown): v is PlatformKind => typeof v === 'string' && (PLATFORM_KINDS as readonly string[]).includes(v);
 
-/** Ein Eingabefeld der Shop-Verbindung. secret = wird verschlüsselt gespeichert, nie angezeigt und nie an die KI gegeben. */
+/** An input field of the shop connection. secret = stored encrypted, never shown and never passed to the AI. */
 export interface PlatformField {
   key: string;
   label: string;
   secret?: boolean;
-  /** url = Adresse (type="url"), text = sonstiger Klartext */
+  /** url = address (type="url"), text = other plain text */
   type?: 'url' | 'text';
   placeholder?: string;
-  /** Hilfetext unter dem Feld; **fett** wird hervorgehoben */
+  /** Help text below the field; **bold** is highlighted */
   hint?: string;
-  /** Umgebungsvariable als Rückfall, wenn nichts gespeichert ist (z. B. SHOPWARE_URL) */
+  /** Environment variable as fallback when nothing is stored (e.g. SHOPWARE_URL) */
   env?: string;
-  /** optional = für „eingerichtet“ nicht nötig */
+  /** optional = not required for "configured" */
   optional?: boolean;
   autoComplete?: string;
-  /** Auswahlliste statt Freitext (value '' = nicht festgelegt) */
+  /** Select list instead of free text (value '' = not set) */
   options?: { value: string; label: string }[];
 }
-/** Alternative Zugangsarten (z. B. Integration oder Admin-Benutzer). Eingerichtet, sobald EINE Art vollständig ist. */
+/** Alternative access methods (e.g. integration or admin user). Configured as soon as ONE method is complete. */
 export interface PlatformAuthMode { key: string; label: string; hint?: string; fields: PlatformField[] }
 export interface PlatformSettingsDescriptor {
   kind: PlatformKind;
-  /** Anzeigename, z. B. „Shopware“ */
+  /** Display name, e.g. "Shopware" */
   label: string;
-  /** Langform für Texte, z. B. „Shopware 6“ */
+  /** Long form for texts, e.g. "Shopware 6" */
   product: string;
-  /** allgemeine Felder (URL …) */
+  /** general fields (URL ...) */
   fields: PlatformField[];
-  /** Zugangsarten; die erste ist der Standard */
+  /** Access methods; the first is the default */
   auth: PlatformAuthMode[];
-  /** Bezeichnung der Zugangsart-Auswahl, falls es mehrere gibt */
+  /** Label of the access method picker, if there are several */
   authLabel?: string;
   /**
-   * Pfad-Präfixe, die die Storefront ohne /shop-Präfix aufruft (Assets, Widgets, Links). proxy.ts leitet sie an den
-   * Vorschau-Proxy /shop weiter, sonst bricht die Live-Vorschau. Nur erstes Segment oder feste Segmentfolge, ohne Schrägstriche außen.
+   * Path prefixes the storefront requests without the /shop prefix (assets, widgets, links). proxy.ts forwards them to the
+   * preview proxy /shop, otherwise the live preview breaks. Only the first segment or a fixed segment sequence, without outer slashes.
    */
   storefrontPaths: readonly string[];
-  /** Name der Kategorien in der Oberfläche (Shopify: Kollektion), Standard Kategorie */
+  /** Name of categories in the UI (Shopify: collection), default category */
   categoryNoun?: { one: string; many: string };
-  /** Adapter fertig angebunden. false = Vorschau: Zugang speicherbar, Werkzeuge melden „noch nicht verfügbar“. */
+  /** Adapter fully connected. false = preview: credentials can be saved, tools report "not available yet". */
   available: boolean;
-  /** Alpha: angebunden, aber noch nicht im Alltag mit echten Shops erprobt (anders als Shopware). Die Oberfläche kennzeichnet das. */
+  /** Alpha: connected but not yet proven in daily use with real shops (unlike Shopware). The UI marks this. */
   alpha?: boolean;
 }
 
 type PlatformTexts = typeof deLib.platforms;
 
-/** Beschreibung einer Plattform mit den Texten einer Sprache (Struktur, Umgebungsvariablen und Pfade sind sprachunabhängig). */
+/** Description of a platform with the texts of one language (structure, environment variables and paths are language-independent). */
 const DESCRIBE: Record<PlatformKind, (t: PlatformTexts) => PlatformSettingsDescriptor> = {
   shopware: ({ urlPlaceholder, authLabel, shopware: x }) => ({
     kind: 'shopware', label: 'Shopware', product: 'Shopware 6', available: true,
@@ -139,15 +139,15 @@ const DESCRIBE: Record<PlatformKind, (t: PlatformTexts) => PlatformSettingsDescr
 };
 
 const describeAll = (t: PlatformTexts) => Object.fromEntries(PLATFORM_KINDS.map(k => [k, DESCRIBE[k](t)])) as Record<PlatformKind, PlatformSettingsDescriptor>;
-/** Plattformen mit deutschen Texten (Server, Adapter); für die Oberfläche je Sprache: platformSettings(kind, locale). */
+/** Platforms with German texts (server, adapters); for the UI per language: platformSettings(kind, locale). */
 export const PLATFORM_SETTINGS: Record<PlatformKind, PlatformSettingsDescriptor> = describeAll(deLib.platforms);
 const BY_LOCALE: Partial<Record<Locale, Record<PlatformKind, PlatformSettingsDescriptor>>> = { [DEFAULT_LOCALE]: PLATFORM_SETTINGS };
-/** Beschreibung einer Plattform mit Feldnamen, Hinweisen und Platzhaltern in der gewünschten Sprache. */
+/** Description of a platform with field names, hints and placeholders in the requested language. */
 export function platformSettings(kind: PlatformKind, locale: Locale = DEFAULT_LOCALE): PlatformSettingsDescriptor {
   const all = BY_LOCALE[locale] ??= describeAll(LIB[locale]?.platforms ?? deLib.platforms);
   return all[kind];
 }
-/** Name der Kategorien in der Oberfläche (Shopify: Kollektion), sonst Kategorie */
+/** Name of categories in the UI (Shopify: collection), otherwise category */
 export const categoryNoun = (kind: PlatformKind | null | undefined, locale: Locale = DEFAULT_LOCALE): { one: string; many: string } =>
   (kind && platformSettings(kind, locale).categoryNoun) || (LIB[locale] ?? deLib).platforms.category;
 
@@ -155,15 +155,15 @@ const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 const ALL_STOREFRONT_PATHS = [...new Set(PLATFORM_KINDS.flatMap(k => PLATFORM_SETTINGS[k].storefrontPaths))].sort((a, b) => b.length - a.length);
 const STOREFRONT_RE = new RegExp(`^/(${ALL_STOREFRONT_PATHS.map(escRe).join('|')})(/|$)`);
 /**
- * Storefront-Präfix eines Pfads ohne /shop (Vereinigung aller Plattformen, proxy.ts kennt die aktive Plattform nicht),
- * z. B. '/cdn/shop/x.css' → 'cdn'. null = kein Storefront-Pfad. Ob der Präfix zur aktiven Plattform gehört, prüft die /shop-Route.
+ * Storefront prefix of a path without /shop (union of all platforms; proxy.ts doesn't know the active platform),
+ * e.g. '/cdn/shop/x.css' → 'cdn'. null = not a storefront path. Whether the prefix belongs to the active platform is checked by the /shop route.
  */
 export const storefrontPrefix = (pathname: string): string | null => STOREFRONT_RE.exec(pathname)?.[1] ?? null;
-/** Kopfzeile, mit der proxy.ts der /shop-Route den umgeleiteten Präfix mitgibt */
+/** Header with which proxy.ts passes the redirected prefix to the /shop route */
 export const STOREFRONT_PREFIX_HEADER = 'x-lotse-storefront-prefix';
 export const isStorefrontPathOf = (kind: PlatformKind, prefix: string) => PLATFORM_SETTINGS[kind].storefrontPaths.includes(prefix);
 
-/** Sichtbarer Bereichsname. Shopware behält Einkaufswelten; die anderen Plattformen nicht. Deutsch: info vom Server bleibt die Grundlage. */
+/** Visible section name. Shopware keeps Shopping Experiences; the other platforms don't. German: info from the server remains the basis. */
 export function scopeDisplay(kind: PlatformKind, key: string, info: { label: string; hint: string }, locale: Locale = DEFAULT_LOCALE): { label: string; hint: string } {
   const t = (LIB[locale] ?? deLib).scopes, base = locale === DEFAULT_LOCALE ? info : (t.base as Record<string, { label: string; hint: string }>)[key] ?? info;
   if (kind === 'shopware') return base;
@@ -174,7 +174,7 @@ export function scopeDisplay(kind: PlatformKind, key: string, info: { label: str
 }
 
 export const platformLabel = (kind: PlatformKind) => PLATFORM_SETTINGS[kind].label;
-/** Alle Felder einer Plattform (allgemein + alle Zugangsarten, ohne Doppelte) */
+/** All fields of a platform (general + all access methods, without duplicates) */
 export function platformFields(kind: PlatformKind): PlatformField[] {
   const d = PLATFORM_SETTINGS[kind], seen = new Set<string>();
   return [...d.fields, ...d.auth.flatMap(a => a.fields)].filter(f => (seen.has(f.key) ? false : (seen.add(f.key), true)));
@@ -183,12 +183,12 @@ export const secretKeys = (kind: PlatformKind) => platformFields(kind).filter(f 
 export const plainKeys = (kind: PlatformKind) => platformFields(kind).filter(f => !f.secret).map(f => f.key);
 
 const filled = (v: unknown) => typeof v === 'string' ? v.trim() !== '' : v === true;
-/** Eingerichtet: alle Pflichtfelder gefüllt und mindestens eine Zugangsart vollständig. values: Klartext bzw. bei Geheimnissen true/Wert. */
+/** Configured: all required fields filled and at least one access method complete. values: plain text, or true/value for secrets. */
 export function platformConfigured(kind: PlatformKind, values: Record<string, string | boolean | undefined>): boolean {
   const d = PLATFORM_SETTINGS[kind];
   return d.fields.every(f => f.optional || filled(values[f.key])) && d.auth.some(m => m.fields.every(f => f.optional || filled(values[f.key])));
 }
-/** Aktive Zugangsart: die erste vollständig ausgefüllte, sonst die erste mit irgendeinem Wert, sonst die erste. */
+/** Active access method: the first fully filled one, else the first with any value, else the first. */
 export function activeAuthMode(kind: PlatformKind, values: Record<string, string | boolean | undefined>): string {
   const modes = PLATFORM_SETTINGS[kind].auth;
   return (modes.find(m => m.fields.every(f => f.optional || filled(values[f.key])))

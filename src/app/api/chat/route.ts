@@ -14,25 +14,25 @@ const target = z.object({
 });
 const schema = z.object({ chatId: chatIdSchema, message: z.string().min(1, 'message fehlt').max(100_000), target: target.nullable().optional(), onboarding: z.boolean().optional() });
 
-// Neue Runde starten; Antwort als NDJSON-Stream (eine JSON-Zeile je Ereignis). Verlässt der Client den Chat,
-// läuft die Runde im Hintergrund weiter – er kann sich über GET wieder verbinden.
+// Start a new turn; response as an NDJSON stream (one JSON line per event). If the client leaves the chat,
+// the turn keeps running in the background, and the client can reconnect via GET.
 export async function POST(req: Request) {
   const body = await parseJson(req, schema);
   if (!body.ok) return body.res;
   const s = getSession(body.data.chatId);
   if (s.running) return jsonError(409, 'In diesem Chat läuft schon eine Anfrage.');
-  // Erst zuhören, dann starten – so geht kein Ereignis verloren
+  // Listen first, then start, so no event is lost
   const res = listenStream(s, [], true);
   startChat({ ...body.data, locale: requestLocale(req) });
   return res;
 }
 
-// Wieder verbinden: erst der bisherige Verlauf („snapshot“), dann – falls die Runde noch läuft – die Live-Ereignisse.
+// Reconnect: first the history so far ("snapshot"), then (if the turn is still running) the live events.
 export async function GET(req: Request) {
   const id = chatIdSchema.safeParse(new URL(req.url).searchParams.get('chatId'));
   if (!id.success) return jsonError(400, 'chatId fehlt');
-  if (!chatSnapshot(id.data)) return jsonError(404, 'not found'); // keine Session für unbekannte IDs anlegen
-  await refreshDraftPreview(getSession(id.data)); // alte Entwürfe im aktuellen Look
+  if (!chatSnapshot(id.data)) return jsonError(404, 'not found'); // don't create a session for unknown IDs
+  await refreshDraftPreview(getSession(id.data)); // old drafts in the current look
   const chat = chatSnapshot(id.data)!;
   const s = peekSession(id.data);
   const running = !!s?.running;

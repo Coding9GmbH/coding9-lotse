@@ -1,8 +1,8 @@
 import 'server-only';
-// OpenMage: Import aus Lieferantendaten (CSV/Excel). Datei lesen, Spalten zuordnen und Zuordnung speichern wie bei allen Plattformen
-// (features/import.ts); Abgleich per SKU mit dem Katalog, Planung und Schreiben hier: vorhandene Produkte nur zugeordnete, geänderte
-// Felder (Preise/Bestand nur mit Freigabe-Option), neue als Entwurf (deaktiviert). Karte mit Gruppen + Stichprobe, Schreiben in
-// Blöcken mit Fortschritt, Rückgängig je Produkt exakt (angelegte Produkte löschen, Felder und Bestand zurücksetzen).
+// OpenMage: import from supplier data (CSV/Excel). Reading the file, mapping columns and saving the mapping work as on all platforms
+// (features/import.ts); matching by SKU against the catalog, planning and writing happen here: existing products only get mapped, changed
+// fields (prices/stock only with an approval option), new ones as drafts (disabled). Card with groups + sample, writing in
+// chunks with progress, exact undo per product (delete created products, reset fields and stock).
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
@@ -23,7 +23,7 @@ import { reg, reqOp, writeScoped } from './write';
 export const OM_IMPORT_KIND = 'supplier-import';
 const CHUNK = 50, SAMPLE = 50;
 
-// ================= Katalog (nur lesend, geschützter Lese-Client) =================
+// ================= Catalog (read-only, protected read client) =================
 export interface AttrDef { code: string; label: string; input: string; scope: string; options: { label: string; value: string }[] }
 export interface OmCatalog {
   products: OmProduct[];
@@ -54,7 +54,7 @@ export async function loadOmCatalog(ro: OmReader, recs: Rec[], m: ImportMapping)
   return { products, categories, attributes, taxClasses: d.taxOpts, attributeSetId: d.attributeSetId, websiteIds: d.websiteIds, basis: await ro.priceBasis() };
 }
 
-// ================= Planung (rein) =================
+// ================= Planning (pure) =================
 export type Group = 'create' | 'create-warn' | 'update' | 'update-warn';
 export interface OmCreatePlan { kind: 'create'; key: string; group: Group; label: string; sku: string; product: NewProductPlan }
 export interface OmUpdatePlan { kind: 'update'; key: string; group: Group; label: string; sku: string; id: string; scoped: Record<string, unknown>; global: Record<string, unknown>; expect?: PriceWrite; stock?: number; addCategories: string[]; images: string[] }
@@ -67,7 +67,7 @@ const short = (v: unknown, n = 40) => { const s = plain(v); return s ? (s.length
 const r4 = (n: number) => Math.round(n * 10000) / 10000;
 const UPDATE_DEFAULT_OFF = new Set(['priceGross', 'priceNet', 'listPrice', 'purchasePrice', 'stock', 'taxRate']);
 
-/** Preis der Datei in der Basis des Shops (brutto/netto); null = keine Angabe */
+/** The file's price in the shop's basis (gross/net); null = not specified */
 export function shopPrice(r: { gross?: number; net?: number; taxRate?: number }, basis: PriceBasis, defRate = 19, which: 'price' | 'list' = 'price', list?: number): number | null {
   const rate = (r.taxRate ?? defRate) / 100;
   if (which === 'list') return list == null ? null : basis === 'gross' ? list : r4(list / (1 + rate));
@@ -75,7 +75,7 @@ export function shopPrice(r: { gross?: number; net?: number; taxRate?: number },
   return r.net != null ? r.net : r.gross != null ? r4(r.gross / (1 + rate)) : null;
 }
 
-/** Eigenschaften und Hersteller → Attributwerte (Auswahlwerte per Bezeichnung); unbekannte Werte als Warnung */
+/** Properties and manufacturer → attribute values (select options by label); unknown values as a warning */
 function attrValues(r: Rec, m: ImportMapping, cat: OmCatalog, warn: string[]): { scoped: Record<string, unknown>; global: Record<string, unknown> } {
   const scoped: Record<string, unknown> = {}, global: Record<string, unknown> = {};
   const set = (code: string, raw: string) => {
@@ -245,7 +245,7 @@ reg.register(OM_IMPORT_KIND, async (c, cs, payload, selected, ctx?: ApplyCtx): P
   return { results, undo, counts: { applied: all.length - bad.size, failed: bad.size } };
 });
 
-// ================= Werkzeuge =================
+// ================= Tools =================
 function tools(session: Session): AnyTool[] {
   const ro = () => { const r = session.reader as OmReader; if (!r || (r as { platform?: string }).platform !== 'openmage') throw new Error('Dieses Werkzeug gibt es nur für OpenMage.'); return r; };
   async function prepare(fileId: string, sheet: string | undefined, mapping: ImportMapping, opts: ImportOptions, title: string, reason: string) {

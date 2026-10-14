@@ -1,5 +1,5 @@
 import 'server-only';
-// Shopware: plattform-neutrale Lesefunktionen (ShopLookup) über den geschützten Lese-Client.
+// Shopware: platform-neutral read functions (ShopLookup) via the protected read client.
 import { entityPaths, mapUrls } from '../../features/gsc-map';
 import type { ShopReader, SwEntity } from '../../shopware';
 import type { ShopLookup } from '../types';
@@ -29,5 +29,5 @@ export function shopwareLookup(ro: ShopReader): ShopLookup {
   };
 }
 
-/** Altbestand/Tests: Funktionen, die früher einen Shopware-Lese-Client bekamen, nehmen weiter beides an. */
+/** Legacy/tests: functions that used to receive a Shopware read client still accept both. */
 export const asLookup = (x: ShopReader | ShopLookup): ShopLookup => ('mapUrls' in x && typeof x.mapUrls === 'function' ? x as ShopLookup : shopwareLookup(x as ShopReader));

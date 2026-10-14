@@ -1,13 +1,13 @@
 import 'server-only';
-// Geschützter OpenMage-Lese-Client der KI: feste Lese-Methoden statt freier Abfragen, Freigabeliste der API-Pfade je Bereich,
-// erlaubte Query-Parameter je Ressource, Bereinigung sensibler Felder und Zugriffsprotokoll. Das Lotse-Modul kennt keine Kunden-,
-// Bestell-, Warenkorb-, Rechnungs-, Benutzer- oder Zahlungs-Endpunkte (404); der Reader weist solche Pfade zusätzlich vorab ab.
+// The AI's protected OpenMage read client: fixed read methods instead of free queries, allowlist of API paths per area,
+// allowed query parameters per resource, scrubbing of sensitive fields and access log. The Lotse module has no customer,
+// order, cart, invoice, user or payment endpoints (404); the reader additionally rejects such paths up front.
 import type { ScopeKey } from '@/lib/protocol';
 import { DeniedError, DENIED_TERMS, DEFAULT_SCOPES, isSensitiveKey, SCOPES, scrubSensitive, type AccessEvent, type Scopes } from '../../policy';
 import { idPath, isGlobal, OmClient, skuPath, STORE_RE, type OmInfo, type OmListMeta, type OmStoreView, type Query } from './client';
 import { categoryPath, parseTarget, productPath, type OmCategory, type OmImage, type OmProduct, type OmRecord, type OmStock, type PriceBasis } from './map';
 
-/** Freigabeliste: GET-Pfad (/v1/…) → Bereich. Alles andere wird abgewiesen. */
+/** Allowlist: GET path (/v1/…) → area. Everything else is rejected. */
 export const ALLOW: { re: RegExp; scope: ScopeKey; entity: string }[] = [
   { re: /^\/v1\/info$/, scope: 'shop', entity: 'shop' },
   { re: /^\/v1\/products$/, scope: 'products', entity: 'product' },
@@ -24,7 +24,7 @@ export const ALLOW: { re: RegExp; scope: ScopeKey; entity: string }[] = [
   { re: /^\/v1\/salesrules\/\d+\/coupons$/, scope: 'marketing', entity: 'coupon' },
   { re: /^\/v1\/urlrewrites(\/\d+)?$/, scope: 'shop', entity: 'url-rewrite' },
 ];
-/** Erlaubte Query-Parameter je Ressource */
+/** Allowed query parameters per resource */
 const COMMON = ['store', 'page', 'limit', 'sort', 'dir'];
 const QUERY_FIELDS: Record<string, string[]> = {
   product: [...COMMON, 'sku', 'skus', 'ids', 'name', 'term', 'category_id', 'status', 'visibility', 'type', 'attribute_set_id', 'price_from', 'price_to', 'updated_from', 'website_id', 'fields', 'with'],
@@ -33,12 +33,12 @@ const QUERY_FIELDS: Record<string, string[]> = {
   'sales-rule': [...COMMON, 'is_active', 'name', 'coupon_code', 'website_id'], coupon: COMMON,
   'url-rewrite': [...COMMON, 'sku', 'product_id', 'category_id', 'request_path', 'id_path', 'is_system', 'all'],
 };
-/** Produktattribute, die die Liste zusätzlich liefern darf (?fields=): nur Inhalts- und SEO-Felder */
+/** Product attributes the list may additionally return (?fields=): content and SEO fields only */
 export const LIST_FIELDS = ['description', 'short_description', 'meta_title', 'meta_description', 'meta_keyword', 'url_path', 'small_image', 'thumbnail', 'manufacturer', 'cost'];
-// Pfade mit Kunden-, Bestell-, Benutzer- oder Zugangsbezug: vor der Freigabeliste hart abweisen (verständliche Meldung)
+// Paths related to customers, orders, users or access: hard-reject before the allowlist (clear message)
 const DENY_PATH = /(customer|order|invoice|creditmemo|shipment|transaction|carts?\b|quote|checkout|admin|user|token|payment|giftcard|gift-card|newsletter|password|api_user|roles?\b|config)/i;
 
-/** Attributwerte mit sensiblen Schlüsseln (E-Mail, Telefon, Kunden-/Bestellbezug) aus attributes-Objekten entfernen */
+/** Remove attribute values with sensitive keys (email, phone, customer/order related) from attributes objects */
 export function scrubAttributes(data: unknown): number {
   let n = 0;
   const walk = (x: unknown) => {
@@ -54,7 +54,7 @@ export function scrubAttributes(data: unknown): number {
 
 export interface OmGuard {
   scopes: () => Scopes;
-  /** prüft Pfad und Query-Parameter; liefert die Ressource (für das Protokoll) */
+  /** checks path and query parameters; returns the resource (for the log) */
   check(path: string, query?: Query): string;
   after<T>(op: string, entity: string, res: T, n?: number): T;
   deny(entity: string, msg: string): DeniedError;
@@ -86,13 +86,13 @@ export function createOmGuard({ getScopes = () => DEFAULT_SCOPES, onAccess = () 
 export interface ProductQuery extends Query { store?: string; sku?: string; skus?: string; ids?: string; name?: string; term?: string; category_id?: string | number; status?: number; visibility?: string; type?: string; price_from?: number; price_to?: number; page?: number; limit?: number; sort?: string; dir?: 'asc' | 'desc'; fields?: string; with?: string }
 export interface Resolved { type: 'PRODUCT' | 'CATEGORY' | 'CMS_PAGE' | 'HOME' | 'REDIRECT'; id?: number; sku?: string; identifier?: string; redirect_code?: number; relative_url?: string }
 
-/** Modulversion, ab der der Suchfilter ?term= (Name ODER SKU bzw. Titel ODER identifier) existiert; ältere Module ignorieren ihn stillschweigend */
+/** Module version from which the search filter ?term= (name OR SKU, or title OR identifier) exists; older modules silently ignore it */
 export const MODULE_TERM_FILTER = '1.2.0';
 const versionAtLeast = (v: unknown, min: string) => { const a = String(v ?? '0').split('.').map(Number), b = min.split('.').map(Number); for (let i = 0; i < b.length; i++) { const d = (a[i] || 0) - b[i]; if (d) return d > 0; } return true; };
 export const infoHasTermFilter = (info: Pick<OmInfo, 'module_version'>) => versionAtLeast(info.module_version, MODULE_TERM_FILTER);
 /**
- * Produkt-Referenz der Werkzeuge: „id:12“ oder „sku:4711“ sind eindeutig; eine reine Zahl kann Entitäts-ID ODER (numerische) SKU sein
- * und wird auf beides geprüft (zwei verschiedene Treffer = Fehler), alles andere ist eine SKU.
+ * Product reference of the tools: "id:12" or "sku:4711" are unambiguous; a plain number can be an entity ID OR a (numeric) SKU
+ * and is checked for both (two different matches = error), everything else is a SKU.
  */
 export function parseRef(ref: string): { id?: string; sku?: string } {
   const r = String(ref ?? '').trim();
@@ -102,15 +102,15 @@ export function parseRef(ref: string): { id?: string; sku?: string } {
   return /^\d+$/.test(r) ? { id: r, sku: r } : { sku: r };
 }
 export const ambiguousRef = (ref: string, byId: OmRecord, bySku: OmRecord) => new Error(`Mehrdeutig: „${ref}“ ist Produkt-ID (${byId.name ?? ''}, SKU ${byId.sku}) und zugleich SKU (${bySku.name ?? ''}, ID ${bySku.id}). Bitte als „id:${ref}“ oder „sku:${ref}“ angeben.`);
-/** Treffer einer Referenz aus ID- und SKU-Suche: beide verschieden = mehrdeutig */
+/** Matches of a reference from ID and SKU search: both different = ambiguous */
 export function pickRef<T extends OmRecord>(ref: string, byId: T | null | undefined, bySku: T | null | undefined): T | null {
   if (byId && bySku && Number(byId.id) !== Number(bySku.id)) throw ambiguousRef(ref, byId, bySku);
   return byId ?? bySku ?? null;
 }
 
 /**
- * Lese-Client der KI (OpenMage). Nur feste Methoden; der privilegierte Client ist privat (#c) und von außen nicht erreichbar.
- * Ergebnisse werden bereinigt und protokolliert. store: Store-View-Code ('' = Haupt-Store-View der Einstellungen, 'admin' = globale Werte).
+ * The AI's read client (OpenMage). Fixed methods only; the privileged client is private (#c) and not reachable from outside.
+ * Results are scrubbed and logged. store: store view code ('' = main store view from the settings, 'admin' = global values).
  */
 export class OmReader {
   readonly #c: OmClient;
@@ -144,18 +144,18 @@ export class OmReader {
 
   // ---- Shop ----
   info(): Promise<OmInfo> { return this.#once('info', () => this.#get<OmInfo>('/v1/info', { store: 'admin' })); }
-  /** Store-View, in der Lotse liest und schreibt (Einstellung bzw. Standard-Store-View des Shops) */
+  /** Store view in which Lotse reads and writes (setting, or the shop's default store view) */
   store(): Promise<string> { return this.#c.workStore(); }
   async storeViews(): Promise<OmStoreView[]> { return (await this.info()).store_views.filter(v => v.id > 0); }
   async storeView(code?: string): Promise<OmStoreView | undefined> { const c = code ?? await this.store(); const views = await this.storeViews(); return views.find(v => v.code === c || String(v.id) === c || (v.locale && v.locale.toLowerCase().replace('_', '-') === String(c).toLowerCase().replace('_', '-'))); }
   async priceBasis(): Promise<PriceBasis> { return (await this.info()).price_includes_tax ? 'gross' : 'net'; }
   async suffixes(): Promise<{ product: string; category: string }> { const i = await this.info(); return { product: i.product_url_suffix ?? '', category: i.category_url_suffix ?? '' }; }
-  /** interne Basis-URL (Docker) → öffentliche URL des Browsers */
+  /** internal base URL (Docker) → the browser's public URL */
   rebase(u: string) { const { base, publicUrl } = this.#c; return base && publicUrl && base !== publicUrl && u.startsWith(base) ? publicUrl + u.slice(base.length) : u; }
-  /** Storefront-Basis einer Store-View (öffentlich, ohne Schrägstrich am Ende) */
+  /** Storefront base of a store view (public, without trailing slash) */
   async storefrontBase(store?: string): Promise<string> { const v = await this.storeView(store).catch(() => undefined); return this.rebase(String(v?.link_url ?? v?.base_url ?? `${this.#c.publicUrl || this.#c.base}/`)).replace(/\/+$/, ''); }
   async mediaBase(store?: string): Promise<string> { const v = await this.storeView(store).catch(() => undefined); return this.rebase(String(v?.media_url ?? `${this.#c.publicUrl || this.#c.base}/media/`)).replace(/\/?$/, '/'); }
-  /** Bild-URL einer Galerie-Datei (/v/a/x.jpg) */
+  /** Image URL of a gallery file (/v/a/x.jpg) */
   async mediaUrl(file: string | null | undefined, store?: string): Promise<string | undefined> {
     if (!file || file === 'no_selection') return undefined;
     if (/^https?:\/\//.test(file)) return this.rebase(file);
@@ -164,20 +164,20 @@ export class OmReader {
   async productUrl(p: OmRecord, store?: string): Promise<string | null> { if (Number(p.visibility) === 1) return null; const path = productPath(p, (await this.suffixes()).product); return path ? `${await this.storefrontBase(store)}/${path}` : null; }
   async categoryUrl(c: OmRecord, store?: string): Promise<string | null> { const path = categoryPath(c, (await this.suffixes()).category); return path ? `${await this.storefrontBase(store)}/${path}` : null; }
 
-  // ---- Produkte ----
+  // ---- Products ----
   products(q: ProductQuery = {}): Promise<{ items: OmProduct[]; meta: OmListMeta }> { const { store, ...query } = q; return this.#list<OmProduct>('/v1/products', query, store); }
   product(sku: string, store?: string): Promise<OmProduct | null> { return this.#get(`/v1/products/${skuPath(sku)}`, { store, nullOn404: true }); }
   productById(id: string | number, store?: string): Promise<OmProduct | null> { if (!/^\d+$/.test(String(id))) return Promise.resolve(null); return this.#get(`/v1/products/${idPath(id)}`, { store, nullOn404: true }); }
-  /** Produkt per Referenz der Werkzeuge (id:…, sku:…, Zahl = ID oder SKU, sonst SKU) als Detail; Zahl mit zwei verschiedenen Treffern wirft „Mehrdeutig“ */
+  /** Product by tool reference (id:…, sku:…, number = ID or SKU, otherwise SKU) as detail; a number with two different matches throws "Mehrdeutig" (ambiguous) */
   async productByRef(ref: string, store?: string): Promise<OmProduct | null> {
     const { id, sku } = parseRef(ref);
     if (!id && !sku) return null;
     const [a, b] = await Promise.all([id ? this.productById(id, store) : null, sku ? this.product(sku, store) : null]);
     return pickRef(ref, a, b);
   }
-  /** Kennt das Modul im Shop den Suchfilter ?term=? (ältere Module würden ihn ignorieren und alles liefern) */
+  /** Does the module in the shop know the search filter ?term=? (older modules would ignore it and return everything) */
   async hasTermFilter(): Promise<boolean> { return infoHasTermFilter(await this.info()); }
-  /** Listeneinträge per SKU (exakt, in Blöcken), optional mit weiteren Feldern/Galerie */
+  /** List entries by SKU (exact, in chunks), optionally with additional fields/gallery */
   async productsBySkus(skus: string[], o: { store?: string; fields?: string[]; images?: boolean } = {}): Promise<OmProduct[]> {
     const list = [...new Set(skus.map(s => String(s ?? '').trim()).filter(s => s && !s.includes(',')))]; if (!list.length) return [];
     const out: OmProduct[] = [];
@@ -190,26 +190,26 @@ export class OmReader {
     for (let i = 0; i < list.length; i += 50) out.push(...(await this.products({ ids: list.slice(i, i + 50).join(','), limit: 50, store: o.store, ...(o.fields?.length ? { fields: o.fields.join(',') } : {}), ...(o.images ? { with: 'images' } : {}) })).items);
     return out;
   }
-  /** Attributsets und Produktattribute (einmal je Lese-Client) */
+  /** Attribute sets and product attributes (once per read client) */
   attributes(): Promise<{ attribute_sets: { id: number; name: string; is_default: boolean; attribute_codes: string[] }[]; attributes: OmRecord[] }> { return this.#once('attributes', () => this.#get('/v1/products/attributes', { store: 'admin' })); }
   async attribute(code: string): Promise<OmRecord | null> { if (!/^[a-z][a-z0-9_]{0,59}$/.test(code)) return null; return (await this.attributes()).attributes.find(a => a.code === code) ?? null; }
   stock(sku: string): Promise<OmStock | null> { return this.#get(`/v1/products/${skuPath(sku)}/stock`, { store: 'admin', nullOn404: true }); }
   images(sku: string, store?: string): Promise<OmImage[]> { return this.#get(`/v1/products/${skuPath(sku)}/images`, { store }); }
   productCategories(sku: string): Promise<{ id: number; position: number; name?: string | null }[]> { return this.#get(`/v1/products/${skuPath(sku)}/categories`, { store: 'admin' }); }
 
-  // ---- Kategorien ----
-  /** Kategoriebaum ab der Wurzel der Store-View (einmal je Lese-Client und Store) */
+  // ---- Categories ----
+  /** Category tree from the store view's root (once per read client and store) */
   categoryTree(store?: string): Promise<OmCategory[]> { return this.#once(`tree:${store ?? ''}`, () => this.#get<OmCategory[]>('/v1/categories', { store, op: 'tree' })); }
-  /** Alle Kategorien flach (mit Pfad-Angaben) */
+  /** All categories flat (with path info) */
   categoriesFlat(store?: string): Promise<OmCategory[]> { return this.#once(`flat:${store ?? ''}`, () => this.#get<OmCategory[]>('/v1/categories', { store, query: { flat: 1 }, op: 'list' })); }
   category(id: string | number, store?: string): Promise<OmCategory | null> { if (!/^\d+$/.test(String(id))) return Promise.resolve(null); return this.#get(`/v1/categories/${Number(id)}`, { store, nullOn404: true }); }
 
-  // ---- Inhalte, Marketing, Rewrites ----
+  // ---- Content, marketing, rewrites ----
   cmsPages(q: Query = {}, store?: string): Promise<{ items: OmRecord[]; meta: OmListMeta }> { return this.#list('/v1/cms/pages', q, store ?? 'admin'); }
   cmsPage(id: string | number): Promise<OmRecord | null> { if (!/^\d+$/.test(String(id))) return Promise.resolve(null); return this.#get(`/v1/cms/pages/${Number(id)}`, { store: 'admin', nullOn404: true }); }
   cmsBlocks(q: Query = {}, store?: string): Promise<{ items: OmRecord[]; meta: OmListMeta }> { return this.#list('/v1/cms/blocks', q, store ?? 'admin'); }
   cmsBlock(id: string | number): Promise<OmRecord | null> { if (!/^\d+$/.test(String(id))) return Promise.resolve(null); return this.#get(`/v1/cms/blocks/${Number(id)}`, { store: 'admin', nullOn404: true }); }
-  /** CMS-Seite per identifier (exakt) */
+  /** CMS page by identifier (exact) */
   async cmsPageByIdentifier(identifier: string): Promise<OmRecord | null> { const r = await this.cmsPages({ identifier, limit: 20 }); return r.items.find(p => p.identifier === identifier) ?? null; }
   salesRules(q: Query = {}): Promise<{ items: OmRecord[]; meta: OmListMeta }> { return this.#list('/v1/salesrules', q, 'admin'); }
   salesRule(id: string | number): Promise<OmRecord | null> { if (!/^\d+$/.test(String(id))) return Promise.resolve(null); return this.#get(`/v1/salesrules/${Number(id)}`, { store: 'admin', nullOn404: true }); }
@@ -217,9 +217,9 @@ export class OmReader {
   urlRewrites(q: Query, store?: string): Promise<{ items: OmRecord[]; meta: OmListMeta }> { return this.#list('/v1/urlrewrites', q, store); }
 
   /**
-   * Storefront-Pfad → Entität: URL-Rewrites der Store-View (Produkt, Kategorie, Weiterleitung), sonst CMS-Seite per identifier.
-   * null = nichts gefunden. Bereichsschalter wirken (gesperrter Bereich → null). Eigene Rewrites, die aufeinander zeigen
-   * (a → b → a), oder Ketten über 5 Schritte enden mit null statt endlos.
+   * Storefront path → entity: URL rewrites of the store view (product, category, redirect), otherwise CMS page by identifier.
+   * null = nothing found. Area switches apply (locked area → null). Custom rewrites pointing at each other
+   * (a → b → a), or chains over 5 steps end with null instead of looping forever.
    */
   async resolveUrl(path: string, store?: string, depth = 0): Promise<Resolved | null> {
     const p = String(path ?? '').replace(/^\/+/, '').replace(/[?#].*$/, '').slice(0, 400);
@@ -235,7 +235,7 @@ export class OmReader {
           if (t.type === 'CATEGORY' && !sc.categories) return null;
           return { type: t.type, id: t.id };
         }
-        // Weiterleitung oder eigener Rewrite auf einen anderen Pfad
+        // Redirect or custom rewrite to another path
         const to = String(rw.target_path ?? '').replace(/^\/+/, '');
         if (rw.options === 'RP' || rw.options === 'R') { const target = await this.resolveUrl(to, store, depth + 1).catch(() => null); return { ...(target ?? { type: 'REDIRECT' as const }), redirect_code: rw.options === 'RP' ? 301 : 302, relative_url: to }; }
         if (to && to !== p) return this.resolveUrl(to, store, depth + 1);

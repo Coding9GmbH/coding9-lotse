@@ -1,6 +1,6 @@
 import 'server-only';
-// Shopify: Mutationen + Rückgängig-Schritte. UndoOps sind reine Daten (GraphQL-Mutation + Variablen, ohne Token):
-// { op: 'req', path: 'graphql', body: { query, variables } } bzw. { op: 'delete', entity, id } für angelegte Objekte.
+// Shopify: mutations + undo steps. UndoOps are plain data (GraphQL mutation + variables, without token):
+// { op: 'req', path: 'graphql', body: { query, variables } } or { op: 'delete', entity, id } for created objects.
 import type { UndoOp } from '@/lib/protocol';
 import { errMsg } from '../../changes';
 import { ShopifyError, type Json, type ShopifyClient } from './client';
@@ -45,17 +45,17 @@ export const M = {
   stagedUploads: 'mutation StagedUploads($input: [StagedUploadInput!]!) { stagedUploadsCreate(input: $input) { stagedTargets { url resourceUrl parameters { name value } } userErrors { field message } } }',
 } as const;
 
-/** erstes Root-Feld einer Mutation (für userErrors-Prüfung) */
+/** first root field of a mutation (for the userErrors check) */
 export const rootOf = (query: string) => /^\s*mutation\b[^{]*\{\s*(\w+)/.exec(query)?.[1] ?? '';
-/** Mutation ausführen (userErrors → Fehler) */
+/** Run a mutation (userErrors → error) */
 export const run = <T = Json>(client: ShopifyClient, query: string, variables: Json) => client.mutate<T>(query, variables, rootOf(query));
 
-/** Shopify hat nichts geändert (userErrors): dann braucht es keinen Rückgängig-Schritt */
+/** Shopify changed nothing (userErrors): then no undo step is needed */
 export const isUserError = (e: unknown) => e instanceof ShopifyError && e.code === 'USER_ERROR';
 /**
- * Mutation ausführen und ihre Rückgängig-Schritte (Vorher-Werte, VOR der Mutation gebaut) in undo vermerken: nach Erfolg, aber auch
- * wenn der Ausgang unklar ist (Netzfehler, Zeitlimit, 5xx: die Mutation kann trotzdem gewirkt haben). Nur bei userErrors nicht.
- * Jede schreibende Mutation des Adapters läuft hierüber oder über runCreating; run() nur, wo ein früherer Schritt das Rückgängig schon abdeckt.
+ * Run a mutation and record its undo steps (previous values, built BEFORE the mutation) in undo: after success, but also
+ * when the outcome is unclear (network error, timeout, 5xx: the mutation may still have taken effect). Only not on userErrors.
+ * Every writing mutation of the adapter goes through here or through runCreating; run() only where an earlier step already covers the undo.
  */
 export async function runRecording<T = Json>(client: ShopifyClient, query: string, variables: Json, undo: UndoOp[], back: UndoOp | UndoOp[]): Promise<T> {
   const ops = Array.isArray(back) ? back : [back];
@@ -63,21 +63,21 @@ export async function runRecording<T = Json>(client: ShopifyClient, query: strin
   catch (e) { if (!isUserError(e)) undo.push(...ops); throw e; }
 }
 /**
- * Anlegen (ID erst nach der Antwort bekannt): ids() liefert die Kandidaten (z. B. per Titel/Handle) vorher und, bei unklarem Ausgang,
- * nachher; neu hinzugekommene werden zum Löschen vorgemerkt. Nach Erfolg vermerkt der Aufrufer das Löschen der gelieferten ID selbst.
+ * Create (ID known only after the response): ids() returns the candidates (e.g. by title/handle) before and, if the outcome is unclear,
+ * after; newly added ones are marked for deletion. After success the caller records the deletion of the returned ID itself.
  */
 export async function runCreating<T = Json>(client: ShopifyClient, query: string, variables: Json, undo: UndoOp[], entity: keyof typeof DELETE, ids: () => Promise<string[]>): Promise<T> {
   const before = new Set(await ids());
   try { return await run<T>(client, query, variables); }
   catch (e) {
-    if (!isUserError(e)) { try { for (const id of await ids()) if (!before.has(id)) undo.push(deleteOp(entity, id)); } catch { /* nicht lesbar: kein Schritt möglich */ } }
+    if (!isUserError(e)) { try { for (const id of await ids()) if (!before.has(id)) undo.push(deleteOp(entity, id)); } catch { /* not readable: no step possible */ } }
     throw e;
   }
 }
 
-/** Rückgängig-Schritt als roher GraphQL-Aufruf */
+/** Undo step as a raw GraphQL call */
 export const reqOp = (entity: string, id: string, query: string, variables: Json): UndoOp => ({ op: 'req', entity, id, method: 'POST', path: 'graphql', body: { query, variables } });
-/** angelegtes Objekt wieder löschen */
+/** delete a created object again */
 export const deleteOp = (entity: keyof typeof DELETE, id: string): UndoOp => ({ op: 'delete', entity, id });
 
 const DELETE = {
@@ -89,13 +89,13 @@ const DELETE = {
   page: (id: string) => [M.pageDelete, { id }],
 } satisfies Record<string, (id: string) => [string, Json]>;
 /**
- * Nur diese Dokumente aus M (wortgleich) sind als Rückgängig-Schritt erlaubt: genau die, die ein Executor per reqOp vermerkt. Gespeicherte
- * Schritte können nichts anderes auslösen (kein Anlegen, keine weiteren Root-Felder); publish/unpublish nur für das Sichtbarkeits-Rückgängig.
+ * Only these documents from M (verbatim) are allowed as undo steps: exactly those an executor records via reqOp. Stored
+ * steps can trigger nothing else (no creation, no further root fields); publish/unpublish only for the visibility undo.
  */
 const UNDO_QUERIES = new Set<string>([M.productUpdate, M.variantsUpdate, M.variantsDelete, M.reorderMedia, M.fileUpdate, M.metafieldsSet, M.metafieldsDelete,
   M.collectionUpdate, M.collectionAdd, M.collectionRemove, M.collectionReorder, M.publish, M.unpublish, M.pageUpdate, M.translationsRegister, M.translationsRemove,
   M.discountUpdate, M.themeFilesUpsert, M.themeFilesDelete]);
-/** Theme-Schritte nur für Lotse-eigene Dateien (eine gespeicherte Rückgängig-Liste kann keine fremden Theme-Dateien ändern) */
+/** Theme steps only for Lotse's own files (a stored undo list cannot change foreign theme files) */
 function themeFilesOk(b: { query: string; variables?: Json }): boolean {
   const r = rootOf(b.query); if (r !== 'themeFilesUpsert' && r !== 'themeFilesDelete') return true;
   const files: unknown[] = b.variables?.files ?? [];
@@ -103,7 +103,7 @@ function themeFilesOk(b: { query: string; variables?: Json }): boolean {
 }
 const GONE = /does not exist|not found|nicht gefunden|existiert nicht|NOT_FOUND|DOES_NOT_EXIST|FILE_DOES_NOT_EXIST/i;
 
-/** Rückgängig-Schritte in umgekehrter Reihenfolge; „schon weg“ beim Löschen gilt als Erfolg */
+/** Undo steps in reverse order; "already gone" on delete counts as success */
 export async function undoShopify(client: ShopifyClient, ops: UndoOp[]): Promise<{ ok: boolean; error?: string }[]> {
   const out: { ok: boolean; error?: string }[] = [];
   for (const op of [...ops].reverse()) {
@@ -112,7 +112,7 @@ export async function undoShopify(client: ShopifyClient, ops: UndoOp[]): Promise
         const b = op.body as { query?: string; variables?: Json } | undefined;
         if (op.path !== 'graphql' || !b?.query || !UNDO_QUERIES.has(b.query) || !themeFilesOk(b as { query: string; variables?: Json })) throw new Error('Ungültiger Rückgängig-Schritt');
         try { await run(client, b.query, b.variables ?? {}); }
-        catch (e) { if (!(rootOf(b.query) === 'themeFilesDelete' && e instanceof ShopifyError && GONE.test(e.message))) throw e; } // Vorlage schon weg = Ziel erreicht
+        catch (e) { if (!(rootOf(b.query) === 'themeFilesDelete' && e instanceof ShopifyError && GONE.test(e.message))) throw e; } // template already gone = goal reached
       } else if (op.op === 'delete' && op.entity === 'theme-section') {
         await deleteSectionIfUnused(client, op.id);
       } else if (op.op === 'delete') {

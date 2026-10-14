@@ -15,7 +15,7 @@ async function known(id: string) {
   return checkList(p.kind).some(c => c.id === id);
 }
 
-// An-/Ausschalten (eingebaut oder eigen); danach im Hintergrund neu prüfen, damit die Startseite stimmt
+// Toggle on/off (built-in or custom); then re-check in the background so the home page is accurate
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await parseJson(req, schema);
@@ -26,7 +26,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   return Response.json({ ok: true });
 }
 
-// Nur eigene Prüfungen lassen sich löschen
+// Only custom checks can be deleted
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!id.startsWith(CUSTOM_PREFIX) || !listCustom().some(c => c.id === id)) return jsonError(404, 'Eigene Prüfung nicht gefunden');

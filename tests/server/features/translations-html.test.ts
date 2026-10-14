@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkSeg, configLinks, decode, mapConfigLinks, mapUrl, plain, rebuild, segmentHtml, slotTexts, type LinkIndex } from '../../../src/server/features/translations-html';
 
-test('decode: benannte und numerische Entities; ungültige Codepunkte bleiben wörtlich stehen statt zu werfen', () => {
+test('decode: named and numeric entities; invalid code points stay literal instead of throwing', () => {
   assert.equal(decode('&auml; &#65; &#x1F600; &amp; x &unknown;'), 'ä A 😀 & x &unknown;');
   assert.equal(plain('a &#x110000; b &#9999999999; c'), 'a &#x110000; b &#9999999999; c');
   assert.doesNotThrow(() => segmentHtml('<p title="&#x110000;">T &#99999999999;</p>'));
@@ -12,7 +12,7 @@ const HTML = `<div class="aicb-x"><style>.aicb-x h2{color:red}/* Überschrift */
 <img src="/v.jpg" alt="Vase „Kiesel“"><p>22</p><a class="btn" href="/Wohnaccessoires/" title="Zur Kategorie">Jetzt <b>ansehen</b></a><svg><path d="M0"/></svg></section>
 <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Häufige Fragen","acceptedAnswer":{"text":"Die Vase ist wasserdicht & matt."}}]}</script><script>root.querySelector('h2').title='Hallo';</script></div>`;
 
-test('segmentHtml: Texte, Inline-Tags und Attribute – CSS/JS/Zahlen bleiben fest, Rückweg ist exakt', () => {
+test('segmentHtml: texts, inline tags and attributes; CSS/JS/numbers stay fixed, round trip is exact', () => {
   const s = segmentHtml(HTML);
   assert.deepEqual(s.segs.map(g => [g.kind, g.attr ?? '', g.src]), [
     ['text', '', 'Häufige Fragen'],
@@ -24,7 +24,7 @@ test('segmentHtml: Texte, Inline-Tags und Attribute – CSS/JS/Zahlen bleiben fe
   assert.equal(rebuild(s, () => undefined), HTML);
 });
 
-test('rebuild: Übersetzungen einsetzen, Attribute kodieren, JSON-LD über den sichtbaren Text mitübersetzen', () => {
+test('rebuild: insert translations, encode attributes, translate JSON-LD along via the visible text', () => {
   const s = segmentHtml(HTML);
   const tr = ['Frequently asked questions', 'The vase is <strong>watertight</strong> &amp; matte.', 'Vase "Kiesel"', 'To the category', 'View <b>now</b>'];
   const out = rebuild(s, i => tr[i]);
@@ -37,14 +37,14 @@ test('rebuild: Übersetzungen einsetzen, Attribute kodieren, JSON-LD über den s
   assert.match(out, /title='Hallo'/);
 });
 
-test('segmentHtml: über Block-Elemente unterbrochene Inline-Tags ergeben ausgeglichene Abschnitte', () => {
+test('segmentHtml: inline tags interrupted by block elements yield balanced segments', () => {
   const h = '<ul><li><span class="i"><svg></svg></span><span><b>Innen glasiert</b><small>Wasserdicht.</small></span></li></ul><a class="btn" href="#x">Ansehen <span aria-hidden="true"><svg></svg></span></a>';
   const s = segmentHtml(h);
   assert.deepEqual(s.segs.map(g => g.src), ['<b>Innen glasiert</b><small>Wasserdicht.</small>', 'Ansehen']);
   assert.equal(rebuild(s, () => undefined), h);
 });
 
-test('checkSeg: gleiche Inline-Tags, keine Block-Tags, reiner Text in Attributen', () => {
+test('checkSeg: same inline tags, no block tags, plain text in attributes', () => {
   const [t, , a] = segmentHtml('<p>Die <strong>Vase</strong></p><p>x</p><img alt="Bild einer Vase">').segs;
   assert.equal(checkSeg(t, 'The <strong>vase</strong>'), null);
   assert.match(checkSeg(t, 'The vase')!, /Inline-Tags/);
@@ -54,7 +54,7 @@ test('checkSeg: gleiche Inline-Tags, keine Block-Tags, reiner Text in Attributen
   assert.match(checkSeg(a, '<b>x</b>')!, /kein HTML/);
 });
 
-test('slotTexts: nur statische Texte, stabile keys, Rest der Config unverändert', () => {
+test('slotTexts: only static texts, stable keys, rest of the config unchanged', () => {
   const cfg = { title: { source: 'static', value: 'Unsere Favoriten' }, products: { source: 'static', value: ['a'] }, boxLayout: { source: 'static', value: 'standard' }, content: { source: 'mapped', value: 'product.name' } };
   const { segs, apply } = slotTexts(cfg, 's4');
   assert.deepEqual(segs.map(g => [g.key, g.kind, g.src]), [['s4.0', 'value', 'Unsere Favoriten']]);
@@ -71,7 +71,7 @@ const ix = (domains: LinkIndex['domains']): LinkIndex => ({
 });
 const both = [{ url: 'http://shop.test', languageId: 'de', salesChannelId: 'sc' }, { url: 'http://shop.test/en', languageId: 'en', salesChannelId: 'sc' }];
 
-test('mapUrl: SEO- und technische Pfade auf die SEO-URL der Zielsprache, Rest bleibt', () => {
+test('mapUrl: SEO and technical paths to the target language SEO URL, the rest stays', () => {
   assert.deepEqual(mapUrl('http://shop.test/Wohnaccessoires/?order=name#top', ix(both)), { url: 'http://shop.test/en/Home-accessories/?order=name#top' });
   assert.deepEqual(mapUrl('/Wohnaccessoires', ix(both)), { url: 'http://shop.test/en/Home-accessories/' });
   assert.deepEqual(mapUrl(`/detail/${'a'.repeat(32)}`, ix(both)), { url: 'http://shop.test/en/Vase-Pebble/HH-VASE-22' });
@@ -84,7 +84,7 @@ test('mapUrl: SEO- und technische Pfade auf die SEO-URL der Zielsprache, Rest bl
   assert.match(noEn.note!, /keine Domain für English/);
 });
 
-test('mapConfigLinks: href und url umstellen, unveränderte Links bleiben bytegenau', () => {
+test('mapConfigLinks: rewrite href and url, unchanged links stay byte-identical', () => {
   const cfg = { content: { source: 'static', value: '<a href="/Wohnaccessoires/">A</a><a href="https://x.org/?a=1&b=2">B</a>' }, url: { source: 'static', value: '/Wohnaccessoires/' } };
   assert.deepEqual(configLinks(cfg), ['/Wohnaccessoires/', 'https://x.org/?a=1&b=2', '/Wohnaccessoires/']);
   const r = mapConfigLinks(cfg, ix(both));
@@ -93,7 +93,7 @@ test('mapConfigLinks: href und url umstellen, unveränderte Links bleiben bytege
   assert.equal(r.changed.length, 2);
 });
 
-test('checkSeg: Attribute der Inline-Tags bleiben, nur title/alt dürfen sich ändern; kein on*/javascript:', () => {
+test('checkSeg: inline tag attributes stay, only title/alt may change; no on*/javascript:', () => {
   const sg = { kind: 'text' as const, src: 'Zur <a href="/x/" class="btn" title="Mehr">Kategorie</a>' };
   assert.equal(checkSeg(sg, 'To the <a class="btn" href="/x/" title="More">category</a>'), null);
   assert.match(checkSeg(sg, 'To the <a href="/y/" class="btn" title="More">category</a>')!, /Attribute/);
@@ -102,7 +102,7 @@ test('checkSeg: Attribute der Inline-Tags bleiben, nur title/alt dürfen sich ä
   assert.match(checkSeg(sg, 'To the <a href="javascript:alert(1)" class="btn" title="More">category</a>')!, /javascript/);
 });
 
-test('configLinks/mapConfigLinks: Links in Listen (sliderItems[].url) werden mit umgestellt', () => {
+test('configLinks/mapConfigLinks: links in lists (sliderItems[].url) are rewritten too', () => {
   const cfg = { sliderItems: { source: 'static', value: [{ mediaId: 'm', url: '/Wohnaccessoires/', newTab: false }, { mediaId: 'n', url: null }] } };
   assert.deepEqual(configLinks(cfg), ['/Wohnaccessoires/']);
   const r = mapConfigLinks(cfg, ix(both));

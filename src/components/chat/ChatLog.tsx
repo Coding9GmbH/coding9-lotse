@@ -19,7 +19,7 @@ interface Props {
   onDecide: (approvalId: string, allow: boolean, selected?: string[]) => void;
   onUndo: (csId: string) => void;
   onOpenStyleguide: () => void;
-  /** true, solange eine Runde läuft. Die Ansage kommt erst, wenn sie fertig ist. */
+  /** true while a turn is running. The announcement only comes once it is finished. */
   busy?: boolean;
   className?: string;
   children?: React.ReactNode;
@@ -36,10 +36,10 @@ function AnswerStatus({ busy, hasAnswer }: { busy: boolean; hasAnswer: boolean }
 }
 
 const NEAR_END = 140;
-/** Diese Einträge holen den Verlauf immer ans Ende (eigene Nachricht, Entscheidung nötig). */
+/** These entries always scroll the log to the end (own message, decision needed). */
 const FORCE_FOLLOW = new Set<LogItem['kind']>(['user', 'question', 'changeset']);
 
-/** Chat-Verlauf. Bleibt am Ende „kleben“, solange man nicht hochgescrollt hat. */
+/** Chat log. Stays "stuck" to the end as long as the user has not scrolled up. */
 export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStyleguide, busy = false, className, children }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);

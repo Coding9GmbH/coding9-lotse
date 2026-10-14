@@ -1,6 +1,6 @@
 import 'server-only';
-// Register der Shop-Plattformen. Genau ein Shop ist verbunden: getSettings().platform (Standard shopware, Umgebung SHOP_PLATFORM).
-// Jede Session merkt sich ihre Plattform (session.platform); Änderungssets und Rückgängig-Schritte tragen sie mit (platform-Feld).
+// Registry of shop platforms. Exactly one shop is connected: getSettings().platform (default shopware, env SHOP_PLATFORM).
+// Each session remembers its platform (session.platform); change sets and undo steps carry it along (platform field).
 import type { UndoOp } from '@/lib/protocol';
 import { isPlatformKind, PLATFORM_KINDS, type PlatformKind } from '@/lib/platforms';
 import { storedPlatform, type Settings } from '../settings';
@@ -12,23 +12,23 @@ import type { PlatformAdapter } from './types';
 
 export const ADAPTERS: Record<PlatformKind, PlatformAdapter> = { shopware, shopify, magento, openmage };
 
-/** Adapter einer Plattform bzw. der in den Einstellungen gewählten */
-export function getPlatform(x: PlatformKind | Pick<Settings, 'platform'> = storedPlatform()): PlatformAdapter { // Standard ohne Entschlüsseln der Zugangsdaten
+/** Adapter of a platform, or of the one selected in the settings */
+export function getPlatform(x: PlatformKind | Pick<Settings, 'platform'> = storedPlatform()): PlatformAdapter { // default without decrypting the credentials
   const kind = typeof x === 'string' ? x : x.platform;
   if (!isPlatformKind(kind)) throw new Error(`Unbekannte Shop-Plattform „${String(kind)}“ (erlaubt: ${PLATFORM_KINDS.join(', ')})`);
   return ADAPTERS[kind];
 }
 export const activePlatform = () => getPlatform();
-/** Nach dem Speichern der Einstellungen: alle Adapter neu konfigurieren (Shopware: Client + Bild-KI-Konfiguration) */
+/** After saving the settings: reconfigure all adapters (Shopware: client + image AI config) */
 export const reconfigureAll = () => { for (const a of Object.values(ADAPTERS)) a.reconfigure(); };
-export const activeKind = (): PlatformKind => storedPlatform(); // ohne Entschlüsseln der Zugangsdaten
+export const activeKind = (): PlatformKind => storedPlatform(); // without decrypting the credentials
 
-/** Plattform eines Rückgängig-Schritts (Altbestand ohne Feld = shopware) */
+/** Platform of an undo step (legacy entries without the field = shopware) */
 export const opPlatform = (op: Pick<UndoOp, 'platform'>): PlatformKind => op.platform ?? 'shopware';
 
 /**
- * Rückgängig über den Adapter der Plattform, zu der die Schritte gehören. Gehören sie nicht zum aktuell verbundenen Shop
- * (Plattform gewechselt), wird nichts ausgeführt – sonst würde ein fremder Shop verändert.
+ * Undo via the adapter of the platform the steps belong to. If they do not belong to the currently connected shop
+ * (platform switched), nothing is executed; otherwise a different shop would be modified.
  */
 export async function undoWithPlatform(ops: UndoOp[], active: PlatformKind = activeKind(), adapters: Record<PlatformKind, Pick<PlatformAdapter, 'undo' | 'label'>> = ADAPTERS): Promise<{ ok: boolean; error?: string }[]> {
   const kinds = [...new Set(ops.map(opPlatform))];

@@ -1,5 +1,5 @@
 import 'server-only';
-// Minimaler Shopware 6 Admin-API Client (Password-Grant für dockware, Client-Credentials für Integrationen)
+// Minimal Shopware 6 Admin API client (password grant for dockware, client credentials for integrations)
 import crypto from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
@@ -7,17 +7,17 @@ import { Readable } from 'node:stream';
 import { log, urlForLog } from './log';
 import { createGuard, type Criteria, type Guard } from './policy';
 
-/** Shopware-JSON ist je Entität dynamisch – bewusst lose typisiert. */
+/** Shopware JSON is dynamic per entity, deliberately loosely typed. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type SwEntity = Record<string, any>;
 export interface SearchResult { data: SwEntity[]; total?: number }
-/** Lesen in einer bestimmten Sprache (Header sw-language-id): Felder = eigener Wert dieser Sprache (null = geerbt), translated = mit Vererbung */
+/** Read in a specific language (header sw-language-id): fields = own value of this language (null = inherited), translated = with inheritance */
 export interface ReadOpts { languageId?: string }
 const langHeader = (o?: ReadOpts): Record<string, string> => (o?.languageId ? { 'sw-language-id': o.languageId } : {});
 export interface ShopwareConfig { url: string; publicUrl: string; user: string; password: string; clientId: string; clientSecret: string }
 
-// Shop-Schutz: jede Anfrage mit Timeout; bei Überlast (429/503) kurz warten und höchstens 2× erneut versuchen (Retry-After wird beachtet).
-// So bleibt ein langsamer Shop nicht hängen und wird nicht mit Wiederholungen überrannt.
+// Shop protection: every request with a timeout; on overload (429/503) wait briefly and retry at most 2× (Retry-After is respected).
+// This way a slow shop doesn't hang and isn't overrun with retries.
 const TIMEOUT_MS = Math.max(5_000, parseInt(process.env.LOTSE_SHOP_TIMEOUT_MS ?? '', 10) || 60_000);
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function shopFetch(url: string, init: RequestInit = {}): Promise<Response> {
@@ -26,7 +26,7 @@ async function shopFetch(url: string, init: RequestInit = {}): Promise<Response>
       log.warn('Shop nicht erreichbar', { shop: 'shopware', url: urlForLog(url), error: e.name === 'TimeoutError' ? 'timeout' : e.cause?.code || e.message });
       throw new Error(e.name === 'TimeoutError' ? `Shop antwortet nicht (Timeout nach ${TIMEOUT_MS / 1000}s)` : `Shop nicht erreichbar: ${e.cause?.code || e.message}`);
     });
-    const retry = r.status === 429 || (r.status === 503 && (init.method ?? 'GET') === 'GET'); // Schreibzugriffe nur bei 429 (sicher nicht verarbeitet)
+    const retry = r.status === 429 || (r.status === 503 && (init.method ?? 'GET') === 'GET'); // writes only on 429 (certainly not processed)
     if (!retry || attempt >= 2) { if (r.status >= 500 || r.status === 429) log.warn('Shop-Anfrage fehlgeschlagen', { shop: 'shopware', method: init.method ?? 'GET', url: urlForLog(url), status: r.status, attempts: attempt + 1 }); return r; }
     const ra = parseInt(r.headers.get('retry-after') ?? '', 10), wait = Math.min(Number.isFinite(ra) ? ra * 1000 : 1000 * 2 ** attempt, 10_000);
     log.info('Shop-Anfrage wird wiederholt', { shop: 'shopware', url: urlForLog(url), status: r.status, attempt: attempt + 1, waitMs: wait });
@@ -34,8 +34,8 @@ async function shopFetch(url: string, init: RequestInit = {}): Promise<Response>
   }
 }
 
-// fetch() ignoriert einen eigenen Host-Header. Für die Storefront über die interne Adresse (Docker: http://shopware)
-// muss Shopware aber die Domain des Verkaufskanals sehen → node:http mit gesetztem Host (nur GET/HEAD, ohne Weiterleitungen).
+// fetch() ignores a custom Host header. For the storefront via the internal address (Docker: http://shopware)
+// Shopware must see the sales channel domain though → node:http with Host set (GET/HEAD only, without redirects).
 function fetchWithHost(url: string, host: string, init: RequestInit = {}): Promise<Response> {
   const u = new URL(url), mod = u.protocol === 'https:' ? https : http;
   const headers = { ...((init.headers as Record<string, string>) ?? {}), host };
@@ -53,7 +53,7 @@ function fetchWithHost(url: string, host: string, init: RequestInit = {}): Promi
   });
 }
 
-/** Was die KI-Tools und die Vorschlags-Schicht vom Shop brauchen (nur lesen). */
+/** What the AI tools and the proposal layer need from the shop (read only). */
 export interface ShopReader {
   readonly base: string;
   search(entity: string, criteria?: Criteria, opts?: ReadOpts): Promise<SearchResult>;
@@ -73,13 +73,13 @@ export class Shopware implements ShopReader {
 
   constructor(cfg: ShopwareConfig) { this.configure(cfg); }
 
-  // (Neu-)Konfiguration zur Laufzeit; base = intern erreichbare URL, publicUrl = so erreicht der Browser den Shop
+  // (Re)configuration at runtime; base = internally reachable URL, publicUrl = how the browser reaches the shop
   configure(cfg: ShopwareConfig) {
     this.cfg = cfg; this.base = (cfg.url || '').replace(/\/$/, ''); this.publicUrl = (cfg.publicUrl || cfg.url || '').replace(/\/$/, '');
     this.token = null; this.expires = 0;
   }
 
-  // Storefront-Abruf: Die Domain des Verkaufskanals (öffentlich) wird intern über die API-URL mit passendem Host-Header geholt (Docker: localhost ≠ Container)
+  // Storefront fetch: the (public) sales channel domain is fetched internally via the API URL with a matching Host header (Docker: localhost ≠ container)
   async storefrontFetch(url: string, init: RequestInit = {}): Promise<Response> {
     try {
       const u = new URL(url), dom = this.sfDomain ? new URL(this.sfDomain) : null, internal = new URL(this.base);
@@ -132,7 +132,7 @@ export class Shopware implements ShopReader {
     return r.data;
   }
 
-  // Rohdaten-Upload (Download passiert im Server – der Shopware-Container braucht kein Internet)
+  // Raw data upload (the download happens in the server; the Shopware container needs no internet)
   async uploadMediaBinary(buf: Buffer, { ext, mime, fileName, folderId }: { ext: string; mime: string; fileName: string; folderId?: string | null }): Promise<string> {
     const id = newId();
     await this.create('media', { id, mediaFolderId: folderId ?? null, private: false });
@@ -161,19 +161,19 @@ export class Shopware implements ShopReader {
 }
 
 export const newId = () => crypto.randomUUID().replace(/-/g, '');
-/** Shopware-ID: 32 Hex-Zeichen (UUID ohne Bindestriche) */
+/** Shopware ID: 32 hex characters (UUID without hyphens) */
 export const HEX32 = /^[0-9a-f]{32}$/;
-/** Shopware Defaults::LANGUAGE_SYSTEM: Rückfallsprache aller Übersetzungen */
+/** Shopware Defaults::LANGUAGE_SYSTEM: fallback language of all translations */
 export const SYSTEM_LANGUAGE = '2fbb5fe2e29a4d70aa5854ce7ce3e20b';
 
-// Lese-Schicht für die KI: kein create/update/upload, nur freigegebene Entitäten/Beziehungen (policy.ts), sensible Felder werden entfernt,
-// jeder Zugriff wird protokolliert. Zugangsdaten sind hier nicht erreichbar (nur im privilegierten Client des Servers).
+// Read layer for the AI: no create/update/upload, only allowed entities/associations (policy.ts), sensitive fields are removed,
+// every access is logged. Credentials are not reachable here (only in the server's privileged client).
 export class ReadOnlyShopware implements ShopReader {
   readonly #sw: ShopReader;
   readonly #g: Guard;
   constructor(sw: ShopReader, guard?: Guard) { this.#sw = sw; this.#g = guard ?? createGuard(); }
   get base() { return this.#sw.base; }
-  // Sprache nur als geprüfte ID (Header) – die Freigabeprüfung der Suche gilt unverändert
+  // Language only as a validated ID (header); the search's permission check applies unchanged
   async search(entity: string, criteria?: Criteria, opts?: ReadOpts) { this.#g.checkSearch(entity, criteria); this.#g.checkLanguage(opts?.languageId); return this.#g.afterRead('search', entity, await this.#sw.search(entity, criteria, opts)); }
   async get(entity: string, id: string, criteria?: Criteria, opts?: ReadOpts) {
     this.#g.checkSearch(entity, criteria); this.#g.checkLanguage(opts?.languageId);
@@ -181,7 +181,7 @@ export class ReadOnlyShopware implements ShopReader {
   }
   async salesChannels() { return (await this.search('sales-channel', { limit: 25, associations: { domains: {} } })).data; }
   req(method: string, path: string, body?: unknown, headers?: Record<string, string>) {
-    const entity = this.#g.checkReq(method, path, body); // wirft synchron bei Verbot
+    const entity = this.#g.checkReq(method, path, body); // throws synchronously if forbidden
     const r = this.#sw.req(method, path, body, headers);
     return entity ? r.then(x => this.#g.afterRead('preview', entity, x)) : r;
   }

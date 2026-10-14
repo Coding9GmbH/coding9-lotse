@@ -1,6 +1,6 @@
 <?php
 /**
- * GET /v1/info: Version, Websites, Stores, Store-Views mit Codes, Basis-URLs, Währung, Locale, Preisbasis.
+ * GET /v1/info: version, websites, stores, store views with codes, base URLs, currency, locale, price basis.
  */
 class Lotse_Connector_Model_Api_Info extends Lotse_Connector_Model_Api_Abstract
 {

@@ -2,7 +2,7 @@ import type { CategoryRow } from './protocol';
 
 export interface TreeRow { cat: CategoryRow; depth: number; hasKids: boolean; open: boolean }
 
-/** Sichtbare Zeilen des Kategoriebaums (Suche öffnet alle passenden Zweige). */
+/** Visible rows of the category tree (search expands all matching branches). */
 export function categoryRows(cats: CategoryRow[], query: string, collapsed: ReadonlySet<string>): TreeRow[] {
   const q = query.trim().toLowerCase();
   const byParent = new Map<string, CategoryRow[]>();
@@ -12,7 +12,7 @@ export function categoryRows(cats: CategoryRow[], query: string, collapsed: Read
   const has = (c: CategoryRow): boolean => {
     const hit = memo.get(c.id);
     if (hit !== undefined) return hit;
-    memo.set(c.id, false); // Schutz vor Zyklen
+    memo.set(c.id, false); // guard against cycles
     const r = !q || c.name.toLowerCase().includes(q) || (byParent.get(c.id) ?? []).some(has);
     memo.set(c.id, r);
     return r;
@@ -27,19 +27,19 @@ export function categoryRows(cats: CategoryRow[], query: string, collapsed: Read
     out.push({ cat: c, depth, hasKids: kids.length > 0, open });
     if (open) kids.forEach(k => walk(k, depth + 1));
   };
-  const reach = new Set<string>(); // von einer Wurzel aus erreichbar (unabhängig vom Einklappen)
+  const reach = new Set<string>(); // reachable from a root (regardless of collapsing)
   const mark = (c: CategoryRow) => { if (reach.has(c.id)) return; reach.add(c.id); (byParent.get(c.id) ?? []).forEach(mark); };
   const start = (c: CategoryRow) => { mark(c); walk(c, 0); };
   cats.filter(c => !c.parentId || !ids.has(c.parentId)).forEach(start);
-  for (const c of cats) if (!reach.has(c.id)) start(c); // Zyklen ohne Wurzel (kaputter Import): trotzdem zeigen, genau einmal
+  for (const c of cats) if (!reach.has(c.id)) start(c); // cycles without a root (broken import): show anyway, exactly once
   return out;
 }
 
-/** Ab dieser Größe startet der Baum eingeklappt (nur Wurzeln und erste Ebene offen) und die Liste wird gekappt. */
+/** From this size on, the tree starts collapsed (only roots and first level open) and the list is capped. */
 export const BIG_TREE = 150;
 export const MAX_ROWS = 300;
 
-/** Anfangszustand: große Bäume (Magento, OpenMage ohne Obergrenze) nur bis zur ersten Ebene aufklappen. */
+/** Initial state: expand large trees (Magento, OpenMage without upper limit) only to the first level. */
 export function initialCollapsed(cats: CategoryRow[]): Set<string> {
   if (cats.length <= BIG_TREE) return new Set();
   const ids = new Set(cats.map(c => c.id));
@@ -47,7 +47,7 @@ export function initialCollapsed(cats: CategoryRow[]): Set<string> {
   return new Set(cats.filter(c => !roots.has(c.id) && cats.some(k => k.parentId === c.id)).map(c => c.id));
 }
 
-/** Breadcrumb ohne Wurzel („Herren › Schuhe“). */
+/** Breadcrumb without root ("Herren › Schuhe"). */
 export function categoryPath(cats: CategoryRow[], c: CategoryRow): string {
   const m = new Map(cats.map(x => [x.id, x]));
   const p: string[] = [];

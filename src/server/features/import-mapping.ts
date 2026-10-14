@@ -1,4 +1,4 @@
-// Zuordnung Lieferanten-Spalten → Lotse/Shopware-Felder (rein → testbar): Felder, Vorschlag aus den Spaltennamen, Prüfung.
+// Mapping supplier columns → Lotse/Shopware fields (pure → testable): fields, suggestion from the column names, check.
 import { normHeader, type ColumnInfo } from './import-parse';
 
 export interface PropertyColumn { group: string; column: string }
@@ -9,11 +9,11 @@ export interface ImportMapping {
   weight?: string; width?: string; height?: string; length?: string;
   images?: string[]; parentNumber?: string; deliveryTime?: string;
   metaTitle?: string; metaDescription?: string; keywords?: string;
-  /** Eigenschaften (Filter im Shop), z. B. Material */
+  /** Properties (filters in the shop), e.g. material */
   properties?: PropertyColumn[];
-  /** Varianten-Achsen (nur mit parentNumber), z. B. Farbe, Größe */
+  /** Variant axes (only with parentNumber), e.g. color, size */
   variantOptions?: PropertyColumn[];
-  /** Einheiten der Spalten (Shopware: Gewicht in kg, Maße in mm) */
+  /** Units of the columns (Shopware: weight in kg, dimensions in mm) */
   units?: { weight?: 'kg' | 'g'; dimensions?: 'mm' | 'cm' | 'm' };
 }
 export type ScalarTarget = Exclude<keyof ImportMapping, 'images' | 'properties' | 'variantOptions' | 'units'>;
@@ -26,7 +26,7 @@ export const FIELD_LABELS: Record<ScalarTarget | 'images' | 'properties' | 'vari
   keywords: 'Keywords', properties: 'Eigenschaften', variantOptions: 'Varianten-Achsen',
 };
 
-// Synonyme (normalisiert, siehe normHeader). Reihenfolge = Priorität; exakte Treffer vor Teiltreffern.
+// Synonyms (normalized, see normHeader). Order = priority; exact matches before partial matches.
 const SYN: Record<ScalarTarget, string[]> = {
   productNumber: ['artikelnummer', 'artikelnr', 'artnr', 'produktnummer', 'sku', 'bestellnummer', 'bestellnr', 'itemnumber', 'articlenumber', 'productnumber', 'artikel', 'nummer'],
   ean: ['ean', 'gtin', 'ean13', 'barcode', 'eancode', 'gtin13'],
@@ -51,12 +51,12 @@ const SYN: Record<ScalarTarget, string[]> = {
   metaDescription: ['metadescription', 'metabeschreibung', 'seobeschreibung', 'seodescription'],
   keywords: ['keywords', 'suchbegriffe', 'schlagworte', 'tags', 'schlagwoerter'],
 };
-// zu allgemein für Teiltreffer (z. B. „Artikelgewicht“ ist keine Artikelnummer)
+// too generic for partial matches (e.g. "Artikelgewicht" is not an "Artikelnummer")
 const NO_PREFIX = new Set(['artikel', 'nummer', 'text', 'tax', 'lager', 'vk', 'ek', 'name', 'titel', 'title', 'parent', 'master', 'tags', 'menge', 'ust', 'sku']);
 const IMAGE = /^(bild|bilder|image|images|foto|fotos|picture|bildurl|imageurl|abbildung)(\d+|url\d*)?$/;
 const PROPERTY = /^(farbe|color|colour|groesse|size|material|stoff|form|muster|oberflaeche|ausfuehrung|inhalt|volumen|geschmack|sorte|serie)$/;
 
-/** Vorschlag aus Spaltennamen (+ Typen): je Zielfeld höchstens eine Spalte, jede Spalte höchstens einmal */
+/** Suggestion from column names (+ types): at most one column per target field, each column at most once */
 export function suggestMapping(columns: ColumnInfo[]): ImportMapping {
   const m: ImportMapping = {}, used = new Set<string>();
   const norm = columns.map(c => ({ c, n: normHeader(c.name) }));
@@ -64,7 +64,7 @@ export function suggestMapping(columns: ColumnInfo[]): ImportMapping {
     const hit = norm.find(x => !used.has(x.c.name) && x.c.type !== 'leer' && pred(x.n));
     if (hit) { m[t] = hit.c.name; used.add(hit.c.name); }
   };
-  // Netto-/Einkaufspreise und Hersteller-Nr. zuerst (sonst würde „Preis“ bzw. „Artikelnummer“ sie schlucken)
+  // Net/purchase prices and manufacturer no. first (otherwise "Preis" or "Artikelnummer" would swallow them)
   const order: ScalarTarget[] = ['parentNumber', 'manufacturerNumber', 'purchasePrice', 'priceNet', 'listPrice', 'ean', 'productNumber', 'priceGross', 'taxRate', 'metaTitle', 'metaDescription', 'keywords', 'name', 'description', 'stock', 'manufacturer', 'category', 'weight', 'width', 'height', 'length', 'deliveryTime'];
   for (const t of order) take(t, n => SYN[t].includes(n));
   for (const t of order) if (!m[t]) take(t, n => SYN[t].some(s => !NO_PREFIX.has(s) && n.startsWith(s)));
@@ -86,7 +86,7 @@ export function suggestMapping(columns: ColumnInfo[]): ImportMapping {
   return m;
 }
 
-/** Alle in der Zuordnung genannten Spalten müssen existieren; Pflichtfelder für neue Produkte prüfen */
+/** All columns named in the mapping must exist; check required fields for new products */
 export function checkMapping(m: ImportMapping, headers: string[]): string[] {
   const errs: string[] = [], has = new Set(headers);
   const cols: [string, string | undefined][] = [
@@ -101,7 +101,7 @@ export function checkMapping(m: ImportMapping, headers: string[]): string[] {
   return errs;
 }
 
-/** Zuordnung lesbar für die Rückfrage: „Artikelnummer → Produktnummer“ */
+/** Mapping in readable form for the follow-up question: "Artikelnummer → Produktnummer" */
 export function describeMapping(m: ImportMapping): string[] {
   const out: string[] = [];
   for (const t of Object.keys(SYN) as ScalarTarget[]) if (m[t]) out.push(`${m[t]} → ${FIELD_LABELS[t]}`);

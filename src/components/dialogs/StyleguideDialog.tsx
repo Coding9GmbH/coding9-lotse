@@ -14,7 +14,7 @@ interface Props { sg: Styleguide | null; open: boolean; onClose: () => void; onS
 
 const HEX6 = /^#[0-9a-f]{6}$/i;
 
-/** Ohne Styleguide bleiben die Regeln erreichbar; Farben und Ton entstehen durch die Analyse des Shops. */
+/** Without a styleguide the rules stay reachable; colors and tone come from analyzing the shop. */
 function NoStyleguide() {
   const t = useT().dialogs.styleguide;
   return (
@@ -27,7 +27,7 @@ function NoStyleguide() {
   );
 }
 
-/** Styleguide ansehen; Farben direkt anpassen; neu analysieren lassen. */
+/** View the styleguide; adjust colors directly; trigger a new analysis. */
 export function StyleguideDialog({ sg, open, onClose, onSaved, onReanalyze }: Props) {
   const t = useT().dialogs.styleguide;
   return (
@@ -40,7 +40,7 @@ export function StyleguideDialog({ sg, open, onClose, onSaved, onReanalyze }: Pr
   );
 }
 
-// Farbeingaben leben im Formular (form="sg-colors"); gespeichert wird beim Absenden im Footer.
+// Color inputs live in the form (form="sg-colors"); saving happens on submit in the footer.
 function Body({ sg }: { sg: Styleguide }) {
   const c = (sg.colors ?? {}) as Record<string, string | undefined>;
   const tx = useT().dialogs.styleguide;
@@ -87,7 +87,7 @@ function Body({ sg }: { sg: Styleguide }) {
   );
 }
 
-/** Eigene Regeln (dieselben wie auf der Seite Wissen): feste Vorgaben für Texte, je Bereich oder Kategorie. */
+/** Custom rules (the same as on the knowledge base page): fixed requirements for texts, per area or category. */
 function RulesSection() {
   const t = useT().dialogs.styleguide;
   const [rules, setRules] = useState<KnowledgeRule[] | null>(null);
@@ -105,7 +105,7 @@ function RulesSection() {
 
 const SHORT = 32;
 
-/** Vom Shop erkannte Bausteine: kurze Namen als Chips, lange Beobachtungen als lesbare Liste. Standardmäßig eingeklappt, das ist Material für die KI. */
+/** Building blocks detected in the shop: short names as chips, long observations as a readable list. Collapsed by default, this is material for the AI. */
 function Blocks({ sg }: { sg: Styleguide }) {
   const t = useT().dialogs.styleguide;
   const blocks = sg.existingBlocks ?? [], short = blocks.filter(x => x.length <= SHORT), long = blocks.filter(x => x.length > SHORT);

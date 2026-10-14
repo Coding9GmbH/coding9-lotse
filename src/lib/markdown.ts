@@ -1,8 +1,8 @@
 import { esc } from './format';
 
-// Minimales, sicheres Markdown wie in der bisherigen Oberfläche: **fett**, `code`, - Listen, Tabellen, Absätze.
-// Jeder Text wird ZUERST maskiert; erst danach werden die wenigen erlaubten Tags erzeugt.
-// Das Ergebnis enthält daher nur <p>, <br>, <b>, <code>, <ul>, <li>, <table>-Elemente und ein <div> als Scroll-Hülle.
+// Minimal, safe Markdown as in the previous UI: **bold**, `code`, - lists, tables, paragraphs.
+// All text is escaped FIRST; only then are the few allowed tags generated.
+// The result therefore contains only <p>, <br>, <b>, <code>, <ul>, <li>, <table> elements and a <div> as scroll wrapper.
 
 const inline = (x: string): string =>
   esc(x)

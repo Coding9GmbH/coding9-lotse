@@ -4,8 +4,8 @@ import { errMsg, jsonError } from '@/server/http';
 
 export const dynamic = 'force-dynamic';
 
-// SEO-Übersicht: lesend (geschützter Lese-Client, Zugriffsprotokoll unter „seo“). Das Ergebnis liegt gespeichert vor;
-// ?refresh=1 holt an allen Zwischenspeichern vorbei neu (kostet Sistrix-Credits), ?stored=1 liefert nur Gespeichertes (Arbeitsfläche, nie Credits).
+// SEO overview: read-only (protected read client, access log under "seo"). The result is stored;
+// ?refresh=1 refetches bypassing all caches (costs Sistrix credits), ?stored=1 returns only stored data (workspace, never credits).
 export async function GET(req: Request) {
   try {
     const q = new URL(req.url).searchParams;

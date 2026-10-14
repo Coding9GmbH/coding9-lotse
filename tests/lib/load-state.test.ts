@@ -5,7 +5,7 @@ import { catalogState, shellFlags } from '../../src/lib/load-state';
 
 const read = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 
-test('catalogState: Fehler ist nicht leer und nicht „keine Treffer“', () => {
+test('catalogState: an error is neither empty nor "no results"', () => {
   assert.equal(catalogState('netz', null), 'error');
   assert.equal(catalogState('netz', []), 'error');
   assert.equal(catalogState(null, null), 'loading');
@@ -14,7 +14,7 @@ test('catalogState: Fehler ist nicht leer und nicht „keine Treffer“', () => 
   assert.notEqual(catalogState('x', []), catalogState(null, []));
 });
 
-test('shellFlags: ein Ladefehler markiert Shop und KI nicht als eingerichtet', () => {
+test('shellFlags: a load error does not mark shop and AI as set up', () => {
   const failed = shellFlags({ loadFailed: true, shopConfigured: true, shopOk: false, aiConfigured: true });
   assert.equal(failed.shopConfigured, false);
   assert.equal(failed.aiConfigured, false);
@@ -33,7 +33,7 @@ test('shellFlags: ein Ladefehler markiert Shop und KI nicht als eingerichtet', (
   assert.notEqual(failed.shop, down.shop);
 });
 
-test('Hülle zeigt Ladefehler nicht als leeren Katalog oder verbundene KI', () => {
+test('shell does not show a load error as an empty catalog or connected AI', () => {
   const shell = read('src/components/shell/ShellProvider.tsx');
   assert.doesNotMatch(shell, /configured:\s*true/);
   assert.match(shell, /catalogState|chatError|healthFailed/);

@@ -8,7 +8,7 @@ import type { ChatEvent } from '@/lib/protocol';
 
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-codex-'));
 
-test('Codex-Lauf: keine eigenen Werkzeuge, Sandbox nur lesend, Netz aus', async () => {
+test('Codex run: no own tools, sandbox read-only, network off', async () => {
   const { codexConfig } = await import('../../src/server/codex');
   const { codexThreadOptions } = await import('../../src/server/agent-codex');
   const cfg = codexConfig({ mcpUrl: 'http://127.0.0.1:3333/api/mcp/c', instructions: 'SYS' });
@@ -20,7 +20,7 @@ test('Codex-Lauf: keine eigenen Werkzeuge, Sandbox nur lesend, Netz aus', async 
   for (const name of ['shell_tool', 'unified_exec', 'view_image', 'computer_use', 'browser_use', 'plugins', 'hooks', 'remote_plugin', 'browser_use_full_cdp_access', 'request_permissions_tool', 'standalone_web_search']) {
     assert.equal(features[name], false, name);
   }
-  assert.ok(Object.values(features).every(v => v === false), 'kein Codex-Feature ist an');
+  assert.ok(Object.values(features).every(v => v === false), 'no Codex feature is on');
   const opts = codexThreadOptions(cfg.workingDirectory, 'gpt-test');
   assert.equal(opts.sandboxMode, 'read-only');
   assert.equal(opts.approvalPolicy, 'never');
@@ -32,21 +32,21 @@ test('Codex-Lauf: keine eigenen Werkzeuge, Sandbox nur lesend, Netz aus', async 
   assert.equal(codexThreadOptions(cfg.workingDirectory).model, undefined);
 });
 
-test('runCodex und pingCodex geben das MCP-Token am Ende der Runde frei', async () => {
+test('runCodex and pingCodex release the MCP token at the end of the turn', async () => {
   const { mcpTokenFor, mcpTokenValid } = await import('../../src/server/codex');
   const { runCodex, pingCodex } = await import('../../src/server/agent-codex');
   const id = 'chat-codex-round';
   const token = mcpTokenFor(id);
   const end = await runCodex({ id } as never, 'hi', new AbortController().signal, () => {});
   assert.match(end.error ?? '', /nicht mit ChatGPT angemeldet/);
-  assert.equal(mcpTokenValid(id, `Bearer ${token}`), false, 'nach runCodex');
+  assert.equal(mcpTokenValid(id, `Bearer ${token}`), false, 'after runCodex');
 
   const ping = mcpTokenFor('ping');
   await assert.rejects(() => pingCodex(), /angemeldet/);
-  assert.equal(mcpTokenValid('ping', `Bearer ${ping}`), false, 'nach pingCodex');
+  assert.equal(mcpTokenValid('ping', `Bearer ${ping}`), false, 'after pingCodex');
 });
 
-test('Codex-Runde: Befehl, Datei und Websuche brechen ab; Text, Shop-Tool, Überlegung und Plan nicht', async () => {
+test('Codex turn: command, file and web search abort; text, shop tool, reasoning and plan do not', async () => {
   const { onCodexItem } = await import('../../src/server/agent-codex');
   const events: ChatEvent[] = [];
   const state = { texts: new Map<string, number>(), tools: new Set<string>() };
@@ -56,7 +56,7 @@ test('Codex-Runde: Befehl, Datei und Websuche brechen ab; Text, Shop-Tool, Über
   assert.match(abortOf({ id: 'c', type: 'command_execution', command: 'id', aggregated_output: '', status: 'completed' }) ?? '', /abgebrochen/);
   assert.match(abortOf({ id: 'f', type: 'file_change', changes: [{ path: 'x', kind: 'update' }], status: 'failed' }) ?? '', /abgebrochen/);
   assert.match(abortOf({ id: 'w', type: 'web_search', query: 'preis' }) ?? '', /abgebrochen/);
-  assert.equal(events.length, 0, 'ein Abbruch schreibt nichts in den Chat');
+  assert.equal(events.length, 0, 'an abort writes nothing to the chat');
 
   assert.equal(onCodexItem({ id: 'a', type: 'agent_message', text: 'Hallo' }, 'item.updated', state, emit).abort, undefined);
   assert.deepEqual(events, [{ t: 'text_start' }, { t: 'text', text: 'Hallo' }]);
@@ -84,15 +84,15 @@ test('Codex-Runde: Befehl, Datei und Websuche brechen ab; Text, Shop-Tool, Über
   }
 });
 
-test('Codex mit Internetrecherche: Websuche live, Websuche-Ereignis erscheint als Arbeitsschritt statt Abbruch; Befehle bleiben gesperrt', async () => {
+test('Codex with web research: web search live, web search event appears as a work step instead of an abort; commands stay blocked', async () => {
   const { codexConfig } = await import('../../src/server/codex');
   const { codexThreadOptions, onCodexItem } = await import('../../src/server/agent-codex');
   const cfg = codexConfig({ mcpUrl: 'http://127.0.0.1:3333/api/mcp/c', instructions: 'SYS', web: true });
   assert.equal(cfg.config.web_search, 'live');
-  assert.ok(Object.values(cfg.config.features as Record<string, boolean>).every(v => v === false), 'sonst bleibt alles aus');
+  assert.ok(Object.values(cfg.config.features as Record<string, boolean>).every(v => v === false), 'everything else stays off');
   const opts = codexThreadOptions(cfg.workingDirectory, undefined, true);
   assert.equal(opts.webSearchMode, 'live');
-  assert.equal(opts.networkAccessEnabled, false, 'kein Netz für Befehle');
+  assert.equal(opts.networkAccessEnabled, false, 'no network for commands');
   assert.equal(opts.sandboxMode, 'read-only');
 
   const events: ChatEvent[] = [];

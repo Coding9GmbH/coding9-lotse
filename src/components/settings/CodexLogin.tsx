@@ -10,7 +10,7 @@ import styles from './Settings.module.css';
 
 interface Props { loggedIn: boolean; onChange: () => void }
 
-/** ChatGPT-Anmeldung für Codex per Gerätecode: Link öffnen, Code eingeben, fertig – funktioniert auch im Docker-Container. */
+/** ChatGPT sign-in for Codex via device code: open link, enter code, done. Also works in the Docker container. */
 export function CodexLogin({ loggedIn, onChange }: Props) {
   const t = useT();
   const tc = t.settings.codex;
@@ -18,7 +18,7 @@ export function CodexLogin({ loggedIn, onChange }: Props) {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Während die Anmeldung läuft: alle 2 s nachfragen, ob sie im Browser bestätigt wurde
+  // While sign-in is in progress: poll every 2 s whether it was confirmed in the browser
   useEffect(() => {
     if (st.status !== 'pending') return;
     const t = setInterval(() => {
@@ -42,7 +42,7 @@ export function CodexLogin({ loggedIn, onChange }: Props) {
   const cancel = () => { void api.codexLogout(true).then(setSt); };
   const copy = async () => {
     if (!st.code) return;
-    try { await navigator.clipboard.writeText(st.code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* Code steht ja da */ }
+    try { await navigator.clipboard.writeText(st.code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* the code is shown anyway */ }
   };
 
   if (loggedIn && st.status !== 'pending') {

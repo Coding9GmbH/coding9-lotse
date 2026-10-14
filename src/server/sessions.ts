@@ -1,5 +1,5 @@
 import 'server-only';
-// Chat-Sessions: Verlauf (SQLite), Freigabe-Workflow (Rückfragen + Änderungssets) und der Lese-Client der KI (über den Plattform-Adapter).
+// Chat sessions: history (SQLite), approval workflow (questions + change sets) and the AI's read client (via the platform adapter).
 import type { ChangeSet, ChangeStatus, ChatDetail, ChatEvent, ChatStatus, ChatSummary, Target } from '@/lib/protocol';
 import type { PlatformKind } from '@/lib/platforms';
 import { auditLog, notifyApplied, type ApplyPartial, type ApplyResult } from './changes';
@@ -21,52 +21,52 @@ export interface ChangeOutcome { status: ChangeStatus; message: string; applied?
 
 export interface Session {
   id: string;
-  /** Shop-Plattform dieser Session (beim Anlegen aus den Einstellungen) */
+  /** Shop platform of this session (taken from the settings on creation) */
   platform: PlatformKind;
-  /** geschützter Lese-Client der Plattform (Shopware: dasselbe Objekt wie sw); Adapter-Werkzeuge casten auf ihren Typ */
+  /** protected read client of the platform (Shopware: the same object as sw); adapter tools cast to their type */
   reader: unknown;
-  /** plattform-neutrale Lesefunktionen für Kern-Funktionen (Wissensbasis, Search Console, view_image) */
+  /** platform-neutral read functions for core features (knowledge base, Search Console, view_image) */
   lookup: ShopLookup;
-  /** Shopware-Lese-Client (nur Shopware-Werkzeuge; auf anderen Plattformen gesperrt) */
-  sw: ReadOnlyShopware;                 // KI: nur lesen, nur freigegebene Bereiche
+  /** Shopware read client (Shopware tools only; locked on other platforms) */
+  sw: ReadOnlyShopware;                 // AI: read-only, enabled areas only
   storefrontFetch: Fetcher;
   themeCss: () => Promise<string | null>;
   draft: PageSpec | null;
   sdkSessionId: string | null;
-  /** Codex-Thread (ChatGPT-Abo) – getrennt von der Claude-Sitzung, falls der Anbieter gewechselt wird */
+  /** Codex thread (ChatGPT subscription), separate from the Claude session in case the provider is switched */
   codexThreadId: string | null;
   title: string | null;
   target: Target | null;
   createdAt: string;
   events: ChatEvent[];
   emit: (ev: ChatEvent) => void;
-  /** Läuft gerade eine KI-Runde? Sie läuft unabhängig von der Verbindung weiter (Chat-Wechsel, Neuladen). */
+  /** Is an AI turn running? It continues independently of the connection (chat switch, reload). */
   running: boolean;
-  /** letzter Zugriff (ruhende Sessions ohne Zuhörer werden nach einer Weile freigegeben) */
+  /** last access (idle sessions without listeners are released after a while) */
   lastUsed: number;
   abort: AbortController | null;
-  /** Antwortsprache der KI (Sprache der Oberfläche bei der letzten Nachricht) */
+  /** The AI's response language (UI language at the last message) */
   locale: Locale;
-  /** Verbundene Oberflächen, die Live-Ereignisse empfangen */
+  /** Connected UIs that receive live events */
   listeners: Set<(ev: ChatEvent) => void>;
   approvals: Map<string, (r: ApprovalReply) => void>;
   askUser: (q: Question) => Promise<string>;
   requestChange: (cs: ChangeSet, payload?: unknown) => Promise<ChangeOutcome>;
   renderDraft?: (spec: PageSpec, partial?: boolean) => Promise<string>;
   lastCtx?: PreviewCtx;
-  /** Chat wurde gelöscht, während eine Runde lief: nichts mehr speichern (sonst legt die Runde ihn wieder an) */
+  /** Chat was deleted while a turn was running: don't save anything anymore (otherwise the turn would recreate it) */
   deleted?: boolean;
 }
 
 const sessions = () => singleton('sessions', () => new Map<string, Session>()); // chatId -> Session
 export const dropSession = (id: string) => { const s = peekSession(id); if (s) { s.deleted = true; cancelPersist(s); } stopChat(id); sessions().delete(id); };
 
-// Sprache der Oberfläche bei der letzten Chat-Nachricht: für Texte, die ohne Anfrage-Sprache entstehen (neue Session, Neustart-Aufräumen)
+// UI language at the last chat message: for texts created without a request language (new session, restart cleanup)
 const ui = () => singleton('sessions-ui-locale', () => ({ locale: DEFAULT_LOCALE as Locale }));
 export const noteUiLocale = (l: Locale) => { ui().locale = l; };
 
-// Ruhende Sessions ohne Zuhörer nach 30 Minuten freigeben: der Verlauf liegt in der DB, getSession baut sie bei Bedarf neu auf.
-// Laufende Runden und verbundene Oberflächen bleiben unberührt.
+// Release idle sessions without listeners after 30 minutes: the history is in the DB, getSession rebuilds them when needed.
+// Running turns and connected UIs stay untouched.
 const IDLE_MS = 30 * 60_000;
 export function sweepIdleSessions(now = Date.now()): number {
   let n = 0;
@@ -74,18 +74,18 @@ export function sweepIdleSessions(now = Date.now()): number {
   return n;
 }
 const sweeper = () => singleton('sessions-sweeper', () => { const t = setInterval(sweepIdleSessions, 5 * 60_000); t.unref?.(); return t; });
-/** Session nur, wenn sie schon im Speicher ist (legt keine neue an). */
+/** Session only if it is already in memory (does not create a new one). */
 export const peekSession = (id: string) => sessions().get(id) ?? null;
 
 export const chatStatus = (s: Session | null): ChatStatus | undefined => (!s?.running ? undefined : s.approvals.size ? 'waiting' : 'running');
 
-/** Verlauf mit Live-Status aus dem Speicher (läuft / wartet auf den Menschen). */
+/** History with live status from memory (running / waiting for the human). */
 export const chatListLive = (): ChatSummary[] => chatList().map(c => {
   const status = chatStatus(peekSession(c.id));
   return status ? { ...c, status } : c;
 });
 
-/** Aktueller Stand eines Chats: aus dem Speicher (auch während er läuft) oder gespeichert. `locale`: Sprache für Neustart-Hinweise (sonst die zuletzt genutzte). */
+/** Current state of a chat: from memory (also while running) or persisted. `locale`: language for restart notices (otherwise the last one used). */
 export function chatSnapshot(id: string, locale?: Locale): ChatDetail | null {
   const s = peekSession(id);
   if (s && (s.running || s.events.length)) return { id, title: s.title ?? '', target: s.target, events: s.events };
@@ -93,13 +93,13 @@ export function chatSnapshot(id: string, locale?: Locale): ChatDetail | null {
   return c ? { id: c.id, title: c.title ?? '', target: c.target, events: c.events } : null;
 }
 
-/** Bricht eine laufende Runde ab; offene Rückfragen/Freigaben gelten als abgelehnt. */
+/** Aborts a running turn; open questions/approvals count as rejected. */
 export function stopChat(id: string): boolean {
   const s = peekSession(id);
   if (!s?.running) return false;
   for (const [approvalId, resolve] of s.approvals) {
     const q = s.events.find(e => e.t === 'question' && e.approvalId === approvalId);
-    if (q?.t === 'question' && q.answer === undefined) q.answer = messages(s.locale).server.cancelled; // sonst gilt sie beim nächsten Laden als „Nicht beantwortet (Neustart)“
+    if (q?.t === 'question' && q.answer === undefined) q.answer = messages(s.locale).server.cancelled; // otherwise it counts as "Nicht beantwortet (Neustart)" (not answered, restart) on the next load
     resolve({ allow: false, answer: '' });
   }
   s.approvals.clear(); persist(s);
@@ -110,27 +110,27 @@ export function stopChat(id: string): boolean {
 
 const evType = (e: ChatEvent) => (e as { t: string }).t;
 
-// ---- Persistente Chats (SQLite) ----
-// Gespeichert wird der ganze Chat als eine JSON-Zeile. Zwei Wege:
-// - persist: sofort (Rückfragen, Änderungssets und ihre Ergebnisse, Entscheidungen, Rundenende, Abbruch, Fehler). Nimmt einen offenen gebündelten mit.
-// - persistSoon: gebündelt, höchstens alle PERSIST_MS je Chat (Streaming: Text, Werkzeugaufrufe). Vor dem Prozessende schreibt flushPersists alles Offene.
-// Freigaben/Änderungssets laufen nie über persistSoon: ein Absturz verliert höchstens die letzten PERSIST_MS Text, nie eine Freigabe.
+// ---- Persistent chats (SQLite) ----
+// The whole chat is stored as one JSON row. Two paths:
+// - persist: immediately (questions, change sets and their results, decisions, end of turn, abort, errors). Takes a pending batched one along.
+// - persistSoon: batched, at most every PERSIST_MS per chat (streaming: text, tool calls). Before process exit, flushPersists writes everything pending.
+// Approvals/change sets never go through persistSoon: a crash loses at most the last PERSIST_MS of text, never an approval.
 const PERSIST_MS = 500;
 const pendingPersists = () => singleton('sessions-persist-pending', () => new Map<Session, { cancel(): void }>());
 const lastPersist = new WeakMap<Session, number>();
 const cancelPersist = (s: Session) => { const p = pendingPersists(), t = p.get(s); if (t) { t.cancel(); p.delete(s); } };
 
-/** Sofort speichern (wichtige Zustände). */
+/** Save immediately (important states). */
 export function persist(s: Session) {
   cancelPersist(s); lastPersist.set(s, runClock.now());
   if (s.deleted || !s.events.length) return;
   let lastDraft = -1; s.events.forEach((e, i) => { if (e.t === 'draft') lastDraft = i; });
-  const events = s.events.map((e, i) => (e.t === 'draft' && i !== lastDraft ? { ...e, html: undefined } : e)); // nur letzte Vorschau behalten
+  const events = s.events.map((e, i) => (e.t === 'draft' && i !== lastDraft ? { ...e, html: undefined } : e)); // keep only the last preview
   const c: StoredChat = { id: s.id, title: s.title, target: s.target, createdAt: s.createdAt, updatedAt: new Date().toISOString(), sdkSessionId: s.sdkSessionId, codexThreadId: s.codexThreadId, draft: s.draft, events };
   chatPut(c);
 }
 
-/** Gebündelt speichern: höchstens einmal je PERSIST_MS (das erste Mal nach einer Pause sofort, danach am Ende des Fensters). */
+/** Batched save: at most once per PERSIST_MS (the first time after a pause immediately, then at the end of the window). */
 export function persistSoon(s: Session) {
   const p = pendingPersists(); if (p.has(s) || s.deleted) return;
   const wait = PERSIST_MS - (runClock.now() - (lastPersist.get(s) ?? -Infinity));
@@ -139,15 +139,15 @@ export function persistSoon(s: Session) {
   exitFlush();
 }
 
-/** Alle offenen gebündelten Speicherungen jetzt schreiben (Prozessende, Tests). Liefert die Anzahl. */
+/** Write all pending batched saves now (process exit, tests). Returns the count. */
 export function flushPersists(): number {
   let n = 0;
   for (const s of [...pendingPersists().keys()]) { try { persist(s); n++; } catch (e) { cancelPersist(s); log.error('Chat konnte nicht gespeichert werden', { chatId: s.id, error: e }); } }
   return n;
 }
 
-// Prozessende: Next beendet bei SIGTERM/SIGINT über process.exit → 'exit' (synchron, node:sqlite schreibt synchron). 'beforeExit': Ereignisschleife leer
-// (Timer sind unref). Eigene Signal-Handler nur zum Schreiben; sind wir der einzige Handler, wird das Signal danach erneut ausgelöst (Standardverhalten).
+// Process exit: on SIGTERM/SIGINT Next exits via process.exit → 'exit' (synchronous, node:sqlite writes synchronously). 'beforeExit': event loop empty
+// (timers are unref'd). Own signal handlers only for writing; if we are the only handler, the signal is re-raised afterwards (default behavior).
 const exitFlush = () => singleton('sessions-exit-flush', () => {
   const flush = () => { const n = flushPersists(); if (n) log.info('Offene Chats vor dem Beenden gespeichert', { chats: n }); };
   process.on('exit', flush); process.on('beforeExit', flush);
@@ -158,35 +158,35 @@ const exitFlush = () => singleton('sessions-exit-flush', () => {
   return true;
 });
 
-/** Gespeicherter Chat ohne Session im Speicher: offene Vorgänge aus der Zeit vor einem Neustart werden dabei abgeschlossen (siehe recoverChat). */
+/** Persisted chat without a session in memory: open operations from before a restart are closed in the process (see recoverChat). */
 function loadChat(id: string, locale: Locale = ui().locale): StoredChat | null {
   const c = chatGet(id);
-  if (c && recoverChat(c, locale)) chatPut(c); // updatedAt bleibt: der Chat rückt in der Liste nicht nach oben
+  if (c && recoverChat(c, locale)) chatPut(c); // updatedAt stays: the chat does not move up in the list
   return c;
 }
 
-const RESTART = 'Neustart, bitte erneut vorschlagen'; // Grund im Audit (stabil, deutsch); im Chat steht der Text in der Sprache der Oberfläche
+const RESTART = 'Neustart, bitte erneut vorschlagen'; // reason in the audit (stable, German); the chat shows the text in the UI language
 /**
- * Nach einem Neustart (Absturz, Deploy): Freigaben leben nur im Speicher, ein unterbrochenes Anwenden hat seine Spur in changeset_runs.
- * - Set wurde angewendet und unterbrochen: Ergebnis „partial/failed“ mit den bis dahin gesicherten Rückgängig-Schritten (Rückgängig funktioniert)
- * - Set wartete noch auf die Freigabe: „rejected“ mit Grund (wie stopChat), Rückfragen bekommen eine Markierung
- * Jeweils mit Audit-Zeile. Liefert true, wenn sich etwas geändert hat (dann speichern). Zweiter Aufruf ändert nichts mehr.
+ * After a restart (crash, deploy): approvals live only in memory, an interrupted apply leaves its trace in changeset_runs.
+ * - Set was being applied and got interrupted: result "partial/failed" with the undo steps saved so far (undo works)
+ * - Set was still waiting for approval: "rejected" with a reason (like stopChat), questions get a marker
+ * Each with an audit row. Returns true if something changed (then save). A second call changes nothing.
  */
 function recoverChat(c: StoredChat, locale: Locale): boolean {
   const t = messages(locale).server;
   const open = new Map(runsOpen(c.id).map(r => [r.csId, r]));
   const resolved = new Set(c.events.flatMap(e => (e.t === 'changeset_result' ? [e.csId] : [])));
-  const lastDone = c.events.findLastIndex(e => e.t === 'done'); // Rückfragen davor wurden schon aufgelöst (stopChat/Antwort), nur offene der letzten Runde markieren
+  const lastDone = c.events.findLastIndex(e => e.t === 'done'); // questions before that were already resolved (stopChat/answer), only mark open ones of the last turn
   let changed = false;
   for (const [i, e] of [...c.events].entries()) {
     if (e.t === 'question' && e.answer === undefined && i > lastDone) { e.answer = t.unansweredRestart; changed = true; }
     if (e.t !== 'changeset' || resolved.has(e.cs.id)) continue;
     const cs = e.cs, run = open.get(cs.id);
-    const base = { chatId: c.id, changeSet: cs.id, kind: cs.kind, title: cs.title, recoveredFrom: run?.startedAt ?? c.updatedAt }; // Zeitpunkt des Vorfalls, nicht des Ladens
+    const base = { chatId: c.id, changeSet: cs.id, kind: cs.kind, title: cs.title, recoveredFrom: run?.startedAt ?? c.updatedAt }; // time of the incident, not of loading
     if (run) {
       const applied = run.results.filter(r => r.ok).length, failed = run.results.length - applied, status: ChangeStatus = applied ? 'partial' : 'failed';
-      const counted = run.total != null && run.results.length >= run.total, results = run.results.length > 300 ? run.results.filter(r => !r.ok).slice(0, 100) : run.results; // Stapel: Karte klein halten
-      // Ehrlich bleiben: der Zwischenstand wird gebündelt gesichert, was danach noch geschrieben wurde, weiß niemand. Ohne Zwischenstand ist alles offen.
+      const counted = run.total != null && run.results.length >= run.total, results = run.results.length > 300 ? run.results.filter(r => !r.ok).slice(0, 100) : run.results; // bulk: keep the card small
+      // Stay honest: the progress is saved in batches, nobody knows what was written after that. Without saved progress everything is open.
       const error = run.results.length ? t.restartInterrupted(applied, failed, counted) : run.undo.length ? t.restartInterruptedUndo(run.undo.length) : t.restartInterruptedUnknown;
       c.events.push({ t: 'changeset_result', csId: cs.id, status, results, ...(run.results.length ? { counts: { applied, failed } } : {}), undo: run.undo, error });
       auditLog({ ...base, decision: 'approved', status, applied, failed, undo: run.undo, interrupted: true, ...(run.results.length ? {} : { unknown: true }) });
@@ -198,12 +198,12 @@ function recoverChat(c: StoredChat, locale: Locale): boolean {
     }
     changed = true;
   }
-  for (const r of open.values()) runDelete(r.csId); // auch Reste, deren Ergebnis schon gespeichert war
+  for (const r of open.values()) runDelete(r.csId); // also leftovers whose result was already saved
   return changed;
 }
 
-// Absturzsicherheit beim Anwenden: Zwischenstand (Ergebnisse + Rückgängig-Schritte) gebündelt in die DB, höchstens alle RUN_FLUSH_MS
-// (kein Schreibsturm je Element). finish() erst nach dem Speichern des Ergebnisses: bis dahin gilt der Lauf als unterbrochen.
+// Crash safety while applying: progress (results + undo steps) batched into the DB, at most every RUN_FLUSH_MS
+// (no write storm per item). finish() only after the result is saved: until then the run counts as interrupted.
 const RUN_FLUSH_MS = 250;
 type RunClock = { now(): number; later(fn: () => void, ms: number): { cancel(): void } };
 const realRunClock = (): RunClock => ({
@@ -211,7 +211,7 @@ const realRunClock = (): RunClock => ({
   later(fn, ms) { const t = setTimeout(fn, ms); t.unref?.(); return { cancel: () => clearTimeout(t) }; },
 });
 let runClock: RunClock = realRunClock();
-/** Nur Tests: Uhr der gebündelten Lauf-Sicherung. null stellt Date.now und setTimeout wieder her. */
+/** Tests only: clock of the batched run backup. null restores Date.now and setTimeout. */
 export function setRunClockForTests(clock: RunClock | null): void { runClock = clock ?? realRunClock(); }
 function trackRun(ss: Session, cs: ChangeSet, kind: PlatformKind, total: number) {
   const run: ChangeRun = { csId: cs.id, chatId: ss.id, kind: cs.kind, title: cs.title, startedAt: new Date().toISOString(), total, results: [], undo: [] };
@@ -225,13 +225,13 @@ function trackRun(ss: Session, cs: ChangeSet, kind: PlatformKind, total: number)
   };
   return {
     tick(p: ApplyPartial) { pending = latest = p; const wait = RUN_FLUSH_MS - (runClock.now() - last); if (wait <= 0) flush(); else if (!timer) timer = runClock.later(flush, wait); },
-    /** letzter gemeldeter Zwischenstand: wirft der Executor mittendrin, bleiben die bis dahin gemeldeten Rückgängig-Schritte erhalten */
+    /** last reported progress: if the executor throws midway, the undo steps reported so far are kept */
     latest: () => (latest ? snap(latest) : null),
     finish() { done = true; if (timer) timer.cancel(); runDelete(cs.id); },
   };
 }
 
-// Andere Plattform als Shopware: Shopware-Lese-Client gesperrt (Shopware-Werkzeuge werden dort ohnehin nicht gebaut)
+// Platform other than Shopware: Shopware read client locked (Shopware tools are not built there anyway)
 const shopwareOnly = (kind: PlatformKind): ShopReader => {
   const no = () => { throw new Error(`Dieses Werkzeug gibt es nur für Shopware (verbunden: ${getPlatform(kind).label}).`); };
   return { base: '', search: async () => no(), get: async () => no(), salesChannels: async () => no(), req: async () => no() };
@@ -241,11 +241,11 @@ export function getSession(id: string): Session {
   const all = sessions();
   const existing = all.get(id);
   if (existing) existing.lastUsed = Date.now();
-  // Plattform gewechselt: ruhende Session neu aufbauen (Verlauf kommt aus der DB), laufende behält ihre Plattform bis zum Ende der Runde
+  // Platform switched: rebuild an idle session (history comes from the DB), a running one keeps its platform until the end of the turn
   if (existing && (existing.platform === activeKind() || existing.running)) return existing;
   if (existing) { persist(existing); all.delete(id); }
   const kind = activeKind(), platform = getPlatform(kind);
-  const parts = platform.openSession(id); // privilegierter Client bleibt im Adapter, wird NIE an die KI gegeben
+  const parts = platform.openSession(id); // privileged client stays in the adapter, is NEVER given to the AI
   const saved = loadChat(id);
   const ss: Session = {
     id, platform: kind, reader: parts.reader, lookup: parts.lookup,
@@ -258,7 +258,7 @@ export function getSession(id: string): Session {
       const r = await new Promise<ApprovalReply>(res => ss.approvals.set(approvalId, res)); ss.approvals.delete(approvalId);
       return r.answer ?? '';
     },
-    // Einziger Weg zu Schreibzugriffen: Änderungsset zeigen → Mensch entscheidet → Executor (privilegierter Client) schreibt → Audit-Log
+    // The only path to write access: show change set → human decides → executor (privileged client) writes → audit log
     requestChange: async (cs, payload) => {
       cs.platform ??= ss.platform;
       const approvalId = Math.random().toString(36).slice(2);
@@ -270,8 +270,8 @@ export function getSession(id: string): Session {
       const base = { chatId: ss.id, changeSet: cs.id, kind: cs.kind, title: cs.title, decision: 'approved' as const, items: chosen.map(i => ({ entity: i.entity, id: i.entityId, field: i.field, before: i.before, after: i.after })) };
       let res: ApplyResult, run: ReturnType<typeof trackRun> | null = null; const t0 = Date.now();
       try {
-        const kind = platformOf(ss, cs); // anderer Shop verbunden: Fehler, ohne „started“ und Lauf-Zeile (es wird garantiert nichts geschrieben)
-        auditLog({ ...base, status: 'started' }); // vor dem ersten Schreibzugriff: ein Absturz mittendrin hinterlässt eine Spur
+        const kind = platformOf(ss, cs); // another shop connected: error, without "started" and run row (guaranteed nothing is written)
+        auditLog({ ...base, status: 'started' }); // before the first write: a crash midway leaves a trace
         run = trackRun(ss, cs, kind, chosen.length);
         res = await applyFor(ss, cs, kind, payload, selected, run.tick);
       } catch (e) { res = { ...(run?.latest() ?? { results: [], undo: [] }), error: errMsg(e) }; }
@@ -282,22 +282,22 @@ export function getSession(id: string): Session {
       persist(ss);
       log[status === 'applied' ? 'info' : 'warn'](status === 'applied' ? 'Änderungsset angewendet' : 'Änderungsset nicht vollständig angewendet', { chatId: ss.id, changeSet: cs.id, kind: cs.kind, platform: cs.platform, status, applied, failed: failedN, ms: Date.now() - t0, ...(res.error ? { error: res.error } : {}) });
       run?.finish();
-      void notifyApplied(cs, res, { ro: ss.sw, lookup: ss.lookup, platform: ss.platform, chatId: ss.id }); // läuft im Hintergrund (z. B. Search-Console-Ausgangswerte)
+      void notifyApplied(cs, res, { ro: ss.sw, lookup: ss.lookup, platform: ss.platform, chatId: ss.id }); // runs in the background (e.g. Search Console baseline values)
       return { status, applied, failed: failed.map(f => ({ item: f.itemId, error: f.error })), ...(res.counts ? { failedTotal: failedN } : {}), error: res.error, ...(res.published ?? {}), message: status === 'applied' ? 'Vom Nutzer freigegeben und angewendet.' : 'Teilweise/nicht angewendet: siehe failed.' };
     },
   };
-  if (existing) for (const l of existing.listeners) ss.listeners.add(l); // verbundene Oberflächen bleiben verbunden
+  if (existing) for (const l of existing.listeners) ss.listeners.add(l); // connected UIs stay connected
   all.set(id, ss);
   sweeper();
   return ss;
 }
 
-// Laufende Schreibzugriffe (Anwenden/Rückgängig über den privilegierten Client): solange einer läuft, darf die Shop-Verbindung nicht gewechselt werden (api/settings)
+// Running writes (apply/undo via the privileged client): while one is running, the shop connection must not be switched (api/settings)
 const writes = () => singleton('sessions-writes', () => ({ n: 0 }));
 export const writesInProgress = () => writes().n;
 async function writing<T>(fn: () => Promise<T>): Promise<T> { writes().n++; try { return await fn(); } finally { writes().n--; } }
 
-// Schreiben über den Adapter der Plattform des Sets; jeder Rückgängig-Schritt bekommt die Plattform mit (Rückgängig läuft über denselben Adapter)
+// Write via the adapter of the set's platform; each undo step carries the platform (undo runs via the same adapter)
 function platformOf(ss: Session, cs: ChangeSet): PlatformKind {
   const kind = cs.platform ?? ss.platform;
   if (kind !== activeKind()) throw new Error(messages(ss.locale).server.wrongPlatform(getPlatform(kind).label, getPlatform(activeKind()).label));
@@ -308,8 +308,8 @@ async function applyFor(ss: Session, cs: ChangeSet, kind: PlatformKind, payload:
   return { ...res, undo: res.undo.map(op => ({ ...op, platform: op.platform ?? kind })) };
 }
 
-// ---- Antworten aus der Oberfläche (lösen die wartenden Promises auf) ----
-// Offene Rückfragen/Freigaben gibt es nur im Speicher: für unbekannte Chats keine Session anlegen (peekSession statt getSession)
+// ---- Answers from the UI (resolve the waiting promises) ----
+// Open questions/approvals exist only in memory: don't create a session for unknown chats (peekSession instead of getSession)
 export function answerQuestion(chatId: string, approvalId: string, answer: string): boolean {
   const ss = peekSession(chatId); if (!ss) return false;
   const ev = ss.events.find(e => e.t === 'question' && e.approvalId === approvalId); if (ev && ev.t === 'question') { ev.answer = answer; persist(ss); }
@@ -326,9 +326,9 @@ export function decideChange(chatId: string, approvalId: string, allow: boolean,
   p({ allow, selected }); return true;
 }
 
-// Rückgängig: nutzerinitiiert (Klick) → stellt die gespeicherten Vorher-Werte wieder her.
-// Je Schritt wird der Ausgang gemerkt (undoResults); ein zweiter Klick wiederholt nur die fehlgeschlagenen Schritte
-// (sonst scheitert z. B. ein „create“ am doppelten Datensatz).
+// Undo: user-initiated (click) → restores the saved before values.
+// The outcome of each step is remembered (undoResults); a second click only retries the failed steps
+// (otherwise e.g. a "create" would fail on the duplicate record).
 export async function undoChangeSet(chatId: string, csId: string) {
   const ss = getSession(chatId);
   const r = [...ss.events].reverse().find(e => e.t === 'changeset_result' && e.csId === csId);
@@ -336,7 +336,7 @@ export async function undoChangeSet(chatId: string, csId: string) {
   const prev = r.undoResults ?? [], todo = r.undo.flatMap((_, i) => (prev[i]?.ok ? [] : [i]));
   const ops = todo.map(i => r.undo![i]), out = await writing(() => undoWithPlatform(ops));
   const merged = r.undo.map((_, i) => prev[i] ?? { ok: false });
-  out.forEach((o, k) => { merged[todo[todo.length - 1 - k]] = o; }); // Adapter arbeiten rückwärts (letzter Schritt zuerst) und melden in dieser Reihenfolge
+  out.forEach((o, k) => { merged[todo[todo.length - 1 - k]] = o; }); // adapters work in reverse (last step first) and report in that order
   const done = merged.filter(x => x.ok).length, total = r.undo.length;
   r.undoResults = merged; r.undone = done === total; persist(ss);
   auditLog({ chatId, changeSet: csId, decision: 'undo', results: out, done, total, ...(prev.length ? { retry: true } : {}) });

@@ -1,5 +1,5 @@
-// Lieferanten-Import: Planung (rein, ohne Shop-Zugriff → testbar).
-// Zeilen + Zuordnung + aufgelöster Katalog → je Produkt ein Plan (neu / aktualisieren / Varianten ergänzen) + lesbares Änderungsset.
+// Supplier import: planning (pure, no shop access → testable).
+// Rows + mapping + resolved catalog → one plan per product (new / update / add variants) + readable change set.
 import type { ChangeItem, ChangeSet } from '@/lib/protocol';
 import { eur, net } from '../changes';
 import type { SwEntity } from '../shopware';
@@ -7,43 +7,43 @@ import { columnDecimal, parseNumber, type Table } from './import-parse';
 import { FIELD_LABELS, type ImportMapping, type ScalarTarget } from './import-mapping';
 
 export const IMPORT_KIND = 'supplier-import';
-export const IMPORT_MAX = 2000;   // Zeilen je Änderungsset (größere Dateien in Abschnitten: offset/limit)
-export const ITEM_LIMIT = 100;    // bis hier je Produkt eine Zeile in der Karte, darüber Gruppen + Stichprobe
+export const IMPORT_MAX = 2000;   // rows per change set (larger files in sections: offset/limit)
+export const ITEM_LIMIT = 100;    // up to this, one row per product in the card; above, groups + sample
 const SAMPLE = 50;
 
 export interface ImportOptions {
-  /** both = vorhandene aktualisieren + neue anlegen (Standard), create = nur neue, update = nur vorhandene */
+  /** both = update existing + create new (default), create = new only, update = existing only */
   mode?: 'both' | 'create' | 'update';
-  /** Zielfelder, die bei vorhandenen Produkten überschrieben werden (Standard: alle zugeordneten außer Preise/Bestand/Steuer) */
+  /** Target fields overwritten on existing products (default: all mapped ones except prices/stock/tax) */
   updateFields?: string[];
-  /** Preise (Preis, Streichpreis, Einkaufspreis) vorhandener Produkte überschreiben – nur nach ausdrücklicher Bestätigung */
+  /** Overwrite prices (price, list price, purchase price) of existing products, only after explicit confirmation */
   updatePrices?: boolean;
-  /** Bestand vorhandener Produkte überschreiben – nur nach ausdrücklicher Bestätigung */
+  /** Overwrite stock of existing products, only after explicit confirmation */
   updateStock?: boolean;
-  /** neue Produkte sofort aktiv (Standard false = Entwurf) */
+  /** new products active immediately (default false = draft) */
   active?: boolean;
   defaultTaxRate?: number;
-  /** Kategorie-Text aus der Datei → categoryId ("" = ohne Kategorie) */
+  /** Category text from the file → categoryId ("" = no category) */
   categoryMap?: Record<string, string>;
-  /** Kategorie für neue Produkte ohne (passende) Kategorie */
+  /** Category for new products without a (matching) category */
   defaultCategoryId?: string;
-  /** fehlende Hersteller bzw. Eigenschaften/Ausprägungen anlegen (Standard true) */
+  /** create missing manufacturers or properties/options (default true) */
   createManufacturers?: boolean;
   createProperties?: boolean;
   offset?: number; limit?: number;
 }
 
 export interface ImportCatalog {
-  /** vorhandene Produkte (inkl. Varianten), deren Nummer oder EAN in der Datei vorkommt */
+  /** existing products (incl. variants) whose number or EAN appears in the file */
   products: SwEntity[];
   categories: { id: string; path: string[] }[];
   manufacturers: SwEntity[];
-  /** Eigenschaftsgruppen inkl. options */
+  /** Property groups incl. options */
   groups: SwEntity[];
   taxes: SwEntity[];
   deliveryTimes: SwEntity[];
   currencyId: string;
-  /** Hinweise beim Laden (z. B. Kategorienliste gekürzt) */
+  /** Notes from loading (e.g. category list truncated) */
   notes?: string[];
 }
 
@@ -52,9 +52,9 @@ export type Group = 'create' | 'create-warn' | 'update' | 'update-warn';
 export interface ImageJob { productId: string; urls: string[]; alt: string; cover: boolean }
 export interface NewEntity { id: string; entity: 'product-manufacturer' | 'property-group' | 'property-group-option'; data: Record<string, unknown>; label: string; needs?: string }
 interface Base { key: string; line: number; group: Group; label: string; number: string; uses: string[]; images: ImageJob[] }
-/** Neues Produkt (ggf. mit Varianten): product ist der fertige Datensatz ohne Bilder/Sichtbarkeit */
-export interface CreatePlan extends Base { kind: 'create'; id: string; product: Record<string, unknown>; childIds: string[]; /** Hauptprodukt ohne eigene Zeile (aus den Varianten gebildet) */ synthetic?: boolean }
-/** Vorhandenes Produkt: nur zugeordnete, geänderte Felder; Preise/Bestand nur mit Freigabe-Option */
+/** New product (possibly with variants): product is the finished record without images/visibility */
+export interface CreatePlan extends Base { kind: 'create'; id: string; product: Record<string, unknown>; childIds: string[]; /** parent product without its own row (built from the variants) */ synthetic?: boolean }
+/** Existing product: only mapped, changed fields; prices/stock only with the approval option */
 export interface UpdatePlan extends Base {
   kind: 'update'; id: string;
   set: Record<string, unknown>;
@@ -62,12 +62,12 @@ export interface UpdatePlan extends Base {
   stock?: number; purchase?: number; taxRate: number;
   addProperties: string[]; addCategories: string[];
 }
-/** Neue Varianten unter einem vorhandenen Hauptprodukt */
+/** New variants under an existing parent product */
 export interface VariantPlan extends Base { kind: 'variants'; id: string; children: Record<string, unknown>[]; configurator: string[] }
 export type ImportPlan = CreatePlan | UpdatePlan | VariantPlan;
 export interface ImportPayload { plans: ImportPlan[]; creates: NewEntity[] }
 
-// ---- Zeilen lesen ----
+// ---- Reading rows ----
 export interface Rec {
   line: number; number?: string; ean?: string; name?: string; description?: string;
   gross?: number; net?: number; taxRate?: number; list?: number; purchase?: number; stock?: number;
@@ -78,14 +78,14 @@ export interface Rec {
 const URL_RE = /^https?:\/\/[^\s"'<>]+$/i;
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const ENTITY: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", colon: ':', tab: '\t', newline: '\n' };
-/** HTML-Entities (&#106; &#x6A; &colon; …) auflösen, wie es der Browser im Attributwert tut */
+/** Resolve HTML entities (&#106; &#x6A; &colon; …) as the browser does in attribute values */
 const decodeEntities = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);?/gi, (m, e: string) => {
   if (e[0] === '#') { const n = parseInt(e[1].toLowerCase() === 'x' ? e.slice(2) : e.slice(1), e[1].toLowerCase() === 'x' ? 16 : 10); return Number.isFinite(n) && n > 0 && n < 0x110000 ? String.fromCodePoint(n) : m; }
   return ENTITY[e.toLowerCase()] ?? m;
 });
-/** Linkziel erlaubt? Ohne Schema (relativ, Anker) oder nur http(s), mailto, tel; Browser ignorieren Steuerzeichen und Whitespace im Schema */
+/** Link target allowed? No scheme (relative, anchor) or only http(s), mailto, tel; browsers ignore control characters and whitespace in the scheme */
 const safeUrl = (v: string) => { const m = /^([a-z][a-z0-9+.-]*):/i.exec(decodeEntities(v).replace(/[\u0000-\u0020\u007f-\u009f]/g, '')); return !m || /^(https?|mailto|tel)$/i.test(m[1]); };
-/** Beschreibung: Text → Absätze; HTML ohne Skripte, Styles, Formulare, Event-Handler; Linkziele nur http(s), mailto, tel, relativ */
+/** Description: text → paragraphs; HTML without scripts, styles, forms, event handlers; link targets only http(s), mailto, tel, relative */
 export function toHtml(s: string): string {
   if (/<\/?[a-z][^>]*>/i.test(s)) {
     return s.replace(/<(script|style|iframe|object|embed)\b[\s\S]*?(<\/\1>|$)/gi, '').replace(/<\/?(link|meta|base|form)\b[^>]*>/gi, '')
@@ -130,10 +130,10 @@ export function readRecords(t: Table, m: ImportMapping): Rec[] {
   });
 }
 
-// ---- Kategorien ----
+// ---- Categories ----
 const low = (s: string) => s.trim().toLocaleLowerCase('de-DE');
 const SEP = /\s*(?:>|»|\/|\\)\s*/;
-/** Kategorie-Text („Wohnen > Vasen“, mehrere mit | getrennt) → ids; nicht eindeutige/unbekannte Pfade als Fehler */
+/** Category text ("Wohnen > Vasen", several separated by |) → ids; ambiguous/unknown paths as errors */
 export function resolveCategories(text: string, cats: ImportCatalog['categories'], map: Record<string, string> = {}): { ids: string[]; missing: string[]; raw: string[] } {
   const ids: string[] = [], missing: string[] = [], raw: string[] = [];
   for (const t of text.split(/\s*[|;\n]\s*/).filter(Boolean)) {
@@ -147,7 +147,7 @@ export function resolveCategories(text: string, cats: ImportCatalog['categories'
   return { ids, missing, raw };
 }
 
-// ---- Neuanlagen (Hersteller, Eigenschaften) ----
+// ---- New entities (manufacturers, properties) ----
 class Registry {
   list: NewEntity[] = [];
   constructor(private cat: ImportCatalog, private genId: () => string, private opts: ImportOptions) {}
@@ -176,11 +176,11 @@ class Registry {
   }
 }
 
-// ---- Planung ----
+// ---- Planning ----
 interface Ctx { cat: ImportCatalog; opts: ImportOptions; reg: Registry; genId: () => string; skipped: ChangeSet['skipped']; images: boolean; hasCategory: boolean; missingCats: Set<string> }
 const priceEntry = (cur: string, gross: number, rate: number, list?: number | null) => ({ currencyId: cur, gross, net: net(gross, rate), linked: true, ...(list != null ? { listPrice: { currencyId: cur, gross: list, net: net(list, rate), linked: true } } : {}) });
 const taxFor = (cat: ImportCatalog, rate: number) => cat.taxes.find(t => Number(t.taxRate) === rate);
-/** Bruttopreis: Spalte brutto oder netto × Steuersatz */
+/** Gross price: gross column or net × tax rate */
 const grossOf = (r: Rec, rate: number) => (r.gross != null ? Math.round(r.gross * 100) / 100 : r.net != null ? Math.round(r.net * (1 + rate / 100) * 100) / 100 : undefined);
 const cut = (s: unknown, n = 60) => { const v = String(s ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(); return v ? (v.length > n ? v.slice(0, n) + '…' : v) : '–'; };
 const nameOf = (e: SwEntity | null | undefined) => String(e?.translated?.name ?? e?.name ?? '');
@@ -193,7 +193,7 @@ function deliveryTimeId(ctx: Ctx, name?: string): string | undefined {
   return d.id;
 }
 
-/** Gemeinsame Felder eines neuen Produkts / einer neuen Variante aus einer Zeile */
+/** Common fields of a new product / new variant from a row */
 function baseData(r: Rec) {
   return {
     ...(r.ean ? { ean: r.ean } : {}), ...(r.manufacturerNumber ? { manufacturerNumber: r.manufacturerNumber } : {}),
@@ -236,7 +236,7 @@ function planCreate(ctx: Ctx, r: Rec, kids: Rec[], warn: string[]): CreatePlan {
   };
   const dt = deliveryTimeId(ctx, r.deliveryTime); if (dt) product.deliveryTimeId = dt;
   const images: ImageJob[] = r.images.length ? [{ productId: id, urls: r.images, alt: r.name, cover: true }] : [];
-  // Varianten: eigener Preis nur, wenn er vom Hauptprodukt abweicht (sonst geerbt)
+  // Variants: own price only if it differs from the parent product (otherwise inherited)
   const childIds: string[] = [];
   if (kids.length) {
     const combos = new Set<string>();
@@ -312,7 +312,7 @@ function planUpdate(ctx: Ctx, r: Rec, cur: SwEntity, m: ImportMapping, warn: str
     if ((cur.media ?? []).length) warn.push('hat schon Bilder (Bild-URLs nicht übernommen)');
     else { plan.images = [{ productId: cur.id, urls: r.images, alt: r.name ?? nameOf(cur), cover: true }]; diffs.push({ field: 'images', label: 'Bilder', before: 'keine', after: `${r.images.length} ${r.images.length === 1 ? 'Bild' : 'Bilder'} (Import beim Anwenden)` }); }
   }
-  // Preise/Bestand nur auf ausdrücklichen Wunsch (updatePrices/updateStock)
+  // Prices/stock only on explicit request (updatePrices/updateStock)
   const p0 = (cur.price ?? parent?.price)?.[0], inherited = !cur.price && !!cur.parentId;
   const gross = on('priceGross') || on('priceNet') ? grossOf(r, r.taxRate ?? plan.taxRate) : undefined;
   if (gross != null && gross !== p0?.gross) {
@@ -346,7 +346,7 @@ function planVariants(ctx: Ctx, parent: SwEntity, kids: Rec[], warn: string[]): 
   return { kind: 'variants', key: `v${kids[0].line}`, line: kids[0].line, group: 'create', label: `${nameOf(parent)} (${parent.productNumber})`, number: parent.productNumber, id: parent.id, children: children.map(c => ({ ...c, parentId: parent.id })), configurator: opts.filter(o => !have.has(o)), images, uses: newOnly(ctx.reg, opts) };
 }
 
-/** Name des Hauptprodukts aus Variantenzeilen: gemeinsamer Wortanfang ohne Ausprägungen (z. B. „Sand“) und Trennzeichen am Ende */
+/** Parent product name from variant rows: common leading words without options (e.g. "Sand") and trailing separators */
 export function commonName(names: string[], values: string[] = []): string {
   if (!names.length) return '';
   const words = names.map(n => n.split(/\s+/)), drop = new Set(values.map(low));
@@ -356,7 +356,7 @@ export function commonName(names: string[], values: string[] = []): string {
   return out.join(' ').replace(/[\s,;:–\-/]+$/, '') || names[0];
 }
 
-/** Abschnitt einer großen Datei (offset/limit); Variantenfamilien werden nicht getrennt */
+/** Section of a large file (offset/limit); variant families are not split */
 export function sectionRange(all: Rec[], opts: ImportOptions): { offset: number; end: number } {
   const offset = Math.max(0, opts.offset ?? 0);
   let end = Math.min(all.length, offset + Math.min(opts.limit ?? IMPORT_MAX, IMPORT_MAX));
@@ -379,7 +379,7 @@ export function planImport(t: Table, m: ImportMapping, cat: ImportCatalog, opts:
   const match = (r: Rec, warn: string[]): SwEntity | null => {
     const n = r.number ? byNumber.get(r.number) : undefined, e = r.ean ? byEan.get(r.ean) : undefined;
     if (n) { if (e?.length && !e.some(x => x.id === n.id)) { warn.push(`EAN ${r.ean} gehört zu ${e[0].productNumber}`); delete r.ean; } return n; }
-    if (e?.length === 1 && !(r.number && m.productNumber)) return e[0]; // EAN-Abgleich nur ohne Produktnummer
+    if (e?.length === 1 && !(r.number && m.productNumber)) return e[0]; // EAN matching only without a product number
     if (e?.length) { warn.push(`EAN ${r.ean} gehört schon zu ${e[0].productNumber}`); delete r.ean; }
     return null;
   };
@@ -391,14 +391,14 @@ export function planImport(t: Table, m: ImportMapping, cat: ImportCatalog, opts:
     if (seen.has(k)) { skip(r, 'doppelt in der Datei (nur die erste Zeile zählt)'); continue; }
     seen.add(k); valid.push(r);
   }
-  // Familien: Zeilen mit Hauptartikel-Nr. ≠ eigener Nummer sind Varianten
+  // Families: rows with parent product no. ≠ own number are variants
   const fam = new Map<string, Rec[]>();
   for (const r of valid) if (r.parent && r.parent !== r.number) fam.set(r.parent, [...(fam.get(r.parent) ?? []), r]);
   const isVariant = (r: Rec) => !!r.parent && r.parent !== r.number;
   const parentRow = new Map(valid.filter(r => r.number && fam.has(r.number)).map(r => [r.number!, r]));
 
   const out: { plan: ImportPlan; diffs?: Diff[]; warn: string[] }[] = []; let unchanged = 0;
-  /** onFail: bei Familien alle Variantenzeilen mit Grund überspringen (außer schon einzeln übersprungene) */
+  /** onFail: for families, skip all variant rows with a reason (except those already skipped individually) */
   const run = (r: Rec, fn: (warn: string[]) => { plan: ImportPlan; diffs?: Diff[] } | null, onFail?: (msg: string) => void) => {
     const warn = [...r.problems];
     try { const x = fn(warn); if (x) { if (warn.length) x.plan.group = x.plan.group === 'create' ? 'create-warn' : 'update-warn'; out.push({ ...x, warn }); } }
@@ -408,7 +408,7 @@ export function planImport(t: Table, m: ImportMapping, cat: ImportCatalog, opts:
     const mark = skipped.length;
     return (msg: string) => { const done = new Set(skipped.slice(mark).map(lineOf)); rows.forEach(k => { if (!done.has(k.line)) skip(k, `${prefix}: ${msg}`); }); };
   };
-  // Varianten ohne Hauptprodukt im Plan erben Steuer/Preis vom Hauptprodukt im Shop
+  // Variants without a parent product in the plan inherit tax/price from the parent product in the shop
   const update = (r: Rec, cur: SwEntity, parent: SwEntity | undefined = cur.parentId ? byId.get(cur.parentId) : undefined) => run(r, warn => {
     if (mode === 'create') throw new Error(`existiert bereits (${cur.productNumber}) – Modus „nur neue“`);
     const x = planUpdate(ctx, r, cur, m, warn, parent);
@@ -416,12 +416,12 @@ export function planImport(t: Table, m: ImportMapping, cat: ImportCatalog, opts:
     return x;
   });
   for (const r of valid) {
-    if (isVariant(r)) continue; // Varianten unten je Familie
+    if (isVariant(r)) continue; // variants below, per family
     const kids = r.number ? fam.get(r.number) ?? [] : [];
     const cur = match(r, r.problems);
     if (cur) {
       update(r, cur);
-      // Kinder einer vorhandenen Familie: vorhandene aktualisieren, neue als Varianten ergänzen
+      // Children of an existing family: update existing ones, add new ones as variants
       if (kids.length) famExisting(cur, kids);
       continue;
     }
@@ -430,7 +430,7 @@ export function planImport(t: Table, m: ImportMapping, cat: ImportCatalog, opts:
     const famFail = fresh.length ? failAll(fresh, `Hauptprodukt ${r.number} konnte nicht angelegt werden`) : undefined;
     run(r, warn => ({ plan: planCreate(ctx, r, fresh, warn) }), famFail && (msg => { skip(r, msg); famFail(msg); }));
   }
-  // Familien ohne eigene Zeile für das Hauptprodukt
+  // Families without their own row for the parent product
   for (const [pn, kids] of fam) {
     const pr = parentRow.get(pn);
     if (pr && !isVariant(pr)) continue;
@@ -440,7 +440,7 @@ export function planImport(t: Table, m: ImportMapping, cat: ImportCatalog, opts:
     if (mode === 'update') { kids.forEach(k => { const c = match(k, k.problems); if (c) update(k, c); else skip(k, 'nicht im Shop (Modus „nur aktualisieren“)'); }); continue; }
     const fresh = kids.filter(k => { const c = match(k, k.problems); if (c) { update(k, c); return false; } return true; });
     if (!fresh.length) continue;
-    // Hauptprodukt aus den Variantenzeilen bilden: gemeinsamer Name, häufigster Preis, Daten der ersten Zeile
+    // Build the parent product from the variant rows: common name, most frequent price, data of the first row
     const first = fresh[0], rate = first.taxRate ?? opts.defaultTaxRate ?? 19;
     const prices = fresh.map(k => grossOf(k, k.taxRate ?? rate)).filter((x): x is number => x != null);
     const mode2 = prices.sort((a, b) => prices.filter(x => x === b).length - prices.filter(x => x === a).length)[0];
@@ -459,7 +459,7 @@ export function planImport(t: Table, m: ImportMapping, cat: ImportCatalog, opts:
   skipped.sort((a, b) => lineOf(a) - lineOf(b));
   if (!out.length) throw new Error(`Nichts zu importieren (${unchanged} unverändert, ${skipped.length} übersprungen${skipped.length ? `: ${skipped.slice(0, 4).map(s => s.reason).join('; ')}` : ''})`);
   out.sort((a, b) => a.plan.line - b.plan.line);
-  // ---- Karte ----
+  // ---- Card ----
   const itemOf = ({ plan, diffs, warn }: (typeof out)[number]): ChangeItem => {
     const base = { id: `p:${plan.key}`, entity: 'product', entityId: plan.id, label: plan.label, warn };
     if (plan.kind === 'update') return { ...base, field: 'update', fieldLabel: diffs!.map(d => d.label).join(', '), before: diffs!.map(d => d.before).join(' · '), after: diffs!.map(d => d.after).join(' · '), ...(diffs!.find(d => d.html) ? { html: diffs!.find(d => d.html)!.html } : {}) };
@@ -482,9 +482,9 @@ export function planImport(t: Table, m: ImportMapping, cat: ImportCatalog, opts:
     const cs: ChangeSet = { ...base, items: [...out.map(itemOf), ...infos], applyLabel: `Import übernehmen` };
     return { cs, payload: { plans, creates }, stats };
   }
-  // Große Dateien: Gruppen (abwählbar) + Stichprobe
+  // Large files: groups (deselectable) + sample
   const GL: Record<Group, string> = { create: 'neu ohne Auffälligkeiten', 'create-warn': 'neu mit Warnungen', update: 'aktualisiert ohne Auffälligkeiten', 'update-warn': 'aktualisiert mit Warnungen' };
-  // Gruppenzeile: neu = Preisspanne, aktualisiert = welche Felder wie oft
+  // Group row: new = price range, updated = which fields how often
   const groupDiff = (xs: typeof out) => {
     if (xs[0].plan.kind !== 'update') {
       const prices = xs.flatMap(x => (x.plan.kind === 'create' ? [((x.plan.product.price as { gross: number }[])[0].gross)] : []));
@@ -507,5 +507,5 @@ export function planImport(t: Table, m: ImportMapping, cat: ImportCatalog, opts:
   return { cs, payload: { plans, creates }, stats };
 }
 
-/** Ist ein Plan ausgewählt? (Einzelzeile p:<key> oder Gruppe grp:<group>) */
+/** Is a plan selected? (single row p:<key> or group grp:<group>) */
 export const isSelected = (p: ImportPlan, selected: Set<string>) => selected.has(`p:${p.key}`) || selected.has(`grp:${p.group}`);

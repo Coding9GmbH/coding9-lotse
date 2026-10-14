@@ -1,4 +1,4 @@
-// Gemeinsame Adressen der E2E-Umgebung (Playwright-Konfiguration, serve.ts, Tests). Ports über Umgebungsvariablen änderbar.
+// Shared addresses of the E2E environment (Playwright config, serve.ts, tests). Ports can be changed via environment variables.
 import os from 'node:os';
 import path from 'node:path';
 

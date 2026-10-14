@@ -1,4 +1,4 @@
-// Linien-Icons (24er Raster, 1.8 Strich) – inline, ohne Abhängigkeit.
+// Line icons (24px grid, 1.8 stroke), inline, no dependency.
 import type { SVGProps } from 'react';
 
 type P = SVGProps<SVGSVGElement> & { size?: number };

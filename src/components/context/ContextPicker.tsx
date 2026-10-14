@@ -14,14 +14,14 @@ import styles from './List.module.css';
 
 interface Props { id: string; categories: CategoryRow[] | null; categoryError?: string | null; target: Target | null; onSelect: (t: Target) => void }
 
-/** Kontext wählen: Kategorie (Baum), Produkt (Suche) oder freie Landingpage. */
+/** Choose the context: category (tree), product (search) or a free landing page. */
 export function ContextPicker({ id, categories, categoryError = null, target, onSelect }: Props) {
   const [kind, setKind] = useState<TargetKind>('category');
   const [q, setQ] = useState('');
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string> | null>(null); // null: noch nicht aus dem Baum abgeleitet
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string> | null>(null); // null: not yet derived from the tree
   const [loaded, setLoaded] = useState<{ q: string; products: ProductRow[]; error: string | null } | null>(null);
   const reqNo = useRef(0);
-  // Shopify: Kollektionen statt Kategorien (Name je Plattform aus lib/platforms.ts)
+  // Shopify: collections instead of categories (name per platform from lib/platforms.ts)
   const { locale, t: { context: tc } } = useI18n(), t = tc.picker;
   const noun = categoryNoun(useShell().health?.platform?.kind, locale);
 
@@ -30,7 +30,7 @@ export function ContextPicker({ id, categories, categoryError = null, target, on
     const my = ++reqNo.current;
     const query = q;
     const t = setTimeout(() => {
-      api.products(query.trim()).then(l => { if (my === reqNo.current) setLoaded({ q: query, products: l, error: null }); }).catch(e => { if (my === reqNo.current) setLoaded({ q: query, products: [], error: errorText(e) || 'error' }); }); // Kennzeichen + Ursache; angezeigt wird t.notLoaded
+      api.products(query.trim()).then(l => { if (my === reqNo.current) setLoaded({ q: query, products: l, error: null }); }).catch(e => { if (my === reqNo.current) setLoaded({ q: query, products: [], error: errorText(e) || 'error' }); }); // marker + cause; t.notLoaded is what gets displayed
     }, query ? 250 : 0);
     return () => clearTimeout(t);
   }, [kind, q]);
@@ -42,7 +42,7 @@ export function ContextPicker({ id, categories, categoryError = null, target, on
   const prodView = catalogState(prodError, products);
   const folded = useMemo(() => collapsed ?? (categories ? initialCollapsed(categories) : new Set<string>()), [collapsed, categories]);
   const all = useMemo(() => (categories ? categoryRows(categories, q, folded) : []), [categories, q, folded]);
-  const rows = all.length > MAX_ROWS ? all.slice(0, MAX_ROWS) : all; // große Bäume: nicht tausende Zeilen rendern
+  const rows = all.length > MAX_ROWS ? all.slice(0, MAX_ROWS) : all; // large trees: don't render thousands of rows
   const toggle = (cid: string) => setCollapsed(prev => { const n = new Set(prev ?? folded); if (n.has(cid)) n.delete(cid); else n.add(cid); return n; });
 
   return (
@@ -94,7 +94,7 @@ export function ContextPicker({ id, categories, categoryError = null, target, on
                   <li key={p.id} className={`${styles.row} ${target?.id === p.id ? styles.sel : ''}`}>
                     <button type="button" className={styles.pick} aria-current={target?.id === p.id ? 'true' : undefined}
                       onClick={() => onSelect({ kind: 'product', id: p.id, name: p.name, cmsPage: p.cmsPage, path: p.number })}>
-                      {/* eslint-disable-next-line @next/next/no-img-element -- Shop-Thumbnails */}
+                      {/* eslint-disable-next-line @next/next/no-img-element -- shop thumbnails */}
                       {p.img ? <img src={p.img} alt="" loading="lazy" /> : <span className={styles.noimg} aria-hidden="true" />}
                       <span className={styles.nm}>{p.name}</span>
                       {p.cmsPage && <span className={styles.tag}>{t.layout}</span>}

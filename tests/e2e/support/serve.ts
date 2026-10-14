@@ -1,9 +1,9 @@
 /**
- * Startet alles, was die E2E-Tests brauchen, in einem Prozess (Playwright-webServer):
- *  - Shopify-Fake (Seed „Haus Holm“) auf E2E_SHOP_PORT
- *  - Anthropic-Fake (Drehbuch-Modell) auf E2E_AI_PORT; der echte Claude-Code-Prozess spricht über ANTHROPIC_BASE_URL mit ihm
- *  - Lotse (`next start`, mit E2E_DEV=1 `next dev`) auf E2E_PORT mit frischem, leerem Datenordner (AICB_DATA)
- * Beendet sich mit Lotse; die Fakes laufen im selben Prozess und enden mit ihm.
+ * Starts everything the E2E tests need in one process (Playwright webServer):
+ *  - Shopify fake (seed "Haus Holm") on E2E_SHOP_PORT
+ *  - Anthropic fake (scripted model) on E2E_AI_PORT; the real Claude Code process talks to it via ANTHROPIC_BASE_URL
+ *  - Lotse (`next start`, with E2E_DEV=1 `next dev`) on E2E_PORT with a fresh, empty data folder (AICB_DATA)
+ * Exits together with Lotse; the fakes run in the same process and end with it.
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -20,8 +20,8 @@ const ai = await startFakeAnthropic({ port: E2E.aiPort, quiet: process.env.E2E_V
 console.log(`[e2e] Shopify-Fake ${shop.url} · Anthropic-Fake ${ai.url} · Daten ${E2E.dataDir}`);
 
 const next = path.join(process.cwd(), 'node_modules', 'next', 'dist', 'bin', 'next');
-// Keine Zugangsdaten oder Claude-/Anthropic-Einstellungen aus der Umgebung des Entwicklers übernehmen
-// (sonst wären Shop/KI schon „eingerichtet“ oder der Claude-Code-Prozess liefe gegen die echte API)
+// Do not take over credentials or Claude/Anthropic settings from the developer's environment
+// (otherwise shop/AI would already be "configured" or the Claude Code process would hit the real API)
 const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) =>
   !/^(SHOPWARE_|SHOPIFY_|MAGENTO_|OPENMAGE_|OPENAI_|ANTHROPIC_|CLAUDE_|CODEX_|AI_PROVIDER$|AI_MODEL$|LOTSE_PASSWORD$|AICB_)/.test(k)));
 const env: Record<string, string | undefined> = {

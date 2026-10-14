@@ -1,5 +1,5 @@
 import 'server-only';
-// Medien: Import per URL (serverseitiger Download), Datei-Upload, SVG-Erstellung, optionale KI-Bildgenerierung → Shopware-Medienbibliothek
+// Media: import by URL (server-side download), file upload, SVG creation, optional AI image generation → Shopware media library
 import dns from 'node:dns/promises';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -33,51 +33,51 @@ export async function uploadBuffer(sw: Shopware, buf: Buffer, mime: string, { na
   return { mediaId: id, url: m?.url, fileName: `${m?.fileName}.${m?.fileExtension}`, alt: alt ?? null };
 }
 
-// Laufzeit-Konfiguration (runtime.ts setzt sie nach jeder Einstellungsänderung)
+// Runtime configuration (runtime.ts sets it after every settings change)
 const rt = () => singleton('media', () => ({ fetch: fetch as Fetcher, publicFetch: ((u, i) => pinnedFetch(u, { headers: i?.headers as Record<string, string>, signal: i?.signal ?? undefined })) as Fetcher, img: { key: '', model: '' }, origins: (async () => []) as () => Promise<string[]> }));
 export const setFetcher = (f: Fetcher) => { rt().fetch = f; };
-/** Nur für Tests: fetch für fremde (nicht eigene) Hosts ersetzen – Standard ist pinnedFetch */
+/** Tests only: replace fetch for foreign (not own) hosts; default is pinnedFetch */
 export const setPublicFetcher = (f: Fetcher) => { rt().publicFetch = f; };
 export const setImageConfig = (c: { key: string; model: string }) => { rt().img = c; };
-/** Weitere vertrauenswürdige Shop-Adressen (z. B. Domains der Verkaufskanäle), zusätzlich zu den URLs aus den Einstellungen */
+/** Additional trusted shop addresses (e.g. sales channel domains), in addition to the URLs from settings */
 export const setTrustedOrigins = (f: () => Promise<string[]>) => { rt().origins = f; };
 
-// ---- Schutz vor Zugriffen ins interne Netz (SSRF): Die KI darf Bilder nur vom eigenen Shop oder aus dem öffentlichen Internet laden ----
+// ---- Protection against access to the internal network (SSRF): the AI may only load images from its own shop or the public internet ----
 const originOf = (u: string) => { try { return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(u) ? u : `https://${u}`).origin; } catch { return null; } };
 const toOrigins = (urls: string[]) => new Set(urls.map(originOf).filter((o): o is string => !!o));
-/** Voll vertrauenswürdig: nur die in den Einstellungen eingetragenen Shop-URLs (dort ist auch localhost/host.docker.internal erlaubt) */
+/** Fully trusted: only the shop URLs entered in settings (localhost/host.docker.internal is allowed there too) */
 const settingsOrigins = () => {
   const g = getSettings(), urls: string[] = [];
   for (const k of PLATFORM_KINDS) for (const [key, v] of Object.entries(platformConfig(k, g))) if (/url|domain/i.test(key) && v) urls.push(v);
   return toOrigins(urls);
 };
-/** Adressen des verbundenen Shops (Plattform-URLs der Einstellungen + Laufzeit-Domains der Verkaufskanäle) */
+/** Addresses of the connected shop (platform URLs from settings + runtime sales channel domains) */
 export async function trustedOrigins(): Promise<Set<string>> {
   return new Set([...settingsOrigins(), ...toOrigins(await rt().origins().catch(() => []))]);
 }
 const privateV4 = (ip: string) => { const [a, b] = ip.split('.').map(Number); return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || a === 192 && b === 168; };
-/** IPv4 aus IPv4-mapped IPv6 (::ffff:1.2.3.4 bzw. von URL normalisiert ::ffff:a00:1), sonst null */
+/** IPv4 from IPv4-mapped IPv6 (::ffff:1.2.3.4 or, normalized by URL, ::ffff:a00:1), otherwise null */
 const mappedV4 = (v: string) => {
   const m4 = v.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/), mh = v.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
   if (m4) return m4[1];
   if (mh) { const hi = parseInt(mh[1], 16), lo = parseInt(mh[2], 16); return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`; }
   return null;
 };
-/** Loopback, private Netze, Link-local (Cloud-Metadaten), CGNAT, IPv6-Gegenstücke und IPv4-mapped */
+/** Loopback, private networks, link-local (cloud metadata), CGNAT, IPv6 counterparts and IPv4-mapped */
 export function isPrivateIp(ip: string): boolean {
   if (net.isIPv4(ip)) return privateV4(ip);
   const v = ip.toLowerCase().replace(/^\[|\]$/g, ''), m = mappedV4(v);
   if (m) return privateV4(m);
   return v === '::' || v === '::1' || /^f[cd][0-9a-f]{2}:/.test(v) || /^fe[89ab][0-9a-f]:/.test(v);
 }
-/** Link-local/Cloud-Metadaten (169.254.0.0/16, fe80::/10, AWS fd00:ec2::254) – auch für Verkaufskanal-Domains nie erlaubt */
+/** Link-local/cloud metadata (169.254.0.0/16, fe80::/10, AWS fd00:ec2::254): never allowed, not even for sales channel domains */
 export function isMetadataIp(ip: string): boolean {
   const v = ip.toLowerCase().replace(/^\[|\]$/g, ''), v4 = net.isIPv4(v) ? v : mappedV4(v);
   if (v4) return v4.startsWith('169.254.');
   return /^fe[89ab][0-9a-f]:/.test(v) || v === 'fd00:ec2::254';
 }
 const LOCAL_MSG = 'interne oder lokale Adressen sind nicht erlaubt (nur der eigene Shop oder öffentliche Bild-URLs)';
-/** Nur http(s) auf öffentliche Adressen; Hostnamen werden aufgelöst, damit „localhost“ oder ein interner DNS-Name nicht durchrutscht */
+/** Only http(s) to public addresses; host names are resolved so "localhost" or an internal DNS name doesn't slip through */
 export async function assertPublicUrl(url: string): Promise<void> {
   let u: URL; try { u = new URL(url); } catch { throw new Error(`${url} ist keine gültige URL`); }
   if (!/^https?:$/.test(u.protocol)) throw new Error(`${url}: nur http(s)-Adressen`);
@@ -88,7 +88,7 @@ export async function assertPublicUrl(url: string): Promise<void> {
 }
 type LookupAll = (host: string) => Promise<{ address: string; family: number }[]>;
 type LookupCb = (err: NodeJS.ErrnoException | null, address: string | { address: string; family: number }[], family?: number) => void;
-/** DNS-Auflösung für den Socket selbst: JEDE aufgelöste Adresse wird geprüft (kein DNS-Rebinding zwischen Prüfung und Verbindung) */
+/** DNS resolution for the socket itself: EVERY resolved address is checked (no DNS rebinding between check and connection) */
 export const pinnedLookup = (resolve: LookupAll = h => dns.lookup(h, { all: true })) => (host: string, opts: { all?: boolean } | number | undefined, cb: LookupCb) => {
   resolve(host).then(addrs => {
     if (!addrs.length) throw Object.assign(new Error(`${host}: Host nicht auflösbar`), { code: 'ENOTFOUND' });
@@ -96,11 +96,11 @@ export const pinnedLookup = (resolve: LookupAll = h => dns.lookup(h, { all: true
     if (typeof opts === 'object' && opts?.all) cb(null, addrs); else cb(null, addrs[0].address, addrs[0].family);
   }).catch((e: NodeJS.ErrnoException) => cb(e, ''));
 };
-/** fetch für fremde Hosts: node:http(s) mit geprüfter DNS-Auflösung, ohne Weiterleitungen (die prüft der Aufrufer einzeln) */
+/** fetch for foreign hosts: node:http(s) with checked DNS resolution, without redirects (the caller checks those one by one) */
 export function pinnedFetch(url: string, init: { headers?: Record<string, string>; signal?: AbortSignal } = {}, lookup = pinnedLookup()): Promise<Response> {
   const u = new URL(url), mod = u.protocol === 'https:' ? https : http;
   const host = u.hostname.replace(/^\[|\]$/g, '');
-  if (net.isIP(host) && isPrivateIp(host)) return Promise.reject(new Error(`${url}: ${LOCAL_MSG}`)); // IP-Literal: kein Lookup
+  if (net.isIP(host) && isPrivateIp(host)) return Promise.reject(new Error(`${url}: ${LOCAL_MSG}`)); // IP literal: no lookup
   return new Promise((resolve, reject) => {
     const req = mod.request(u, { method: 'GET', headers: { ...init.headers, 'accept-encoding': 'identity' }, signal: init.signal, lookup: lookup as unknown as typeof dns.lookup }, res => {
       const h = new Headers();
@@ -113,7 +113,7 @@ export function pinnedFetch(url: string, init: { headers?: Record<string, string
     req.end();
   });
 }
-/** Antwort-Body mit Obergrenze lesen: Content-Length vorab, beim Streamen laufend gezählt (kein unbegrenztes arrayBuffer()) */
+/** Read the response body with a limit: Content-Length up front, counted continuously while streaming (no unbounded arrayBuffer()) */
 export async function readCapped(r: Response, max = MAX): Promise<Buffer> {
   const too = () => new Error(`Bild größer als ${Math.round(max / 1024 / 1024)} MB`);
   if (Number(r.headers.get('content-length') || 0) > max) { await r.body?.cancel().catch(() => {}); throw too(); }
@@ -135,12 +135,12 @@ export async function downloadImage(url: string) {
   for (let hop = 0; ; hop++) {
     const o = originOf(cur) ?? '', ownHost = own.has(o), chHost = !ownHost && channel.has(o), trusted = ownHost || chHost;
     if (!trusted) await assertPublicUrl(cur);
-    else if (chHost) { // Verkaufskanal-Domain: interne Adressen ok (Docker), Cloud-Metadaten nie
+    else if (chHost) { // sales channel domain: internal addresses ok (Docker), cloud metadata never
       const h = new URL(cur).hostname.replace(/^\[|\]$/g, '');
       const addrs = net.isIP(h) ? [h] : (await dns.lookup(h, { all: true }).catch(() => [])).map(a => a.address);
       if (addrs.some(isMetadataIp)) throw new Error(`${cur}: ${LOCAL_MSG}`);
     }
-    // fremde Hosts: kein Status/Fehlercode an die KI (sonst Erreichbarkeits-Orakel), Weiterleitungen werden einzeln geprüft (max. 3)
+    // foreign hosts: no status/error code to the AI (otherwise a reachability oracle), redirects are checked one by one (max. 3)
     const fail = (detail: string) => new Error(`Download von ${cur} fehlgeschlagen${trusted ? `: ${detail}` : ' (nicht erreichbar oder kein Bild)'}`);
     const init = { redirect: 'manual' as const, headers: { 'user-agent': 'Mozilla/5.0 (Lotse)', accept: 'image/*' }, signal: AbortSignal.timeout(25_000) };
     let r: Response;
@@ -158,7 +158,7 @@ export async function downloadImage(url: string) {
   }
 }
 const IMPORT_MAP = 'import_map';
-export async function importFromUrl(sw: Shopware, url: string, { alt, name, folder }: { alt?: string; name?: string; folder?: string } = {}) { // schreibend – nur im Executor nach Freigabe
+export async function importFromUrl(sw: Shopware, url: string, { alt, name, folder }: { alt?: string; name?: string; folder?: string } = {}) { // writes: only in the executor after approval
   const known = kvGet<Record<string, string>>(IMPORT_MAP)?.[url];
   const row = known ? await sw.get('media', known).catch(() => null) : null;
   if (known && row) return { mediaId: known, url: row.url, fileName: `${row.fileName}.${row.fileExtension}`, alt: alt ?? row.alt ?? null };
@@ -168,10 +168,10 @@ export async function importFromUrl(sw: Shopware, url: string, { alt, name, fold
   return up;
 }
 
-// ---- Staging: Bilder der KI liegen NUR lokal (data/staging), bis eine Veröffentlichung freigegeben wird ----
+// ---- Staging: the AI's images live ONLY locally (data/staging) until a publication is approved ----
 export const stageDir = () => path.join(dataDir(), 'staging');
 const readMap = () => kvGet<Record<string, string>>('staging_map') ?? {};
-/** ai: von der Bild-KI erzeugt – muss auf der Seite und in der Medienverwaltung als KI-generiert gekennzeichnet sein */
+/** ai: generated by the image AI; must be labeled as AI-generated on the page and in media management */
 export interface StagedMeta { id: string; file: string; mime: string; name: string; alt: string | null; ai?: boolean }
 export interface StagedResult { mediaId: string; url: string; fileName: string; alt: string | null; staged: true }
 export function stageImage(buf: Buffer, mime: string, { name, alt, ai }: { name?: string; alt?: string | null; ai?: boolean } = {}): StagedResult {
@@ -187,44 +187,44 @@ export function stageImage(buf: Buffer, mime: string, { name, alt, ai }: { name?
 export async function stageFromUrl(url: string, { alt, name }: { alt?: string; name?: string } = {}) { const { buf, mime } = await downloadImage(url); return stageImage(buf, mime, { name: name ?? alt, alt }); }
 const STAGE_ID = /^[a-z0-9]+$/;
 export const stagedMeta = (id: string): StagedMeta | null => { if (!STAGE_ID.test(id)) return null; try { return JSON.parse(fs.readFileSync(path.join(stageDir(), `${id}.json`), 'utf8')); } catch { return null; } };
-/** IDs aller vorgemerkten KI-Bilder, die in einem Text/JSON vorkommen („/staged/<id>.png“ oder „staged:<id>“). */
+/** IDs of all staged AI images that occur in a text/JSON ("/staged/<id>.png" or "staged:<id>"). */
 export function aiImageIds(text: string): string[] {
   const ids = new Set([...text.matchAll(/(?:\/staged\/|staged:)([a-z0-9]+)/g)].map(m => m[1]));
   return [...ids].filter(id => stagedMeta(id)?.ai);
 }
 
-// KI-Bilder aus der Medienverwaltung des Shops: erkannt am Titel/Alt-Text/Dateinamen, gemerkt über den URL-Pfad
+// AI images from the shop's media management: detected by title/alt text/file name, remembered via the URL path
 const AI_MEDIA = /\bKI[- ]?generiert|\bAI[- ]?generated|\bki-bild/i;
 const aiMediaPaths = () => singleton('aiMediaPaths', () => new Set<string>());
-// Vergleich ab „/media/“, damit dieselbe Datei über Shop-Domain, Proxy (/shop/…) oder Thumbnail-Pfad erkannt wird
-const pathOf = (url: string) => { let p = url; try { p = new URL(url, 'http://x').pathname; } catch { /* relativ */ } const i = p.indexOf('/media/'); return i >= 0 ? p.slice(i) : p; };
-/** Merkt sich ein Shop-Medium als KI-Bild, wenn es so gekennzeichnet ist; liefert true für KI-Bilder. */
+// Compare from "/media/" on, so the same file is recognized via shop domain, proxy (/shop/…) or thumbnail path
+const pathOf = (url: string) => { let p = url; try { p = new URL(url, 'http://x').pathname; } catch { /* relative */ } const i = p.indexOf('/media/'); return i >= 0 ? p.slice(i) : p; };
+/** Remembers a shop medium as an AI image if it is labeled as such; returns true for AI images. */
 export function noteMedia(m: { url?: string | null; title?: string | null; alt?: string | null; fileName?: string | null } | null | undefined): boolean {
   if (!m?.url || !AI_MEDIA.test(`${m.title ?? ''} ${m.alt ?? ''} ${m.fileName ?? ''}`)) return false;
   aiMediaPaths().add(pathOf(m.url));
   return true;
 }
-/** Ist diese Bild-URL KI-generiert (vorgemerktes KI-Bild oder als KI gekennzeichnetes Shop-Medium)? */
+/** Is this image URL AI-generated (staged AI image or shop medium labeled as AI)? */
 export const isAiImageUrl = (url: string) => aiImageIds(url).length > 0 || aiMediaPaths().has(pathOf(url));
-/** Alle KI-Bilder in einem Text/JSON (vorgemerkte und bekannte Shop-Medien). */
+/** All AI images in a text/JSON (staged and known shop media). */
 export function aiImagesIn(text: string): string[] {
   return [...aiImageIds(text), ...[...aiMediaPaths()].filter(p => text.includes(p))];
 }
 export const AI_CREDIT = 'Bild: KI-generiert';
-/** Vorgemerktes Bild lesen (z. B. zum Ansehen durch die KI). */
+/** Read a staged image (e.g. for the AI to look at). */
 export function readStaged(id: string): { buf: Buffer; mime: string; name: string } | null {
   const m = stagedMeta(id); if (!m) return null;
   return { buf: fs.readFileSync(path.join(stageDir(), m.file)), mime: m.mime, name: m.name };
 }
-export async function uploadStaged(sw: Shopware, id: string, { folder }: { folder?: string } = {}): Promise<string> { // schreibend – nur im Executor nach Freigabe
-  const map = readMap(); if (map[id] && await sw.get('media', map[id]).catch(() => null)) return map[id]; // schon hochgeladen und noch vorhanden: nicht doppelt
+export async function uploadStaged(sw: Shopware, id: string, { folder }: { folder?: string } = {}): Promise<string> { // writes: only in the executor after approval
+  const map = readMap(); if (map[id] && await sw.get('media', map[id]).catch(() => null)) return map[id]; // already uploaded and still present: not twice
   const meta = stagedMeta(id); if (!meta) throw new Error(`Vorgemerktes Bild ${id} nicht gefunden`);
   const up = await uploadBuffer(sw, fs.readFileSync(path.join(stageDir(), meta.file)), meta.mime,
     meta.ai ? { name: `ki-${meta.name}`, alt: meta.alt, title: `KI-generiert: ${meta.alt ?? meta.name}`, folder } : { name: meta.name, alt: meta.alt, folder });
   kvSet('staging_map', { ...readMap(), [id]: up.mediaId }); return up.mediaId;
 }
 
-/** Auslieferung vorgemerkter Bilder: nur Bilddateien direkt im Staging-Ordner (kein Pfad-Ausbruch). */
+/** Serving staged images: only image files directly in the staging folder (no path escape). */
 export function stagedFile(segments: string[]): { path: string; mime: string } | null {
   if (segments.length !== 1) return null;
   const name = segments[0];
@@ -236,9 +236,9 @@ export function stagedFile(segments: string[]): { path: string; mime: string } |
   return { path: p, mime };
 }
 
-// ---- SVG der KI prüfen: kein Script, keine Event-Handler, keine Animationen/Styles, keine externen Referenzen ----
-// Nicht „entschärfen“ (Strippen ist per Entity-Kodierung, Tag-Splitting oder ungequoteten Attributen umgehbar), sondern ABLEHNEN:
-// Die Datei landet nach Freigabe unverändert in der Medienverwaltung und wird vom Shop ohne CSP ausgeliefert.
+// ---- Check the AI's SVG: no script, no event handlers, no animations/styles, no external references ----
+// Don't "sanitize" (stripping can be bypassed via entity encoding, tag splitting or unquoted attributes), REJECT instead:
+// after approval the file ends up unchanged in media management and is served by the shop without CSP.
 const SVG_ELEMENTS = new Set(['svg', 'g', 'defs', 'symbol', 'use', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'text', 'tspan', 'textPath', 'title', 'desc', 'metadata',
   'linearGradient', 'radialGradient', 'stop', 'pattern', 'clipPath', 'mask', 'marker', 'filter', 'feGaussianBlur', 'feOffset', 'feBlend', 'feColorMatrix', 'feComponentTransfer', 'feComposite',
   'feFlood', 'feMerge', 'feMergeNode', 'feMorphology', 'feDropShadow', 'feTurbulence', 'feDisplacementMap', 'feFuncR', 'feFuncG', 'feFuncB', 'feFuncA', 'feSpecularLighting', 'feDiffuseLighting', 'feDistantLight', 'fePointLight', 'feSpotLight']);
@@ -253,12 +253,12 @@ const SVG_ATTRS = new Set(['id', 'class', 'style', 'xmlns', 'xmlns:xlink', 'vers
 const SVG_ATTR_PREFIX = /^(aria-|data-)[\w-]+$/;
 const TAG = /<\/?([A-Za-z][\w:.-]*)((?:\s+[^\s=>/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?)*)\s*\/?>/g;
 const ATTR = /([^\s=>/]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s"'>]+))?/g;
-/** HTML-/XML-Entities auflösen (auch ohne Semikolon), damit „&#106;avascript:“ erkannt wird */
+/** Decode HTML/XML entities (even without semicolon) so "&#106;avascript:" is detected */
 const decodeEntities = (s: string) => s.replace(/&#x([0-9a-f]+);?/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);?/g, (_, d) => String.fromCodePoint(Number(d)))
   .replace(/&(lt|gt|amp|quot|apos|colon|tab|newline|nbsp|sol);?/gi, (_, n: string) => NAMED[n.toLowerCase()] ?? _);
 const NAMED: Record<string, string> = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'", colon: ':', tab: '\t', newline: '\n', nbsp: ' ', sol: '/' };
 const unquote = (v: string | undefined) => (v == null ? '' : /^["']/.test(v) ? v.slice(1, -1) : v);
-// url(#id) ist erlaubt (Verläufe, Masken), jede andere url() nicht; data:/javascript:/@import nirgends
+// url(#id) is allowed (gradients, masks), any other url() is not; data:/javascript:/@import nowhere
 const BAD_VALUE = /url\(\s*["']?\s*(?!#)|@import|expression\(|-moz-binding|behavior\s*:|javascript:|vbscript:|data:\s*[a-z][\w.+-]*\/|</i;
 const DENY = new RegExp(`<\\s*/?\\s*(script|foreignObject|set|animate\\w*|style|image|iframe|embed|object|a|handler|listener|audio|video|canvas|link|meta|base)\\b|\\bon[a-z]+\\s*=|${BAD_VALUE.source.replace('|<', '')}`, 'i');
 export function sanitizeSvg(svg: string): string {
@@ -288,7 +288,7 @@ export const imageGenAvailable = () => !!rt().img.key;
 export async function generateRaster(prompt: string, size = '1536x1024'): Promise<Buffer> {
   const { key, model } = rt().img;
   if (!key) throw new Error('Keine Bildgenerierung konfiguriert (OpenAI-Key in den Einstellungen fehlt). Alternativen: Bild hochladen, Shop-Medien nutzen oder create_svg_image für Grafiken.');
-  // 429/5xx begrenzt wiederholen (max. 3 Versuche, Retry-After beachtet); Basis-URL nur für Tests überschreibbar (LOTSE_OPENAI_API_BASE)
+  // Retry 429/5xx a limited number of times (max. 3 attempts, Retry-After respected); base URL overridable for tests only (LOTSE_OPENAI_API_BASE)
   const url = `${(process.env.LOTSE_OPENAI_API_BASE || 'https://api.openai.com/v1').replace(/\/+$/, '')}/images/generations`;
   const r = await fetchWithRetry(() => fetch(url, {
     method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },

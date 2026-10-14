@@ -1,10 +1,10 @@
-// Live-Prüfung der Shopify-Seiten: veröffentlicht über die echten Lotse-Werkzeuge (draft_page → publish_page → Freigabe)
-// eine Landingpage, eine Kollektionsvorlage und eine Produktvorlage, liest Theme-Dateien, Zuordnungen und (falls erreichbar)
-// die Storefront, nimmt alles mit Rückgängig zurück und vergleicht den Ausgangszustand.
+// Live check of the Shopify pages: publishes via the real Lotse tools (draft_page → publish_page → approval)
+// a landing page, a collection template and a product template, reads theme files, assignments and (if reachable)
+// the storefront, reverts everything with undo and compares against the initial state.
 //
-//   Lokal gegen den Fake (Standard, startet ihn selbst):
+//   Locally against the fake (default, starts it itself):
 //     npx tsx --conditions=react-server tests/support/shopify-live/verify-pages.ts
-//   Gegen einen Entwicklungs-Shop (eigene Testdaten!):
+//   Against a development shop (your own test data!):
 //     SHOPIFY_STORE_DOMAIN=mein-dev.myshopify.com SHOPIFY_ACCESS_TOKEN=shpat_… LOTSE_COLLECTION=<id> LOTSE_PRODUCTS=<id>,<id> \
 //       npx tsx --conditions=react-server tests/support/shopify-live/verify-pages.ts
 import fs from 'node:fs';
@@ -40,7 +40,7 @@ const lastResult = () => [...events].reverse().find((e): e is Extract<ChatEvent,
 const log = (...a: unknown[]) => console.log(...a);
 const ok = (cond: unknown, msg: string) => { if (!cond) throw new Error(`PRÜFUNG FEHLGESCHLAGEN: ${msg}`); log(`  ✓ ${msg}`); };
 
-/** Zustand für den Vergleich: Fake = kompletter Speicher (ohne Zeitstempel), echter Shop = betroffene Datensätze + Theme-Dateien */
+/** State for the comparison: fake = complete store (without timestamps), real shop = affected records + theme files */
 async function state(): Promise<string> {
   if (fake) {
     const s = JSON.parse(JSON.stringify(fake.state.snapshot()));

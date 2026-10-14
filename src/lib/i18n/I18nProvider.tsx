@@ -1,7 +1,7 @@
 'use client';
 
-// Sprache der Oberfläche im Client. Der Server rendert mit derselben Sprache (Cookie/Accept-Language),
-// ein Wechsel setzt das Cookie und lädt die Server-Teile neu – kein Springen, kein zweites Rendern.
+// UI language on the client. The server renders with the same language (cookie/Accept-Language),
+// switching sets the cookie and reloads the server parts: no flicker, no second render.
 import { useRouter } from 'next/navigation';
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { LOCALE_COOKIE, type Locale } from './locales';
@@ -24,12 +24,12 @@ export function I18nProvider({ locale: initial, children }: { locale: Locale; ch
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 
-/** Sprache, Wörterbuch und Umschalter. Außerhalb des Providers (Tests, isolierte Teile): Standardsprache. */
+/** Language, dictionary and switcher. Outside the provider (tests, isolated parts): default language. */
 export function useI18n(): I18n {
   const ctx = useContext(I18nContext);
   return ctx ?? { locale: 'de', t: messages('de'), setLocale: () => {} };
 }
 
-/** Kurzform für Komponenten, die nur Texte brauchen. */
+/** Shorthand for components that only need texts. */
 export const useT = (): Messages => useI18n().t;
 export const useLocale = (): Locale => useI18n().locale;

@@ -1,5 +1,5 @@
 import 'server-only';
-// Einstellungen: Shop-Plattform + Zugang (Shopware, Shopify, Magento, OpenMage), KI-Zugang, Bild-KI, KI-Zugriffsbereiche. Geheimnisse liegen verschlüsselt in der DB (db.ts) – sie verlassen den Server nie in Richtung KI.
+// Settings: shop platform + access (Shopware, Shopify, Magento, OpenMage), AI access, image AI, AI access scopes. Secrets are stored encrypted in the DB (db.ts); they never leave the server towards the AI.
 import type { AiProvider, PlatformPublic, PublicSettings, ScopeInfo, ScopeKey, SettingsPatch } from '@/lib/protocol';
 import { DEFAULT_PLATFORM, isPlatformKind, PLATFORM_KINDS, PLATFORM_SETTINGS, platformConfigured, platformFields, plainKeys, secretKeys, type PlatformKind } from '@/lib/platforms';
 import { openWithoutPassword } from './access';
@@ -14,14 +14,14 @@ export const inDocker = () => env.AICB_DOCKER === '1';
 
 type Section = Record<string, string>;
 interface StoredSettings { platform?: string; shopware?: Section; shopify?: Section; magento?: Section; openmage?: Section; ai?: Section; image?: Section; scopes?: Partial<Scopes> }
-/** Zugang einer Plattform als Schlüssel → Wert (Felder laut lib/platforms.ts, Geheimnisse entschlüsselt) */
+/** Access of a platform as key → value (fields per lib/platforms.ts, secrets decrypted) */
 export type PlatformConfig = Record<string, string>;
 type GenericKind = Exclude<PlatformKind, 'shopware'>;
 const stored = () => kvGet<StoredSettings>('settings') ?? {};
 const pick = (...v: (string | null | undefined)[]): string => v.find(x => x !== undefined && x !== null && x !== '') ?? '';
 
 export interface Settings {
-  /** aktive Plattform: genau ein Shop ist verbunden (gespeichert, sonst SHOP_PLATFORM, sonst shopware) */
+  /** active platform: exactly one shop is connected (stored, else SHOP_PLATFORM, else shopware) */
   platform: PlatformKind;
   shopware: ShopwareConfig;
   shopify: PlatformConfig;
@@ -33,10 +33,10 @@ export interface Settings {
 }
 
 const kindOf = (s: StoredSettings): PlatformKind => (isPlatformKind(s.platform) ? s.platform : isPlatformKind(env.SHOP_PLATFORM) ? env.SHOP_PLATFORM : DEFAULT_PLATFORM);
-/** Verbundene Plattform ohne Entschlüsseln der Zugangsdaten (läuft bei jedem Session-Zugriff) */
+/** Connected platform without decrypting the credentials (runs on every session access) */
 export const storedPlatform = (): PlatformKind => kindOf(stored());
 
-export const getSettings = (): Settings => settingsOf(stored()); // entschlüsselt, nur serverintern verwenden
+export const getSettings = (): Settings => settingsOf(stored()); // decrypted, use only inside the server
 function settingsOf(s: StoredSettings): Settings {
   const sw = s.shopware ?? {}, ai = s.ai ?? {}, im = s.image ?? {};
   return {
@@ -49,22 +49,22 @@ function settingsOf(s: StoredSettings): Settings {
   };
 }
 
-// Shopify/Magento/OpenMage: Felder laut Beschreibung; Rückfall auf die Umgebungsvariable des Feldes
+// Shopify/Magento/OpenMage: fields per description; fallback to the field's environment variable
 function genericConfig(kind: GenericKind, sec: Section = {}): PlatformConfig {
   return Object.fromEntries(platformFields(kind).map(f => [f.key, f.secret ? pick(unseal(sec[f.key]), envSecret(kind, sec, f.env)) : pick(sec[f.key], f.env ? env[f.env] : undefined)]));
 }
 
-// Zugangsdaten gehören zur Adresse, an die sie gehen (API-Basis je Plattform). Wechselt deren Herkunft, verwirft mergeSettings die gespeicherten
-// Geheimnisse (außer sie kommen im selben Patch neu mit) – eine kompromittierte Oberfläche kann sie sonst per „Verbindung testen“ an einen fremden Host schicken.
+// Credentials belong to the address they are sent to (API base per platform). If its origin changes, mergeSettings discards the stored
+// secrets (unless new ones come in the same patch); otherwise a compromised UI could send them to a foreign host via "Verbindung testen" (test connection).
 const CONN_URL: Record<PlatformKind, string> = { shopware: 'url', shopify: 'storeDomain', magento: 'url', openmage: 'url' };
 const connEnv = (kind: PlatformKind) => platformFields(kind).find(f => f.key === CONN_URL[kind])?.env;
-/** Herkunft einer Shop-Adresse (Schema, Host, Port; klein). Domain ohne Schema (Shopify) = https. */
+/** Origin of a shop address (scheme, host, port; lower case). Domain without scheme (Shopify) = https. */
 export function shopOrigin(v: string | undefined): string {
   const s = (v ?? '').trim(); if (!s) return '';
   try { return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : `https://${s}`).origin.toLowerCase(); } catch { return s.toLowerCase(); }
 }
-/** Geparkte Zugangsdaten: { origin, <feld>: versiegelt } – nicht wirksam, kommen nur zurück, wenn die Adresse wieder genau dorthin zeigt.
- *  So löscht ein kurz geleertes oder vertipptes Adressfeld (Auto-Speichern) nichts endgültig, und an eine fremde Adresse gehen sie nie. */
+/** Parked credentials: { origin, <field>: sealed }; not in effect, they only come back when the address points exactly there again.
+ *  So a briefly cleared or mistyped address field (auto-save) deletes nothing permanently, and they never go to a foreign address. */
 const PARKED = '_parked';
 function parkSecrets(sec: Section, secret: string[], before: string, after: string) {
   const held = secret.filter(k => sec[k]);
@@ -73,18 +73,18 @@ function parkSecrets(sec: Section, secret: string[], before: string, after: stri
   let parked: Record<string, string> = {}; try { parked = JSON.parse(sec[PARKED]); } catch {}
   if (after && parked.origin === after) { for (const k of secret) if (parked[k]) sec[k] = parked[k]; delete sec[PARKED]; }
 }
-/** Wirksame Verbindungsadresse einer Plattform (gespeichert, sonst Umgebung) */
+/** Effective connection address of a platform (stored, else environment) */
 const connOrigin = (kind: PlatformKind, sec: Section = {}) => { const e = connEnv(kind); return shopOrigin(pick(sec[CONN_URL[kind]], e ? env[e] : undefined)); };
-/** Geheimnis aus der Umgebung nur zur Adresse aus der Umgebung: zeigt die gespeicherte URL woandershin, bleibt es weg. */
+/** Secret from the environment only for the address from the environment: if the stored URL points elsewhere, it is left out. */
 function envSecret(kind: PlatformKind, sec: Section, name: string | undefined): string | undefined {
   if (!name) return undefined;
   const e = connEnv(kind), envUrl = e ? env[e] : undefined;
   return !envUrl || connOrigin(kind, sec) === shopOrigin(envUrl) ? env[name] : undefined;
 }
-/** Zugang einer Plattform als Schlüssel → Wert (Shopware: ShopwareConfig) */
+/** Access of a platform as key → value (Shopware: ShopwareConfig) */
 export const platformConfig = (kind: PlatformKind, g = getSettings()): PlatformConfig => (kind === 'shopware' ? { ...g.shopware } : g[kind]);
 const shopwareConfigured = (c: ShopwareConfig) => !!(c.url && ((c.user && c.password) || (c.clientId && c.clientSecret)));
-/** Zugang der Plattform vollständig (sagt nichts darüber, ob der Shop erreichbar ist) */
+/** Platform access complete (says nothing about whether the shop is reachable) */
 export const shopConfigured = (kind: PlatformKind = getSettings().platform, g = getSettings()) => (kind === 'shopware' ? shopwareConfigured(g.shopware) : platformConfigured(kind, g[kind]));
 
 function platformPublic(kind: PlatformKind, g: Settings): PlatformPublic {
@@ -95,11 +95,11 @@ function platformPublic(kind: PlatformKind, g: Settings): PlatformPublic {
   };
 }
 
-/** KI-Zugang vorhanden: Codex angemeldet bzw. Anthropic-API-Schlüssel (Einstellungen oder Umgebung). Ein Claude-Abo wird bewusst nicht unterstützt
- *  (Anthropic erlaubt Drittprodukten auf Basis des Agent SDK keinen claude.ai-Login ohne Freigabe). */
+/** AI access available: Codex signed in or Anthropic API key (settings or environment). A Claude subscription is deliberately not supported
+ *  (Anthropic doesn't allow third-party products built on the Agent SDK to use claude.ai login without approval). */
 export const aiConfigured = (g = getSettings()) => (g.ai.provider === 'codex' ? codexLoggedIn() : !!(g.ai.apiKey || env.ANTHROPIC_API_KEY));
 
-export function publicSettings(): PublicSettings { // maskiert – für die Oberfläche
+export function publicSettings(): PublicSettings { // masked, for the UI
   const g = getSettings();
   return {
     shopware: { url: g.shopware.url, publicUrl: g.shopware.publicUrl, user: g.shopware.user, clientId: g.shopware.clientId, hasPassword: !!g.shopware.password, hasClientSecret: !!g.shopware.clientSecret, configured: shopwareConfigured(g.shopware) },
@@ -114,33 +114,33 @@ export function publicSettings(): PublicSettings { // maskiert – für die Ober
 }
 
 export const updateSettings = (p: SettingsPatch = {}) => { kvSet('settings', mergeSettings(stored(), p)); };
-/** Gespeicherter Stand + Patch, ohne zu schreiben (api/settings prüft so vorab, was sich an der Shop-Verbindung ändert) */
+/** Stored state + patch, without writing (api/settings uses this to check up front what changes in the shop connection) */
 function mergeSettings(s: StoredSettings, p: SettingsPatch): StoredSettings {
   const out: StoredSettings = { ...s };
   const section = <K extends 'shopware' | 'shopify' | 'magento' | 'openmage' | 'ai' | 'image'>(name: K, plain: string[], secret: string[]) => {
     const patch = p[name] as Record<string, string | null | undefined> | undefined;
     if (!patch) return; const sec: Section = { ...(s[name] ?? {}) }; out[name] = sec;
     for (const k of plain) if (patch[k] !== undefined) sec[k] = String(patch[k]).trim();
-    if (name !== 'ai' && name !== 'image') { // Shop-Adresse auf andere Herkunft: gespeicherte Geheimnisse verwerfen (neue aus dem Patch gelten)
+    if (name !== 'ai' && name !== 'image') { // shop address with a different origin: discard stored secrets (new ones from the patch apply)
       const kind = name as PlatformKind, before = connOrigin(kind, s[kind]), after = connOrigin(kind, sec);
       if (before !== after) parkSecrets(sec, secret, before, after);
     }
     let fresh = false;
-    for (const k of secret) { const v = patch[k]; if (v === null) delete sec[k]; else if (v !== undefined && v !== '') { const sealed = seal(String(v).trim()); if (sealed) { sec[k] = sealed; fresh = true; } } } // leer = unverändert, null = löschen
-    if (fresh) delete sec[PARKED]; // neu eingegeben: geparkte alte Zugangsdaten sind überholt
+    for (const k of secret) { const v = patch[k]; if (v === null) delete sec[k]; else if (v !== undefined && v !== '') { const sealed = seal(String(v).trim()); if (sealed) { sec[k] = sealed; fresh = true; } } } // empty = unchanged, null = delete
+    if (fresh) delete sec[PARKED]; // newly entered: parked old credentials are obsolete
   };
   if (p.platform !== undefined && isPlatformKind(p.platform)) out.platform = p.platform;
   section('shopware', ['url', 'publicUrl', 'user', 'clientId'], ['password', 'clientSecret']);
   for (const k of ['shopify', 'magento', 'openmage'] as const) section(k, plainKeys(k), secretKeys(k));
   section('ai', ['provider', 'model', 'codexModel'], ['apiKey']);
-  if (out.ai?.oauthToken) { out.ai = { ...out.ai }; delete out.ai.oauthToken; } // Altbestand: Claude-Abo-Token wird nicht mehr unterstützt
+  if (out.ai?.oauthToken) { out.ai = { ...out.ai }; delete out.ai.oauthToken; } // legacy data: Claude subscription token is no longer supported
   if (out.ai?.provider && out.ai.provider !== 'codex') out.ai.provider = 'claude';
   section('image', ['model'], ['openaiKey']);
   if (p.scopes) out.scopes = { ...DEFAULT_SCOPES, ...(s.scopes ?? {}), ...Object.fromEntries(Object.entries(p.scopes).filter(([k]) => k in DEFAULT_SCOPES).map(([k, v]) => [k, !!v])) };
   return out;
 }
 
-/** Felder der Shop-Verbindung (Plattform, URLs, Zugangsdaten), die der Patch ändern würde, z. B. ['platform', 'shopware.url']; nur Namen, nie Werte */
+/** Shop connection fields (platform, URLs, credentials) the patch would change, e.g. ['platform', 'shopware.url']; names only, never values */
 export function connectionChanges(p: SettingsPatch): string[] {
   const s = stored(), a = settingsOf(s), b = settingsOf(mergeSettings(s, p)), out: string[] = [];
   if (a.platform !== b.platform) out.push('platform');
@@ -148,12 +148,12 @@ export function connectionChanges(p: SettingsPatch): string[] {
   return out;
 }
 
-// Umgebung für den KI-Prozess (Claude): Freigabeliste statt Sperrliste. Nur was der Agent-Prozess zum Laufen braucht (Pfade, Sprache, Proxy, Zertifikate,
-// Anthropic-/Claude-Variablen); Zugangsdaten anderer Dienste (SHOPWARE_*, OPENAI_*, AWS_*, GITHUB_TOKEN, DATABASE_URL, SMTP_* …) erreichen ihn nie.
-// Nur API-Schlüssel: kein Abo-Token, keine claude.ai-Anmeldung des Rechners, eigenes Konfigurationsverzeichnis im Datenordner.
+// Environment for the AI process (Claude): allowlist instead of denylist. Only what the agent process needs to run (paths, language, proxy, certificates,
+// Anthropic/Claude variables); credentials of other services (SHOPWARE_*, OPENAI_*, AWS_*, GITHUB_TOKEN, DATABASE_URL, SMTP_* …) never reach it.
+// API key only: no subscription token, no claude.ai login of the machine, own config directory in the data folder.
 const AI_ENV_ALLOW = /^(PATH|HOME|USER|LOGNAME|SHELL|TERM|COLORTERM|LANG|LANGUAGE|LC_\w+|TZ|TMPDIR|TMP|TEMP|PWD|HOSTNAME|NODE_\w+|HTTPS?_PROXY|NO_PROXY|SSL_CERT_(FILE|DIR)|ANTHROPIC_\w+|CLAUDE_\w+|DISABLE_\w+|MAX_THINKING_TOKENS|API_TIMEOUT_MS|MCP_\w+|SYSTEMROOT|SYSTEMDRIVE|COMSPEC|PATHEXT|APPDATA|LOCALAPPDATA|USERPROFILE|PROGRAMFILES|PROGRAMDATA)$/i;
 const AI_ENV_DENY = /^(ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|CLAUDE_CONFIG_DIR)$/i;
-// Bedrock/Vertex hinter dem Agent SDK: deren Zugang nur, wenn ausdrücklich eingeschaltet
+// Bedrock/Vertex behind the Agent SDK: their access only if explicitly enabled
 const PROVIDER_ENV = /^(AWS_|GOOGLE_|GCLOUD_|CLOUD_ML_REGION$)/i;
 export function aiEnv(): Record<string, string> {
   const e: Record<string, string> = {};
@@ -165,7 +165,7 @@ export function aiEnv(): Record<string, string> {
   return e;
 }
 
-// Geheimnisse aus Fehlermeldungen entfernen, bevor etwas zur KI geht
+// Remove secrets from error messages before anything goes to the AI
 export function redact(text: unknown): string {
   let t = String(text ?? ''); const g = getSettings();
   const shopSecrets = (['shopify', 'magento', 'openmage'] as const).flatMap(k => secretKeys(k).map(f => g[k][f]));

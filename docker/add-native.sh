@@ -1,7 +1,7 @@
 #!/bin/sh
-# Native Programme der KI-Laufzeiten für eine Zielarchitektur bereitstellen bzw. aufräumen.
-#   add-native <amd64|arm64>                    legt die Pakete der Zielarchitektur nach node_modules (falls fehlend)
-#   add-native <amd64|arm64> --prune <dir>      entfernt in <dir> alles, was die Zielarchitektur nicht braucht
+# Provide or clean up the native binaries of the AI runtimes for a target architecture.
+#   add-native <amd64|arm64>                    puts the target architecture's packages into node_modules (if missing)
+#   add-native <amd64|arm64> --prune <dir>      removes everything in <dir> the target architecture does not need
 set -eu
 case "$1" in arm64) ARCH=arm64 ;; amd64|x64) ARCH=x64 ;; *) echo "unbekannte Architektur: $1" >&2; exit 1 ;; esac
 OTHER=$([ "$ARCH" = x64 ] && echo arm64 || echo x64)
@@ -16,8 +16,8 @@ if [ "${2:-}" = "--prune" ]; then
   exit 0
 fi
 
-# Pakete per npm pack holen (ohne Plattform-Prüfung) und an die Stelle legen, an der die SDKs sie suchen
-fetch() { # <paket@version> <ziel>
+# Fetch packages via npm pack (without platform check) and put them where the SDKs look for them
+fetch() { # <package@version> <target>
   [ -f "$2/package.json" ] && return 0
   tmp=$(mktemp -d); (cd "$tmp" && npm pack --silent "$1" >/dev/null)
   mkdir -p "$2" && tar xzf "$tmp"/*.tgz --strip-components=1 -C "$2" && rm -rf "$tmp"

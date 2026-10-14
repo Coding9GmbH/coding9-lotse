@@ -1,7 +1,7 @@
-// Nur für Tests: kleiner Fake der Lotse_Connector-API (OpenMage-Modul, integrations/openmage/openapi.yaml), Daten im Speicher.
-// Bildet die Ebenen-Logik nach (globale Werte + Werte je Store-View, null im Store-Scope entfernt den Wert, im globalen Scope 400),
-// store_overrides, Galerie mit Rollen, Bestand, Kategorien mit Zuordnung, CMS-Seiten/-Blöcke, Preisregeln, URL-Rewrites (auch
-// „Save Rewrites History“ mit rewrites_added). Prüft das Bearer-Token; Kunden-/Bestell-Pfade gibt es nicht (404 not_found).
+// For tests only: small fake of the Lotse_Connector API (OpenMage module, integrations/openmage/openapi.yaml), data in memory.
+// Mimics the scope logic (global values + values per store view, null in store scope removes the value, 400 in global scope),
+// store_overrides, gallery with roles, stock, categories with assignment, CMS pages/blocks, price rules, URL rewrites (also
+// "Save Rewrites History" with rewrites_added). Checks the bearer token; customer/order paths don't exist (404 not_found).
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
@@ -47,14 +47,14 @@ export async function startFakeOpenmage(seed: Partial<Pick<FakeOpenmage, 'produc
   const info = () => ({ platform: 'openmage', version: '20.18.0', magento_version: '1.9.4.5', edition: 'Community', php_version: '8.2', module_version: '1.2.0', shop_name: 'Haus Holm', default_store_view: 'default', price_includes_tax: true, catalog_price_scope: 'global', save_rewrites_history: true, product_url_suffix: '.html', category_url_suffix: '.html', indexers: [],
     websites: [{ id: 1, code: 'base', name: 'Main Website', is_default: true, default_group_id: 1, base_currency: 'EUR', groups: [{ id: 1, name: 'Main Website Store', root_category_id: 2, default_store_id: 1, store_views: views() }] }], store_views: views(), ...f.info });
   const views = () => STORE_VIEWS.map(v => ({ ...v, base_url: `${f.base}/`, link_url: `${f.base}/`, media_url: `${f.base}/media/` }));
-  // ---- Rewrites: System-Rewrites je Store aus url_key, eigene bleiben ----
+  // ---- Rewrites: system rewrites per store from url_key, custom ones stay ----
   const sysRewrites = () => {
     f.rewrites = f.rewrites.filter(r => !r.is_system);
     for (const p of f.products) for (const s of [1, 2]) { const k = merged(p.vals, s).url_key; if (k && Number(merged(p.vals, s).visibility) !== 1) f.rewrites.push({ id: 100000 + p.id * 10 + s, store_id: s, id_path: `product/${p.id}`, request_path: `${k}.html`, target_path: `catalog/product/view/id/${p.id}`, is_system: true, options: null, description: null, category_id: null, product_id: p.id }); }
     for (const c of f.categories) for (const s of [1, 2]) { const k = merged(c.vals, s).url_key; if (k && c.level >= 2) f.rewrites.push({ id: 200000 + c.id * 10 + s, store_id: s, id_path: `category/${c.id}`, request_path: `${k}.html`, target_path: `catalog/category/view/id/${c.id}`, is_system: true, options: null, description: null, category_id: c.id, product_id: null }); }
   };
   sysRewrites();
-  // ---- Formatierung ----
+  // ---- Formatting ----
   const overrides = (v: Vals, s: number) => (s ? Object.keys(v[s] ?? {}) : []);
   const listItem = (p: FakeProduct, s: number) => { const v = merged(p.vals, s); return { id: p.id, sku: p.sku, type_id: p.type_id, attribute_set_id: p.attribute_set_id, name: v.name ?? null, status: Number(v.status ?? 1), visibility: Number(v.visibility ?? 4), price: v.price == null ? null : Number(v.price), special_price: v.special_price == null || v.special_price === '' ? null : Number(v.special_price), special_from_date: v.special_from_date ?? null, special_to_date: v.special_to_date ?? null, tax_class_id: v.tax_class_id == null ? null : Number(v.tax_class_id), weight: v.weight == null ? null : Number(v.weight), url_key: v.url_key ?? null, image: v.image ?? null, qty: p.stock.qty, is_in_stock: p.stock.is_in_stock, category_ids: p.categories.map(c => c.id), website_ids: p.website_ids, created_at: '2026-10-10 20:16:08', updated_at: '2026-10-10 21:26:41' }; };
   const images = (p: FakeProduct, s: number) => { const roles = merged(p.vals, s); return p.images.map(im => { const g = im.vals[0] ?? {}, st = s ? im.vals[s] : undefined, label = st?.label ?? g.label ?? '', position = st?.position ?? g.position ?? 0; return { id: im.id, file: im.file, url: mediaUrl(im.file), label, position, disabled: !!(st?.disabled ?? g.disabled), types: ROLES.filter(r => roles[r] === im.file), label_use_default: !st || st.label == null, position_use_default: !st || st.position == null, has_store_values: !!st }; }).sort((a, b) => a.position - b.position || a.id - b.id); };
@@ -72,12 +72,12 @@ export async function startFakeOpenmage(seed: Partial<Pick<FakeOpenmage, 'produc
   const page = (rows: Rec[], q: URLSearchParams) => { const limit = Math.max(1, Math.min(Number(q.get('limit') ?? 50), 200)), pg = Math.max(1, Number(q.get('page') ?? 1)); return { data: rows.slice((pg - 1) * limit, pg * limit), meta: { page: pg, limit, total: rows.length, pages: Math.max(1, Math.ceil(rows.length / limit)) } }; };
   const sortRows = (rows: Rec[], q: URLSearchParams, allowed: string[], def: string) => { const s = q.get('sort') ?? def, dir = q.get('dir') === 'desc' ? -1 : 1; if (!allowed.includes(s)) throw err(400, 'validation', `Unbekanntes Sortierfeld ${s}`); return [...rows].sort((a, b) => (a[s] == null ? '' : String(a[s])).localeCompare(b[s] == null ? '' : String(b[s]), undefined, { numeric: true }) * dir); };
   const findProduct = (ref: string) => { ref = decodeURIComponent(ref); return ref.startsWith('id:') ? f.products.find(p => p.id === Number(ref.slice(3))) : f.products.find(p => p.sku === ref); };
-  /** Attribut-Schreiben wie das Modul: Store-Scope null = Override löschen; global null = 400; url_key formatiert + Rewrite-Historie (Produkt und Kategorie) */
+  /** Attribute writes like the module: store scope null = delete override; global null = 400; url_key formatted + rewrite history (product and category) */
   const writeAttrs = (vals: Vals, s: number, attrs: Rec, opts: { product?: FakeProduct; category?: FakeCategory } = {}) => {
     const added: number[] = [];
     for (const [k, x] of Object.entries(attrs)) {
       if (x === null) { if (!s) throw err(400, 'validation', `null ist im globalen Scope nicht erlaubt: ${k}`); if (vals[s]) delete vals[s][k]; continue; }
-      if (x === '' && !s) { delete (vals[0] ??= {})[k]; continue; } // leeren = Wert entfernen (OpenMage löscht leere Attributwerte, Antwort null)
+      if (x === '' && !s) { delete (vals[0] ??= {})[k]; continue; } // clearing = remove the value (OpenMage deletes empty attribute values, response null)
       let v: unknown = x;
       if (k === 'url_key') v = urlKey(String(x));
       if (k === 'status' || k === 'visibility') v = Number(x);
@@ -109,7 +109,7 @@ export async function startFakeOpenmage(seed: Partial<Pick<FakeOpenmage, 'produc
     let mm: RegExpExecArray | null;
     try {
       if (p === '/v1/info' && method === 'GET') return data(info());
-      // ---- Produkte ----
+      // ---- Products ----
       if (p === '/v1/products/attributes' && method === 'GET') return data({ attribute_sets: [{ id: 4, name: 'Default', is_default: true, attribute_codes: PRODUCT_ATTRS.map(a => a.code) }], attributes: PRODUCT_ATTRS.map(a => ({ ...a, options: q.get('options') === '0' ? undefined : a.options })) });
       if (p === '/v1/products' && method === 'GET') {
         let rows: Rec[] = f.products.filter(x => { const v = merged(x.vals, s);
@@ -171,7 +171,7 @@ export async function startFakeOpenmage(seed: Partial<Pick<FakeOpenmage, 'produc
           if ('label' in b) { if (b.label === null) { if (!s) throw err(400, 'validation', 'null nur im Store-Scope'); delete tgt.label; } else tgt.label = String(b.label); }
           if ('position' in b) { if (b.position === null) { if (!s) throw err(400, 'validation', 'null nur im Store-Scope'); delete tgt.position; } else tgt.position = Number(b.position); }
           if ('disabled' in b) tgt.disabled = !!b.disabled;
-          // Rollen wie das Modul: nur geänderte Rollen im Scope schreiben, geerbte unveränderte bleiben geerbt
+          // Roles like the module: write only changed roles in the scope, unchanged inherited ones stay inherited
           if (Array.isArray(b.types)) { const cur = merged(pr.vals, s); for (const r of ROLES) { const want = (b.types as string[]).includes(r) ? im.file : cur[r] === im.file ? 'no_selection' : null; if (want !== null && want !== cur[r]) (pr.vals[s] ??= {})[r] = want; } }
           if (s && !Object.keys(tgt).length) delete im.vals[s];
           if (s && im.vals[s] && im.vals[s].label == null && im.vals[s].position == null && !!im.vals[s].disabled === !!im.vals[0]?.disabled) delete im.vals[s];
@@ -183,7 +183,7 @@ export async function startFakeOpenmage(seed: Partial<Pick<FakeOpenmage, 'produc
           (im.vals[s] ??= {}).disabled = true; return data({ mode: 'disable', before, file_deleted: false, images: images(pr, s) });
         }
       }
-      // ---- Kategorien ----
+      // ---- Categories ----
       if (p === '/v1/categories' && method === 'GET') {
         if (q.get('flat') === '1') return data(f.categories.filter(c => c.level >= 1).map(c => catNode(c, s)));
         const roots = f.categories.filter(c => (q.get('root') ? c.id === Number(q.get('root')) : s ? c.id === 2 : c.parent_id === 1));
@@ -216,7 +216,7 @@ export async function startFakeOpenmage(seed: Partial<Pick<FakeOpenmage, 'produc
           if (method === 'PATCH' || method === 'PUT') { const b = body as Rec; for (const [k, v] of Object.entries(b)) { if (k === 'stores') x.store_ids = storeIds(v); else if (k !== 'id') x[k] = k === 'is_active' ? !!v : v; } return data(cmsOut(x, true)); }
         }
       }
-      // ---- Preisregeln ----
+      // ---- Price rules ----
       if (p === '/v1/salesrules' && method === 'GET') {
         let rows = f.rules.filter(r => (!q.get('is_active') || Number(!!r.is_active) === Number(q.get('is_active'))) && (!q.get('name') || like(r.name, q.get('name')!)) && (!q.get('coupon_code') || String(r.coupon_code ?? '').toLowerCase() === q.get('coupon_code')!.toLowerCase()));
         rows = sortRows(rows.map(r => ({ ...r, rule_id: r.id })), q, ['rule_id', 'name', 'sort_order', 'from_date', 'to_date', 'is_active'], 'rule_id');

@@ -1,31 +1,31 @@
 import 'server-only';
-// OpenMage: interne Links in Texten und Seiten prüfen (Entwurf, Veröffentlichen, Shop-Check). Ziele werden über die URL-Rewrites
-// der Store-View und die CMS-Seiten aufgelöst: nicht gefunden = kaputt, Produkt deaktiviert oder nicht einzeln sichtbar,
-// Kategorie inaktiv, Weiterleitung (301/302) = besser direkt auf die neue URL verlinken. Liest nur über den geschützten Lese-Client.
+// OpenMage: check internal links in texts and pages (draft, publish, shop check). Targets are resolved via the URL rewrites
+// of the store view and the CMS pages: not found = broken, product disabled or not individually visible,
+// category inactive, redirect (301/302) = better link directly to the new URL. Reads only via the guarded read client.
 import type { LinkFinding, LinkRef, LinkReport } from '../../seo-links';
 import { relPath } from '../magento/lookup';
 import { isActive, isVisible } from './map';
 import type { OmReader } from './reader';
 
-/** Pfade, die keine Seiten sind (Assets, Medien, Warenkorb, Konto) */
+/** Paths that are not pages (assets, media, cart, account) */
 const NOT_PAGE = /^(skin|js|media|checkout|customer|wishlist|sales|newsletter|contacts?|catalogsearch|review|api|lotse-api|index\.php\/admin|admin)(\/|$)/i;
 const MAX_LINKS = 200;
 
 export interface OmLinkCheck { report: LinkReport; checked: number }
 
-/** Einordnung eines href: intern (Pfad relativ zur Shop-Basis), extern, Anker/sonstiges, ungültig */
+/** Classification of an href: internal (path relative to the shop base), external, anchor/other, invalid */
 export function classifyHref(href: string, bases: string[]): { type: 'internal'; path: string } | { type: 'external' | 'other' | 'invalid' } {
   const h = href.trim();
   if (!h || h.startsWith('#') || /^(mailto|tel|sms):/i.test(h)) return { type: 'other' };
   if (/^(javascript|data|vbscript):/i.test(h)) return { type: 'invalid' };
-  if (/^\{\{/.test(h)) return { type: 'other' }; // Direktive ({{store url=…}}): Ziel ergibt OpenMage erst beim Ausgeben
+  if (/^\{\{/.test(h)) return { type: 'other' }; // directive ({{store url=…}}): OpenMage only resolves the target when rendering
   if (/^https?:\/\//i.test(h)) { const p = relPath(h, bases); return p == null ? { type: 'external' } : { type: 'internal', path: p.replace(/[?#].*$/, '').replace(/^index\.php\/?/, '') }; }
   if (h.startsWith('//')) return { type: 'external' };
   if (h.startsWith('/')) return { type: 'internal', path: h.replace(/^\/+/, '').replace(/[?#].*$/, '').replace(/^index\.php\/?/, '') };
   return { type: 'other' };
 }
 
-/** Auflösungen je Pfad (Problemtext oder null); über mehrere Aufrufe hinweg teilbar, z. B. im Shop-Check je Lese-Client */
+/** Resolutions per path (problem text or null); shareable across calls, e.g. in the shop check per read client */
 export type OmLinkCache = Map<string, Promise<string | null>>;
 
 export async function checkOmLinks(ro: OmReader, links: LinkRef[], seen: OmLinkCache = new Map()): Promise<OmLinkCheck> {
@@ -41,7 +41,7 @@ export async function checkOmLinks(ro: OmReader, links: LinkRef[], seen: OmLinkC
       if (r.type === 'PRODUCT' && r.id != null) { const p = await ro.productById(r.id).catch(() => null); if (!p) return 'Produkt nicht gefunden'; if (!isActive(p)) return 'Produkt ist deaktiviert'; if (!isVisible(p)) return 'Produkt ist nicht einzeln sichtbar'; }
       if (r.type === 'CATEGORY' && r.id != null) { const c = await ro.category(r.id).catch(() => null); if (!c) return 'Kategorie nicht gefunden'; if (!c.is_active) return 'Kategorie ist inaktiv'; }
       return null;
-    })().catch(() => null)); // Auflösung nicht möglich (Bereich gesperrt o. Ä.): nicht als kaputt melden
+    })().catch(() => null)); // resolution not possible (scope blocked or similar): do not report as broken
     return seen.get(path)!;
   };
   for (const l of links) {

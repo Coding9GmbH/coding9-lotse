@@ -1,7 +1,7 @@
 import 'server-only';
-// Google Search Console: Zugang per Service-Konto (JSON-Schlüssel, verschlüsselt in der DB), RS256-JWT → Access-Token (gecacht),
-// Search Analytics (searchanalytics.query, seitenweise) und sites.list. Der Schlüssel verlässt den Server nie (weder zur KI noch zum Browser).
-// Basis-URLs per Umgebung überschreibbar (Tests mit lokalem Fake-Endpunkt): LOTSE_GSC_API_BASE, LOTSE_GSC_TOKEN_URL.
+// Google Search Console: access via service account (JSON key, encrypted in the DB), RS256 JWT → access token (cached),
+// Search Analytics (searchanalytics.query, paged) and sites.list. The key never leaves the server (neither to the AI nor the browser).
+// Base URLs can be overridden via env (tests with a local fake endpoint): LOTSE_GSC_API_BASE, LOTSE_GSC_TOKEN_URL.
 import crypto from 'node:crypto';
 import type { GscPublic } from '@/lib/protocol';
 import { kvGet, kvSet, seal, unseal } from '../db';
@@ -20,7 +20,7 @@ interface StoredGsc { key?: string; clientEmail?: string; projectId?: string; pr
 const KV = 'gsc';
 const stored = () => kvGet<StoredGsc>(KV) ?? {};
 
-/** JSON-Schlüssel prüfen (Typ, E-Mail, lesbarer privater RSA-Schlüssel). Wirft mit verständlicher Meldung. */
+/** Validate the JSON key (type, email, readable RSA private key). Throws with an understandable message. */
 export function parseServiceKey(text: string): ServiceKey {
   let j: Record<string, unknown>;
   try { j = JSON.parse(text); } catch { throw new Error('Kein gültiges JSON – bitte die komplette Schlüsseldatei des Service-Kontos einfügen.'); }
@@ -31,7 +31,7 @@ export function parseServiceKey(text: string): ServiceKey {
   return { client_email: j.client_email, private_key: j.private_key, project_id: typeof j.project_id === 'string' ? j.project_id : undefined, private_key_id: typeof j.private_key_id === 'string' ? j.private_key_id : undefined };
 }
 
-/** Property: „sc-domain:shop.de“ oder URL-Präfix „https://www.shop.de/“ (mit Schrägstrich am Ende). */
+/** Property: "sc-domain:shop.de" or URL prefix "https://www.shop.de/" (with trailing slash). */
 export function normProperty(p: string): string {
   const s = p.trim();
   if (!s) return '';
@@ -52,7 +52,7 @@ export function gscPublic(): GscPublic {
   return { hasKey: !!s.key, clientEmail: s.clientEmail ?? '', projectId: s.projectId ?? '', property: s.property ?? '', connected: !!(s.key && s.property), updatedAt: s.updatedAt ?? null };
 }
 
-/** Speichern: key = kompletter JSON-Text (leer/undefined = unverändert, null = Verbindung trennen). */
+/** Save: key = complete JSON text (empty/undefined = unchanged, null = disconnect). */
 export function saveGsc(p: { key?: string | null; property?: string }) {
   const s = stored(), out: StoredGsc = { ...s };
   if (p.key === null) { kvSet(KV, {}); tokens().clear(); clearGscCache(); return; }
@@ -62,7 +62,7 @@ export function saveGsc(p: { key?: string | null; property?: string }) {
   kvSet(KV, out); clearGscCache();
 }
 
-// ---- Anmeldung: JWT (RS256) → Access-Token ----
+// ---- Sign-in: JWT (RS256) → access token ----
 const b64u = (b: Buffer | string) => Buffer.from(b).toString('base64url');
 export function signJwt(key: ServiceKey, aud: string, now = Math.floor(Date.now() / 1000)): string {
   const head = b64u(JSON.stringify({ alg: 'RS256', typ: 'JWT', ...(key.private_key_id ? { kid: key.private_key_id } : {}) }));
@@ -73,7 +73,7 @@ export function signJwt(key: ServiceKey, aud: string, now = Math.floor(Date.now(
 
 const tokens = () => singleton('gsc-tokens', () => new Map<string, { token: string; exp: number }>());
 async function gfetch(url: string, init: RequestInit): Promise<Response> {
-  // 429/5xx begrenzt wiederholen (max. 3 Versuche, Retry-After beachtet); alle Aufrufe sind lesend, der Body ist ein String
+  // retry 429/5xx a limited number of times (max. 3 attempts, honors Retry-After); all calls are reads, the body is a string
   return fetchWithRetry(() => fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) }), { label: 'gsc' }).catch((e: Error & { cause?: { code?: string } }) => {
     throw new Error(e.name === 'TimeoutError' ? 'Google antwortet nicht (Timeout)' : `Google nicht erreichbar: ${e.cause?.code || e.message}`);
   });
@@ -112,11 +112,11 @@ export interface QueryArgs { startDate: string; endDate: string; dimensions?: Di
 export interface Row { keys: string[]; clicks: number; impressions: number; ctr: number; position: number }
 export const PAGE_SIZE = 25_000;
 
-/** searchanalytics.query mit Paging (startRow), bis maxRows (Standard 25.000) erreicht oder keine Zeilen mehr kommen. */
+/** searchanalytics.query with paging (startRow) until maxRows (default 25,000) is reached or no more rows come. */
 const CACHE_MS = 10 * 60_000;
 const cache = () => singleton('gsc-cache', () => new Map<string, { at: number; rows: Promise<Row[]> }>());
 export const clearGscCache = () => cache().clear();
-/** Wie searchAnalytics, aber 10 Minuten zwischengespeichert (Shop-Check und mehrere Werkzeuge fragen oft dasselbe). */
+/** Like searchAnalytics, but cached for 10 minutes (shop check and several tools often ask the same). */
 export function searchAnalyticsCached(cfg: { key: ServiceKey; property: string }, a: QueryArgs): Promise<Row[]> {
   const id = JSON.stringify([cfg.property, cfg.key.client_email, a]), c = cache().get(id);
   if (c && Date.now() - c.at < CACHE_MS) return c.rows;
@@ -141,7 +141,7 @@ export async function searchAnalytics(cfg: { key: ServiceKey; property: string }
   return out;
 }
 
-/** Verbindung prüfen: Token holen, Properties lesen, Zugriff auf die gewählte Property bestätigen. */
+/** Test the connection: fetch token, read properties, confirm access to the selected property. */
 export async function testGsc(): Promise<{ ok: boolean; message: string; sites: string[] }> {
   const s = stored(), raw = unseal(s.key);
   if (!raw) return { ok: false, message: 'Noch kein Schlüssel gespeichert.', sites: [] };

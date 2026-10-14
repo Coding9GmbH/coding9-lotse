@@ -2,15 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import nextConfig from '../next.config';
 
-// Sicherheits-Header: Oberfläche/API nie einbettbar, /shop und /staged (eigene CSP, Vorschau im iframe) nur SAMEORIGIN.
+// Security headers: UI/API never embeddable, /shop and /staged (own CSP, preview in iframe) SAMEORIGIN only.
 type Rule = { source: string; headers: { key: string; value: string }[] };
 const rules = (await nextConfig.headers!()) as Rule[];
-/** Grobe Nachbildung von path-to-regexp für die hier genutzten Quellen ('/', '/x/:path*') */
+/** Rough imitation of path-to-regexp for the sources used here ('/', '/x/:path*') */
 const matches = (source: string, path: string) => source === '/:path*' || source === path || (source.endsWith('/:path*') && (path === source.slice(0, -7) || path.startsWith(source.slice(0, -6))));
-/** Wie Next: alle passenden Regeln, spätere überschreiben gleiche Schlüssel */
+/** Like Next: all matching rules, later ones override identical keys */
 const headersFor = (path: string) => Object.fromEntries(rules.filter(r => matches(r.source, path)).flatMap(r => r.headers.map(h => [h.key.toLowerCase(), h.value])));
 
-test('App-Routen: frame-ancestors none, DENY, object-src/base-uri/form-action – ohne script-src (Next-Inline-Skripte)', () => {
+test('app routes: frame-ancestors none, DENY, object-src/base-uri/form-action, without script-src (Next inline scripts)', () => {
   for (const path of ['/', '/settings', '/wissen', '/api/approve', '/api/settings']) {
     const h = headersFor(path);
     assert.equal(h['x-frame-options'], 'DENY', path);
@@ -22,7 +22,7 @@ test('App-Routen: frame-ancestors none, DENY, object-src/base-uri/form-action �
   }
 });
 
-test('/shop, /staged und Storefront-Pfade: einbettbar in die eigene Oberfläche, ohne App-CSP (setzen ihre eigene)', () => {
+test('/shop, /staged and storefront paths: embeddable in our own UI, without app CSP (they set their own)', () => {
   for (const path of ['/shop', '/shop/navigation/x', '/staged/abc.png', '/media/x.svg', '/widgets/menu']) {
     const h = headersFor(path);
     assert.equal(h['x-frame-options'], 'SAMEORIGIN', path);

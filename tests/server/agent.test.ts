@@ -12,17 +12,17 @@ const { chatGet } = await import('../../src/server/db');
 
 const draft = (n: number): ChatEvent => ({ t: 'draft', html: `<div>Entwurf ${n}</div>`, spec: { name: `E${n}` }, name: `E${n}`, pageType: 'landingpage', audit: { findings: [], score: 0 } as never });
 
-test('recordEvent: nur-live-Ereignisse fehlen im Verlauf, Text wird zusammengefasst, von Entwürfen behält nur der letzte sein HTML', () => {
+test('recordEvent: live-only events are missing from the history, text is merged, only the last draft keeps its HTML', () => {
   const events: ChatEvent[] = [];
   for (const ev of [{ t: 'start' }, { t: 'text', text: 'Hal' }, { t: 'text', text: 'lo' }, { t: 'draft_partial', html: 'x', name: 'E', pageType: 'landingpage' }, draft(1), { t: 'changeset_progress', csId: 'c', done: 1, total: 2 }, draft(2), draft(3), { t: 'text', text: 'Fertig' }] as ChatEvent[]) recordEvent(events, ev);
   assert.deepEqual(events.map(e => e.t), ['text', 'draft', 'draft', 'draft', 'text']);
   assert.equal((events[0] as { text: string }).text, 'Hallo');
   const drafts = events.filter((e): e is Extract<ChatEvent, { t: 'draft' }> => e.t === 'draft');
   assert.deepEqual(drafts.map(d => d.html), [undefined, undefined, '<div>Entwurf 3</div>']);
-  assert.ok(drafts.every(d => d.spec), 'Specs bleiben (für refreshDraftPreview und reuse)');
+  assert.ok(drafts.every(d => d.spec), 'specs remain (for refreshDraftPreview and reuse)');
 });
 
-test('Werkzeug-Vorschau schwärzt ein Geheimnis, das redact entfernt', async () => {
+test('tool preview masks a secret that redact removes', async () => {
   const { updateSettings } = await import('../../src/server/settings');
   const { previewToolResult } = await import('../../src/server/agent');
   updateSettings({ shopware: { url: 'http://shop', user: 'admin', password: 'geheimes-passwort' } });
@@ -32,12 +32,12 @@ test('Werkzeug-Vorschau schwärzt ein Geheimnis, das redact entfernt', async () 
   assert.match(preview, /Bearer •••/);
 });
 
-test('Speicher-Snapshot und gespeicherter Chat enthalten dieselben Entwürfe (nur eine Vorschau)', () => {
+test('memory snapshot and stored chat contain the same drafts (only one preview)', () => {
   const s = getSession('agent-draft');
   for (const ev of [{ t: 'user', text: 'Seite' } as ChatEvent, draft(1), draft(2)]) recordEvent(s.events, ev);
   persist(s);
   const mem = chatSnapshot('agent-draft')!, db = chatGet('agent-draft')!;
   assert.deepEqual(JSON.parse(JSON.stringify(mem.events)), db.events);
   assert.equal(mem.events.filter(e => e.t === 'draft' && e.html).length, 1);
-  assert.ok(JSON.stringify(mem.events).length < 400, 'kein altes HTML im Speicher');
+  assert.ok(JSON.stringify(mem.events).length < 400, 'no old HTML in memory');
 });

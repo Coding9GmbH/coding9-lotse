@@ -1,6 +1,6 @@
 import 'server-only';
-// OpenMage: Promotionen = Warenkorb-Preisregeln (salesrules) mit festem Gutscheincode. Lesen nur Regeln und Zählwerte (nie Kunden oder Bestellungen).
-// Kundengruppen und Websites setzt das Modul beim Anlegen selbst (alle); die KI liest keine Kundengruppen.
+// OpenMage: promotions = shopping cart price rules (salesrules) with a fixed coupon code. Reads only rules and counts (never customers or orders).
+// The module sets customer groups and websites itself on creation (all); the AI reads no customer groups.
 import type { ChangeItem, ChangeSet } from '@/lib/protocol';
 import { applyEach, errMsg, MAX_ITEMS, newIdSafe, trackedUndo } from './kit';
 import type { OmClient } from './client';
@@ -11,7 +11,7 @@ import { reg, reqOp } from './write';
 const ACTION: Record<string, string> = { percentage: 'by_percent', absolute: 'by_fixed', cart_fixed: 'cart_fixed', buy_x_get_y: 'buy_x_get_y' };
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const COMBINE = 'salesrule/rule_condition_combine', FOUND = 'salesrule/rule_condition_product_found', PRODUCT = 'salesrule/rule_condition_product', ADDRESS = 'salesrule/rule_condition_address', PRODUCT_COMBINE = 'salesrule/rule_condition_product_combine';
-/** coupon_type der API: 1 ohne Gutschein, 2 fester Code, 3 automatisch */
+/** The API's coupon_type: 1 no coupon, 2 fixed code, 3 automatic */
 const NO_COUPON = 1, FIXED = 2;
 
 export type PromoStatus = 'läuft' | 'geplant' | 'abgelaufen' | 'inaktiv';
@@ -22,7 +22,7 @@ export function promoStatus(r: OmRecord, today = isoDay()): PromoStatus {
   return 'läuft';
 }
 const list = (v: unknown) => String(v ?? '').split(',').map(s => s.trim()).filter(Boolean);
-/** Einschränkung aus einem Bedingungsbaum (nur Kategorien/SKUs lesbar; Sonstiges als Anzahl) */
+/** Restriction from a condition tree (only categories/SKUs readable; anything else as a count) */
 export function restriction(tree: OmRecord | null | undefined): { categoryIds: string[]; skus: string[]; other: number } {
   const out = { categoryIds: [] as string[], skus: [] as string[], other: 0 };
   const walk = (c: OmRecord | null | undefined) => { for (const x of (c?.conditions ?? []) as OmRecord[]) {
@@ -35,7 +35,7 @@ export function restriction(tree: OmRecord | null | undefined): { categoryIds: s
 }
 const isMin = (c: OmRecord) => c.attribute === 'base_subtotal' && c.operator === '>=';
 export const minSubtotal = (r: OmRecord): number | null => { const x = ((r.conditions?.conditions ?? []) as OmRecord[]).find(isMin); return x ? Number(x.value) : null; };
-/** Weitere Warenkorb-Bedingungen außer Mindestbestellwert und Artikel-Filter, nur als Anzahl */
+/** Further cart conditions besides minimum order value and item filter, only as a count */
 const otherCartConds = (r: OmRecord) => ((r.conditions?.conditions ?? []) as OmRecord[]).filter(c => !isMin(c) && c.type !== FOUND).length;
 async function targetText(ro: OmReader, r: OmRecord, cats = new Map<string, string>()) {
   const res = restriction(r.actions);
@@ -65,7 +65,7 @@ export async function promoView(ro: OmReader, r: OmRecord, detail = false) {
   };
 }
 
-// ================= Vorschlag: anlegen / ändern =================
+// ================= Proposal: create / change =================
 export interface PromoDiscount { type: 'percentage' | 'absolute' | 'cart_fixed' | 'buy_x_get_y'; value: number; step?: number; maxQty?: number | null; applyToShipping?: boolean; categoryIds?: string[]; productIds?: string[] }
 export interface PromoArgs {
   id?: string; reason: string; name?: string; description?: string | null; active?: boolean; validFrom?: string | null; validUntil?: string | null;
@@ -78,7 +78,7 @@ const prodConds = (categoryIds: string[], skus: string[]): OmRecord[] => [
   ...(categoryIds.length ? [{ type: PRODUCT, attribute: 'category_ids', operator: '()', value: categoryIds.join(', ') }] : []),
   ...(skus.length ? [{ type: PRODUCT, attribute: 'sku', operator: '()', value: skus.join(', ') }] : []),
 ];
-/** Warenkorb-Bedingung: Mindestbestellwert + „Artikel im Warenkorb aus Kategorie/SKU“ (beides optional); übrige Bedingungen bleiben, wenn mit „alle“ verknüpft */
+/** Cart condition: minimum order value + "item in cart from category/SKU" (both optional); other conditions remain if combined with "all" */
 export function conditionTree(before: OmRecord | null, sub: number | null | undefined, filter: { categoryIds: string[]; skus: string[] } | undefined): { tree: OmRecord; dropped: number } {
   const bc = before?.conditions as OmRecord | undefined, prev = ((bc?.conditions ?? []) as OmRecord[]);
   const keep = prev.filter(c => !(sub !== undefined && isMin(c)) && !(filter && c.type === FOUND));
@@ -173,13 +173,13 @@ export async function buildPromotionChangeSet(ro: OmReader, a: PromoArgs): Promi
   return { cs: { id: newIdSafe(), kind: 'promotion', entity: 'promotion', noun: { one: 'Promotion', many: 'Promotionen' }, title: before ? `Promotion ändern: ${before.name}` : `Neue Promotion: ${rule.name}`, reason: a.reason, items, skipped: [], atomic: true }, payload: { ruleId: before ? String(before.id) : null, rule, before } };
 }
 
-/** Vorherige Werte genau der geänderten Regel-Felder (null löscht Datum/Limit) */
+/** Previous values of exactly the changed rule fields (null clears date/limit) */
 export const undoRule = (before: OmRecord, keys: string[]): OmRecord => Object.fromEntries(keys.map(k => [k, k === 'from_date' || k === 'to_date' ? (before[k] ? String(before[k]).slice(0, 10) : null) : k === 'description' ? before[k] ?? '' : k === 'coupon_code' ? before[k] ?? '' : before[k] ?? null]));
 
 reg.register('promotion', async (c, cs, payload, selected, ctx) => {
   const p = payload as PromoPayload;
   if (!selected.has('promo')) return { results: [], undo: [] };
-  const undo = trackedUndo(ctx, 1); // jeder Schritt sofort gesichert (Regel angelegt, Codes erzeugt)
+  const undo = trackedUndo(ctx, 1); // every step saved immediately (rule created, codes generated)
   try {
     let id = p.ruleId;
     if (!id) {
@@ -194,7 +194,7 @@ reg.register('promotion', async (c, cs, payload, selected, ctx) => {
   } catch (e) { return { results: [{ itemId: 'promo', ok: false, error: errMsg(e) }], undo }; }
 });
 
-// ================= Status (aktivieren, deaktivieren, beenden) =================
+// ================= Status (activate, deactivate, end) =================
 export async function buildPromotionStatusChangeSet(ro: OmReader, a: { ids: string[]; action: 'activate' | 'deactivate' | 'end'; reason?: string }): Promise<ChangeSet> {
   if (!a.ids?.length) throw new Error('ids ist leer');
   if (a.ids.length > MAX_ITEMS) throw new Error(`Maximal ${MAX_ITEMS} Promotionen.`);

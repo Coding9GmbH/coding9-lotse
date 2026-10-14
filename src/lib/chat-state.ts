@@ -1,6 +1,6 @@
-// Zustand des Chats als reine Funktion über die Ereignisliste.
-// Derselbe Reducer verarbeitet live gestreamte Ereignisse UND das Wiederabspielen eines gespeicherten Chats –
-// so sieht ein geöffneter Chat exakt so aus wie während des Live-Laufs (nur ohne aktive Knöpfe).
+// Chat state as a pure function over the event list.
+// The same reducer handles live-streamed events AND the replay of a saved chat,
+// so an opened chat looks exactly like it did during the live run (just without active buttons).
 
 import { DEFAULT_LOCALE, INTL_LOCALE, messages, type Locale } from './i18n';
 import { parseAttachments, type Attachment, type FileAttachment } from './attachments';
@@ -9,7 +9,7 @@ import type { ChangeSet, ChatDetail, ChatEvent, DraftAudit, PublishedInfo, Style
 import { asList, shopProxyPath } from './urls';
 
 export type StepState = 'run' | 'done' | 'bad';
-/** stale: beim Nachladen als abgeschlossen angenommen; läuft die Runde doch noch, wird er mit „resume“ wieder offen */
+/** stale: assumed finished on reload; if the turn is still running, "resume" reopens it */
 export interface Step { id: string; name: string; input: unknown; state: StepState; preview?: string; stale?: boolean }
 export interface QuestionOption { label: string; description?: string }
 export type ChangesetResultEvent = Extract<ChatEvent, { t: 'changeset_result' }>;
@@ -25,7 +25,7 @@ export type LogItem =
   | {
     kind: 'changeset'; key: string; approvalId: string; cs: ChangeSet; interactive: boolean; decision?: boolean;
     sent?: { allow: boolean; selected?: string[] }; result?: ChangesetResultEvent; undo: UndoPhase;
-    /** Fortschritt beim Anwenden großer Sets (nur live) */
+    /** Progress while applying large sets (live only) */
     progress?: { done: number; total: number };
   }
   | { kind: 'published'; key: string; info: PublishedInfo; target: Target | null }
@@ -39,22 +39,22 @@ export type PreviewTab = 'live' | 'prev' | 'spec';
 export interface ChatState {
   items: LogItem[];
   seq: number;
-  /** Antwort-Blase, in die weitere Text-Stücke laufen. */
+  /** Reply bubble that further text chunks flow into. */
   curText: string | null;
-  /** Schritt-Box, in die weitere Werkzeug-Aufrufe laufen. */
+  /** Step box that further tool calls flow into. */
   stepBox: string | null;
   target: Target | null;
   draft: DraftView | null;
   liveOverride: string | null;
   liveBust: number;
   tab: PreviewTab;
-  /** Aktueller Styleguide des Shops (nur durch Live-Ereignisse oder Laden/Speichern geändert). */
+  /** The shop's current styleguide (changed only by live events or load/save). */
   styleguide: Styleguide | null;
-  /** Layout-Namen, die in dieser Sitzung veröffentlicht wurden (Kategorie-ID → Layout). */
+  /** Layout names published in this session (category ID → layout). */
   cmsOverrides: Record<string, string>;
   busy: boolean;
   status: string | null;
-  /** Sprache der Status-Texte (Oberflächensprache); bleibt beim Leeren des Verlaufs erhalten */
+  /** Language of the status texts (UI language); kept when the history is cleared */
   locale: Locale;
 }
 
@@ -66,15 +66,15 @@ export type ChatAction =
   | { type: 'reset' }
   | { type: 'run_start'; text: string }
   | { type: 'run_end' }
-  /** Der Server hat die Nachricht nicht angenommen (409: dort läuft schon eine Runde): Blase wieder entfernen */
+  /** The server rejected the message (409: a turn is already running there): remove the bubble again */
   | { type: 'unsend' }
-  /** Wieder verbunden mit einer Runde, die noch läuft (Status aus dem letzten Ereignis) */
+  /** Reconnected to a turn that is still running (status from the last event) */
   | { type: 'resume'; last?: ChatEvent }
   | { type: 'error'; text: string }
   | { type: 'status'; text: string | null }
   | { type: 'answer'; approvalId: string; answer: string }
   | { type: 'decide'; approvalId: string; allow: boolean; selected?: string[] }
-  /** undoResults: Ausgang je Rückgängig-Schritt vom Server (teilweise zurückgesetzt: Karte zeigt „x von y“, Button bleibt nutzbar) */
+  /** undoResults: outcome per undo step from the server (partially reverted: card shows "x of y", button stays usable) */
   | { type: 'undo'; csId: string; phase: UndoPhase; undoResults?: UndoOutcome[] }
   | { type: 'select_target'; target: Target | null }
   | { type: 'set_tab'; tab: PreviewTab }
@@ -103,7 +103,7 @@ function liveStatus(ev: ChatEvent, locale: Locale): string | null {
   }
 }
 
-/** Optionen einer Rückfrage: string[] (+ optionHints); ältere Chats enthalten { label, description }. */
+/** Options of a question: string[] (+ optionHints); older chats contain { label, description }. */
 export function normalizeOptions(options: unknown, hints?: unknown): QuestionOption[] {
   if (!Array.isArray(options)) return [];
   const hint = (i: number) => (Array.isArray(hints) && typeof hints[i] === 'string' && hints[i] ? (hints[i] as string) : undefined);
@@ -122,7 +122,7 @@ type NewItem = LogItem extends infer I ? (I extends LogItem ? Omit<I, 'key'> : n
 function push(s: ChatState, item: NewItem): [ChatState, string] {
   const key = `i${s.seq + 1}`;
   const items = [...s.items, { ...item, key } as LogItem];
-  // Ein neuer Eintrag beendet laufende Antwort-Blasen/Schritt-Boxen (außer er IST eine davon).
+  // A new entry ends running reply bubbles/step boxes (unless it IS one of them).
   return [{ ...s, items, seq: s.seq + 1, curText: item.kind === 'ai' ? key : null, stepBox: item.kind === 'steps' ? key : null }, key];
 }
 
@@ -136,7 +136,7 @@ function update<K extends LogItemKind>(s: ChatState, kind: K, match: (i: Extract
   return hit ? { ...s, items } : s;
 }
 
-/** Schritte ohne Ergebnis abschließen (Runde zu Ende, abgebrochen oder Ergebnis nie angekommen), sonst blinken sie ewig auf „läuft“ */
+/** Close steps without a result (turn over, aborted or result never arrived), otherwise they blink "running" forever */
 function settleSteps(s: ChatState, state: 'done' | 'bad', stale = false): ChatState {
   if (!s.items.some(i => i.kind === 'steps' && i.steps.some(x => x.state === 'run'))) return s;
   return { ...s, items: s.items.map(i => (i.kind === 'steps' && i.steps.some(x => x.state === 'run')
@@ -212,7 +212,7 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
       return update(s, 'changeset', i => i.cs.id === ev.csId && !i.result, i => ({ ...i, progress: { done: ev.done, total: ev.total } }));
     case 'changeset_result': {
       const next = update(s, 'changeset', i => i.cs.id === ev.csId, i => ({ ...i, result: ev, interactive: false, undo: ev.undone ? 'done' : i.undo }));
-      if (next === s) return s; // unbekanntes Set (wie bisher: ignorieren)
+      if (next === s) return s; // unknown set (as before: ignore)
       return ev.published ? applyPublished(next, ev.published, live) : next;
     }
     case 'focus':
@@ -231,7 +231,7 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
   }
 }
 
-/** Verlaufs-Ansicht leeren (Styleguide und veröffentlichte Layouts bleiben bekannt). */
+/** Clear the history view (styleguide and published layouts stay known). */
 const cleared = (s: ChatState): ChatState => ({
   ...initialChatState, styleguide: s.styleguide, cmsOverrides: s.cmsOverrides, liveBust: s.liveBust, locale: s.locale,
 });
@@ -255,10 +255,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, items: last?.kind === 'user' ? state.items.slice(0, -1) : state.items, busy: false, status: null, curText: null, stepBox: null };
     }
     case 'resume': {
-      // Runde läuft noch: offene Rückfragen/Freigaben wieder bedienbar machen (der Server wartet auf sie)
+      // Turn still running: make open questions/approvals usable again (the server is waiting for them)
       const items = state.items.map(i =>
         (i.kind === 'question' && i.answer === undefined) || (i.kind === 'changeset' && i.decision === undefined && !i.result) ? { ...i, interactive: true } : i);
-      // als abgeschlossen angenommene Schritte laufen weiter, wenn die Runde noch läuft
+      // steps assumed finished keep running if the turn is still running
       const reopened = items.map(i => (i.kind === 'steps' && i.steps.some(x => x.stale)
         ? { ...i, steps: i.steps.map(x => (x.stale ? { ...x, state: 'run' as const, stale: undefined } : x)) } : i));
       return { ...state, items: reopened, busy: true, status: (action.last && liveStatus(action.last, state.locale)) || thinking(state) };
@@ -284,31 +284,31 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   }
 }
 
-// ---- Abgeleitete Werte ----
+// ---- Derived values ----
 
-/** Startbildschirm, solange noch nichts im Verlauf steht. */
+/** Home screen while the history is still empty. */
 export const isHome = (s: ChatState): boolean => s.items.length === 0;
 
-/** Vorschau-Spalte zeigen, wenn es einen Entwurf oder eine echte Zielseite gibt. */
+/** Show the preview column when there is a draft or a real target page. */
 export const showPreview = (s: ChatState): boolean =>
   !isHome(s) && (!!s.draft || !!(s.target?.id && s.target.kind !== 'landing'));
 
 /**
- * Snapshot beim Wiederverbinden: läuft die Runde wirklich noch? Der Server meldet `running` bis die Runde ganz
- * abgeräumt ist; steht schon ein `done` am Ende des Verlaufs, ist nichts mehr zu erwarten.
+ * Snapshot on reconnect: is the turn really still running? The server reports `running` until the turn is fully
+ * cleaned up; if there is already a `done` at the end of the history, nothing more is to be expected.
  */
 export const isStillRunning = (snap: { running: boolean; chat: Pick<ChatDetail, 'events'> }): boolean =>
   snap.running && snap.chat.events.at(-1)?.t !== 'done';
 
-/** Offene Rückfrage, auf die das Eingabefeld antwortet. */
+/** Open question that the input field answers. */
 export const pendingQuestion = (s: ChatState) =>
   [...s.items].reverse().find((i): i is Extract<LogItem, { kind: 'question' }> => i.kind === 'question' && i.interactive) ?? null;
 
-/** Freigabe ist raus, das Ergebnis fehlt noch: der Shop-Schreibvorgang läuft und hängt nicht am Stoppen. */
+/** Approval sent, result still missing: the shop write is running and is not affected by stopping. */
 export const writeInFlight = (s: ChatState): boolean =>
   s.items.some(i => i.kind === 'changeset' && !!i.sent?.allow && !i.result);
 
-/** Stoppen vor der Freigabe lehnt ab und schreibt nichts. Während des Schreibens bleibt der Knopf stehen, bricht aber nichts ab. */
+/** Stopping before approval declines and writes nothing. While writing, the button stays visible but aborts nothing. */
 export function stopControl(writing: boolean, locale: Locale = DEFAULT_LOCALE): { label: string; title: string; stops: boolean } {
   const t = messages(locale).lib.chat;
   return writing

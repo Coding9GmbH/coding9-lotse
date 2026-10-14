@@ -1,5 +1,5 @@
 import 'server-only';
-// SEO-Regeln (rein + Änderungsset/Executor für SEO-URLs): Slug-Prüfung, SEO-Audit je Produkt/Kategorie, Doppelte Metas.
+// SEO rules (pure + change set/executor for SEO URLs): slug check, SEO audit per product/category, duplicate metas.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { MAX_ITEMS } from '../changes';
 import { HEX32, newId, type ShopReader, type Shopware, type SwEntity } from '../shopware';
@@ -10,7 +10,7 @@ export const META = { titleMax: 60, titleMin: 30, descMin: 120, descMax: 158, th
 
 // ---- Slugs ----
 const RESERVED = /^(detail|navigation|landingpage|account|checkout|search|suggest|widgets|wishlist|note|newsletter|maintenance|api|store-api|admin|media|thumbnail|bundles|theme|sitemap|robots\.txt|cookie|form|_[a-z]+)$/;
-/** Slug normalisieren (klein, ä→ae ö→oe ü→ue ß→ss, Bindestriche) und prüfen. Kategorien enden wie bei Shopware auf „/“. */
+/** Normalize (lowercase, ä→ae ö→oe ü→ue ß→ss, hyphens) and check a slug. Categories end with "/", as in Shopware. */
 export function slugify(input: string, kind: 'product' | 'category'): { slug: string; error?: string } {
   let s = String(input ?? '').trim().replace(/^https?:\/\/[^/]+/i, '').toLowerCase();
   s = s.replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').normalize('NFKD').replace(/[̀-ͯ]/g, '');
@@ -26,10 +26,10 @@ export function slugify(input: string, kind: 'product' | 'category'): { slug: st
 export const pathKey = (p: string) => String(p ?? '').replace(/^\/+|\/+$/g, '').toLowerCase();
 const variants = (slug: string) => { const k = slug.replace(/\/+$/, ''); return [k, k + '/']; };
 
-// ---- Änderungsset: eigene SEO-URLs ----
+// ---- Change set: custom SEO URLs ----
 export interface SeoUrlChange { entity: 'product' | 'category'; id: string; slug: string }
 export interface SeoUrlArgs { title: string; reason: string; salesChannelId?: string; languageId?: string; changes: SeoUrlChange[] }
-/** Payload je Element (afterRaw): genau die Felder der neuen kanonischen seo-url */
+/** Payload per item (afterRaw): exactly the fields of the new canonical seo-url */
 export interface SeoUrlPayload { salesChannelId: string; languageId: string; foreignKey: string; routeName: string; pathInfo: string; seoPathInfo: string }
 const PATH_INFO = { product: '/detail/', category: '/navigation/' } as const;
 const NOUN = { product: 'Produkt', category: 'Kategorie' } as const;
@@ -85,24 +85,24 @@ export async function buildSeoUrlChangeSet(ro: ShopReader, a: SeoUrlArgs, ctxIn?
   return { id: newId(), kind: KIND, entity: 'seo-url', noun: { one: 'SEO-URL', many: 'SEO-URLs' }, applyLabel: 'SEO-URLs setzen', title: a.title, reason: a.reason, items, skipped, unchanged, atomic: false };
 }
 
-/** Schreibt eine eigene kanonische SEO-URL (isModified = true, Shopware überschreibt sie nicht mehr); liefert exakte Rückgängig-Schritte. */
+/** Writes a custom canonical SEO URL (isModified = true, Shopware no longer overwrites it); returns exact undo steps. */
 export async function applySeoUrl(swW: Pick<Shopware, 'search' | 'create' | 'update' | 'req'>, p: SeoUrlPayload): Promise<UndoOp[]> {
   const base = [{ type: 'equals', field: 'salesChannelId', value: p.salesChannelId }, { type: 'equals', field: 'languageId', value: p.languageId }];
   const own = { type: 'equals', field: 'foreignKey', value: p.foreignKey }, route = { type: 'equals', field: 'routeName', value: p.routeName };
-  // kanonisch: eindeutig je (Kanal, Sprache, Ziel, Route); auch ein als gelöscht markierter Eintrag belegt den Platz
+  // canonical: unique per (channel, language, target, route); an entry marked as deleted also occupies the slot
   const cur = (await swW.search('seo-url', { limit: 1, filter: [...base, own, route, { type: 'equals', field: 'isCanonical', value: true }] })).data[0];
   const byPath = (await swW.search('seo-url', { limit: 10, filter: [...base, { type: 'equalsAny', field: 'seoPathInfo', value: variants(p.seoPathInfo) }] })).data;
   if (byPath.some(s => !(s.foreignKey === p.foreignKey && s.routeName === p.routeName))) throw new Error(`„${p.seoPathInfo}“ ist inzwischen vergeben`);
   const same = byPath[0];
   const restore = (s: SwEntity, keys: string[]): UndoOp => ({ op: 'patch', entity: 'seo-url', id: s.id, data: Object.fromEntries(keys.map(k => [k, s[k] ?? null])) });
-  if (cur && same && cur.id === same.id) { // gleiche URL (Schreibweise) → nur markieren/anpassen
+  if (cur && same && cur.id === same.id) { // same URL (spelling) → only mark/adjust
     await swW.update('seo-url', cur.id, { seoPathInfo: p.seoPathInfo, isModified: true });
     return [restore(cur, ['seoPathInfo', 'isModified'])];
   }
   const undo: UndoOp[] = [];
-  if (cur) { await swW.update('seo-url', cur.id, { isCanonical: null }); undo.push(restore(cur, ['isCanonical'])); } // Platz für die neue kanonische URL
+  if (cur) { await swW.update('seo-url', cur.id, { isCanonical: null }); undo.push(restore(cur, ['isCanonical'])); } // make room for the new canonical URL
   try {
-    if (same) { // frühere URL dieses Eintrags wird wieder kanonisch
+    if (same) { // a previous URL of this entry becomes canonical again
       await swW.update('seo-url', same.id, { seoPathInfo: p.seoPathInfo, isCanonical: true, isModified: true, isDeleted: false });
       undo.push(restore(same, ['seoPathInfo', 'isCanonical', 'isModified', 'isDeleted']));
     } else {
@@ -138,7 +138,7 @@ const clean = (t: unknown) => String(t ?? '').replace(/\s+/g, ' ').trim();
 export const wordCount = (html: unknown) => (String(html ?? '').replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').match(/[\p{L}\p{N}]+(?:[-'’][\p{L}\p{N}]+)*/gu) ?? []).length;
 export const dupKey = (t: unknown) => clean(t).toLowerCase();
 
-/** Prüfpunkte eines Produkts/einer Kategorie. dups: Meta-Werte, die im Shop mehrfach vorkommen. */
+/** Check items of a product/category. dups: meta values that occur more than once in the shop. */
 export function evaluate(e: AuditInput, dups: { title: Set<string>; desc: Set<string> }): string[] {
   const out: string[] = [], mt = clean(e.metaTitle), md = clean(e.metaDescription);
   if (e.seoPath === null) out.push('seoUrl.missing'); else if (e.seoPath && /(^|\/)[0-9a-f]{32}(\/|$)/i.test(e.seoPath)) out.push('seoUrl.technical');
@@ -153,14 +153,14 @@ export function evaluate(e: AuditInput, dups: { title: Set<string>; desc: Set<st
   return out;
 }
 
-/** Werte, die bei mehr als einem Datensatz vorkommen (normalisiert). */
+/** Values that occur in more than one record (normalized). */
 export function duplicates(rows: { id: string; value: unknown }[]): Map<string, string[]> {
   const by = new Map<string, string[]>();
   for (const r of rows) { const k = dupKey(r.value); if (k) by.set(k, [...(by.get(k) ?? []), r.id]); }
   return new Map([...by].filter(([, ids]) => ids.length > 1));
 }
 
-/** Bericht: Anzahl je Problem (wichtig zuerst), IDs je Problem (gekürzt) und die schwächsten Datensätze. */
+/** Report: count per issue (important first), IDs per issue (truncated) and the weakest records. */
 export function summarize(rows: (AuditInput & { issues: string[] })[], fixTool: string, listMax = 50) {
   const counts = new Map<string, string[]>();
   for (const r of rows) for (const c of r.issues) counts.set(c, [...(counts.get(c) ?? []), r.id]);

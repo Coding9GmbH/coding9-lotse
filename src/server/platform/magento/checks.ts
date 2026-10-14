@@ -1,7 +1,7 @@
 import 'server-only';
-// Magento-Shop-Check: Prüfungen registrieren (SEO, Bilder, Bestand, Preise, Links in Beschreibungen und CMS-Seiten, Übersetzungen).
-// Je Durchlauf ein frischer Lese-Client (shopcheck.ts); Daten werden je Lese-Client einmal gelesen (memo) und von allen Prüfungen geteilt.
-// Große Kataloge: höchstens SCAN_MAX aktive, sichtbare Produkte (Befund dann „mindestens“).
+// Magento shop check: register checks (SEO, images, stock, prices, links in descriptions and CMS pages, translations).
+// A fresh read client per run (shopcheck.ts); data is read once per read client (memo) and shared by all checks.
+// Large catalogs: at most SCAN_MAX active, visible products (finding then reads "at least").
 import type { NeutralProduct, NeutralScan } from '@/lib/custom-checks';
 import type { CheckFinding } from '@/lib/protocol';
 import { registerPlatformCheck } from '../../checks';
@@ -22,7 +22,7 @@ function memo<T>(ro: MagentoReader, key: string, fn: () => Promise<T>): Promise<
 }
 const ACTIVE = [[{ field: 'status', value: 1 }], [{ field: 'visibility', value: [2, 3, 4], condition_type: 'in' as const }]];
 
-/** Aktive, einzeln sichtbare Produkte seitenweise (store: Store-View, 'all' = globale Werte) */
+/** Active, individually visible products, paged (store: store view, 'all' = global values) */
 async function scan(ro: MagentoReader, store?: string): Promise<{ rows: MRecord[]; total: number; capped: boolean }> {
   return memo(ro, `scan:${store ?? ''}`, async () => {
     const rows: MRecord[] = []; let total = 0;
@@ -37,7 +37,7 @@ async function scan(ro: MagentoReader, store?: string): Promise<{ rows: MRecord[
 }
 const hitsOf = (ro: MagentoReader) => memo(ro, 'hits', async () => {
   const s = await scan(ro);
-  // Bestand nur mit Magento Inventory (MSI) lesbar; Summe über alle Quellen, „auf Lager“ wenn eine Quelle es meldet
+  // Stock only readable with Magento Inventory (MSI); sum over all sources, "in stock" if any source reports it
   const stock = await memo(ro, 'stock', async () => {
     if (!(await ro.sources().catch(() => null))) return undefined;
     const m = new Map<string, { qty: number; inStock: boolean }>();
@@ -46,7 +46,7 @@ const hitsOf = (ro: MagentoReader) => memo(ro, 'hits', async () => {
   });
   return { s, h: productHits(s.rows, stock), stock };
 });
-/** Neutrale Produktzeilen für eigene Prüfungen (Bestand nur mit Magento Inventory lesbar, sonst unbekannt) */
+/** Neutral product rows for custom checks (stock only readable with Magento Inventory, otherwise unknown) */
 export async function neutralScan(ro: MagentoReader): Promise<NeutralScan> {
   const { s, stock } = await hitsOf(ro);
   return {
@@ -81,8 +81,8 @@ reg('magento.stock-zero', 'Daten', ['products'], fromScan('stockZero', M_DEFS.st
 reg('magento.price-zero', 'Preise', ['products'], fromScan('priceZero', M_DEFS.priceZero));
 reg('magento.special-not-below', 'Preise', ['products'], fromScan('specialNotBelow', M_DEFS.specialNotBelow));
 
-// ---- Links in Produktbeschreibungen ----
-/** Ein Link-Cache je Durchlauf: derselbe Pfad (Service-Seiten, Kategorien) wird über alle Produkte und Seiten nur einmal aufgelöst */
+// ---- Links in product descriptions ----
+/** One link cache per run: the same path (service pages, categories) is resolved only once across all products and pages */
 const linkCache = (ro: MagentoReader) => memo(ro, 'linkcache', async (): Promise<LinkCache> => new Map());
 reg('magento.description-links', 'Links', ['products', 'shop'], async ro => {
   const s = await scan(ro), hits: Hit[] = [], cache = await linkCache(ro);
@@ -95,7 +95,7 @@ reg('magento.description-links', 'Links', ['products', 'shop'], async ro => {
   return makeFinding(M_DEFS.descLinks, hits.length, s.total, hits, { atLeast: s.capped });
 });
 
-// ---- Kategorien ----
+// ---- Categories ----
 const categoryRows = (ro: MagentoReader) => memo(ro, 'categories', async () => {
   const rows: MRecord[] = [];
   for (let page = 1; page <= 20; page++) {
@@ -108,7 +108,7 @@ const categoryRows = (ro: MagentoReader) => memo(ro, 'categories', async () => {
 reg('magento.category-meta', 'SEO', ['categories'], async ro => { const rows = await categoryRows(ro), h = categoryHits(rows); return makeFinding(M_DEFS.catMeta, h.meta.length, rows.length, h.meta); });
 reg('magento.category-description', 'SEO', ['categories'], async ro => { const rows = await categoryRows(ro), h = categoryHits(rows); return makeFinding(M_DEFS.catDesc, h.desc.length, rows.length, h.desc); });
 
-// ---- CMS-Seiten mit kaputten Links ----
+// ---- CMS pages with broken links ----
 reg('magento.cms-links', 'Links', ['cms', 'shop'], async ro => {
   const hits: Hit[] = [], cache = await linkCache(ro); let total = 0;
   for (let page = 1; page <= 4; page++) {
@@ -125,7 +125,7 @@ reg('magento.cms-links', 'Links', ['cms', 'shop'], async ro => {
   return makeFinding(M_DEFS.cmsBroken, hits.length, total, hits, { atLeast: total > 200 });
 });
 
-// ---- Übersetzungen: nur wenn weitere Store-Views eine andere Sprache haben ----
+// ---- Translations: only if further store views have a different language ----
 reg('magento.translations', 'Sprachen', ['products', 'shop'], async ro => {
   const [views, configs] = await Promise.all([ro.storeViews(), ro.storeConfigs()]);
   const locale = (code: string) => String(configs.find(c => c.code === code)?.locale ?? '');

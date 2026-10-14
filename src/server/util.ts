@@ -1,5 +1,5 @@
 import 'server-only';
-// Kleine Helfer ohne Abhängigkeiten (eine Quelle statt Kopien je Modul).
+// Small helpers without dependencies (one source instead of copies per module).
 
-/** Fehlertext einer unbekannten Ausnahme */
+/** Error text of an unknown exception */
 export const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));

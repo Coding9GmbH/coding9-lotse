@@ -12,19 +12,19 @@ const H = (c: string) => c.repeat(32);
 const cur = [{ id: 'pm2', mediaId: H('b'), position: 1 }, { id: 'pm1', mediaId: H('a'), position: 0 }, { id: 'pm3', mediaId: H('c'), position: 2 }];
 const seq = () => { let n = 0; return () => `new${++n}`; };
 
-test('planImages: hinzufügen hängt hinten an, Titelbild bleibt', () => {
+test('planImages: adding appends at the end, cover image stays', () => {
   const p = planImages(cur, 'pm1', { add: [{ image: H('d') }] }, seq());
   assert.deepEqual(p.entries.map(e => e.id), ['pm1', 'pm2', 'pm3', 'new1']);
   assert.equal(p.coverId, 'pm1'); assert.ok(p.changed); assert.deepEqual(p.errors, []);
 });
 
-test('planImages: entfernen des Titelbilds → erstes verbleibendes Bild wird Titelbild', () => {
+test('planImages: removing the cover image → first remaining image becomes cover', () => {
   const p = planImages(cur, 'pm1', { remove: [H('a')] }, seq());
   assert.deepEqual(p.entries.map(e => e.id), ['pm2', 'pm3']);
   assert.equal(p.coverId, 'pm2'); assert.deepEqual(p.removed, [{ id: 'pm1', mediaId: H('a'), position: 0 }]);
 });
 
-test('planImages: neues Bild vorne als Titelbild, Reihenfolge und Fehler', () => {
+test('planImages: new image in front as cover, order and errors', () => {
   const p = planImages(cur, 'pm1', { add: [{ image: 'staged:abc', position: 0, cover: true }, { image: H('a') }], order: ['pm3', 'gibtsnicht'] }, seq());
   assert.deepEqual(p.entries.map(e => e.id), ['pm3', 'new1', 'pm1', 'pm2']);
   assert.equal(p.coverId, 'new1');
@@ -32,14 +32,14 @@ test('planImages: neues Bild vorne als Titelbild, Reihenfolge und Fehler', () =>
   assert.match(p.errors[0], /schon am Produkt/); assert.match(p.errors[1], /Reihenfolge/);
 });
 
-test('planImages: Titelbild per mediaId setzen; ohne Änderung → changed=false', () => {
+test('planImages: set cover by mediaId; no change → changed=false', () => {
   assert.equal(planImages(cur, 'pm1', { cover: H('c') }).coverId, 'pm3');
   assert.equal(planImages(cur, 'pm1', {}).changed, false);
   assert.equal(planImages(cur, 'pm1', { remove: ['x'] }).errors.length, 1);
   assert.equal(planImages([], null, { add: [{ image: H('a') }] }, seq()).coverId, 'new1');
 });
 
-test('imagesUndo: neue löschen, Positionen/Titelbild zurück, entfernte mit gleicher Position neu anlegen', () => {
+test('imagesUndo: delete new ones, restore positions/cover, recreate removed ones at the same position', () => {
   const p = planImages(cur, 'pm1', { add: [{ image: H('d'), cover: true }], remove: ['pm2'] }, seq());
   const undo = imagesUndo('prod', { coverId: 'pm1', media: cur }, { productId: 'prod', snapshot: [], entries: p.entries, removed: p.removed, coverId: p.coverId });
   assert.deepEqual(undo, [
@@ -55,7 +55,7 @@ test('imagesSummary', () => {
   assert.equal(imagesSummary([], null), 'keine Bilder');
 });
 
-test('checkAlt: Länge, „Bild von“, leer', () => {
+test('checkAlt: length, "Bild von", empty', () => {
   assert.deepEqual(checkAlt(' Bauchige Vase aus <b>Steinzeug</b> '), { alt: 'Bauchige Vase aus Steinzeug', warn: [] });
   assert.match(checkAlt('x'.repeat(130)).warn[0], /130 Zeichen/);
   assert.throws(() => checkAlt('Bild von einer Vase'), /Bild von/);
@@ -64,30 +64,30 @@ test('checkAlt: Länge, „Bild von“, leer', () => {
   assert.throws(() => checkAlt('x'.repeat(256)), /255/);
 });
 
-test('altIsFileName erkennt Upload-Dateinamen', () => {
+test('altIsFileName detects upload file names', () => {
   assert.ok(altIsFileName('IMG_1234', 'IMG_1234-ab12c'));
   assert.ok(altIsFileName('vase.jpg', 'x'));
   assert.ok(altIsFileName('upload', 'upload-abcde'));
   assert.ok(!altIsFileName('Bauchige Vase', 'vase'));
   assert.ok(!altIsFileName(null, 'vase'));
-  assert.ok(altIsFileName('Vase_Kiesel_front', 'vase-kiesel-front-k3x9a'), 'Chat-Upload mit Zufallsendung');
+  assert.ok(altIsFileName('Vase_Kiesel_front', 'vase-kiesel-front-k3x9a'), 'chat upload with random suffix');
   assert.ok(!altIsFileName('Vase aus Steinzeug', 'vase-kiesel-front-k3x9a'));
 });
 
-test('planImages: nur abweichende Positionswerte (1 statt 0) sind keine Änderung', () => {
+test('planImages: merely different position values (1 instead of 0) are not a change', () => {
   const one = [{ id: 'pm1', mediaId: H('a'), position: 1 }];
   assert.equal(planImages(one, 'pm1', { cover: H('a') }).changed, false);
   assert.equal(planImages([{ id: 'x', mediaId: H('a'), position: 3 }, { id: 'y', mediaId: H('b'), position: 5 }], 'x', { order: ['x'] }).changed, false);
   assert.equal(planImages(cur, 'pm1', { order: [H('c')] }).changed, true);
 });
 
-test('mergeProductOps: doppelte Produkte werden zusammengeführt', () => {
+test('mergeProductOps: duplicate products are merged', () => {
   const m = mergeProductOps([{ productId: 'p1', add: [{ image: 'a' }] }, { productId: 'p2', cover: 'x' }, { productId: 'p1', add: [{ image: 'b' }], remove: ['r'], cover: 'c' }]);
   assert.equal(m.length, 2);
   assert.deepEqual(m[0], { productId: 'p1', add: [{ image: 'a' }, { image: 'b' }], remove: ['r'], order: undefined, cover: 'c' });
 });
 
-test('viewedImages: mediaIds und URL-Pfade aus view_image-Aufrufen', () => {
+test('viewedImages: mediaIds and URL paths from view_image calls', () => {
   const v = viewedImages([
     { t: 'tool', id: '1', name: 'view_image', input: { mediaId: H('a') } },
     { t: 'tool', id: '2', name: 'mcp__shop__view_image', input: { url: 'http://shop.test/media/x/y.jpg?ts=1' } },
@@ -110,7 +110,7 @@ const products = [
 let langs = 1;
 const ro = { search: async (entity: string, c: { ids?: string[] }) => entity === 'language' ? { data: [], total: langs } : ({ data: entity === 'media' ? (c.ids ?? []).map(id => media[id]).filter(Boolean) : entity === 'product' ? (c.ids ? products.filter(p => c.ids!.includes(p.id)) : products) : [] }) } as unknown as Reader;
 
-test('Bilder-Änderungsset: vorher/nachher, Vorschaubilder, übersprungene Angaben', async () => {
+test('Image change set: before/after, preview images, skipped entries', async () => {
   const cs = await buildProductImagesChangeSet(ro, { title: 'Fotos', reason: 'Upload', products: [
     { productId: 'p1', add: [{ image: H('d'), cover: true }, { image: H('e') }, { image: 'staged:fehlt' }] },
     { productId: 'p2', add: [{ image: H('d') }] },
@@ -127,11 +127,11 @@ test('Bilder-Änderungsset: vorher/nachher, Vorschaubilder, übersprungene Angab
   assert.deepEqual(pl.snapshot, ['pm1', 'pm2']); assert.equal(pl.snapshotCover, 'pm1'); assert.equal(pl.coverId, 'new1');
 });
 
-test('Bilder-Änderungsset: nichts zu tun → Fehler', async () => {
+test('Image change set: nothing to do → error', async () => {
   await assert.rejects(buildProductImagesChangeSet(ro, { title: 't', reason: 'r', products: [{ productId: 'p1', cover: 'pm1' }] }), /Keine Bildänderung/);
 });
 
-test('Alt-Text-Änderungsset: nur angesehene Bilder, KI-Kennzeichnung im Titel bleibt', async () => {
+test('Alt text change set: only viewed images, AI label in the title stays', async () => {
   const cs = await buildAltTextChangeSet(ro, { title: 'Alt-Texte', reason: 'SEO', images: [
     { mediaId: H('a'), alt: 'Bauchige Vase aus mattem Steinzeug' },
     { mediaId: H('b'), alt: 'Wohnszene mit Vase und Becher auf Sideboard', title: 'Wohnszene Sideboard' },
@@ -147,7 +147,7 @@ test('Alt-Text-Änderungsset: nur angesehene Bilder, KI-Kennzeichnung im Titel b
   assert.match(cs.skipped[0].reason, /nicht angesehen/);
 });
 
-test('Variante mit geerbten Bildern: vorher zeigt die Galerie des Hauptprodukts, Warnung', async () => {
+test('Variant with inherited images: before shows the parent product gallery, warning', async () => {
   const cs = await buildProductImagesChangeSet(ro, { title: 't', reason: 'r', products: [{ productId: 'v1', add: [{ image: H('d') }] }] }, seq());
   const it = cs.items[0];
   assert.equal(it.label, 'Vase (HH-1.1)');
@@ -158,12 +158,12 @@ test('Variante mit geerbten Bildern: vorher zeigt die Galerie des Hauptprodukts,
   await assert.rejects(buildProductImagesChangeSet(ro, { title: 't', reason: 'r', products: [{ productId: 'v1', remove: [H('a')] }] }), /vom Hauptprodukt geerbt/);
 });
 
-test('Doppelt genanntes Produkt → ein Eintrag', async () => {
+test('Product named twice → one entry', async () => {
   const cs = await buildProductImagesChangeSet(ro, { title: 't', reason: 'r', products: [{ productId: 'p2', add: [{ image: H('d') }] }, { productId: 'p2', add: [{ image: H('a') }] }] }, seq());
   assert.equal(cs.items.length, 1); assert.equal(cs.items[0].after, '3 Bilder, Titelbild: szene.jpg');
 });
 
-test('Alt-Text: KI-Kennzeichnung nur im Alt → wandert in den Titel; Hinweis auf weitere Sprachen', async () => {
+test('Alt text: AI label only in alt → moves to the title; notice about other languages', async () => {
   media[H('f')] = { id: H('f'), fileName: 'motiv', fileExtension: 'png', mimeType: 'image/png', url: 'http://shop.test/media/motiv.png', alt: 'KI-generiert: Motiv', title: null };
   langs = 3;
   try {
@@ -173,7 +173,7 @@ test('Alt-Text: KI-Kennzeichnung nur im Alt → wandert in den Titel; Hinweis au
   } finally { langs = 1; delete media[H('f')]; }
 });
 
-// ---- Executor applyImages mit Fake-Writer ----
+// ---- Executor applyImages with fake writer ----
 type Writer = Parameters<typeof applyImages>[0];
 const fakeWriter = (product: Record<string, unknown> | null, o: { failDelete?: boolean } = {}) => {
   const calls: unknown[][] = [];
@@ -189,18 +189,18 @@ const curProduct = () => ({ id: 'p1', coverId: 'pm1', media: [{ id: 'pm1', media
 const payloadFor = (ops: Parameters<typeof planImages>[2], cover = 'pm1') => { const p = planImages(cur.filter(m => m.id !== 'pm3'), 'pm1', ops, seq()); return { productId: 'p1', snapshot: ['pm1', 'pm2'], snapshotCover: cover, entries: p.entries, removed: p.removed, coverId: p.coverId }; };
 const noResolve = async () => { throw new Error('nie'); };
 
-test('applyImages: Stand verändert (Zuordnungen oder Titelbild) → Abbruch ohne Schreibzugriff', async () => {
+test('applyImages: state changed (assignments or cover) → abort without writing', async () => {
   const w1 = fakeWriter({ ...curProduct(), media: [{ id: 'pm1', mediaId: H('a'), position: 0 }] });
   await assert.rejects(applyImages(w1, payloadFor({ add: [{ image: H('d') }] }), noResolve), /inzwischen geändert/);
-  const w2 = fakeWriter({ ...curProduct(), coverId: 'pm2' }); // Admin hat nur das Titelbild gewechselt
+  const w2 = fakeWriter({ ...curProduct(), coverId: 'pm2' }); // admin only changed the cover image
   await assert.rejects(applyImages(w2, payloadFor({ add: [{ image: H('d') }] }), noResolve), /inzwischen geändert/);
   assert.deepEqual(w1.calls, []); assert.deepEqual(w2.calls, []);
-  // alte Sets ohne snapshotCover (vor dieser Prüfung erzeugt) laufen weiter
+  // old sets without snapshotCover (created before this check) still work
   const w3 = fakeWriter({ ...curProduct(), coverId: 'pm2' }), old = { ...payloadFor({ cover: H('b') }), snapshotCover: undefined };
   assert.equal((await applyImages(w3, old, noResolve)).length, 1); assert.equal(w3.calls.length, 1);
 });
 
-test('applyImages: Upload-Fehler → Produkt unverändert; Fehler beim Entfernen → Ausgangszustand per Undo wiederhergestellt', async () => {
+test('applyImages: upload error → product unchanged; error while removing → original state restored via undo', async () => {
   const w = fakeWriter(curProduct());
   await assert.rejects(applyImages(w, payloadFor({ add: [{ image: 'staged:x' }] }), async () => { throw new Error('Upload kaputt'); }), /Upload kaputt\. Produkt unverändert/);
   assert.deepEqual(w.calls, []);
@@ -209,13 +209,13 @@ test('applyImages: Upload-Fehler → Produkt unverändert; Fehler beim Entfernen
   assert.deepEqual(f.calls, [
     ['update', 'product', 'p1', { coverId: 'pm1', media: [{ id: 'pm1', position: 0 }, { id: 'new1', mediaId: H('d'), position: 1 }] }],
     ['req', 'DELETE', '/product-media/pm2'],
-    ['create', 'product-media', { id: 'pm2', productId: 'p1', mediaId: H('b'), position: 1 }], // Undo rückwärts: entfernte Zuordnung wieder anlegen …
-    ['update', 'product', 'p1', { coverId: 'pm1', media: [{ id: 'pm1', position: 0 }] }], // … Positionen/Titelbild zurück …
-    ['req', 'DELETE', '/product-media/new1'], // … neue Zuordnung löschen
+    ['create', 'product-media', { id: 'pm2', productId: 'p1', mediaId: H('b'), position: 1 }], // undo backwards: recreate the removed assignment …
+    ['update', 'product', 'p1', { coverId: 'pm1', media: [{ id: 'pm1', position: 0 }] }], // … restore positions/cover image …
+    ['req', 'DELETE', '/product-media/new1'], // … delete the new assignment
   ]);
 });
 
-test('applyImages: Erfolg liefert exakte Undo-Schritte; Resolver lädt jede Bildangabe nur einmal je Set', async () => {
+test('applyImages: success returns exact undo steps; resolver loads each image reference only once per set', async () => {
   const w = fakeWriter(curProduct());
   const undo = await applyImages(w, payloadFor({ add: [{ image: H('d'), cover: true }], remove: [H('b')] }), async () => H('d'));
   assert.deepEqual(w.calls.map(c => c[0]), ['update', 'req']);
@@ -230,7 +230,7 @@ test('applyImages: Erfolg liefert exakte Undo-Schritte; Resolver lädt jede Bild
   assert.equal(n, 2);
 });
 
-test('Applier media-alt (über applyChangeSet): schreibt Alt/Titel und liefert den Vorher-Wert als Undo', async () => {
+test('Applier media-alt (via applyChangeSet): writes alt/title and returns the before value as undo', async () => {
   const { applyChangeSet } = await import('../../../src/server/changes');
   const w = fakeWriter({ id: H('a'), alt: null, title: 'Alt-Titel' });
   const cs = { id: 'cs', kind: KIND_ALT, entity: 'media', title: 't', reason: null, skipped: [], atomic: false, items: [

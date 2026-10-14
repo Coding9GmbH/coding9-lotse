@@ -1,23 +1,23 @@
-// OpenMage-Datensätze (Lotse_Connector-API) lesen und auf Lotse-Felder abbilden (reine Funktionen, getestet in openmage.test.ts).
-// Die Preislogik ist dieselbe wie bei Magento 2 (price = regulär/durchgestrichen, special_price = Verkaufspreis mit Zeitraum):
-// planPrice/priceState aus magento/map.ts werden über mrec() auf OpenMage-Datensätze angewendet.
+// Read OpenMage records (Lotse_Connector API) and map them to Lotse fields (pure functions, tested in openmage.test.ts).
+// The price logic is the same as for Magento 2 (price = regular/strikethrough, special_price = selling price with period):
+// planPrice/priceState from magento/map.ts are applied to OpenMage records via mrec().
 import { attr, basisWord, day, deDay, isoDay, money, parseBasis, plain, planPrice, priceState, priceText, priceUndo, sameValue, urlKey, VISIBILITY, VISIBILITY_IN, type MRecord, type PriceBasis, type PriceState, type PriceWrite } from '../magento/map';
 
 export { basisWord, day, deDay, isoDay, money, parseBasis, plain, planPrice, priceState, priceText, priceUndo, sameValue, urlKey, VISIBILITY, VISIBILITY_IN };
 export type { PriceBasis, PriceState, PriceWrite };
 
-/** API-JSON ist je Ressource dynamisch – bewusst lose typisiert */
+/** API JSON is dynamic per resource, deliberately loosely typed */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type OmRecord = Record<string, any>;
 /**
- * OpenMage hängt an jeden Seitentitel das Theme-Suffix (design/head/title_suffix, z. B. „ | Haus Holm“) bzw. -Präfix an. Schreibt die KI die
- * Marke selbst ans Ende eines Meta-Titles oder Seitentitels, stünde sie doppelt im Browser-Tab: hier wird ein solches Ende/Anfang entfernt.
+ * OpenMage appends the theme suffix (design/head/title_suffix, e.g. " | Haus Holm") or prefix to every page title. If the AI writes the
+ * brand itself at the end of a meta title or page title, it would appear twice in the browser tab: such an end/start is removed here.
  */
 export function stripTitleAffixes(title: string, view?: { title_prefix?: string | null; title_suffix?: string | null } | null): string {
   let t = title.trim();
   const SEP = '|–—\\-·:', trimEnd = (s: string) => s.replace(new RegExp(`[\\s${SEP}]+$`), ''), trimStart = (s: string) => s.replace(new RegExp(`^[\\s${SEP}]+`), '');
   const endsWith = (s: string, tail: string) => s.toLowerCase().endsWith(tail.toLowerCase()), startsWith = (s: string, head: string) => s.toLowerCase().startsWith(head.toLowerCase());
-  // Suffix wie konfiguriert („| Haus Holm“) oder nur der Name nach einem Trenner („Vase – Haus Holm“); „Vase bei Haus Holm“ bleibt
+  // suffix as configured ("| Haus Holm") or just the name after a separator ("Vase – Haus Holm"); "Vase bei Haus Holm" stays
   const suffix = String(view?.title_suffix ?? '').trim(), sufName = trimStart(suffix).trim();
   if (sufName) {
     const cut = endsWith(t, suffix) ? t.slice(0, -suffix.length) : endsWith(t, sufName) && new RegExp(`[${SEP}]\\s*$`).test(t.slice(0, -sufName.length)) ? t.slice(0, -sufName.length) : null;
@@ -32,7 +32,7 @@ export function stripTitleAffixes(title: string, view?: { title_prefix?: string 
 }
 export interface OmImage { id: number; file: string; url: string; label: string; position: number; disabled: boolean; types: string[]; label_use_default?: boolean; position_use_default?: boolean; has_store_values?: boolean }
 export interface OmStock { item_id?: number | null; qty: number; is_in_stock: boolean; manage_stock?: boolean; use_config_manage_stock?: boolean }
-/** Listeneintrag (GET /v1/products) bzw. Detail (GET /v1/products/{sku}); Detail hat attributes, store_overrides, images, stock, categories */
+/** List entry (GET /v1/products) or detail (GET /v1/products/{sku}); detail has attributes, store_overrides, images, stock, categories */
 export interface OmProduct extends OmRecord {
   id: number; sku: string; type_id: string; attribute_set_id?: number; name?: string | null; status?: number; visibility?: number;
   price?: number | null; special_price?: number | null; special_from_date?: string | null; special_to_date?: string | null; weight?: number | null;
@@ -51,20 +51,20 @@ export interface OmCategory extends OmRecord {
   landing_page_block?: { id: number; identifier: string; title: string; is_active: boolean } | null; attributes?: Record<string, unknown>; store_overrides?: string[]; child_ids?: number[];
 }
 
-/** Attributwert eines Produkts/einer Kategorie: Detail unter attributes, Liste (und Kernfelder) direkt */
+/** Attribute value of a product/category: detail under attributes, list (and core fields) directly */
 export function omAttr(rec: OmRecord | null | undefined, code: string): unknown {
   if (!rec) return undefined;
   if (rec.attributes && typeof rec.attributes === 'object' && code in rec.attributes) return rec.attributes[code];
   return rec[code];
 }
 export const omStr = (rec: OmRecord | null | undefined, code: string): string | null => { const v = omAttr(rec, code); return v == null || v === '' ? null : String(v); };
-/** Hat die Store-View einen eigenen Wert für das Attribut? (nur im Store-Scope gelesen aussagekräftig) */
+/** Does the store view have its own value for the attribute? (only meaningful when read in store scope) */
 export const hasOverride = (rec: OmRecord | null | undefined, code: string) => Array.isArray(rec?.store_overrides) && rec!.store_overrides.includes(code);
 
 const PRICE_CODES = ['special_price', 'special_from_date', 'special_to_date', 'description', 'short_description', 'meta_title', 'meta_description', 'meta_keyword', 'url_key', 'tax_class_id', 'display_mode', 'landing_page', 'meta_keywords'];
 /**
- * OpenMage-Datensatz → Magento-2-Form (Kernfelder oben, Rest als custom_attributes, Galerie als media_gallery_entries), damit die
- * reinen Hilfen aus magento/map.ts (priceState, planPrice, priceUndo) und die Prüfregeln (auditRecords, productHits) wiederverwendbar sind.
+ * OpenMage record → Magento 2 shape (core fields at the top, the rest as custom_attributes, gallery as media_gallery_entries), so the
+ * pure helpers from magento/map.ts (priceState, planPrice, priceUndo) and the check rules (auditRecords, productHits) can be reused.
  */
 export function mrec(p: OmRecord): MRecord {
   const ca: { attribute_code: string; value: unknown }[] = [];
@@ -82,8 +82,8 @@ export const FROM_KIDS = new Set(['configurable', 'bundle', 'grouped']);
 export const SIMPLE_TYPES = new Set(['simple', 'virtual', 'downloadable']);
 export const productLabel = (p: OmRecord) => `${plain(p.name) || p.sku} (${p.sku})`;
 
-// ---- Medien ----
-/** Medien-ID in Lotse: Produkt-ID + Galerie-Eintrag (value_id); OpenMage hat keine Medienbibliothek für Produktbilder */
+// ---- Media ----
+/** Media ID in Lotse: product ID + gallery entry (value_id); OpenMage has no media library for product images */
 export const mediaId = (productId: number | string, imageId: number | string) => `om-${productId}-${imageId}`;
 export const parseMediaId = (id: string): { productId: string; imageId: number } | null => { const m = /^om-(\d+)-(\d+)$/.exec(String(id ?? '').trim()); return m ? { productId: m[1], imageId: Number(m[2]) } : null; };
 export const COVER_TYPES = ['image', 'small_image', 'thumbnail'] as const;
@@ -91,10 +91,10 @@ export const coverImage = (p: OmProduct) => (p.images ?? []).find(e => e.types?.
 export const fileName = (e: Pick<OmImage, 'file' | 'id'>) => String(e.file ?? '').split('/').pop() || `Bild ${e.id}`;
 
 // ---- URLs ----
-/** Produkt-URL in einer Store-View: eigene url_path (Kategoriepfad) nur, wenn vom Modul geliefert, sonst url_key + Suffix */
+/** Product URL in a store view: own url_path (category path) only if provided by the module, otherwise url_key + suffix */
 export const productPath = (p: OmRecord, suffix = '.html') => { const k = omStr(p, 'url_key'); return k ? `${k}${suffix}` : null; };
 export const categoryPath = (c: OmRecord, suffix = '.html') => { const up = omStr(c, 'url_path'); if (up) return /\.[a-z0-9]+$/i.test(up) ? up : `${up}${suffix}`; const k = omStr(c, 'url_key'); return k ? `${k}${suffix}` : null; };
-/** Ziel eines URL-Rewrites: catalog/product/view/id/1[/category/3], catalog/category/view/id/3 */
+/** Target of a URL rewrite: catalog/product/view/id/1[/category/3], catalog/category/view/id/3 */
 export function parseTarget(target: string | null | undefined): { type: 'PRODUCT' | 'CATEGORY'; id: number; categoryId?: number } | null {
   const t = String(target ?? '');
   let m = /^catalog\/product\/view\/id\/(\d+)(?:\/category\/(\d+))?/.exec(t);
@@ -103,7 +103,7 @@ export function parseTarget(target: string | null | undefined): { type: 'PRODUCT
   if (m) return { type: 'CATEGORY', id: Number(m[1]) };
   return null;
 }
-/** Identifier einer CMS-Seite (Buchstaben, Ziffern, - _ . /) aus einem Pfad */
+/** Identifier of a CMS page (letters, digits, - _ . /) from a path */
 export function cmsIdentifier(url: string): string {
   const raw = String(url ?? '').trim().replace(/^https?:\/\/[^/]+/i, '').replace(/[?#].*$/, '').replace(/^\/+|\/+$/g, '');
   const html = /\.html?$/i.test(raw);
@@ -114,9 +114,9 @@ export function cmsIdentifier(url: string): string {
   return id;
 }
 
-/** Gleichheit eines Attributwerts in zwei Scopes (Zahlen als String, leer = null) */
+/** Equality of an attribute value in two scopes (numbers as string, empty = null) */
 export const same = (a: unknown, b: unknown) => sameValue(a, b) || (typeof a === 'boolean' && sameValue(a ? 1 : 0, b)) || (typeof b === 'boolean' && sameValue(a, b ? 1 : 0));
-/** Leerwert für den globalen Scope (null ist dort nicht erlaubt) */
+/** Empty value for the global scope (null is not allowed there) */
 export const globalEmpty = (v: unknown) => (v === null || v === undefined ? '' : v);
-/** Display-Modi einer Kategorie */
+/** Display modes of a category */
 export const DISPLAY_MODE: Record<string, string> = { PRODUCTS: 'nur Produkte', PAGE: 'nur statischer Block', PRODUCTS_AND_PAGE: 'statischer Block und Produkte' };

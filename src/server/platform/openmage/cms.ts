@@ -1,7 +1,7 @@
 import 'server-only';
-// OpenMage: CMS-Seiten und CMS-Blöcke lesen (Werkzeuge) und vorhandene CMS-Seiten ändern (Titel, Inhalt, Metas, aktiv) als
-// Änderungsset mit exaktem Rückgängig. PATCH schreibt nur die gesendeten Felder und behält die Store-Zuordnung; Rückgängig
-// schreibt dieselben Felder mit den Vorher-Werten zurück. Blöcke werden nur gelesen.
+// OpenMage: read CMS pages and CMS blocks (tools) and update existing CMS pages (title, content, metas, active) as a
+// change set with exact undo. PATCH writes only the sent fields and keeps the store assignment; undo
+// writes the same fields back with the previous values. Blocks are only read.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { errMsg, newIdSafe, partialTicker, pool, WRITE_CONCURRENCY, type ApplyResult } from './kit';
 import { plain, same, type OmRecord } from './map';
@@ -10,19 +10,19 @@ import type { OmReader } from './reader';
 import { reg, reqOp } from './write';
 
 const DIRECTIVE = /\{\{[\s\S]*?\}\}/g;
-/** Neue Direktiven ({{block}}, {{widget}}, {{config}} …) entschärfen; solche, die schon im Inhalt standen, bleiben erhalten */
+/** Defuse new directives ({{block}}, {{widget}}, {{config}} …); those already in the content are kept */
 export function directiveGuard(cur: unknown): (html: string) => string {
   const known = new Set(String(cur ?? '').match(DIRECTIVE) ?? []);
   return html => html.replace(DIRECTIVE, d => (known.has(d) ? d : noDirectives(d)));
 }
 const cut = (t: unknown, n = 200) => { const s = plain(t); return s.length > n ? `${s.slice(0, n)}…` : s || '–'; };
-/** Seiten, die OpenMage selbst braucht (404, Cookie-Hinweis, Startseite): nicht ändern */
+/** Pages OpenMage itself needs (404, cookie notice, home page): don't change */
 export const SYSTEM_PAGES = new Set(['no-route', 'enable-cookies', 'privacy-policy-cookie-restriction-mode', 'home']);
 const storesText = (x: OmRecord) => ((x.stores ?? []) as { id: number; code?: string | null; name?: string | null }[]).map(s => (s.id === 0 ? 'alle Store-Views' : s.code ?? s.name ?? String(s.id))).join(', ');
 
 export async function listCms(ro: OmReader, a: { entity: 'page' | 'block'; term?: string; limit?: number; offset?: number }) {
   const n = Math.max(1, Math.min(a.limit ?? 30, 100)), page = Math.floor(Math.max(0, a.offset ?? 0) / n) + 1;
-  // Suchbegriff in Titel ODER identifier: eine Abfrage (?term=, Modul ab 1.2.0) mit exakter Paginierung; ältere Module: zwei Abfragen zusammengeführt (Schätzwerte)
+  // Search term in title OR identifier: one query (?term=, module 1.2.0+) with exact pagination; older modules: two queries merged (estimates)
   const single = !a.term || await ro.hasTermFilter(), q = { page, limit: n, ...(a.term ? (single ? { term: a.term } : { title: a.term }) : {}) };
   const r = a.entity === 'page' ? await ro.cmsPages(q) : await ro.cmsBlocks(q);
   if (a.term && !single) { const r2 = a.entity === 'page' ? await ro.cmsPages({ ...q, title: undefined, identifier: a.term }) : await ro.cmsBlocks({ ...q, title: undefined, identifier: a.term }); for (const x of r2.items) if (!r.items.some(y => y.id === x.id)) r.items.push(x); r.meta.total = Math.max(r.meta.total, r.items.length); }
@@ -45,7 +45,7 @@ export async function getCms(ro: OmReader, entity: 'page' | 'block', id: string)
   return { id: String(x.id), identifier: x.identifier, title: x.title, active: !!x.is_active, stores: storesText(x), ...(entity === 'page' ? { url: x.url ?? null, metaDescription: x.meta_description ?? null, metaKeywords: x.meta_keywords ?? null, contentHeading: x.content_heading ?? null, layout: x.root_template ?? null, hasLayoutXml: !!x.layout_update_xml } : {}), html, words: plain(html).split(/\s+/).filter(Boolean).length, text: cut(html, 4000), directives: (html.match(DIRECTIVE) ?? []).slice(0, 20) };
 }
 
-// ================= Seiten ändern =================
+// ================= Update pages =================
 const FIELDS: Record<string, { key: string; label: string }> = { title: { key: 'title', label: 'Seitentitel' }, contentHeading: { key: 'content_heading', label: 'Überschrift (H1)' }, content: { key: 'content', label: 'Inhalt' }, metaDescription: { key: 'meta_description', label: 'Meta-Description' }, metaKeywords: { key: 'meta_keywords', label: 'Meta-Keywords' }, active: { key: 'is_active', label: 'Aktiv' } };
 export const CMS_FIELDS = Object.keys(FIELDS);
 export interface CmsChangeArgs { title: string; reason: string; changes: { id: string; fields: Record<string, unknown> }[] }
@@ -78,7 +78,7 @@ export async function buildCmsPageChangeSet(ro: OmReader, a: CmsChangeArgs): Pro
   return { cs: { id: newIdSafe(), kind: 'cms-pages', entity: 'landing-page', noun: { one: 'Seite', many: 'Seiten' }, title: a.title, reason: a.reason, items, skipped, atomic: false }, payload: { plans } };
 }
 
-// Je Seite EIN PATCH mit allen gewählten Feldern
+// ONE PATCH per page with all selected fields
 reg.register('cms-pages', async (c, cs, payload, selected, ctx) => {
   const plans = (payload as { plans: Record<string, CmsPlan> }).plans, results: ApplyResult['results'] = [], undo: UndoOp[] = [];
   const byPage = new Map<string, ChangeItem[]>();

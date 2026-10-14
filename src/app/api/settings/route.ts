@@ -8,10 +8,10 @@ import { connectionChanges, publicSettings, updateSettings } from '@/server/sett
 
 export const dynamic = 'force-dynamic';
 
-// Geheimnis: undefined/'' = unverändert, null = löschen
+// Secret: undefined/'' = unchanged, null = delete
 const secret = z.string().max(4000).nullable().optional();
 const plain = z.string().max(2000).optional();
-// Shopify/Magento/OpenMage: genau die Felder aus lib/platforms.ts (Geheimnisse wie oben)
+// Shopify/Magento/OpenMage: exactly the fields from lib/platforms.ts (secrets as above)
 const platformSchema = (kind: PlatformKind) => z.object(Object.fromEntries(platformFields(kind).map(f => [f.key, f.secret ? secret : plain]))).optional();
 const patchSchema = z.object({
   platform: z.enum(PLATFORM_KINDS as [PlatformKind, ...PlatformKind[]]).optional(),
@@ -32,10 +32,10 @@ export async function PUT(req: Request) {
   const body = await parseJson(req, patchSchema);
   if (!body.ok) return body.res;
   const fields = connectionChanges(body.data);
-  // Shop-Verbindung nicht wechseln, solange eine freigegebene Änderung geschrieben oder rückgängig gemacht wird (der Rest liefe sonst gegen den falschen Shop)
+  // Don't switch the shop connection while an approved change is being written or undone (the rest would otherwise run against the wrong shop)
   if (fields.length && writesInProgress()) return jsonError(409, 'Gerade wird eine freigegebene Änderung in den Shop geschrieben. Bitte warte, bis sie abgeschlossen ist, und speichere die Shop-Verbindung danach erneut.');
   updateSettings(body.data);
   reconfigureAll();
-  if (fields.length) auditAdd({ decision: 'changed', kind: 'settings', title: 'Shop-Verbindung geändert', fields: Object.fromEntries(fields.map(f => [f, 'geändert'])) }); // nur Feldnamen, nie Werte
+  if (fields.length) auditAdd({ decision: 'changed', kind: 'settings', title: 'Shop-Verbindung geändert', fields: Object.fromEntries(fields.map(f => [f, 'geändert'])) }); // field names only, never values
   return Response.json(publicSettings());
 }

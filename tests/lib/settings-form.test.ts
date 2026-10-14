@@ -16,7 +16,7 @@ const saved: PublicSettings = {
   },
 };
 
-test('Geheimnisse: leer = unverändert, Entfernen = null, Eingabe = Wert', () => {
+test('secrets: empty = unchanged, remove = null, input = value', () => {
   const f = formFromSettings(saved);
   assert.equal(f.shopware.auth, 'integration');
   let p = buildPatch(f);
@@ -32,7 +32,7 @@ test('Geheimnisse: leer = unverändert, Entfernen = null, Eingabe = Wert', () =>
   assert.equal(isDirty(f, saved), true);
 });
 
-test('Verbindung testen: ungespeicherte Eingaben blockieren den Test und werden nicht mitgeschrieben', () => {
+test('test connection: unsaved input blocks the test and is not written along', () => {
   assert.equal(connectionTestBlock(false), null);
   const hint = connectionTestBlock(true);
   assert.ok(hint);
@@ -40,7 +40,7 @@ test('Verbindung testen: ungespeicherte Eingaben blockieren den Test und werden 
   assert.match(hint, /gespeichert/i);
 });
 
-test('Bereiche und Klartextfelder', () => {
+test('scopes and plain-text fields', () => {
   const f = formFromSettings(saved);
   f.scopes.shop = true;
   f.shopware.url = ' https://neu.test ';
@@ -49,24 +49,24 @@ test('Bereiche und Klartextfelder', () => {
   assert.equal(p.shopware?.url, 'https://neu.test');
 });
 
-test('Search-Console-Schlüssel: automatisch gespeichert wird erst ein vollständiges Service-Konto-JSON', () => {
+test('Search Console key: only a complete service account JSON is auto-saved', () => {
   const key = JSON.stringify({ type: 'service_account', client_email: 'lotse@projekt.iam.gserviceaccount.com', private_key: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n' });
   assert.equal(gscKeyComplete(key), true);
-  assert.equal(gscKeyComplete(key.slice(0, -10)), false, 'halb eingefügt');
+  assert.equal(gscKeyComplete(key.slice(0, -10)), false, 'half pasted');
   assert.equal(gscKeyComplete(''), false);
   assert.equal(gscKeyComplete('null'), false);
   assert.equal(gscKeyComplete('[]'), false);
-  assert.equal(gscKeyComplete(JSON.stringify({ client_email: 'x@y' })), false, 'ohne privaten Schlüssel');
-  assert.equal(gscKeyComplete(JSON.stringify({ private_key: 'k', client_email: '' })), false, 'leere E-Mail');
+  assert.equal(gscKeyComplete(JSON.stringify({ client_email: 'x@y' })), false, 'without private key');
+  assert.equal(gscKeyComplete(JSON.stringify({ private_key: 'k', client_email: '' })), false, 'empty email');
   assert.equal(gscKeyComplete(JSON.stringify({ private_key: 1, client_email: 'x@y' })), false);
 });
 
-test('secretsDropped: Hinweis nur, wenn der Server Geheimnisse verworfen hat, die das Formular nicht entfernen wollte', () => {
+test('secretsDropped: notice only if the server discarded secrets that the form did not intend to remove', () => {
   const f = formFromSettings(saved);
   const after: PublicSettings = { ...saved, shopware: { ...saved.shopware, url: 'https://anderer.test', hasClientSecret: false, configured: false } };
-  assert.equal(secretsDropped(saved, after, f, 'shopware'), true, 'Adresse auf anderen Server');
+  assert.equal(secretsDropped(saved, after, f, 'shopware'), true, 'address points to another server');
   assert.equal(secretsDropped(saved, saved, f, 'shopware'), false);
   const removed = { ...f, secrets: { ...f.secrets, clientSecret: { value: '', remove: true } } };
-  assert.equal(secretsDropped(saved, after, removed, 'shopware'), false, 'selbst entfernt: kein Hinweis');
-  assert.equal(secretsDropped(saved, after, f, 'magento'), false, 'andere Plattform');
+  assert.equal(secretsDropped(saved, after, removed, 'shopware'), false, 'removed by the user: no notice');
+  assert.equal(secretsDropped(saved, after, f, 'magento'), false, 'other platform');
 });

@@ -21,19 +21,19 @@ interface Props {
   liveUrl: string | null;
   onOpenAudit: () => void;
   className?: string;
-  /** Gesammelte Änderungswünsche (in der Vorschau markiert) */
+  /** Collected change requests (marked in the preview) */
   notes: Annotation[];
   onAddNote: (a: Omit<Annotation, 'id'>) => void;
   onRemoveNote: (id: string) => void;
   onClearNotes: () => void;
   onSubmitNotes: (where: 'draft' | 'live') => void;
-  /** Lotse arbeitet gerade – Absenden erst danach */
+  /** Lotse is currently working; submit only afterwards */
   busy: boolean;
-  /** Vorschau liegt als Überlagerung über dem Chat (schmaler Viewport): Schließen-Knopf */
+  /** Preview is an overlay on top of the chat (narrow viewport): close button */
   onClose?: () => void;
 }
 
-/** Rechte Spalte: echte Seite (Aktuell), Entwurf mit Shop-Theme, JSON-Spezifikation; Mobil/Desktop. */
+/** Right column: real page ("Aktuell"), draft with shop theme, JSON spec; mobile/desktop. */
 export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className, notes, onAddNote, onRemoveNote, onClearNotes, onSubmitNotes, busy, onClose }: Props) {
   const [mobile, setMobile] = useState(false);
   const [marking, setMarking] = useState(false);
@@ -51,7 +51,7 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
   const where = tab === 'live' ? 'live' : 'draft';
   const frame = () => viewRef.current?.querySelector<HTMLIFrameElement>(`iframe[data-kind="${tab}"]`) ?? null;
 
-  // Markier-Modus: Element in der Vorschau anklicken → Eingabe „Was soll anders sein?“ an der Klickstelle
+  // Marking mode: click an element in the preview → input "Was soll anders sein?" (what should change?) at the click position
   const place = (p: Pick) => {
     const f = frame();
     const vr = viewRef.current?.getBoundingClientRect();
@@ -68,9 +68,9 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
     const f = canMark ? frame() : null;
     if (!f) return;
     return attachAnnotator(f, place, setTargets, locale);
-  }, [marking, canMark, tab, draft?.rev, liveUrl, locale]); // eslint-disable-line react-hooks/exhaustive-deps -- frame() und place lesen nur das DOM
+  }, [marking, canMark, tab, draft?.rev, liveUrl, locale]); // eslint-disable-line react-hooks/exhaustive-deps -- frame() and place only read the DOM
 
-  // Nummern an den markierten Elementen (auch nach dem Neuladen des Entwurfs)
+  // Numbers on the marked elements (also after reloading the draft)
   useEffect(() => {
     const f = frame();
     if (!f) return;
@@ -78,7 +78,7 @@ export function PreviewPane({ tab, onTab, draft, liveUrl, onOpenAudit, className
     draw();
     f.addEventListener('load', draw);
     return () => f.removeEventListener('load', draw);
-  }, [notes, marking, tab, draft?.rev]); // eslint-disable-line react-hooks/exhaustive-deps -- frame() liest nur das DOM
+  }, [notes, marking, tab, draft?.rev]); // eslint-disable-line react-hooks/exhaustive-deps -- frame() only reads the DOM
 
   const save = () => {
     if (!pick || !text.trim()) return;

@@ -1,17 +1,17 @@
-/* Layout-Modi: home (nur Chat, mittig) · work (Chat) · pv (Chat + Vorschau). Navigation liegt in der App-Hülle. */
+/* Layout modes: home (chat only, centered) · work (chat) · pv (chat + preview). Navigation lives in the app shell. */
 .app { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 .main { flex: 1; display: grid; grid-template-columns: minmax(380px, 470px) minmax(0, 1fr); min-height: 0; }
 .chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-right: 1px solid var(--line); background: var(--bg); }
 .statusRow { flex: none; display: flex; }
 
-/* Start: nur der Chat, mittig, scrollt als Ganzes */
+/* Start: only the chat, centered, scrolls as a whole */
 .app[data-mode="home"] .main { grid-template-columns: minmax(0, 1fr); }
 .app[data-mode="home"] .right { display: none; }
 .app[data-mode="home"] .chat { border: 0; max-width: 920px; width: 100%; margin: 0 auto; overflow: auto; padding-top: clamp(8px, 4vh, 40px); }
 .app[data-mode="home"] .statusRow { padding-top: 12px; }
 .homeLog { flex: none; overflow: visible; padding-top: 22px; }
 
-/* Arbeiten ohne Vorschau: Chat-Spalte zentriert, max. 900px */
+/* Working without preview: chat column centered, max. 900px */
 .app[data-mode="work"] .main { grid-template-columns: minmax(0, 1fr); }
 .app[data-mode="work"] .right { display: none; }
 .app[data-mode="work"] .chat { align-items: center; border-right: 0; overflow: auto; }
@@ -19,7 +19,7 @@
 .app[data-mode="work"] .chat > * { width: 100%; max-width: 900px; }
 .app[data-mode="work"] .chat > section:first-child { width: calc(100% - 24px); max-width: 876px; }
 
-/* Schmaler Viewport: Vorschau nicht daneben, sondern auf Knopfdruck (oder beim fertigen Entwurf) über dem Chat */
+/* Narrow viewport: preview not beside it but on demand (or when the draft is ready) above the chat */
 .pvBar { display: none; flex-wrap: wrap; }
 @media (max-width: 1100px) {
   .main { grid-template-columns: minmax(0, 1fr); position: relative; }
@@ -29,7 +29,7 @@
   .app[data-show="preview"] .right { display: flex; position: absolute; inset: 0; z-index: 10; background: var(--bg); }
 }
 
-/* Chat aus einem Shop-Check-Befund: Herkunft + zurück zur Übersicht */
+/* Chat from a shop check finding: origin + back to the overview */
 .fixBar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 16px 0; padding: 8px 12px; border-radius: 10px; background: var(--green-bg); color: var(--ink); font-size: 13px; }
 .fixBar span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fixBar button { flex: none; border: 0; background: none; padding: 0; color: var(--green-d); font: inherit; font-weight: 600; cursor: pointer; }

@@ -1,11 +1,11 @@
 <?php
 /**
- * Shell-Werkzeug für den Lotse Connector (nach <magento>/shell/lotse.php kopieren).
+ * Shell tool for the Lotse Connector (copy to <magento>/shell/lotse.php).
  *
- *   php shell/lotse.php --generate-token        neuen Token erzeugen, verschlüsselt speichern, einmal ausgeben
- *   php shell/lotse.php --set-token <token>     vorgegebenen Token speichern (z. B. für Tests)
- *   php shell/lotse.php --enable | --disable    Schnittstelle ein-/ausschalten
- *   php shell/lotse.php --status                Konfiguration anzeigen (ohne Token)
+ *   php shell/lotse.php --generate-token        generate a new token, store it encrypted, print it once
+ *   php shell/lotse.php --set-token <token>     store a given token (e.g. for tests)
+ *   php shell/lotse.php --enable | --disable    enable/disable the API
+ *   php shell/lotse.php --status                show configuration (without token)
  */
 require_once __DIR__ . '/abstract.php';
 

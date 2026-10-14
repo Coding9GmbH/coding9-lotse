@@ -1,13 +1,13 @@
 import 'server-only';
-// Stapelverarbeitung: eine Regel auf ALLE Produkte eines Filters anwenden (auch weit über MAX_ITEMS).
-// Die Karte zeigt nur Gruppen + Stichprobe; geschrieben wird in Blöcken à 50 per Sync-API, Rückgängig je Block exakt.
+// Bulk edit: apply a rule to ALL products of a filter (even far beyond MAX_ITEMS).
+// The card shows only groups + a sample; writes happen in blocks of 50 via the Sync API, undo is exact per block.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { DEFAULT_CURRENCY, STALE, WRITE_CONCURRENCY, errMsg, eur, isStale, net, pool, resolvePrice, type ApplyCtx, type ApplyResult } from '../changes';
 import { newId, type Shopware, type ShopReader, type SwEntity } from '../shopware';
 
 export const BULK_KIND = 'bulk-products';
-export const BULK_MAX = 10_000;      // höchstens so viele Produkte je Änderungsset
-export const BULK_SCAN = 20_000;     // höchstens so viele Produkte werden geprüft
+export const BULK_MAX = 10_000;      // at most this many products per change set
+export const BULK_SCAN = 20_000;     // at most this many products are checked
 export const CHUNK = 50;
 export const SAMPLE = 50;
 const PAGE = 500;
@@ -22,9 +22,9 @@ export interface BulkChange {
   price?: PriceRule; listPrice?: PriceRule | null | 'currentPrice'; active?: boolean; stock?: { set?: number; add?: number };
   deliveryTime?: string; shippingFree?: boolean; markAsTopseller?: boolean;
 }
-/** Plan je Produkt: nur die Felder, die sich ändern (price.list: undefined = Streichpreis behalten, null = entfernen).
- *  stockAdd: relativ – erst beim Anwenden auf den dann aktuellen Bestand gerechnet (Bestellungen dazwischen gehen nicht verloren).
- *  prev: wirksame Werte beim Vorschlag für die geplanten Felder (Stale-Write-Guard je Block; stockAdd ohne prev.stock) */
+/** Plan per product: only the fields that change (price.list: undefined = keep list price, null = remove).
+ *  stockAdd: relative, computed only when applied, on the then-current stock (orders in between are not lost).
+ *  prev: effective values at proposal time for the planned fields (stale-write guard per block; stockAdd without prev.stock) */
 export interface BulkPlan {
   id: string; group: 'ok' | 'warn';
   price?: { gross?: number; list?: number | null };
@@ -46,7 +46,7 @@ function ruleText(r: PriceRule) {
   if (r.add != null) return `${sign(r.add)}${num(r.add)} €${roundText(r.round)}`;
   return '?';
 }
-/** Regel in Worten, z. B. „Preis −10 %, gerundet auf .99 · Streichpreis = bisheriger Preis“ */
+/** Rule in words, e.g. "Preis −10 %, gerundet auf .99 · Streichpreis = bisheriger Preis" */
 export function describeChange(c: BulkChange, deliveryTimeName?: string): string {
   const out: string[] = [];
   if (c.price) out.push(`Preis ${ruleText(c.price)}`);
@@ -59,7 +59,7 @@ export function describeChange(c: BulkChange, deliveryTimeName?: string): string
   return out.join(' · ');
 }
 
-/** Prüft die Regel vor dem Lesen (klare Fehlermeldung statt halber Ergebnisse) */
+/** Validates the rule before reading (clear error message instead of half results) */
 export function validateChange(c: BulkChange) {
   const keys = Object.keys(c ?? {}).filter(k => (c as Record<string, unknown>)[k] !== undefined);
   if (!keys.length) throw new Error('change ist leer');
@@ -83,7 +83,7 @@ export function validateChange(c: BulkChange) {
   for (const k of ['active', 'shippingFree', 'markAsTopseller'] as const) if (c[k] !== undefined && typeof c[k] !== 'boolean') throw new Error(`${k}: true/false erwartet`);
 }
 
-/** DAL-Filter für die Hauptprodukte (Preis/Aktiv/Bestand prüft der Server danach auf den wirksamen, ggf. geerbten Werten) */
+/** DAL filter for the parent products (price/active/stock are then checked by the server on the effective, possibly inherited values) */
 export function bulkCriteria(f: BulkFilter, manufacturerId?: string | null) {
   const filter: Record<string, unknown>[] = [{ type: 'equals', field: 'parentId', value: null }];
   if (f.categoryId) filter.push({ type: 'equals', field: 'categoriesRo.id', value: f.categoryId });
@@ -97,7 +97,7 @@ export function bulkCriteria(f: BulkFilter, manufacturerId?: string | null) {
 const INCLUDES = { product: ['id', 'parentId', 'productNumber', 'name', 'translated', 'price', 'purchasePrices', 'stock', 'active', 'taxId', 'tax', 'childCount', 'deliveryTimeId', 'shippingFree', 'markAsTopseller'], tax: ['id', 'taxRate'] };
 
 const tooMany = () => new Error(`Mehr als ${BULK_SCAN.toLocaleString('de-DE')} Produkte passen auf den Filter, bitte enger filtern (z. B. Kategorie, Hersteller, Preisspanne).`);
-/** cap = noch verfügbarer Rest des Gesamtdeckels BULK_SCAN (die Meldung nennt immer den Gesamtdeckel) */
+/** cap = remaining budget of the overall cap BULK_SCAN (the message always names the overall cap) */
 async function pageAll(ro: ShopReader, criteria: Record<string, unknown>, cap: number) {
   const out: SwEntity[] = []; let total = 0;
   for (let page = 1; ; page++) {
@@ -109,7 +109,7 @@ async function pageAll(ro: ShopReader, criteria: Record<string, unknown>, cap: n
   return { rows: out, total };
 }
 
-/** Alle passenden Produkte (paginiert) – Varianten der passenden Hauptprodukte auf Wunsch dazu */
+/** All matching products (paginated), plus variants of the matching parent products on request */
 export async function resolveProducts(ro: ShopReader, f: BulkFilter) {
   let manufacturerId: string | null = null;
   if (f.manufacturer) {
@@ -124,10 +124,10 @@ export async function resolveProducts(ro: ShopReader, f: BulkFilter) {
   const main = (await pageAll(ro, bulkCriteria(f, manufacturerId), BULK_SCAN)).rows;
   const parents: Record<string, SwEntity> = Object.fromEntries(main.map(p => [p.id, p]));
   const variants: SwEntity[] = [];
-  // Rest des Gesamtdeckels für Varianten; ist er aufgebraucht, sofort mit klarer Meldung abbrechen (nie „Mehr als 0 Produkte“)
+  // Remaining overall cap for variants; if exhausted, abort immediately with a clear message (never "Mehr als 0 Produkte")
   const left = () => { const n = BULK_SCAN - main.length - variants.length; if (n <= 0) throw tooMany(); return n; };
   if (f.term && f.includeVariants) {
-    // wie list_products: Suchbegriff trifft auch Varianten direkt (z. B. „HH-PLAID-130.1“); ihr Hauptprodukt muss die übrigen Filter erfüllen
+    // like list_products: the search term also matches variants directly (e.g. "HH-PLAID-130.1"); their parent product must match the other filters
     const hits = (await pageAll(ro, { term: f.term, filter: [{ type: 'not', operator: 'and', queries: [{ type: 'equals', field: 'parentId', value: null }] }] }, left())).rows;
     const pids = [...new Set(hits.map(v => v.parentId as string).filter(id => !parents[id]))];
     const base = bulkCriteria(f, manufacturerId).filter;
@@ -136,7 +136,7 @@ export async function resolveProducts(ro: ShopReader, f: BulkFilter) {
     variants.push(...hits.filter(v => parents[v.parentId] && !(f.variantOptions?.length)));
   }
   if (f.includeVariants || f.variantOptions?.length) {
-    const ids = main.map(p => p.id); // childCount wird asynchron indiziert – daher direkt nach Varianten der Treffer suchen
+    const ids = main.map(p => p.id); // childCount is indexed asynchronously, so search directly for variants of the matches
     for (let i = 0; i < ids.length; i += PAGE) {
       const filter: Record<string, unknown>[] = [{ type: 'equalsAny', field: 'parentId', value: ids.slice(i, i + PAGE) }];
       if (f.variantOptions?.length) filter.push({ type: 'equalsAny', field: 'options.id', value: f.variantOptions });
@@ -153,7 +153,7 @@ export async function resolveProducts(ro: ShopReader, f: BulkFilter) {
   return { rows: matched, parents, scanned: all.length };
 }
 
-/** Wirksame Werte (Variante erbt null-Felder vom Hauptprodukt) */
+/** Effective values (variant inherits null fields from the parent product) */
 export function effective(p: SwEntity, parent?: SwEntity) {
   const inh = <T,>(k: string): T => (p[k] ?? (p.parentId ? parent?.[k] : undefined)) as T;
   const priceArr: SwEntity[] | undefined = p.price ?? (p.parentId ? parent?.price : undefined);
@@ -166,18 +166,18 @@ export function effective(p: SwEntity, parent?: SwEntity) {
 }
 
 export interface PlanRow { plan: BulkPlan | null; before: string[]; after: string[]; fields: string[]; warn: string[]; skip?: string; label: string; gross?: [number | null, number | null]; follows?: boolean }
-/** Plan für ein Produkt (rein, testbar). inSet: Hauptprodukt wird mitgeändert → geerbte Werte folgen ihm automatisch. */
+/** Plan for one product (pure, testable). inSet: parent product is changed too → inherited values follow it automatically. */
 export function planProduct(p: SwEntity, parent: SwEntity | undefined, c: BulkChange, inSet: boolean, dtNames: Record<string, string> = {}): PlanRow {
   const e = effective(p, parent), follows = !!p.parentId && inSet;
   const row: PlanRow = { plan: null, before: [], after: [], fields: [], warn: [], label: `${e.name}${p.parentId ? ', Variante' : ''} (${p.productNumber})` };
   const plan: BulkPlan = { id: p.id, group: 'ok', prev: {} };
   const put = (field: string, before: string, after: string) => { row.fields.push(FIELD_LABEL[field]); row.before.push(before); row.after.push(after); };
   const prev = (k: PrevKey, v: unknown) => { plan.prev![k] = v ?? null; };
-  // Variante erbt einen geänderten Wert vom mitgeänderten Hauptprodukt → folgt automatisch (wird nicht geschrieben)
+  // Variant inherits a changed value from the parent product changed along with it → follows automatically (not written)
   row.follows = follows && (((!!c.price || c.listPrice !== undefined) && e.priceInherited) || (c.active !== undefined && p.active == null) || (c.deliveryTime !== undefined && p.deliveryTimeId == null)
     || (['shippingFree', 'markAsTopseller'] as const).some(k => c[k] !== undefined && p[k] == null));
   try {
-    // Preis + Streichpreis (geerbter Preis folgt dem mitgeänderten Hauptprodukt)
+    // Price + list price (inherited price follows the parent product changed along with it)
     if ((c.price || c.listPrice !== undefined) && !(e.priceInherited && follows)) {
       if (e.gross == null) throw new Error('kein Preis vorhanden');
       const gross = c.price ? resolvePrice(e.gross, c.price)! : e.gross;
@@ -186,7 +186,7 @@ export function planProduct(p: SwEntity, parent: SwEntity | undefined, c: BulkCh
       if (c.listPrice === null) list = null;
       else if (c.listPrice === 'currentPrice') list = e.gross;
       else if (c.listPrice) {
-        if (c.listPrice.set == null && e.list == null) list = undefined; // Regel ohne vorhandenen Streichpreis: nichts zu tun
+        if (c.listPrice.set == null && e.list == null) list = undefined; // rule without an existing list price: nothing to do
         else list = resolvePrice(e.list, c.listPrice);
         if (list != null && list < 0) throw new Error('Streichpreis würde negativ');
       }
@@ -223,7 +223,7 @@ export function planProduct(p: SwEntity, parent: SwEntity | undefined, c: BulkCh
 const stat = (vals: number[]) => (vals.length ? `Ø ${eur(vals.reduce((a, b) => a + b, 0) / vals.length)} (${eur(Math.min(...vals))} – ${eur(Math.max(...vals))})` : '–');
 const counts = (vals: string[]) => Object.entries(vals.reduce<Record<string, number>>((m, v) => ({ ...m, [v]: (m[v] ?? 0) + 1 }), {})).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([v, n]) => `${n}× ${v}`).join(', ');
 
-/** Änderungsset: Gruppen (ohne/mit Warnungen, abwählbar) + Stichprobe; Plan aller Produkte als Payload */
+/** Change set: groups (without/with warnings, deselectable) + sample; plan of all products as payload */
 export function bulkChangeSet(title: string, reason: string, c: BulkChange, rows: SwEntity[], parents: Record<string, SwEntity>, dtNames: Record<string, string> = {}, hints: string[] = []): { cs: ChangeSet; payload: BulkPayload } {
   const ids = new Set(rows.map(r => r.id));
   const sorted = [...rows].sort((a, b) => String(a.productNumber).localeCompare(String(b.productNumber), 'de', { numeric: true }));
@@ -246,7 +246,7 @@ export function bulkChangeSet(title: string, reason: string, c: BulkChange, rows
     items.push({ id: `grp:${g}`, entity: 'product', label: `${xs.length.toLocaleString('de-DE')} ${xs.length === 1 ? 'Produkt' : 'Produkte'} ${g === 'ok' ? 'ohne Auffälligkeiten' : 'mit Warnungen'}`, field: 'bulk', fieldLabel: rule, before, after, afterRaw: { count: xs.length }, warn });
   }
   for (const h of hints) items.push({ id: `hint:${items.length}`, entity: 'info', label: 'Hinweis', fieldLabel: '', before: '', after: h, warn: [] });
-  // Stichprobe: die ersten 50 + bis zu 10 weitere mit Warnungen – nie Tausende Zeilen in der Karte
+  // Sample: the first 50 + up to 10 more with warnings; never thousands of rows in the card
   const first = todo.slice(0, SAMPLE), extra = todo.slice(SAMPLE).filter(x => x.r.warn.length).slice(0, 10);
   const sample: ChangeItem[] = [...first, ...extra].map(({ p, r }) => ({ id: p.id, entity: 'info', entityId: p.id, label: r.label, fieldLabel: r.fields.join(', '), before: r.before.join(' · '), after: r.after.join(' · '), warn: r.warn }));
   unchanged = Math.max(0, unchanged);
@@ -258,10 +258,10 @@ export function bulkChangeSet(title: string, reason: string, c: BulkChange, rows
 // ================= Executor =================
 type Money = { currencyId: string; gross: number; net: number; linked?: boolean };
 const cleanMoney = (m: SwEntity | null | undefined): Money | undefined => (m ? { currencyId: m.currencyId, gross: m.gross, net: m.net, linked: m.linked ?? true } : undefined);
-/** Preis-JSON ohne berechnete Felder (percentage, apiAlias, extensions) – so wird es exakt zurückgeschrieben */
+/** Price JSON without computed fields (percentage, apiAlias, extensions): this is how it is written back exactly */
 export const cleanPrices = (arr: SwEntity[] | null | undefined) => (arr ? arr.map(p => ({ ...cleanMoney(p)!, ...(p.listPrice ? { listPrice: cleanMoney(p.listPrice) } : {}), ...(p.regulationPrice ? { regulationPrice: cleanMoney(p.regulationPrice) } : {}) })) : null);
 
-/** Schreibdaten + exakte Rückgängig-Daten eines Produkts aus Plan und aktuellem Stand */
+/** Write data + exact undo data of a product from plan and current state */
 export function planWrite(plan: BulkPlan, cur: SwEntity, parent?: SwEntity | null) {
   const row: Record<string, unknown> = { id: plan.id }, back: Record<string, unknown> = { id: plan.id };
   if (plan.price) {
@@ -276,7 +276,7 @@ export function planWrite(plan: BulkPlan, cur: SwEntity, parent?: SwEntity | nul
   if (plan.stockAdd !== undefined) { row.stock = Math.max(0, (cur.stock ?? 0) + plan.stockAdd); back.stock = cur.stock ?? null; }
   return { row, back };
 }
-/** Was hat sich seit dem Vorschlag an den geplanten Feldern geändert? null = nichts (rein, testbar) */
+/** What has changed in the planned fields since the proposal? null = nothing (pure, testable) */
 export function bulkStale(plan: BulkPlan, cur: SwEntity, parent?: SwEntity | null): string | null {
   const pv = plan.prev; if (!pv) return null;
   const e = effective(cur, parent ?? undefined);
@@ -295,7 +295,7 @@ export async function applyBulk(swW: Shopware, cs: ChangeSet, payload: BulkPaylo
     try {
       const ids = list.map(p => p.id);
       const cur = Object.fromEntries((await swW.search('product', { ids, limit: ids.length, associations: { tax: {} } })).data.map(p => [p.id, p]));
-      // Hauptprodukt für jede Variante laden: bulkStale/planWrite müssen dieselben geerbten Werte sehen wie planProduct beim Vorschlag
+      // Load the parent product for every variant: bulkStale/planWrite must see the same inherited values as planProduct at proposal time
       const pids = [...new Set(list.map(p => cur[p.id]?.parentId as string | undefined).filter((id): id is string => !!id))];
       const parents = pids.length ? Object.fromEntries((await swW.search('product', { ids: pids, limit: pids.length, associations: { tax: {} } })).data.map(p => [p.id, p])) : {};
       const ready: { row: Record<string, unknown>; back: Record<string, unknown> }[] = [];
@@ -308,7 +308,7 @@ export async function applyBulk(swW: Shopware, cs: ChangeSet, payload: BulkPaylo
         catch (e) { all.push({ itemId: p.id, ok: false, error: errMsg(e) }); }
       }
       if (ready.length) {
-        try { // ein Sync-Aufruf je Block (transaktional); schlägt er fehl, einzeln schreiben, um den Verursacher zu finden
+        try { // one Sync call per block (transactional); if it fails, write individually to find the culprit
           await swW.req('POST', '/_action/sync', syncBody(ready.map(r => r.row)));
           undo.push({ op: 'req', entity: 'product', id: `bulk-${i + 1}`, method: 'POST', path: '/_action/sync', body: syncBody(ready.map(r => r.back)) });
           ready.forEach(r => all.push({ itemId: r.row.id as string, ok: true }));
@@ -328,7 +328,7 @@ export async function applyBulk(swW: Shopware, cs: ChangeSet, payload: BulkPaylo
   return { ...bulkResults(cs, plans, all), undo };
 }
 
-/** Ergebnis klein halten (Chat, Audit-Log): je Gruppe eine Zeile, dazu Stichprobe und höchstens 100 Fehler – Zahlen in counts */
+/** Keep the result small (chat, audit log): one line per group, plus sample and at most 100 errors; numbers in counts */
 export function bulkResults(cs: ChangeSet, plans: BulkPlan[], all: ApplyResult['results']): Pick<ApplyResult, 'results' | 'counts'> {
   const bad = new Map(all.filter(r => !r.ok).map(r => [r.itemId, r])), sample = new Set((cs.sample ?? []).map(i => i.id));
   const results: ApplyResult['results'] = [];

@@ -1,6 +1,6 @@
-// Nur für Tests: kleiner Fake der Magento-2.4-REST-API (/rest/<store>/V1/…) und des Storefront-GraphQL, Daten im Speicher.
-// Bildet die Ebenen-Logik nach (globale Werte + Werte je Store-View, null entfernt den Wert der Ebene), Galerie mit Rollen,
-// MSI-Quellen, Kategorien mit Zuordnung, Warenkorb-Preisregeln mit Codes. Prüft das Bearer-Token und lehnt Kunden/Bestellungen ab.
+// Tests only: small fake of the Magento 2.4 REST API (/rest/<store>/V1/…) and the storefront GraphQL, data in memory.
+// Mimics the level logic (global values + values per store view, null removes the level's value), gallery with roles,
+// MSI sources, categories with assignment, cart price rules with codes. Checks the bearer token and rejects customers/orders.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
@@ -11,18 +11,18 @@ export interface FakeCategory { id: number; parent_id: number; level: number; pa
 export interface FakeMagento {
   base: string; token: string;
   products: FakeProduct[]; categories: FakeCategory[]; sources: Rec[]; sourceItems: Rec[]; rules: Rec[]; coupons: Rec[];
-  /** CMS-Seiten und -Blöcke (store_id: Store-Views, 0 = alle) */
+  /** CMS pages and blocks (store_id: store views, 0 = all) */
   cmsPages: Rec[]; cmsBlocks: Rec[];
-  /** URL-Rewrites der Storefront: alter Pfad (ohne .html) → neuer URL-Schlüssel (GraphQL route antwortet mit redirect_code 301) */
+  /** Storefront URL rewrites: old path (without .html) → new URL key (GraphQL route responds with redirect_code 301) */
   rewrites: Record<string, string>;
   log: { method: string; path: string; store: string; body?: unknown }[];
-  /** Steuerbare Antworten für Client-Tests: die nächsten REST-Anfragen scheitern mit diesem Status (Retry-After in Sekunden) */
+  /** Controllable responses for client tests: the next REST requests fail with this status (Retry-After in seconds) */
   failNext: { status: number; retryAfter?: number }[];
-  /** Admin-Token ungültig machen (nächste Anfrage 401, neue Anmeldung nötig) */
+  /** Invalidate the admin token (next request 401, new login required) */
   expireToken: () => void;
-  /** Verzögerung je Antwort (ms) und Messung der gleichzeitig offenen Anfragen */
+  /** Delay per response (ms) and measurement of concurrently open requests */
   delayMs: number; open: number; maxOpen: number;
-  /** Zustand als JSON (für Deep-Equal vor/nach Rückgängig) */
+  /** State as JSON (for deep-equal before/after undo) */
   snapshot: () => string;
   close: () => Promise<void>;
 }
@@ -42,13 +42,13 @@ function setVals(v: Vals, s: number, data: Rec, opts: { noNull?: Set<string> } =
 }
 const flat = (body: Rec): Rec => { const out: Rec = {}; for (const [k, x] of Object.entries(body)) if (k !== 'custom_attributes' && TOP.has(k)) out[k] = x; for (const a of (body.custom_attributes ?? []) as { attribute_code: string; value: unknown }[]) out[a.attribute_code] = a.value; return out; };
 
-/** searchCriteria aus dem Query-String lesen */
+/** Read searchCriteria from the query string */
 function criteria(q: URLSearchParams) {
   const groups: { field: string; value: string; condition_type: string }[][] = [];
   for (const [k, v] of q) { const m = /^searchCriteria\[filter_groups\]\[(\d+)\]\[filters\]\[(\d+)\]\[(\w+)\]$/.exec(k); if (!m) continue; const g = (groups[+m[1]] ??= []); (g[+m[2]] ??= { field: '', value: '', condition_type: 'eq' } as never)[m[3] as 'field'] = v; }
   return { groups: groups.filter(Boolean).map(g => g.filter(Boolean)), pageSize: Number(q.get('searchCriteria[pageSize]') ?? 20), page: Number(q.get('searchCriteria[currentPage]') ?? 1) };
 }
-const str = (x: unknown) => (x === true ? '1' : x === false ? '0' : String(x)); // Magento liefert Booleans als 1/0
+const str = (x: unknown) => (x === true ? '1' : x === false ? '0' : String(x)); // Magento returns booleans as 1/0
 function match(rec: Rec, f: { field: string; value: string; condition_type: string }) {
   const raw = rec[f.field], v = Array.isArray(raw) ? raw.map(str) : raw == null ? null : str(raw);
   const list = f.value.split(',');
@@ -56,7 +56,7 @@ function match(rec: Rec, f: { field: string; value: string; condition_type: stri
     case 'eq': return Array.isArray(v) ? v.includes(f.value) : v === f.value;
     case 'in': return Array.isArray(v) ? v.some(x => list.includes(x)) : v != null && list.includes(v);
     case 'like': { const re = new RegExp(`^${f.value.replace(/\\([%_\\])/g, '$1\u0000').split('%').map(p => p.replace(/\u0000/g, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`, 'i'); return v != null && re.test(String(v)); }
-    case 'gt': return v != null && Number(v) > Number(f.value); // fehlender Wert (z. B. kein Sonderpreis) passt nie
+    case 'gt': return v != null && Number(v) > Number(f.value); // missing value (e.g. no special price) never matches
     case 'gteq': return v != null && Number(v) >= Number(f.value);
     case 'lteq': return v != null && Number(v) <= Number(f.value);
     default: return false;
@@ -115,7 +115,7 @@ export async function startFakeMagento(seed: Partial<Pick<FakeMagento, 'products
     if (/^\/(customers|orders|invoices|carts|guest-carts|creditmemo|transactions)/.test(p)) return send(403, { message: 'Fake: gesperrt' });
     const c = criteria(url.searchParams);
     let mm: RegExpExecArray | null;
-    // ---- Produkte ----
+    // ---- Products ----
     if (p === '/products' && method === 'GET') {
       const rows = f.products.filter(x => c.groups.every(g => g.some(fl => match(productRow(x, s), fl)))), pg = page(rows, c);
       return send(200, { ...pg, items: pg.items.map(x => productOut(x, s)), search_criteria: {} });
@@ -158,18 +158,18 @@ export async function startFakeMagento(seed: Partial<Pick<FakeMagento, 'products
       if (mm[2] === 'options/all') return send(200, pr.options ?? []);
       (pr.children ??= []).push(String(body.childSku)); return send(200, true);
     }
-    // ---- Bestand (MSI) ----
+    // ---- Stock (MSI) ----
     if (p === '/inventory/sources') return send(200, { items: f.sources, total_count: f.sources.length });
     if (p === '/inventory/source-items' && method === 'GET') return send(200, page(f.sourceItems.filter(x => c.groups.every(g => g.some(fl => match(x, fl)))), c));
     if (p === '/inventory/source-items' && method === 'POST') { for (const it of body.sourceItems as Rec[]) { const ex = f.sourceItems.find(x => x.sku === it.sku && x.source_code === it.source_code); if (ex) Object.assign(ex, it); else f.sourceItems.push({ ...it }); } return send(200, true); }
     if (p === '/inventory/source-items-delete' && method === 'POST') { f.sourceItems = f.sourceItems.filter(x => !(body.sourceItems as Rec[]).some(d => d.sku === x.sku && d.source_code === x.source_code)); return send(200, true); }
-    // ---- Kategorien ----
+    // ---- Categories ----
     if (p === '/categories' && method === 'GET') return send(200, tree(f.categories.find(x => x.level === 1) ?? f.categories[0], s));
     if (p === '/categories/list') return send(200, page(f.categories.filter(x => c.groups.every(g => g.some(fl => match({ ...merged(x.vals, s), is_active: merged(x.vals, s).is_active ? '1' : '0', entity_id: String(x.id), parent_id: String(x.parent_id), level: x.level }, fl)))).map(x => catOut(x, s)), c));
     if ((mm = /^\/categories\/(\d+)$/.exec(p))) {
       const k = f.categories.find(x => x.id === Number(mm![1])); if (!k) return send(404, { message: 'No such entity with id = %1', parameters: [mm[1]] });
       if (method === 'GET') return send(200, catOut(k, s));
-      if (method === 'PUT') { const v = flat(body.category); delete v.save_rewrites_history; setVals(k.vals, s, v, { noNull: new Set(['name', 'is_active']) }); return send(200, catOut(k, s)); } // Magento verwirft null für name/is_active
+      if (method === 'PUT') { const v = flat(body.category); delete v.save_rewrites_history; setVals(k.vals, s, v, { noNull: new Set(['name', 'is_active']) }); return send(200, catOut(k, s)); } // Magento discards null for name/is_active
     }
     if ((mm = /^\/categories\/(\d+)\/products(?:\/([^/]+))?$/.exec(p))) {
       const k = f.categories.find(x => x.id === Number(mm![1])); if (!k) return send(404, { message: 'no category' });
@@ -177,13 +177,13 @@ export async function startFakeMagento(seed: Partial<Pick<FakeMagento, 'products
       if (method === 'POST') { const l = body.productLink as Rec; k.products = [...k.products.filter(x => x.sku !== l.sku), { sku: String(l.sku), position: Number(l.position ?? 0) }]; return send(200, true); }
       if (method === 'DELETE') { k.products = k.products.filter(x => x.sku !== decodeURIComponent(mm![2])); return send(200, true); }
     }
-    // ---- Promotionen ----
+    // ---- Promotions ----
     if (p === '/salesRules/search') return send(200, page(f.rules.filter(r => c.groups.every(g => g.some(fl => match(r, fl)))), c));
     if (p === '/salesRules' && method === 'POST') { const r = { rule_id: nextId++, times_used: 0, uses_per_coupon: 0, sort_order: 0, store_labels: [], ...body.rule }; f.rules.push(r); return send(200, r); }
     if ((mm = /^\/salesRules\/(\d+)$/.exec(p))) {
       const r = f.rules.find(x => Number(x.rule_id) === Number(mm![1])); if (!r) return send(404, { message: 'Rule with specified ID "%1" not found.', parameters: [mm[1]] });
       if (method === 'GET') return send(200, r);
-      if (method === 'PUT') { for (const [k, v] of Object.entries(body.rule as Rec)) if (k === 'store_labels') { // wie Magento: [] und null ändern nichts, leerer Text löscht die Bezeichnung dieser Store-View
+      if (method === 'PUT') { for (const [k, v] of Object.entries(body.rule as Rec)) if (k === 'store_labels') { // like Magento: [] and null change nothing, empty text deletes the label of this store view
           if (!Array.isArray(v)) continue;
           const cur = ((r.store_labels ?? []) as Rec[]).filter(x => !(v as Rec[]).some(l => Number(l.store_id) === Number(x.store_id)));
           for (const l of v as Rec[]) if (l.store_label) cur.push({ store_id: Number(l.store_id), store_label: l.store_label });
@@ -197,7 +197,7 @@ export async function startFakeMagento(seed: Partial<Pick<FakeMagento, 'products
     if (p === '/coupons/generate') { const spec = body.couponSpec as Rec, codes = Array.from({ length: Number(spec.quantity) }, (_, i) => `${spec.prefix ?? ''}C${nextId}${i}`); nextId++; for (const code of codes) f.coupons.push({ coupon_id: nextId++, rule_id: spec.rule_id, code, times_used: 0, type: 1 }); return send(200, codes); }
     if (p === '/coupons/deleteByCodes') { f.coupons = f.coupons.filter(x => !(body.codes as string[]).includes(String(x.code))); return send(200, { failed_items: [], missing_items: [] }); }
     if (p === '/customerGroups/search') return send(200, { items: [{ id: 0, code: 'NOT LOGGED IN' }, { id: 1, code: 'General' }], total_count: 2 });
-    // ---- CMS-Seiten und -Blöcke (wie Magento: Speichern übernimmt nur gesendete Felder, Store aus der URL beim Anlegen) ----
+    // ---- CMS pages and blocks (like Magento: saving takes over only sent fields, store from the URL on create) ----
     for (const [res, list, key] of [['cmsPage', f.cmsPages, 'page'], ['cmsBlock', f.cmsBlocks, 'block']] as const) {
       const out = (x: Rec) => { const { store_id: _s, ...rest } = x; void _s; return rest; };
       if (p === `/${res}/search`) return send(200, { ...page(list.filter(x => c.groups.every(g => g.some(fl => match({ ...x, [`${key}_id`]: String(x.id), is_active: x.active ? '1' : '0' }, fl)))).map(out), c), search_criteria: {} });
@@ -213,7 +213,7 @@ export async function startFakeMagento(seed: Partial<Pick<FakeMagento, 'products
         if (!x) return send(404, { message: `The CMS ${key} with the "%1" ID doesn't exist.`, parameters: [mm[1]] });
         if (method === 'GET') return send(200, out(x));
         if (method === 'DELETE') { list.splice(list.indexOf(x), 1); return send(200, true); }
-        if (method === 'PUT') { // Magento speichert NULL und lässt es in Antworten weg; ohne identifier bildet es ihn aus dem Titel neu (Seiten)
+        if (method === 'PUT') { // Magento stores NULL and omits it in responses; without identifier it rebuilds it from the title (pages)
           const d = body[key] as Rec;
           for (const [k2, v] of Object.entries(d)) if (k2 !== 'id') { if (v === null) delete x[k2]; else x[k2] = v; }
           if (key === 'page' && !('identifier' in d) && d.title) x.identifier = String(d.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

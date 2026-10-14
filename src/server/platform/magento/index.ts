@@ -1,8 +1,8 @@
 import 'server-only';
-// Magento-2-Adapter: REST-API /rest/<store>/V1 (Produkte, Kategorien, Galerie, MSI-Bestand, Warenkorb-Preisregeln, Store-Views)
-// und öffentliches GraphQL (URL-Auflösung, Storefront-Konfiguration). Lesen nur über den geschützten Lese-Client (reader.ts),
-// Schreiben nur über Änderungssets mit exaktem Rückgängig (write.ts, catalog.ts, images.ts, promo.ts, variants.ts, bulk.ts, cms.ts,
-// pages.ts für Seiten im Page-Builder-Format, importer.ts für Lieferantendaten). Shop-Check: checks.ts.
+// Magento 2 adapter: REST API /rest/<store>/V1 (products, categories, gallery, MSI stock, cart price rules, store views)
+// and public GraphQL (URL resolution, storefront config). Reads only via the protected read client (reader.ts),
+// writes only via change sets with exact undo (write.ts, catalog.ts, images.ts, promo.ts, variants.ts, bulk.ts, cms.ts,
+// pages.ts for pages in Page Builder format, importer.ts for supplier data). Shop check: checks.ts.
 import type { CategoryRow, ProductRow } from '@/lib/protocol';
 import { PLATFORM_SETTINGS } from '@/lib/platforms';
 import { accessAdd } from '../../db';
@@ -18,12 +18,12 @@ import { MAGENTO_CAPABILITIES, magentoPages } from './pages';
 import { magentoImport } from './importer';
 import { MAGENTO_TOOL_NAMES, magentoReader, magentoTools } from './tools';
 import { reg, resetMainStore, undoMagento } from './write';
-import './catalog'; import './images'; import './promo'; import './variants'; import './bulk'; // registrieren ihre Executor
+import './catalog'; import './images'; import './promo'; import './variants'; import './bulk'; // register their executors
 
 const config = (): MagentoConfig => { const c = platformConfig('magento', getSettings()); return { url: c.url, publicUrl: c.publicUrl, storeCode: c.storeCode, accessToken: c.accessToken, user: c.user, password: c.password, priceBasis: c.priceBasis }; };
-/** Privilegierter Client (einer je Prozess), wird nach dem Speichern der Einstellungen neu konfiguriert */
+/** Privileged client (one per process), reconfigured after the settings are saved */
 export const magentoClient = () => singleton('magento-client', () => new MagentoClient(config()));
-/** Geschützter Lese-Client für eine Session bzw. den Shop-Check (chat = Name im Zugriffsprotokoll) */
+/** Protected read client for a session or the shop check (chat = name in the access log) */
 export const magentoReaderFor = (chat: string, c = magentoClient()) => new MagentoReader(c, createMagentoGuard({ getScopes: () => getSettings().scopes, onAccess: a => accessAdd({ chat, ...a }) }));
 
 export const magento: PlatformAdapter = {
@@ -62,7 +62,7 @@ export const magento: PlatformAdapter = {
   },
 
   openSession(chat) {
-    const reader = magentoReaderFor(chat); // privilegierter Client bleibt im Adapter
+    const reader = magentoReaderFor(chat); // privileged client stays in the adapter
     return { reader, lookup: magentoLookup(reader), storefrontFetch: (u, i) => magentoClient().storefrontFetch(u, i), themeCss: async () => null };
   },
   lookup: reader => magentoLookup(reader as MagentoReader),
@@ -77,7 +77,7 @@ export const magento: PlatformAdapter = {
   pages: magentoPages(magentoReader),
 
   context: {
-    // Kontext-Auswahl der Oberfläche (Mensch, nicht KI): Kategoriebaum und Produkte über den privilegierten Client
+    // Context selection in the UI (human, not AI): category tree and products via the privileged client
     async categories() {
       const c = magentoClient(), tree = await c.req('GET', '/V1/categories', undefined, { store: c.storeCode }) as MCategory;
       const out: CategoryRow[] = [];
@@ -88,7 +88,7 @@ export const magento: PlatformAdapter = {
     async products({ term, categoryId }) {
       const c = magentoClient(), ro = magentoReaderFor('system');
       const r = await c.search('/V1/products', { filters: [...(term ? [[{ field: 'name', value: likeTerm(term), condition_type: 'like' as const }, { field: 'sku', value: likeTerm(term), condition_type: 'like' as const }]] : []), ...(categoryId ? [[{ field: 'category_id', value: categoryId }]] : []), [{ field: 'visibility', value: [2, 3, 4], condition_type: 'in' as const }]], pageSize: 30 });
-      // Bild-URL wie in den Werkzeugen über base_media_url der Store-View (CDN, pub/media); Rückfall ohne Shop-Konfiguration
+      // Image URL as in the tools via the store view's base_media_url (CDN, pub/media); fallback without shop config
       const img = (f: string | null) => ro.mediaUrl(f).catch(() => (f && f !== 'no_selection' ? `${c.publicUrl || c.base}/media/catalog/product${f}` : undefined));
       return Promise.all(r.items.map(async (p): Promise<ProductRow> => ({ id: String(p.id), name: String(p.name ?? p.sku), number: p.sku, img: await img(attrStr(p, 'small_image') ?? attrStr(p, 'thumbnail')), cmsPage: null })));
     },

@@ -1,5 +1,5 @@
 import 'server-only';
-// Startdaten, die der Server direkt mitrendert – damit beim Laden nichts nachträglich springt.
+// Initial data the server renders right away, so nothing jumps around after loading.
 import type { ChatDetail, ChatSummary, Styleguide } from '@/lib/protocol';
 import { chatListLive, chatSnapshot, peekSession } from './sessions';
 import { aiConfigured, publicSettings } from './settings';
@@ -10,7 +10,7 @@ import type { Locale } from '@/lib/i18n/locales';
 export interface ShellInitial {
   chats: ChatSummary[];
   styleguide: Styleguide | null;
-  /** Nur „eingerichtet ja/nein“ (ohne Netzwerkzugriff) – ob der Shop erreichbar ist, prüft die Oberfläche danach. */
+  /** Only "configured yes/no" (without network access); the UI checks afterwards whether the shop is reachable. */
   setup: { shopware: boolean; ai: boolean };
 }
 
@@ -25,7 +25,7 @@ export function shellInitial(): ShellInitial | null {
 
 const CHAT_ID = /^[A-Za-z0-9-]{1,200}$/;
 
-/** Chat zur ID aus dem Cookie (nur wenn er existiert und Ereignisse hat) – auch mitten in einer laufenden Runde. */
+/** Chat for the ID from the cookie (only if it exists and has events), even in the middle of a running turn. */
 export function initialChat(id: string | undefined, locale?: Locale): ChatDetail | null {
   if (!id || !CHAT_ID.test(id)) return null;
   try {

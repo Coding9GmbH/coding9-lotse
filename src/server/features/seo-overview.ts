@@ -1,6 +1,6 @@
 import 'server-only';
-// SEO-Übersicht („SEO“ in der Navigation): bündelt die besten Hebel aus Search Console (Chancen, Inhaltslücken) und Sistrix (Chancen, OnPage)
-// zu fertigen Aufträgen, die der Nutzer mit einem Klick in einen neuen Chat legt. Nur lesen; geschrieben wird erst nach Freigabe im Chat.
+// SEO overview ("SEO" in the navigation): bundles the best levers from Search Console (opportunities, content gaps) and Sistrix (opportunities, OnPage)
+// into ready-made tasks that the user puts into a new chat with one click. Read-only; writing happens only after approval in the chat.
 import { SEO_DONE_RECHECK_DAYS, type SeoItem, type SeoMark, type SeoOnpage, type SeoOverview } from '@/lib/protocol';
 import type { ShopLookup } from '../platform/types';
 import { BASE_DAYS, contentGaps, expectedCtr, MIN_IMPRESSIONS, pct, range, round } from './gsc-logic';
@@ -24,10 +24,10 @@ async function gscItems(lookup: ShopLookup): Promise<SeoItem[]> {
   const cfg = getGscConfig(); if (!cfg) return [];
   const out: SeoItem[] = [];
   const ranking = await rankingInsights(cfg, lookup, { top: 6 });
-  const declined = new Set(ranking.decline.map(d => d.ref?.id).filter(Boolean)); // Klickverlust geht vor: dort zuerst die Ursache klären
+  const declined = new Set(ranking.decline.map(d => d.ref?.id).filter(Boolean)); // click loss takes precedence: clarify the cause there first
   const opp = await findOpportunities(cfg, lookup, { top: 8, queries: true, minImpressions: Math.max(MIN_IMPRESSIONS, 20) });
   for (const { o, ref, queries } of opp.items) {
-    if (!ref || ref.kind === 'home' || !ref.id || declined.has(ref.id)) continue; // nicht zuordenbar oder nur im Admin änderbar: kein Auftrag
+    if (!ref || ref.kind === 'home' || !ref.id || declined.has(ref.id)) continue; // not assignable or only editable in the admin: no task
     const qs = queries.map(q => `„${q.keys[0]}“ (${q.impressions} Impr.)`).slice(0, 4);
     out.push({
       id: `gsc:meta:${ref.id}`, source: 'gsc', kind: 'meta', impact: o.potentialClicks,
@@ -54,11 +54,11 @@ async function gscItems(lookup: ShopLookup): Promise<SeoItem[]> {
 
 const quote = (qs: { query: string; impressions: number; position: number }[], n = 3) => qs.slice(0, n).map(q => `„${q.query}“ (Position ${num(q.position)}, ${q.impressions} Impr.)`).join(', ');
 
-/** Rankings aus der Search Console: kurz vor Seite 1, eigene Seiten gegeneinander, Klickverluste.
- *  Je Seite nur ein Hebel: Klickverlust vor Meta-Daten (metaIds) vor „kurz vor Seite 1“. */
+/** Rankings from Search Console: just short of page 1, own pages competing with each other, click losses.
+ *  Only one lever per page: click loss before meta data (metaIds) before "just short of page 1". */
 export function rankingItems(r: Pick<Awaited<ReturnType<typeof rankingInsights>>, 'striking' | 'cannibal' | 'decline'>, metaIds: Set<string>): SeoItem[] {
   const out: SeoItem[] = [], declined = new Set(r.decline.map(d => d.ref?.id).filter(Boolean));
-  // Anfragen mit Kannibalisierung nicht zusätzlich auf einer der Seiten stärken: erst die Hauptseite klären
+  // Don't additionally strengthen queries with cannibalization on one of the pages: clarify the main page first
   const contested = new Set(r.cannibal.map(c => c.x.query));
   for (const { x: raw, ref } of r.striking) {
     if (!ref?.id || ref.kind === 'home' || metaIds.has(ref.id) || declined.has(ref.id)) continue;
@@ -75,7 +75,7 @@ export function rankingItems(r: Pick<Awaited<ReturnType<typeof rankingInsights>>
   }
   for (const { x, refs } of r.cannibal) {
     const named = x.pages.map((p, i) => ({ p, ref: refs[i] })).filter(v => v.ref?.id);
-    if (named.length < 2) continue; // nur, wenn mindestens zwei Seiten im Shop zuordenbar sind
+    if (named.length < 2) continue; // only if at least two pages can be matched in the shop
     const list = named.map(({ p, ref }) => `${KIND_LABEL[ref!.kind] ?? 'Seite'} „${ref!.name}“ (ID ${ref!.id}, Position ${num(p.position)}, ${Math.round(p.share * 100)} % der Impressionen)`).join('; ');
     out.push({
       id: `gsc:cannibal:${x.query}`, source: 'gsc', kind: 'cannibal', impact: Math.round(x.impressions * 0.03),
@@ -89,7 +89,7 @@ export function rankingItems(r: Pick<Awaited<ReturnType<typeof rankingInsights>>
     if (!ref?.id || ref.kind === 'home') continue;
     const lost = x.before.clicks - x.after.clicks;
     out.push({
-      id: `gsc:decline:${ref.id}`, source: 'gsc', kind: 'decline', impact: lost * 3, // verlorene Klicks wiegen schwerer als geschätztes Potenzial
+      id: `gsc:decline:${ref.id}`, source: 'gsc', kind: 'decline', impact: lost * 3, // lost clicks weigh more than estimated potential
       title: `Klicks verloren: ${ref.name ?? x.page}`,
       detail: `${KIND_LABEL[ref.kind]} · ${x.before.clicks} → ${x.after.clicks} Klicks gegenüber den 28 Tagen davor${ref.active === false ? ' · im Shop inaktiv' : ''}`,
       metrics: [{ label: 'Klicks', value: `${Math.round(x.change * 100)} %` }, { label: 'ggü. Shop', value: `${Math.round(x.vsSite * 100)} %` }, { label: 'Position', value: `${num(x.before.position)} → ${num(x.after.position)}` }],
@@ -126,7 +126,7 @@ async function sistrixItems(lookup: ShopLookup, ttl: number): Promise<{ items: S
 
 const nOrNull = (v: unknown) => (typeof v === 'number' ? v : null);
 
-/** Technische Probleme aus dem OnPage-Crawl des Sistrix-Optimizers. Ohne eindeutiges Projekt sagt der Status, warum nichts kommt. */
+/** Technical issues from the Sistrix Optimizer's OnPage crawl. Without an unambiguous project, the status says why nothing shows up. */
 async function onpageItems(cfg: SistrixConfig, ttl: number): Promise<{ items: SeoItem[]; onpage: SeoOnpage }> {
   const all = rowsOf((await sistrixCached(cfg, 'project.overview', {}, ttl)).answer, 'project', 'projects')
     .map(p => ({ hash: String(p.hash ?? ''), name: String(p.name ?? p.domain ?? '') })).filter(p => p.hash);
@@ -134,7 +134,7 @@ async function onpageItems(cfg: SistrixConfig, ttl: number): Promise<{ items: Se
   if (!pr) return { items: [], onpage: { status: 'none' } };
   if ('choose' in pr) return { items: [], onpage: { status: 'choose', projects: all } };
   const projects = all.length > 1 ? all : undefined;
-  // Übersicht und Crawl kosten keine Credits
+  // Overview and crawl cost no credits
   const crawls = rowsOf((await sistrixCached(cfg, 'project.onpage.overview', { project: pr.hash }, ttl)).answer, 'crawl', 'crawls')
     .sort((a, b) => String(b.time ?? b.date ?? '').localeCompare(String(a.time ?? a.date ?? '')));
   const lc = crawls[0];
@@ -148,8 +148,8 @@ async function onpageItems(cfg: SistrixConfig, ttl: number): Promise<{ items: Se
     const name = String(c.name ?? ''); if (!name) continue;
     const err = rank(c) === 0, label = err ? 'Fehler' : 'Warnung';
     items.push({
-      id: `sistrix:onpage:${name}`, source: 'sistrix', kind: 'onpage', impact: (err ? 10_000 : 0) + (Number(c.count) || 0), // Fehler vor Warnungen
-      title: `${label}: ${name}`, detail: '', // Crawl-Datum und Projekt stehen einmal im Kopf der Gruppe
+      id: `sistrix:onpage:${name}`, source: 'sistrix', kind: 'onpage', impact: (err ? 10_000 : 0) + (Number(c.count) || 0), // errors before warnings
+      title: `${label}: ${name}`, detail: '', // crawl date and project appear once in the group header
       metrics: [{ label: 'Fundstellen', value: String(c.count) }],
       prompt: `Der Sistrix-OnPage-Crawl meldet „${name}“ (${label}, ${c.count} Fundstellen). Rufe sistrix_onpage mit issue="${name}"${all.length > 1 ? ` und project="${pr.hash}"` : ''} auf, ordne die URLs dem Shop zu und behebe, was über Texte lösbar ist (Meta-Daten, Überschriften, Alt-Texte), als Änderungsset. Technische Ursachen (Server, Weiterleitungen, Canonical) nur benennen, nicht behaupten, sie zu beheben.`,
     });
@@ -157,7 +157,7 @@ async function onpageItems(cfg: SistrixConfig, ttl: number): Promise<{ items: Se
   return { items, onpage: { status: 'ok', project: pr, projects, lastCrawl } };
 }
 
-/** Technik-Check der Live-Seiten als Hebel (Gruppe Technik); Gewichtung wie OnPage: hoch vor mittel vor niedrig */
+/** Technical check of the live pages as levers (Technical group); weighting like OnPage: high before medium before low */
 export function siteItems(a: SiteAudit): SeoItem[] {
   const W = { hoch: 20_000, mittel: 5_000, niedrig: 0 } as const, SEV = { hoch: 'Fehler', mittel: 'Warnung', niedrig: 'Hinweis' } as const;
   return a.findings.map(f => ({
@@ -166,15 +166,15 @@ export function siteItems(a: SiteAudit): SeoItem[] {
   }));
 }
 
-// ---- Zwischenspeicher und Markierungen ----
-// Das Ergebnis liegt dauerhaft in der DB: Aufrufe des SEO-Bereichs kosten keine Credits. Neu geholt wird per „Aktualisieren“,
-// nach einem Tag oder wenn sich die Anbindung ändert. Markierungen (erledigt/ignoriert) überleben das Neuholen.
+// ---- Cache and marks ----
+// The result is persisted in the DB: visits to the SEO section cost no credits. It is re-fetched via "Aktualisieren" (refresh),
+// after a day or when the connection changes. Marks (done/ignored) survive re-fetching.
 const STORE = 'seo-overview', MARKS = 'seo-marks', MAX_AGE = 24 * 60 * 60_000, DAY = 24 * 60 * 60_000;
 interface Stored { fp: string; overview: SeoOverview }
 type Marks = Record<string, SeoMark>;
 const getMarks = (): Marks => kvGet<Marks>(MARKS) ?? {};
 
-/** Anbindung, Domain, Projekt und KI-Zugriff: ändert sich etwas davon, passt der gespeicherte Stand nicht mehr */
+/** Connection, domain, project and AI access: if any of these changes, the stored state no longer applies */
 function fingerprint(): string {
   const g = getGscConfig(), x = getSistrixConfig(), sc = getSettings().scopes;
   return JSON.stringify([g?.property ?? null, g?.key.client_email ?? null, x?.domain ?? null, x?.country ?? null, x?.project ?? null, sc.gsc !== false, sc.sistrix !== false]);
@@ -182,20 +182,20 @@ function fingerprint(): string {
 
 const withMarks = (o: SeoOverview, m: Marks): SeoOverview => ({ ...o, items: o.items.map(i => ({ ...i, mark: m[i.id] })) });
 
-/** Nach frischem Abholen: was nicht mehr gemeldet wird, ist erledigt (Markierung fällt weg); „Erledigt“, das nach einer Woche noch gemeldet wird, kommt zurück */
+/** After a fresh fetch: whatever is no longer reported is done (mark is dropped); "done" items still reported after a week come back */
 export function reconcileMarks(o: SeoOverview, marks: Marks, now = Date.now()): Marks {
   const failed = new Set(o.errors.map(e => e.source)), present = new Map(o.items.map(i => [i.id, i]));
   const out: Marks = {};
   for (const [id, m] of Object.entries(marks)) {
     const src = id.split(':')[0] as 'gsc' | 'sistrix' | 'site', item = present.get(id);
-    if (!item) { if (failed.has(src) || !o[src]) out[id] = m; continue; } // Quelle fehlte: Markierung behalten
+    if (!item) { if (failed.has(src) || !o[src]) out[id] = m; continue; } // source was missing: keep the mark
     if (m.state === 'done' && now - Date.parse(m.at) >= SEO_DONE_RECHECK_DAYS * DAY) continue;
     out[id] = m;
   }
   return out;
 }
 
-/** Erledigt/ignoriert setzen oder (null) aufheben */
+/** Set done/ignored or clear it (null) */
 export function setSeoMark(id: string, state: SeoMark['state'] | null): SeoMark | null {
   const m = getMarks();
   if (state) m[id] = { state, at: new Date().toISOString() }; else delete m[id];
@@ -203,13 +203,13 @@ export function setSeoMark(id: string, state: SeoMark['state'] | null): SeoMark 
   return m[id] ?? null;
 }
 
-/** Nur gespeicherter, noch passender Stand (Arbeitsfläche): holt nie neu und kostet daher keine Credits */
+/** Only the stored, still matching state (workspace): never re-fetches and therefore costs no credits */
 export function seoOverviewStored(): SeoOverview | null {
   const st = kvGet<Stored>(STORE);
   return st?.fp === fingerprint() ? { ...withMarks(st.overview, getMarks()), cached: true } : null;
 }
 
-/** Gespeicherten Stand liefern oder neu holen (refresh = an allen Zwischenspeichern vorbei). Gleichzeitige Abrufe teilen sich eine Abholung. */
+/** Return the stored state or fetch anew (refresh = bypass all caches). Concurrent requests share one fetch. */
 export type SiteSource = { storefront: { base(): Promise<string>; fetch: Fetcher }; label: string };
 export async function seoOverviewCached(lookup: ShopLookup, refresh = false, site?: SiteSource): Promise<SeoOverview> {
   const fp = fingerprint(), st = kvGet<Stored>(STORE);
@@ -219,7 +219,7 @@ export async function seoOverviewCached(lookup: ShopLookup, refresh = false, sit
     try {
       if (refresh) { clearSistrixCache(); clearGscCache(); }
       const o = await seoOverview(lookup, refresh, site);
-      if (!o.errors.length) kvSet(STORE, { fp, overview: o } satisfies Stored); // mit Fehlern nicht speichern: der nächste Aufruf versucht es erneut
+      if (!o.errors.length) kvSet(STORE, { fp, overview: o } satisfies Stored); // don't store with errors: the next call tries again
       const m = reconcileMarks(o, getMarks()); kvSet(MARKS, m);
       return withMarks(o, m);
     } finally { inflight.p = null; }
@@ -227,9 +227,9 @@ export async function seoOverviewCached(lookup: ShopLookup, refresh = false, sit
   return inflight.p;
 }
 
-/** Alle Hebel, je Quelle nach Wirkung sortiert; ein Ausfall einer Quelle blockiert die andere nicht */
+/** All levers, sorted by impact per source; a failure of one source doesn't block the other */
 export async function seoOverview(lookup: ShopLookup, fresh = false, site?: SiteSource): Promise<SeoOverview> {
-  const sc = getSettings().scopes; // KI-Zugriff aus = Lotse zeigt und sendet nichts aus dieser Quelle
+  const sc = getSettings().scopes; // AI access off = Lotse shows and sends nothing from this source
   const gsc = !!getGscConfig() && sc.gsc !== false, sistrix = !!getSistrixConfig()?.domain && sc.sistrix !== false;
   const errors: SeoOverview['errors'] = [];
   const ttl = fresh ? 0 : HOURS6;

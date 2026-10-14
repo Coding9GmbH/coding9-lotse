@@ -9,7 +9,7 @@ import styles from './QuestionCard.module.css';
 
 interface Props { question: string; options: QuestionOption[]; answer?: string; interactive: boolean; onAnswer: (a: string) => void }
 
-/** Rückfrage der KI mit anklickbaren Antworten oder freier Eingabe. */
+/** AI follow-up question with clickable answers or free-text input. */
 export function QuestionCard({ question, options, answer, interactive, onAnswer }: Props) {
   const t = useT().chat.question;
   const [own, setOwn] = useState('');

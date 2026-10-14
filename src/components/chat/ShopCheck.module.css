@@ -10,7 +10,7 @@
 .spin { width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--coral); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Bereiche als Reiter: Alle · SEO · Bilder … */
+/* Sections as tabs: All · SEO · Images … */
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; border-top: 1px solid var(--line); padding: 10px 0 8px; }
 .tabs button { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border: 1px solid var(--line); border-radius: 99px; background: var(--panel); color: var(--mute); font-size: 12.5px; cursor: pointer; }
 .tabs button:hover { color: var(--ink); border-color: var(--green); }

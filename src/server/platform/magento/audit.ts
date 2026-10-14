@@ -1,5 +1,5 @@
 import 'server-only';
-// Magento: SEO-Bestandsaufnahme (nur lesen) für Produkte und Kategorien, seitenweise für große Kataloge.
+// Magento: SEO inventory (read-only) for products and categories, paged for large catalogs.
 import { attr, attrStr, plain, type MRecord } from './map';
 import type { MagentoReader } from './reader';
 
@@ -12,7 +12,7 @@ const ISSUES: AuditIssue[] = [
 ];
 const words = (t: unknown) => plain(t).split(/\s+/).filter(Boolean).length;
 
-/** Prüft eine Liste von Datensätzen (rein, getestet): liefert je Problem die IDs */
+/** Checks a list of records (pure, tested): returns the IDs per problem */
 export function auditRecords(rows: MRecord[], entity: 'product' | 'category'): Record<string, string[]> {
   const out: Record<string, string[]> = Object.fromEntries(ISSUES.map(i => [i.key, []]));
   const add = (k: string, id: string) => out[k].push(id);

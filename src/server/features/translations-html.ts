@@ -1,22 +1,22 @@
-// Mehrsprachigkeit, reine Logik ohne Shop-Zugriff: Texte einer Slot-Config in übersetzbare Abschnitte zerlegen,
-// Übersetzungen wieder einsetzen (Markup, CSS, JS bleiben unangetastet) und Shop-Links auf die Zielsprache umbiegen.
+// Multilingual support, pure logic without shop access: split the texts of a slot config into translatable segments,
+// reinsert translations (markup, CSS, JS stay untouched) and rewrite shop links to the target language.
 
 const INLINE = new Set(['a', 'abbr', 'b', 'bdi', 'bdo', 'br', 'cite', 'code', 'data', 'del', 'dfn', 'em', 'i', 'ins', 'kbd', 'mark', 'q', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var', 'wbr']);
 const VOID = new Set(['br', 'wbr', 'img', 'input', 'hr', 'meta', 'link', 'source', 'area', 'base', 'col', 'embed', 'param', 'track']);
 const RAW = new Set(['script', 'style', 'textarea', 'template']);
 const ATTRS = ['alt', 'title', 'aria-label', 'placeholder'];
-/** Config-Schlüssel mit reinem Text (z. B. Slider-Titel, Plugin-Elemente) */
+/** Config keys with plain text (e.g. slider titles, plugin elements) */
 const TEXT_KEYS = new Set(['title', 'label', 'text', 'headline', 'subline', 'subtitle', 'buttonText', 'buttonLabel', 'alt', 'placeholder', 'confirmationText', 'description', 'content']);
 const hasLetter = (s: string) => /\p{L}/u.test(s);
 
 type Tok = { t: 'text' | 'other'; s: string } | { t: 'tag'; s: string; name: string; close: boolean; self: boolean } | { t: 'raw'; s: string; ld: boolean };
 
 const ENT: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', auml: 'ä', ouml: 'ö', uuml: 'ü', Auml: 'Ä', Ouml: 'Ö', Uuml: 'Ü', szlig: 'ß', euro: '€', ndash: '–', mdash: '—', hellip: '…', laquo: '«', raquo: '»', bdquo: '„', ldquo: '“', rdquo: '”', lsquo: '‘', rsquo: '’', sbquo: '‚', copy: '©', reg: '®', trade: '™', times: '×', deg: '°', eacute: 'é', egrave: 'è', agrave: 'à', ccedil: 'ç' };
-// numerische Entity → Zeichen; ungültige Codepunkte (> U+10FFFF, z. B. Tippfehler aus Importen) bleiben wörtlich stehen statt zu werfen
+// numeric entity → character; invalid code points (> U+10FFFF, e.g. typos from imports) stay literal instead of throwing
 const codePoint = (e: string) => { const n = e[1].toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10); return n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : null; };
 export const decode = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => (e[0] === '#' ? codePoint(e) ?? m : ENT[e] ?? m));
 const encAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-/** Sichtbarer Text eines HTML-Schnipsels (für Vergleich, Vorschau und JSON-LD-Abgleich) */
+/** Visible text of an HTML snippet (for comparison, preview and JSON-LD matching) */
 export const plain = (html: string) => decode(html.replace(/<\/?([a-zA-Z][\w:-]*)[^>]*>|<[^>]*>/g, (_m, n?: string) => (n && INLINE.has(n.toLowerCase()) && n.toLowerCase() !== 'br' ? '' : ' '))).replace(/\s+/g, ' ').trim();
 
 function tokenize(html: string): Tok[] {
@@ -28,7 +28,7 @@ function tokenize(html: string): Tok[] {
     if (!m[2]) { out.push({ t: 'other', s: m[0] }); continue; }
     const name = m[2].toLowerCase(), close = !!m[1], self = /\/\s*$/.test(m[3]) || VOID.has(name);
     out.push({ t: 'tag', s: m[0], name, close, self });
-    if (!close && !self && RAW.has(name)) { // Inhalt von script/style roh übernehmen
+    if (!close && !self && RAW.has(name)) { // take script/style content verbatim
       const end = html.slice(last).search(new RegExp(`</${name}\\s*>`, 'i')), stop = end < 0 ? html.length : last + end;
       out.push({ t: 'raw', s: html.slice(last, stop), ld: name === 'script' && /type\s*=\s*["']?application\/ld\+json/i.test(m[3]) });
       last = re.lastIndex = stop;
@@ -42,7 +42,7 @@ export interface Seg { kind: 'text' | 'attr' | 'value'; attr?: string; src: stri
 export type Part = string | { seg: number } | { ld: string };
 export interface Segmented { parts: Part[]; segs: Seg[] }
 
-/** Zerlegt HTML in feste Teile und übersetzbare Abschnitte: Textläufe (inkl. Inline-Tags wie <strong>, <a>) sowie alt/title/aria-label/placeholder. */
+/** Splits HTML into fixed parts and translatable segments: text runs (incl. inline tags like <strong>, <a>) plus alt/title/aria-label/placeholder. */
 export function segmentHtml(html: string): Segmented {
   const parts: Part[] = [], segs: Seg[] = [];
   const lit = (s: string) => { if (!s) return; if (typeof parts.at(-1) === 'string') parts[parts.length - 1] += s; else parts.push(s); };
@@ -63,11 +63,11 @@ export function segmentHtml(html: string): Segmented {
   const emit = (tk: Tok) => (tk.t === 'tag' ? tag(tk) : lit(tk.s));
   let run: Tok[] = [];
   const lettered = (tk: Tok) => tk.t === 'text' && hasLetter(decode(tk.s));
-  const textSeg = (toks: Tok[]) => { // Leerraum am Rand bleibt außerhalb des Abschnitts
+  const textSeg = (toks: Tok[]) => { // leading/trailing whitespace stays outside the segment
     const src = toks.map(t => t.s).join(''), lead = src.match(/^\s*/)![0], trail = src.slice(lead.length).match(/\s*$/)![0];
     lit(lead); seg({ kind: 'text', src: src.slice(lead.length, src.length - trail.length) }); lit(trail);
   };
-  // Partner (öffnend ↔ schließend) jedes Inline-Tags innerhalb eines Laufs
+  // Partner (opening ↔ closing) of each inline tag within a run
   const partners = (r: Tok[]) => {
     const p = new Map<number, number>(), stack: number[] = [];
     r.forEach((t, i) => { if (t.t !== 'tag' || t.self) return; if (!t.close) stack.push(i); else { const j = stack.findLastIndex(k => (r[k] as { name: string }).name === t.name); if (j >= 0) { p.set(stack[j], i); p.set(i, stack[j]); stack.splice(j); } } });
@@ -77,7 +77,7 @@ export function segmentHtml(html: string): Segmented {
     const r = run; run = [];
     const idx = r.map((t, i) => (lettered(t) ? i : -1)).filter(i => i >= 0);
     if (!idx.length) { r.forEach(emit); return; }
-    // kleinster ausgeglichener Bereich um den Text: Tags, deren Partner außerhalb liegt, ziehen den Bereich mit (z. B. <b>…</b>)
+    // smallest balanced range around the text: tags whose partner lies outside extend the range (e.g. <b>…</b>)
     const p = partners(r); let lo = idx[0], hi = idx[idx.length - 1], okSpan = true;
     const textAt = (i: number) => r[i]?.t === 'text';
     for (let changed = true; changed;) {
@@ -89,9 +89,9 @@ export function segmentHtml(html: string): Segmented {
       }
       if (!okSpan) break;
     }
-    // angrenzende Satzzeichen (z. B. „</a>.“) gehören zum Abschnitt
+    // adjacent punctuation (e.g. "</a>.") belongs to the segment
     if (okSpan) { if (textAt(hi + 1)) hi++; if (textAt(lo - 1)) lo--; }
-    if (!okSpan) { // unausgeglichen (z. B. Tag über ein Block-Element hinweg): jeder Textknoten einzeln
+    if (!okSpan) { // unbalanced (e.g. tag spanning a block element): each text node separately
       r.forEach(t => (lettered(t) ? textSeg([t]) : emit(t)));
       return;
     }
@@ -107,10 +107,10 @@ export function segmentHtml(html: string): Segmented {
 }
 
 const tagSig = (html: string) => [...html.matchAll(/<(\/?)([a-zA-Z][\w:-]*)/g)].map(m => (m[1] + m[2]).toLowerCase()).sort().join(',');
-// Attribute der Inline-Tags (ohne übersetzbare wie title/alt): href, class, style … müssen gleich bleiben
+// Attributes of inline tags (except translatable ones like title/alt): href, class, style … must stay the same
 const attrSig = (html: string) => [...html.matchAll(/<([a-zA-Z][\w:-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g)].map(m => m[1].toLowerCase() + [...m[2].matchAll(/([^\s=/]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?/g)]
   .map(a => { const n = a[1].toLowerCase(); return ATTRS.includes(n) ? ` ${n}` : ` ${n}=${decode((a[2] ?? '').replace(/^["']|["']$/g, ''))}`; }).sort().join('')).sort().join('|');
-/** Prüft eine Übersetzung gegen den Quellabschnitt: gleiche Inline-Tags, keine Block-/Script-Tags, nicht leer. */
+/** Checks a translation against the source segment: same inline tags, no block/script tags, not empty. */
 export function checkSeg(sg: Seg, tr: string): string | null {
   if (typeof tr !== 'string' || !tr.trim()) return 'leer';
   if (sg.kind !== 'text') return /<[a-z/!]/i.test(tr) ? 'kein HTML erlaubt (reiner Text)' : null;
@@ -122,7 +122,7 @@ export function checkSeg(sg: Seg, tr: string): string | null {
   return null;
 }
 
-/** Setzt Übersetzungen ein (fehlende → Quelltext). JSON-LD (z. B. FAQ-Schema) wird über den sichtbaren Text mitübersetzt. */
+/** Inserts translations (missing → source text). JSON-LD (e.g. FAQ schema) is translated along via the visible text. */
 export function rebuild({ parts, segs }: Segmented, tr: (i: number) => string | undefined): string {
   const map = new Map<string, string>();
   segs.forEach((s, i) => { const t = tr(i); if (t != null && s.kind === 'text') map.set(plain(s.src), plain(t)); else if (t != null) map.set(s.src.trim(), t.trim()); });
@@ -136,12 +136,12 @@ export function rebuild({ parts, segs }: Segmented, tr: (i: number) => string | 
   return parts.map(p => (typeof p === 'string' ? p : 'ld' in p ? ld(p.ld) : one(p.seg))).join('');
 }
 
-// ---- Slot-Config: alle übersetzbaren Texte eines Elements ----
+// ---- Slot config: all translatable texts of an element ----
 export type Cfg = Record<string, { source?: string; value?: unknown } | null | undefined>;
 export interface SlotSeg extends Seg { key: string; configKey: string }
 const looksHtml = (s: string) => /<[a-z][^>]*>/i.test(s);
 
-/** Übersetzbare Abschnitte einer Slot-Config (nur statische Werte), Schlüssel „{prefix}.{n}“ in stabiler Reihenfolge. */
+/** Translatable segments of a slot config (static values only), keys "{prefix}.{n}" in stable order. */
 export function slotTexts(config: Cfg | null | undefined, prefix: string): { segs: SlotSeg[]; apply: (tr: Record<string, string>) => Cfg } {
   const cfg = config ?? {}, segs: SlotSeg[] = [], plans: { key: string; html?: Segmented; base: number }[] = [];
   for (const k of Object.keys(cfg).sort()) {
@@ -162,7 +162,7 @@ export function slotTexts(config: Cfg | null | undefined, prefix: string): { seg
   return { segs, apply };
 }
 
-// ---- Links auf die Zielsprache umbiegen ----
+// ---- Rewrite links to the target language ----
 export interface Domain { url: string; languageId: string; salesChannelId: string }
 export interface SeoHit { routeName: string; foreignKey: string; salesChannelId: string; seoPathInfo: string; languageId: string }
 export interface LinkIndex { domains: Domain[]; targetLanguageId: string; targetLanguageName: string; bySeoPath: Map<string, SeoHit>; targetSeo: Map<string, string> }
@@ -170,7 +170,7 @@ const ROUTES: [RegExp, string, string][] = [[/^navigation\/([0-9a-f]{32})$/, 'fr
 const trimSlash = (s: string) => s.replace(/^\/+|\/+$/g, '');
 export const seoKey = (sc: string, route: string, fk: string) => `${sc}|${route}|${fk}`;
 
-/** Zerlegt eine Shop-URL in Verkaufskanal + Pfad (null = extern, Anker, mailto …). */
+/** Splits a shop URL into sales channel + path (null = external, anchor, mailto …). */
 export function shopPath(url: string, domains: Domain[]): { sc?: string; path: string; tail: string } | null {
   const u = url.trim(); let rest: string | null = null, sc: string | undefined;
   if (/^\/(?!\/)/.test(u)) rest = u;
@@ -182,10 +182,10 @@ export function shopPath(url: string, domains: Domain[]): { sc?: string; path: s
   const cut = rest.search(/[?#]/), path = cut < 0 ? rest : rest.slice(0, cut), tail = cut < 0 ? '' : rest.slice(cut);
   return { sc, path: trimSlash(path), tail };
 }
-/** Pfade, unter denen eine SEO-URL gesucht wird (mit/ohne Schrägstrich am Ende) */
+/** Paths under which an SEO URL is looked up (with/without trailing slash) */
 export const seoVariants = (path: string) => [path, path + '/'];
 
-/** Shop-Link → gleiche Seite in der Zielsprache (SEO-URL der Zielsprache auf deren Domain). note erklärt, warum ein Link bleibt. */
+/** Shop link → same page in the target language (target language's SEO URL on its domain). note explains why a link stays. */
 export function mapUrl(url: string, ix: LinkIndex): { url: string; note?: string } {
   const sp = shopPath(url, ix.domains);
   if (!sp || !sp.path) return { url };
@@ -204,12 +204,12 @@ export function mapUrl(url: string, ix: LinkIndex): { url: string; note?: string
   return out === url ? { url } : { url: out, ...(seo ? {} : { note: `Link ${url}: keine SEO-URL in ${ix.targetLanguageName}, technischer Pfad` }) };
 }
 
-/** Alle Link-Ziele einer Config (href in HTML-Werten, url-Werte) */
+/** All link targets of a config (href in HTML values, url values) */
 export function configLinks(config: Cfg | null | undefined): string[] {
   const out: string[] = [];
   for (const [k, c] of Object.entries(config ?? {})) {
     if (!c || c.source === 'mapped') continue;
-    if (Array.isArray(c.value)) { for (const x of c.value) if (typeof x?.url === 'string' && x.url) out.push(x.url); continue; } // z. B. sliderItems[].url
+    if (Array.isArray(c.value)) { for (const x of c.value) if (typeof x?.url === 'string' && x.url) out.push(x.url); continue; } // e.g. sliderItems[].url
     if (typeof c.value !== 'string') continue;
     if (k === 'url' && c.value) out.push(c.value);
     else for (const m of c.value.matchAll(/\shref\s*=\s*(["'])(.*?)\1/gi)) out.push(decode(m[2]));
@@ -217,7 +217,7 @@ export function configLinks(config: Cfg | null | undefined): string[] {
   return out;
 }
 
-/** Biegt alle Links einer Config um; liefert die neue Config und Hinweise. */
+/** Rewrites all links of a config; returns the new config and notes. */
 export function mapConfigLinks(config: Cfg, ix: LinkIndex): { config: Cfg; changed: { from: string; to: string }[]; notes: string[] } {
   const out: Cfg = JSON.parse(JSON.stringify(config)), changed: { from: string; to: string }[] = [], notes = new Set<string>();
   const map = (u: string) => { const r = mapUrl(u, ix); if (r.note) notes.add(r.note); if (r.url !== u) changed.push({ from: u, to: r.url }); return r.url; };

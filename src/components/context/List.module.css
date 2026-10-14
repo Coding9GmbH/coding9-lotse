@@ -18,7 +18,7 @@
 .inactive .nm { opacity: .5; }
 .row img, .noimg { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; background: var(--sand); flex: none; }
 
-/* Verlaufseinträge */
+/* History entries */
 .h { position: relative; padding: 0; }
 .open { display: flex; flex-direction: column; align-items: flex-start; width: 100%; padding: 8px 26px 8px 10px !important; text-align: left; }
 .open .nm { width: 100%; white-space: normal; font-weight: 500; }

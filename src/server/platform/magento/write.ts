@@ -1,8 +1,8 @@
 import 'server-only';
-// Schreib-Bausteine (nur Executor, nach Freigabe): Store-View-genaues Schreiben mit exakten Rückgängig-Schritten und Undo-Ausführung.
-// Magento speichert Texte je Ebene: global (Store „all“) oder je Store-View. Hat die View einen eigenen Wert, wird dort geschrieben,
-// sonst global (gilt dann für alle Views ohne eigenen Wert). Rückgängig schreibt exakt die vorherigen Werte der Ebene zurück;
-// null entfernt einen Wert der Ebene wieder („Standardwert verwenden“).
+// Write building blocks (executor only, after approval): store-view-precise writes with exact undo steps and undo execution.
+// Magento stores texts per scope: global (store "all") or per store view. If the view has its own value, it is written there,
+// otherwise globally (then applies to all views without their own value). Undo writes back exactly the previous values of the scope;
+// null removes a value from the scope again ("Standardwert verwenden", use default value).
 import type { UndoOp } from '@/lib/protocol';
 import { applierRegistry } from '../appliers';
 import { MagentoClient, MagentoError, skuPath } from './client';
@@ -14,14 +14,14 @@ export type Ent = 'product' | 'category';
 const restPath = (e: Ent, ref: string, store: string) => `/${store}/V1/${e === 'product' ? `products/${skuPath(ref)}` : `categories/${Number(ref)}`}`;
 const wrap = (e: Ent, ref: string, body: MRecord) => (e === 'product' ? { product: { sku: ref, ...body } } : { category: { id: Number(ref), ...body } });
 export const getEnt = (c: MagentoClient, e: Ent, ref: string, store: string): Promise<MRecord | null> => c.req('GET', restPath(e, ref, store), undefined, { nullOn404: true });
-/** PUT eines Produkts/einer Kategorie auf einer Ebene; extra = zusätzliche custom_attributes (z. B. save_rewrites_history) */
+/** PUT of a product/category on one scope; extra = additional custom_attributes (e.g. save_rewrites_history) */
 export async function putEnt(c: MagentoClient, e: Ent, ref: string, store: string, values: Record<string, unknown>, extra: Record<string, unknown> = {}): Promise<UndoOp['body']> {
   const body = wrap(e, ref, writeBody({ ...values, ...extra }));
   await c.req('PUT', restPath(e, ref, store), body);
   return body;
 }
 export const reqOp = (entity: string, id: string, method: string, path: string, body?: unknown): UndoOp => ({ op: 'req', entity, id, method, path, ...(body !== undefined ? { body } : {}) });
-/** Fehler weiterreichen und schon erfolgreiche Schritte dranhängen (ein späterer PUT darf sie nicht verschlucken). */
+/** Pass the error on and attach steps that already succeeded (a later PUT must not swallow them). */
 const failWithUndo = (e: unknown, undo: UndoOp[]): never => {
   const prev = (e as { undo?: UndoOp[] }).undo;
   const merged = !prev?.length || prev === undo ? undo : [...undo, ...prev];
@@ -31,11 +31,11 @@ const undoPut = (e: Ent, ref: string, store: string, before: Record<string, unkn
   ({ ...reqOp(e, ref, 'PUT', restPath(e, ref, store), wrap(e, ref, writeBody({ ...before, ...extra }))), ...(Object.keys(wrote).length ? { wrote } : {}) });
 
 /**
- * Werte in der Store-View `store` schreiben (scoped: eigener Wert der View → View, sonst global) plus globale Werte (global).
- * Prüft danach, ob die View den neuen Wert zeigt (eigener, zufällig gleicher Wert der View), und zieht ihn dort sonst nach.
+ * Write values in store view `store` (scoped: view's own value → view, otherwise global) plus global values (global).
+ * Then checks whether the view shows the new value (its own value that happens to be equal) and otherwise writes it there too.
  */
 export async function writeScoped(c: MagentoClient, e: Ent, ref: string, store: string, scoped: Record<string, unknown>, global: Record<string, unknown> = {}, extra: Record<string, unknown> = {}): Promise<UndoOp[]> {
-  // Nicht die Haupt-Store-View (z. B. eine Sprach-View): Texte nur dort schreiben, nie global (sonst ändern sich alle Views)
+  // Not the main store view (e.g. a language view): write texts only there, never globally (otherwise all views change)
   if (store !== 'all' && Object.keys(scoped).length && store !== await mainStoreCode(c)) {
     const undo = Object.keys(global).length || Object.keys(extra).length ? await writeScoped(c, e, ref, 'all', {}, global) : [];
     try { return [...undo, ...await writeStore(c, e, ref, store, scoped, extra)]; }
@@ -63,20 +63,20 @@ export async function writeScoped(c: MagentoClient, e: Ent, ref: string, store: 
   } catch (e2) { return failWithUndo(e2, undo); }
 }
 
-/** Werte gezielt in einer Store-View schreiben (Übersetzungen). Rückgängig: vorheriger eigener Wert bzw. null (= wieder erben) */
+/** Write values specifically in one store view (translations). Undo: previous own value or null (= inherit again) */
 export async function writeStore(c: MagentoClient, e: Ent, ref: string, store: string, values: Record<string, unknown>, extra: Record<string, unknown> = {}): Promise<UndoOp[]> {
   const [cur, glob] = await Promise.all([getEnt(c, e, ref, store), getEnt(c, e, ref, 'all')]);
   if (!cur || !glob) throw new MagentoError(`${e === 'product' ? 'Produkt' : 'Kategorie'} ${ref} nicht mehr vorhanden`, 404);
   const back: Record<string, unknown> = {};
-  for (const k of Object.keys(values)) back[k] = sameValue(attr(cur, k), attr(glob, k)) ? null : attr(cur, k) ?? null; // gleich wie global = geerbt
+  for (const k of Object.keys(values)) back[k] = sameValue(attr(cur, k), attr(glob, k)) ? null : attr(cur, k) ?? null; // same as global = inherited
   await putEnt(c, e, ref, store, values, extra);
   fixCategoryUndo(e, back, glob);
   return [undoPut(e, ref, store, back, values, extra)];
 }
 
 /**
- * Haupt-Store-View = Standard-View der Website, zu der die Store-View aus den Einstellungen gehört (Website → Standard-Gruppe →
- * Standard-View); deren geerbte Texte schreibt Lotse global. Eine „Standard-Website“ liefert die REST-API nicht.
+ * Main store view = default view of the website the configured store view belongs to (website → default group →
+ * default view); Lotse writes its inherited texts globally. The REST API doesn't expose a "default website".
  */
 const mainStore = new WeakMap<MagentoClient, Promise<string>>();
 export const resetMainStore = (c: MagentoClient) => { mainStore.delete(c); };
@@ -91,7 +91,7 @@ export function mainStoreCode(c: MagentoClient): Promise<string> {
   return mainStore.get(c)!;
 }
 
-/** Kategorien: „Standardwert verwenden“ lässt sich per REST für name/is_active nicht setzen (Magento verwirft null) – Rückgängig schreibt dann den globalen Wert */
+/** Categories: "Standardwert verwenden" (use default value) can't be set via REST for name/is_active (Magento discards null), so undo writes the global value */
 const CATEGORY_NO_NULL = new Set(['name', 'is_active']);
 function fixCategoryUndo(e: Ent, undo: Record<string, unknown>, glob: MRecord) {
   if (e !== 'category') return;
@@ -107,7 +107,7 @@ function valueMoved(c: MagentoClient, op: UndoOp): Promise<boolean> {
   const before = body?.product ?? body?.category;
   return getEnt(c, op.entity, op.id, store).then(cur => !!cur && Object.keys(op.wrote!).some(k => !sameValue(attr(cur, k), op.wrote![k]) && !sameValue(attr(cur, k), attr(before, k))));
 }
-/** Rückgängig-Schritte in umgekehrter Reihenfolge; Löschen von schon Gelöschtem (404) gilt als erledigt */
+/** Undo steps in reverse order; deleting something already deleted (404) counts as done */
 export async function undoMagento(c: MagentoClient, ops: UndoOp[]): Promise<{ ok: boolean; error?: string }[]> {
   const out: { ok: boolean; error?: string }[] = [];
   for (const op of [...ops].reverse()) {

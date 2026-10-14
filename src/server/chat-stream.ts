@@ -1,6 +1,6 @@
 import 'server-only';
-// NDJSON-Strom einer Oberfläche, die einem Chat zuhört. Schließt sich nach „done“; bricht der Client ab,
-// wird nur der Listener entfernt – die KI-Runde läuft weiter.
+// NDJSON stream for a UI listening to a chat. Closes after "done"; if the client aborts,
+// only the listener is removed; the AI turn keeps running.
 import type { ChatEvent } from '@/lib/protocol';
 import type { Session } from './sessions';
 
@@ -11,7 +11,7 @@ export function listenStream(s: Session, first: ChatEvent[], live: boolean): Res
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
-      const close = () => { if (closed) return; closed = true; detach(); try { controller.close(); } catch { /* schon zu */ } };
+      const close = () => { if (closed) return; closed = true; detach(); try { controller.close(); } catch { /* already closed */ } };
       const send = (ev: ChatEvent) => {
         if (closed) return;
         try { controller.enqueue(enc.encode(JSON.stringify(ev) + '\n')); } catch { close(); return; }

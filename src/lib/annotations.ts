@@ -1,19 +1,19 @@
-// Änderungswünsche, die direkt in der Vorschau an Elementen markiert werden, und die Nachricht an Lotse daraus.
+// Change requests marked on elements directly in the preview, and the message to Lotse built from them.
 import { DEFAULT_LOCALE, messages, type Locale, type Messages } from './i18n';
 
 export interface Annotation {
   id: string;
-  /** Kurze Beschreibung des Elements, z. B. Button „Jetzt kaufen“ */
+  /** Short description of the element, e.g. button "Jetzt kaufen" */
   label: string;
-  /** Überschrift des Abschnitts, in dem das Element steht */
+  /** Heading of the section containing the element */
   section?: string;
-  /** CSS-Pfad als Hilfe zum Wiederfinden (z. B. „section.hero > a.btn“) */
+  /** CSS path as a help to find it again (e.g. "section.hero > a.btn") */
   path: string;
-  /** Was anders sein soll – in den Worten des Nutzers */
+  /** What should be different, in the user's words */
   note: string;
 }
 
-/** Baut aus den gesammelten Wünschen eine eindeutige Nachricht an Lotse. */
+/** Builds an unambiguous message to Lotse from the collected requests. */
 export function annotationMessage(list: Annotation[], where: 'draft' | 'live', locale: Locale = DEFAULT_LOCALE): string {
   const t = messages(locale).lib.annotations;
   const head = where === 'draft' ? t.headDraft : t.headLive;
@@ -29,7 +29,7 @@ const KINDS: [RegExp, ElementKind][] = [
   [/^(details|summary)$/, 'faq'], [/^(section|article|header|footer)$/, 'section'],
 ];
 
-/** Lesbare Bezeichnung für ein Element: Art + sichtbarer Text bzw. Alt-Text. */
+/** Readable label for an element: kind + visible text or alt text. */
 export function describeElement(tag: string, opts: { text?: string; alt?: string; isButton?: boolean }, locale: Locale = DEFAULT_LOCALE): string {
   const t = tag.toLowerCase(), m = messages(locale).lib.annotations;
   const kind = m.kinds[opts.isButton ? 'button' : KINDS.find(([re]) => re.test(t))?.[1] ?? 'element'];

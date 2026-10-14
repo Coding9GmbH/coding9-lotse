@@ -1,5 +1,5 @@
 import 'server-only';
-// Promotionen & Rabattcodes: lesen (ohne Kunden-/Bestellbezug, nur Zählwerte) und Anlegen/Ändern/Status als Änderungsset.
+// Promotions & discount codes: read (no customer/order references, counts only) and create/update/status as a change set.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
@@ -13,13 +13,13 @@ export const MAX_DISCOUNTS = 5, MAX_CODES = 5000;
 const TZ = 'Europe/Berlin';
 const NOUN = { one: 'Promotion', many: 'Promotionen' };
 
-// ---------- Datum (Shop-Zeitzone Europe/Berlin, gespeichert als UTC) ----------
+// ---------- Date (shop time zone Europe/Berlin, stored as UTC) ----------
 function tzOffsetMs(utcMs: number): number {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
     .formatToParts(new Date(utcMs)).filter(x => x.type !== 'literal').map(x => [x.type, Number(x.value)]));
   return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(utcMs / 1000) * 1000;
 }
-/** "2026-10-01" → Tagesbeginn (bzw. mit end Tagesende) in Berlin als UTC-ISO; volle ISO-Zeitpunkte bleiben, wie sie sind. */
+/** "2026-10-01" → start of day (or with end: end of day) in Berlin as UTC ISO; full ISO timestamps stay as they are. */
 export function parseDay(s: string, end = false): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim());
   if (m) {
@@ -44,7 +44,7 @@ export function fmtPeriod(from: string | null | undefined, until: string | null 
 }
 const ms = (iso: string | null | undefined) => (iso ? new Date(iso).getTime() : null);
 
-// ---------- Texte ----------
+// ---------- Texts ----------
 const eur = (v: number) => `${Number(v).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 const pct = (v: number) => `${Number(v).toLocaleString('de-DE', { maximumFractionDigits: 2 })} %`;
 export type Scope = 'cart' | 'delivery' | 'set';
@@ -71,14 +71,14 @@ export function codeText(c: CodeSpec, example?: string): string {
   if (c.mode === 'fixed') return `Code ${c.code}`;
   return `${c.count} Einzelcodes nach Muster ${c.pattern}${example ? ` (z. B. ${example})` : ''}`;
 }
-/** Hinweis, wenn ein fester Code beim Normalisieren verändert wurde (klein → groß). */
+/** Note when a fixed code was changed during normalization (lower → upper case). */
 export const codeNote = (c: CodeSpec) => (c.mode === 'fixed' && c.typed && c.typed !== c.code ? ` (eingegeben „${c.typed}“, wird in Großbuchstaben angelegt; beim Einlösen ist Groß-/Kleinschreibung egal)` : '');
 export function limitText(global: number | null | undefined, perCustomer: number | null | undefined): string {
   const p = [perCustomer ? `max. ${perCustomer}× pro Kunde` : '', global ? `insgesamt max. ${global}×` : ''].filter(Boolean);
   return p.length ? p.join(', ') : 'ohne Einlöse-Limit';
 }
 
-// ---------- Individuelle Codes (%s = Buchstabe, %d = Ziffer, wie in Shopware) ----------
+// ---------- Individual codes (%s = letter, %d = digit, as in Shopware) ----------
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 export function patternCapacity(pattern: string): number {
   const s = (pattern.match(/%s/g) ?? []).length, d = (pattern.match(/%d/g) ?? []).length;
@@ -102,12 +102,12 @@ export function generateCodes(pattern: string, count: number, taken: Set<string>
   return [...out];
 }
 
-// ---------- Regeln (Einschränkung auf Produkte/Kategorien) ----------
+// ---------- Rules (restriction to products/categories) ----------
 export interface RulePlan { id: string; name: string; productIds: string[]; categoryIds: string[]; promotionId: string }
 export const RULE_PREFIX = 'Lotse:';
-/** Beschreibung mit Promotion-ID – damit findet das Rückgängig-Machen einer Anlage auch Regeln späterer Änderungen. */
+/** Description with promotion ID, so undoing a creation also finds rules of later changes. */
 export const ruleDescription = (promotionId: string) => `Von Lotse für Promotion ${promotionId} angelegt (Rabatt nur auf diese Produkte/Kategorien).`;
-/** Rule-Entität im Aufbau des Admins: orContainer → je Bedingung ein andContainer (Produkte ODER Kategorien). */
+/** Rule entity structured like the admin: orContainer → one andContainer per condition (products OR categories). */
 export function ruleEntity(r: RulePlan, id: () => string = newId) {
   const conds = [
     ...(r.productIds.length ? [{ type: 'cartLineItem', value: { operator: '=', identifiers: r.productIds } }] : []),
@@ -118,7 +118,7 @@ export function ruleEntity(r: RulePlan, id: () => string = newId) {
     conditions: [{ id: id(), type: 'orContainer', position: 0, children: conds.map((c, i) => ({ id: id(), type: 'andContainer', position: i, children: [{ id: id(), position: 0, ...c }] })) }],
   };
 }
-/** Liest Produkt-/Kategorie-Einschränkungen aus Regelbedingungen; andere Bedingungen nur als Typ. */
+/** Reads product/category restrictions from rule conditions; other conditions only as type. */
 export function ruleRestriction(rules: SwEntity[] | undefined) {
   const productIds: string[] = [], categoryIds: string[] = [], other: string[] = [];
   for (const r of rules ?? []) {
@@ -132,14 +132,14 @@ export function ruleRestriction(rules: SwEntity[] | undefined) {
   }
   return { productIds: [...new Set(productIds)], categoryIds: [...new Set(categoryIds)], other: [...new Set(other)] };
 }
-/** Regel so sichern, dass „create“ sie mit denselben IDs wiederherstellt (flache Bedingungen → Baum). */
+/** Back up a rule so that "create" restores it with the same IDs (flat conditions → tree). */
 export function ruleSnapshot(r: SwEntity): Record<string, unknown> {
   const conds: SwEntity[] = r.conditions ?? [];
   const node = (c: SwEntity): Record<string, unknown> => ({ id: c.id, type: c.type, position: c.position ?? 0, ...(c.value != null ? { value: c.value } : {}), children: conds.filter(x => x.parentId === c.id).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map(node) });
   return { name: r.name, priority: r.priority ?? 1, description: r.description ?? null, customFields: r.customFields ?? null, conditions: conds.filter(c => !c.parentId).map(node) };
 }
 
-// ---------- Rabatte ----------
+// ---------- Discounts ----------
 export interface DiscountInput { scope?: 'cart' | 'delivery'; type: DiscountType; value: number; maxValue?: number | null; productIds?: string[]; categoryIds?: string[] }
 export interface DiscountPlan { id: string; scope: Scope; type: DiscountType; value: number; maxValue: number | null; ruleId: string | null }
 export function validateDiscount(d: DiscountInput): string[] {
@@ -159,11 +159,11 @@ export function validateDiscount(d: DiscountInput): string[] {
 export function discountEntity(d: DiscountPlan, promotionId?: string) {
   return {
     id: d.id, ...(promotionId ? { promotionId } : {}), scope: d.scope, type: d.type, value: d.value, maxValue: d.maxValue, considerAdvancedRules: !!d.ruleId,
-    // Shopware braucht diese Schlüssel, sobald Regeln greifen (sonst Fehler im Warenkorb) – Werte wie im Admin
+    // Shopware needs these keys as soon as rules apply (otherwise cart errors); values as in the admin
     sorterKey: 'PRICE_ASC', applierKey: 'ALL', usageKey: 'ALL', discountRules: d.ruleId ? [{ id: d.ruleId }] : [],
   };
 }
-/** Bestehenden Rabatt so sichern, dass „create“ ihn exakt wiederherstellt (inkl. Regeln und Währungspreisen). */
+/** Back up an existing discount so that "create" restores it exactly (incl. rules and currency prices). */
 export function discountSnapshot(d: SwEntity): Record<string, unknown> {
   return {
     promotionId: d.promotionId, scope: d.scope, type: d.type, value: d.value, maxValue: d.maxValue ?? null, considerAdvancedRules: !!d.considerAdvancedRules,
@@ -173,7 +173,7 @@ export function discountSnapshot(d: SwEntity): Record<string, unknown> {
   };
 }
 
-// ---------- Vorschlag: Anlegen / Ändern ----------
+// ---------- Proposal: create / update ----------
 export interface PromotionArgs {
   id?: string; reason?: string; name?: string; active?: boolean; validFrom?: string | null; validUntil?: string | null; salesChannelIds?: string[];
   code?: { mode: 'none' | 'fixed' | 'individual'; code?: string; pattern?: string; count?: number };
@@ -184,10 +184,10 @@ export interface PromotionCore {
   maxRedemptionsGlobal: number | null; maxRedemptionsPerCustomer: number | null; useCodes: boolean; code: string | null; useIndividualCodes: boolean; individualCodePattern: string | null;
 }
 export interface CreatePayload { mode: 'create'; promotion: PromotionCore; salesChannelIds: string[]; discounts: DiscountPlan[]; rules: RulePlan[]; codeCount: number }
-/** afterRaw eines Änderungs-Items (Update): nur die gewählten Teile werden geschrieben */
+/** afterRaw of a change item (update): only the selected parts are written */
 export interface UpdatePart { patch?: Record<string, unknown>; discounts?: DiscountPlan[]; rules?: RulePlan[]; salesChannelIds?: string[]; codeCount?: number; codePattern?: string }
 
-/** Promotion samt Kanälen und Rabatten – Einzelcodes legt der Applier danach in Blöcken an. */
+/** Promotion with channels and discounts; the applier then creates individual codes in chunks. */
 export function promotionEntity(p: CreatePayload, id: () => string = newId) {
   return {
     ...p.promotion, preventCombination: p.promotion.exclusive, useSetGroups: false,
@@ -223,7 +223,7 @@ export function promotionStatus(p: { active?: boolean; validFrom?: string | null
   if (p.maxRedemptionsGlobal && (p.orderCount ?? 0) >= p.maxRedemptionsGlobal) return 'ausgeschöpft';
   return 'läuft';
 }
-/** Filter für den Status – nur Felder der Promotion (keine Kunden-/Bestellbezüge). */
+/** Filter for the status: only promotion fields (no customer/order references). */
 export function statusFilter(status: 'running' | 'scheduled' | 'expired' | 'inactive' | 'all' | undefined, now: string): Record<string, unknown>[] {
   const open = (field: string, op: 'lte' | 'gte') => ({ type: 'multi', operator: 'or', queries: [{ type: 'equals', field, value: null }, { type: 'range', field, parameters: { [op]: now } }] });
   switch (status) {
@@ -234,7 +234,7 @@ export function statusFilter(status: 'running' | 'scheduled' | 'expired' | 'inac
     default: return [];
   }
 }
-/** Shopware wendet nur aktive Promotionen im Zeitraum an – ein inaktiver Entwurf startet nie von selbst. */
+/** Shopware only applies active promotions within their period; an inactive draft never starts by itself. */
 export function draftWarning(active: boolean, from: string | null, until: string | null, now: number): string[] {
   if (active || (!from && !until) || (until && ms(until)! < now)) return [];
   if (from && ms(from)! > now) return [`Inaktiv: startet am ${fmtDay(from)} NICHT automatisch; für einen geplanten Start aktiv anlegen`];
@@ -246,7 +246,7 @@ export function activeText(active: boolean, from: string | null, now: number): s
 }
 const overlaps = (a: [number | null, number | null], b: [number | null, number | null]) => (a[0] ?? -Infinity) <= (b[1] ?? Infinity) && (b[0] ?? -Infinity) <= (a[1] ?? Infinity);
 
-/** Alle aktiven, nicht abgelaufenen Promotionen (seitenweise, mit Kanälen). */
+/** All active, non-expired promotions (paged, with channels). */
 async function activePromotions(ro: ShopReader, now: string): Promise<SwEntity[]> {
   const out: SwEntity[] = [];
   for (let page = 1; page <= 20; page++) {
@@ -256,7 +256,7 @@ async function activePromotions(ro: ShopReader, now: string): Promise<SwEntity[]
   }
   return out;
 }
-/** Überschneidung in Zeitraum und Verkaufskanal (Hinweis, keine Sperre); draft = Promotion bleibt vorerst inaktiv. */
+/** Overlap in period and sales channel (a note, not a block); draft = promotion stays inactive for now. */
 export function overlapText(pool: SwEntity[], selfId: string | null, period: [string | null, string | null], channels: string[], draft = false): string[] {
   const hits = pool.filter(p => p.id !== selfId && overlaps([ms(p.validFrom), ms(p.validUntil)], [ms(period[0]), ms(period[1])]) && (p.salesChannels ?? []).some((s: SwEntity) => channels.includes(s.salesChannelId)));
   if (!hits.length) return [];
@@ -278,7 +278,7 @@ async function loadCtx(ro: ShopReader, productIds: string[], categoryIds: string
 }
 const targetOf = (productIds: string[], categoryIds: string[], ctx: Ctx) => [categoryIds.length ? listNames(categoryIds, ctx.categories) : '', productIds.length ? listNames(productIds, ctx.products) : ''].filter(Boolean).join(' + ') || null;
 
-/** Rabatte prüfen und planen (je eingeschränktem Rabatt eine neue Regel „Lotse: …“). */
+/** Check and plan discounts (one new rule "Lotse: …" per restricted discount). */
 function planDiscounts(list: DiscountInput[], promoName: string, promotionId: string, ctx: Ctx, id: () => string) {
   if (!list.length) throw new Error('Mindestens ein Rabatt nötig');
   if (list.length > MAX_DISCOUNTS) throw new Error(`Höchstens ${MAX_DISCOUNTS} Rabatte pro Promotion`);
@@ -304,7 +304,7 @@ async function assertCodeFree(ro: ShopReader, code: string, selfId: string | nul
   const b = (await ro.search('promotion-individual-code', { limit: 1, filter: [{ type: 'equals', field: 'code', value: code }] })).data;
   if (b.length) throw new Error(`Code ${code} existiert schon als Einzelcode einer anderen Promotion`);
 }
-/** Shopware lehnt ein doppeltes Einzelcode-Muster ab (PROMOTION_DUPLICATE_PATTERN_VIOLATION) – vorab prüfen. */
+/** Shopware rejects a duplicate individual code pattern (PROMOTION_DUPLICATE_PATTERN_VIOLATION); check up front. */
 async function assertPatternFree(ro: ShopReader, pattern: string, selfId: string | null) {
   const a = (await ro.search('promotion', { limit: 5, filter: [{ type: 'equals', field: 'individualCodePattern', value: pattern }] })).data.filter(p => p.id !== selfId);
   if (a.length) throw new Error(`Code-Muster ${pattern} wird schon von Promotion „${nameOf(a[0])}“ verwendet – anderes Muster wählen`);
@@ -315,7 +315,7 @@ export async function buildPromotionChangeSet(ro: ShopReader, a: PromotionArgs, 
   const code = normCode(a.code);
   const validFrom = a.validFrom === undefined ? undefined : a.validFrom === null || a.validFrom === '' ? null : parseDay(a.validFrom);
   const validUntil = a.validUntil === undefined ? undefined : a.validUntil === null || a.validUntil === '' ? null : parseDay(a.validUntil, true);
-  // Bestehende Promotion (beim Ändern) – ihre Einschränkungen werden für den Vorher-Text mit benannt
+  // Existing promotion (when updating); its restrictions are also named for the "before" text
   const cur = a.id ? await ro.get('promotion', a.id, { associations: { salesChannels: {}, discounts: { associations: { discountRules: { associations: { conditions: {} } } } } } }) : null;
   if (a.id && !cur) throw new Error('Promotion nicht gefunden');
   const curRestr = ((cur?.discounts ?? []) as SwEntity[]).map(d => ruleRestriction(d.discountRules));
@@ -330,7 +330,7 @@ export async function buildPromotionChangeSet(ro: ShopReader, a: PromotionArgs, 
   const maxC = a.maxUsesPerCustomer === undefined ? undefined : intOrNull(a.maxUsesPerCustomer, 'Max. Einlösungen pro Kunde');
 
   if (!cur) {
-    // ---- Anlegen ----
+    // ---- Create ----
     const name = String(a.name ?? '').trim();
     if (!name || name.length > 255) throw new Error('Name fehlt (max. 255 Zeichen)');
     if (!a.discounts?.length) throw new Error('discounts fehlt – Rabatt (Art, Wert, Umfang) per ask_user klären');
@@ -370,7 +370,7 @@ export async function buildPromotionChangeSet(ro: ShopReader, a: PromotionArgs, 
     return { cs: { id: id(), kind: KIND, entity: 'promotion', noun: NOUN, applyLabel: 'Promotion anlegen', title: `Neue Promotion: ${name}`, reason: a.reason ?? null, items, skipped: [], atomic: true }, payload };
   }
 
-  // ---- Ändern ----
+  // ---- Update ----
   const label = nameOf(cur) as string, promotionId = cur.id as string, items: ChangeItem[] = [];
   const add = (field: string, fieldLabel: string, before: string, after: string, afterRaw: UpdatePart, warn: string[] = []) => items.push({ id: `${promotionId}:${field}`, entity: 'promotion', entityId: promotionId, label, field, fieldLabel, before, after, afterRaw, warn });
   const curDiscText = ((cur.discounts ?? []) as SwEntity[]).map((d, i) => discountText({ scope: d.scope, type: d.type, value: d.value, maxValue: d.maxValue, target: [targetOf(curRestr[i].productIds, curRestr[i].categoryIds, ctx), ...curRestr[i].other].filter(Boolean).join(' + ') || null })).join(' + ') || 'kein Rabatt';
@@ -425,7 +425,7 @@ export async function buildPromotionChangeSet(ro: ShopReader, a: PromotionArgs, 
   return { cs: { id: id(), kind: KIND, entity: 'promotion', noun: NOUN, applyLabel: `${items.length} ${items.length === 1 ? 'Änderung' : 'Änderungen'} übernehmen`, title: `Promotion ändern: ${label}`, reason: a.reason ?? null, items, skipped: [], atomic: false }, payload: { mode: 'update', promotionId } };
 }
 
-// ---------- Status (Massenaktion) ----------
+// ---------- Status (bulk action) ----------
 export type StatusAction = 'activate' | 'deactivate' | 'end';
 export async function buildStatusChangeSet(ro: ShopReader, a: { ids: string[]; action: StatusAction; reason?: string }, now = new Date()): Promise<ChangeSet> {
   const ids = [...new Set(a.ids ?? [])];
@@ -434,7 +434,7 @@ export async function buildStatusChangeSet(ro: ShopReader, a: { ids: string[]; a
   const rows = (await ro.search('promotion', { ids, limit: ids.length, associations: { salesChannels: {} } })).data, by = Object.fromEntries(rows.map(r => [r.id, r]));
   const items: ChangeItem[] = [], skipped: { id: string; reason: string }[] = []; let unchanged = 0;
   const t = now.getTime(), nowIso = now.toISOString();
-  // Beim Aktivieren gegen alle aktiven und die mit aktivierten Promotionen prüfen
+  // When activating, check against all active promotions and those activated alongside
   const pool = a.action === 'activate' ? [...await activePromotions(ro, nowIso), ...rows.filter(r => !r.active).map(r => ({ ...r, active: true }))] : [];
   for (const id of ids) {
     const p = by[id]; if (!p) { skipped.push({ id, reason: 'nicht gefunden' }); continue; }
@@ -466,7 +466,7 @@ export async function buildStatusChangeSet(ro: ShopReader, a: { ids: string[]; a
 // ================= EXECUTOR =================
 const PROMO_KEYS = ['name', 'active', 'validFrom', 'validUntil', 'priority', 'exclusive', 'preventCombination', 'maxRedemptionsGlobal', 'maxRedemptionsPerCustomer', 'useCodes', 'code', 'useIndividualCodes', 'individualCodePattern'];
 const chunks = <T,>(l: T[], n: number) => Array.from({ length: Math.ceil(l.length / n) }, (_, i) => l.slice(i * n, i * n + n));
-/** Codes erzeugen, die im Shop noch nicht vorkommen (weder als Einzelcode noch als fester Code). */
+/** Generate codes that don't exist in the shop yet (neither as individual nor as fixed code). */
 async function freshCodes(swW: Shopware, pattern: string, count: number): Promise<string[]> {
   const taken = new Set<string>(); let codes = generateCodes(pattern, count, taken);
   for (let round = 0; round < 5; round++) {
@@ -482,9 +482,9 @@ async function freshCodes(swW: Shopware, pattern: string, count: number): Promis
   throw new Error('Konnte keine freien Codes erzeugen – Muster mit mehr Platzhaltern wählen');
 }
 const syncDelete = (entity: string, ids: string[]): UndoOp => ({ op: 'req', entity, id: ids[0] ?? '', method: 'POST', path: '/_action/sync', body: [{ key: 'lotse-undo', action: 'delete', entity, payload: ids.map(id => ({ id })) }] });
-/** Undo einer Anlage: alle Lotse-Regeln dieser Promotion löschen – auch die aus späteren Rabatt-Änderungen (per Kriterium statt fester IDs). */
+/** Undo of a creation: delete all Lotse rules of this promotion, including those from later discount changes (by criteria instead of fixed IDs). */
 export const promotionRulesDelete = (promotionId: string): UndoOp => ({ op: 'req', entity: 'rule', id: promotionId, method: 'POST', path: '/_action/sync', body: [{ key: 'lotse-undo-rules', action: 'delete', entity: 'rule', criteria: [{ type: 'prefix', field: 'name', value: RULE_PREFIX }, { type: 'contains', field: 'description', value: promotionId }] }] });
-/** Einzelcodes in Blöcken per Sync anlegen (große Mengen nicht in einem Request). */
+/** Create individual codes in chunks via sync (large amounts not in one request). */
 async function insertCodes(swW: Shopware, promotionId: string, pattern: string, count: number, undo: UndoOp[] = []) {
   const codes = await freshCodes(swW, pattern, count), rows = codes.map(code => ({ id: newId(), promotionId, code }));
   for (const part of chunks(rows, 1000)) {
@@ -495,19 +495,19 @@ async function insertCodes(swW: Shopware, promotionId: string, pattern: string, 
 }
 
 async function applyCreate(swW: Shopware, cs: ChangeSet, p: CreatePayload, ctx?: ApplyCtx): Promise<ApplyResult> {
-  const undo = trackedUndo(ctx, cs.items.length), id = p.promotion.id; // jeder Schritt sofort gesichert: ein Absturz mittendrin verliert kein Rückgängig
+  const undo = trackedUndo(ctx, cs.items.length), id = p.promotion.id; // every step saved immediately: a crash midway loses no undo
   try {
     for (const r of p.rules) { await swW.create('rule', ruleEntity(r)); undo.push({ op: 'delete', entity: 'rule', id: r.id }); }
     await swW.create('promotion', promotionEntity(p)); undo.push({ op: 'delete', entity: 'promotion', id });
-    if (p.codeCount) await insertCodes(swW, id, p.promotion.individualCodePattern!, p.codeCount); // Codes hängen per Cascade an der Promotion
+    if (p.codeCount) await insertCodes(swW, id, p.promotion.individualCodePattern!, p.codeCount); // codes are attached to the promotion via cascade
   } catch (e) {
     const error = errMsg(e), back = await undoOps(swW, undo), rest = undo.filter((_, i) => !back[undo.length - 1 - i]?.ok);
     return { results: [], undo: rest, error: rest.length ? `${error} (Rückabwicklung unvollständig: ${back.find(b => !b.ok)?.error})` : error };
   }
-  // Rückwärts ausgeführt: erst Promotion (samt Rabatten, Codes, Kanälen), dann ihre Regeln
+  // Executed in reverse: first the promotion (with discounts, codes, channels), then its rules
   return { results: cs.items.map(i => ({ itemId: i.id, ok: true })), undo: [promotionRulesDelete(id), { op: 'delete', entity: 'promotion', id }] };
 }
-/** Alte Lotse-Regeln nach dem Ersetzen der Rabatte entfernen – Shopware verweigert das Löschen, solange sie noch verwendet werden (dann bleiben sie). */
+/** Remove old Lotse rules after replacing the discounts; Shopware refuses deletion while they are still in use (then they stay). */
 async function dropOrphanRules(swW: Shopware, ruleIds: string[], undo: UndoOp[]) {
   if (!ruleIds.length) return;
   const rules = (await swW.search('rule', { ids: ruleIds, limit: ruleIds.length, associations: { conditions: {} } })).data.filter(r => String(r.name ?? '').startsWith(RULE_PREFIX));
@@ -517,7 +517,7 @@ async function dropOrphanRules(swW: Shopware, ruleIds: string[], undo: UndoOp[])
   }
 }
 
-/** Ändern als Einheit: entweder alle gewählten Teile oder (bei Fehler) nichts – bereits Geschriebenes wird zurückgerollt. */
+/** Update as a unit: either all selected parts or (on error) nothing; anything already written is rolled back. */
 async function applyUpdate(swW: Shopware, cs: ChangeSet, promotionId: string, selected: Set<string>, ctx?: ApplyCtx): Promise<ApplyResult> {
   const its = cs.items.filter(i => selected.has(i.id)), parts = its.map(i => i.afterRaw as UpdatePart), undo = trackedUndo(ctx, its.length);
   try {
@@ -563,9 +563,9 @@ registerApplier(STATUS_KIND, (swW, cs, _payload, selected, ctx) => applyEach(cs,
   return { op: 'patch', entity: 'promotion', id: it.entityId!, data: Object.fromEntries(Object.keys(patch).map(k => [k, cur[k] ?? null])) };
 }, ctx));
 
-// ================= LESEN =================
+// ================= READ =================
 const REDEEMED = { type: 'not', operator: 'and', queries: [{ type: 'equals', field: 'payload', value: null }] };
-/** Anzahl Einzelcodes je Promotion (erzeugt / eingelöst) – nur Zählwerte, nie Einlöser. */
+/** Number of individual codes per promotion (generated / redeemed): counts only, never redeemers. */
 async function codeCounts(sw: ShopReader, ids: string[]) {
   const out: Record<string, { generated: number; redeemed: number }> = {};
   if (!ids.length) return out;
@@ -585,7 +585,7 @@ export const promotions: Feature = {
   toolNames: ['list_promotions', 'get_promotion', 'propose_promotion', 'propose_promotion_status'],
   tools: session => {
     const sw = session.sw;
-    // Namen für Kanäle/Produkte/Kategorien aller Rabatte einer Seite in einem Rutsch laden
+    // Load names for channels/products/categories of all discounts on a page in one go
     const ctxFor = (discounts: SwEntity[]) => {
       const rs = discounts.map(d => ruleRestriction(d.discountRules));
       return loadCtx(sw, [...new Set(rs.flatMap(r => r.productIds))], [...new Set(rs.flatMap(r => r.categoryIds))]);

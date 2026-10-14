@@ -1,18 +1,18 @@
-// Zugangsschutz, geteilt von proxy.ts, instrumentation.ts und settings.ts (ohne server-only: proxy.ts importiert es).
+// Access protection, shared by proxy.ts, instrumentation.ts and settings.ts (without server-only: proxy.ts imports it).
 //
-// Echte Absender-Adresse: Next setzt X-Forwarded-For nur, wenn der Client keinen mitschickt
-// (next/dist/server/base-server.js: `req.headers['x-forwarded-for'] ??= socket.remoteAddress`). Ein entfernter Client konnte so
-// `Host: localhost` + `X-Forwarded-For: 127.0.0.1` senden und die Host-Prüfung umgehen. Der Proxy sieht den Socket nicht; darum
-// stempelt instrumentation.ts jede Anfrage am HTTP-Server mit der Socket-Adresse (ein mitgeschickter Header gleichen Namens wird überschrieben).
+// Real sender address: Next sets X-Forwarded-For only if the client doesn't send one
+// (next/dist/server/base-server.js: `req.headers['x-forwarded-for'] ??= socket.remoteAddress`). A remote client could thus
+// send `Host: localhost` + `X-Forwarded-For: 127.0.0.1` and bypass the host check. The proxy doesn't see the socket; therefore
+// instrumentation.ts stamps every request at the HTTP server with the socket address (a header of the same name sent by the client is overwritten).
 import type { IncomingMessage } from 'node:http';
 
 export const PEER_HEADER = 'x-lotse-peer';
 export const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
 
-/** IPv4 in IPv6 (::ffff:127.0.0.1, Dual-Stack-Bind auf ::) als IPv4; Kleinschreibung, ohne Klammern. */
+/** IPv4 in IPv6 (::ffff:127.0.0.1, dual-stack bind on ::) as IPv4; lowercase, without brackets. */
 export const normalizeIp = (ip: string) => ip.trim().toLowerCase().replace(/^\[(.*)]$/, '$1').replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/, '$1');
 
-/** Setzt den Peer-Header auf die Socket-Adresse (leer, wenn unbekannt) – nie den Wert des Clients übernehmen. */
+/** Sets the peer header to the socket address (empty if unknown); never take the client's value. */
 export function stampPeer(req: Pick<IncomingMessage, 'headers' | 'socket'>) {
   req.headers[PEER_HEADER] = normalizeIp(req.socket?.remoteAddress ?? '');
 }
@@ -20,7 +20,7 @@ export function stampPeer(req: Pick<IncomingMessage, 'headers' | 'socket'>) {
 type Emitter = { emit: (event: string | symbol, ...args: unknown[]) => boolean };
 const STAMPED = Symbol.for('lotse.peer-stamp');
 
-/** Hängt sich einmal je Server-Klasse (http/https) vor das 'request'-Ereignis, bevor Next die Anfrage sieht. */
+/** Hooks in once per server class (http/https) before the 'request' event, before Next sees the request. */
 export function installPeerStamp(...protos: object[]) {
   for (const proto of protos) {
     const p = proto as Emitter & { [STAMPED]?: true };
@@ -34,8 +34,8 @@ export function installPeerStamp(...protos: object[]) {
   }
 }
 
-/** Freigegebene Namen aus ALLOWED_HOSTS ohne die Loopback-Namen (die sind immer erlaubt, aber nur von Loopback). */
+/** Allowed names from ALLOWED_HOSTS without the loopback names (those are always allowed, but only from loopback). */
 export const extraAllowedHosts = (raw: string | undefined) => (raw ?? '').split(',').map(h => h.trim()).filter(h => h && !LOCAL_HOSTS.includes(h.toLowerCase()));
 
-/** Über ALLOWED_HOSTS von außen erreichbar, aber ohne LOTSE_PASSWORD: jeder, der den Namen erreicht, kann Änderungen freigeben. */
+/** Reachable from outside via ALLOWED_HOSTS, but without LOTSE_PASSWORD: anyone who reaches the name can approve changes. */
 export const openWithoutPassword = (env: Record<string, string | undefined>) => !env.LOTSE_PASSWORD && extraAllowedHosts(env.ALLOWED_HOSTS).length > 0;

@@ -1,12 +1,12 @@
 <?php
 /**
- * Produkte: Liste, Detail, Attribute schreiben (Store-Scope, null = Standardwert verwenden),
- * anlegen (simple, configurable), löschen, Bestand, Kategoriezuordnungen.
- * Alle Schreibmethoden liefern den vollständigen neuen Stand, damit Lotse exaktes Rückgängig bauen kann.
+ * Products: list, detail, write attributes (store scope, null = use default value),
+ * create (simple, configurable), delete, stock, category assignments.
+ * All write methods return the full new state so Lotse can build an exact undo.
  */
 class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstract
 {
-    /** Attribute, die über /products nicht direkt geschrieben werden (eigene Endpunkte oder Systemfelder). */
+    /** Attributes that are not written directly via /products (own endpoints or system fields). */
     public const READ_ONLY_ATTRIBUTES = [
         'entity_id', 'entity_type_id', 'attribute_set_id', 'type_id', 'created_at', 'updated_at',
         'media_gallery', 'gallery', 'tier_price', 'group_price', 'has_options', 'required_options',
@@ -18,7 +18,7 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
         'url_key', 'url_path', 'image', 'small_image', 'thumbnail', 'tax_class_id', 'weight', 'updated_at', 'created_at',
     ];
 
-    // ---------- Lesen ----------
+    // ---------- Read ----------
 
     public function listProducts(array $params)
     {
@@ -68,8 +68,8 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
     }
 
     /**
-     * ?fields=code,code: weitere Attribute je Listeneintrag (unter "attributes"), z. B. description, meta_title.
-     * Nur vorhandene Produktattribute; Galerie- und Staffelpreis-Attribute sind ausgeschlossen (Detail-Endpunkt).
+     * ?fields=code,code: additional attributes per list entry (under "attributes"), e.g. description, meta_title.
+     * Only existing product attributes; gallery and tier price attributes are excluded (detail endpoint).
      * @return array code => Mage_Eav_Model_Entity_Attribute
      */
     protected function extraListAttributes()
@@ -93,7 +93,7 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
         return $out;
     }
 
-    /** Galerie eines Collection-Produkts nachladen (wie beim Laden eines Einzelprodukts). */
+    /** Load the gallery of a collection product afterwards (as when loading a single product). */
     protected function loadGallery(Mage_Catalog_Model_Product $product)
     {
         $attribute = Mage::getSingleton('eav/config')->getAttribute(Mage_Catalog_Model_Product::ENTITY, 'media_gallery');
@@ -117,7 +117,7 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
             $collection->addAttributeToFilter('name', ['like' => '%' . $this->escapeLike($v) . '%']);
         }
         if (($v = $this->q('term')) !== null && $v !== '') {
-            // Suchbegriff in Name ODER SKU (eine Abfrage, damit Paginierung und total stimmen)
+            // Search term in name OR SKU (one query so pagination and total are correct)
             $like = '%' . $this->escapeLike($v) . '%';
             $collection->addAttributeToFilter([['attribute' => 'name', 'like' => $like], ['attribute' => 'sku', 'like' => $like]]);
         }
@@ -187,7 +187,7 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
         return ['data' => $this->formatProduct($product)];
     }
 
-    /** Produkt per SKU (oder "id:<n>") im aktuellen Store-Scope laden. */
+    /** Load product by SKU (or "id:<n>") in the current store scope. */
     public function loadProduct($skuOrId, $storeId = null)
     {
         $storeId = $storeId === null ? $this->storeId : (int) $storeId;
@@ -230,7 +230,7 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
                         $labels[$code] = is_array($text) ? array_values($text) : (string) $text;
                     }
                 } catch (Exception $e) {
-                    // Attribute ohne Quelle: kein Label
+                    // Attributes without a source: no label
                 }
             }
         }
@@ -407,11 +407,11 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
         return ['attributes' => $attributes, 'children' => $children];
     }
 
-    // ---------- Attribute schreiben ----------
+    // ---------- Write attributes ----------
 
     /**
-     * PATCH /v1/products/{sku} mit {"attributes": {code: wert|null}}.
-     * Wert: schreibt im Scope des Stores (0 = global). null: entfernt den Store-Wert (Standardwert verwenden).
+     * PATCH /v1/products/{sku} with {"attributes": {code: value|null}}.
+     * Value: writes in the store's scope (0 = global). null: removes the store value (use default value).
      */
     public function updateProduct(array $params)
     {
@@ -444,7 +444,7 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
         if ($urlKeyChanged) {
             Mage::getSingleton('catalog/url')->refreshProductRewrite($product->getId(), $this->storeId > 0 ? $this->storeId : null);
             $reindexed[] = 'catalog_url';
-            // Mit „Save Rewrites History“ legt OpenMage 301-Weiterleitungen an; Lotse löscht sie beim Rückgängig.
+            // With "Save Rewrites History" OpenMage creates 301 redirects; Lotse deletes them on undo.
             $rewritesAdded = array_values(array_diff($this->rewriteIds($product->getId()), $rewritesBefore));
         }
         $fresh = $this->loadProduct('id:' . $product->getId());
@@ -454,8 +454,8 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
     }
 
     /**
-     * Prüft Attributcodes und bereitet Werte auf.
-     * @return array{0: array, 1: string[]} [zu setzende Werte, Codes für „Standardwert verwenden“]
+     * Checks attribute codes and prepares values.
+     * @return array{0: array, 1: string[]} [values to set, codes for "use default value"]
      */
     protected function prepareAttributeInput(array $input, Mage_Catalog_Model_Product $product, $storeId = null)
     {
@@ -493,7 +493,7 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
     protected function prepareValue($attribute, $value, $code, $storeId = null)
     {
         if ($code === 'custom_layout_update') {
-            // updateAttributes umgeht das Backend-Modell, darum hier prüfen wie der Admin
+            // updateAttributes bypasses the backend model, so check here like the admin does
             return $this->validateLayoutXml($value, $code);
         }
         if (is_bool($value)) {
@@ -524,7 +524,7 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
         return $value;
     }
 
-    /** @return int[] IDs aller URL-Rewrites des Produkts */
+    /** @return int[] IDs of all URL rewrites of the product */
     protected function rewriteIds($productId)
     {
         $resource = Mage::getSingleton('core/resource');
@@ -544,11 +544,11 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
         );
     }
 
-    // ---------- Anlegen / Löschen ----------
+    // ---------- Create / delete ----------
 
     /**
      * POST /v1/products: {sku, type_id, attribute_set_id?, website_ids?, attributes:{...}, stock?, categories?, configurable?}
-     * Immer im globalen Scope (Store 0).
+     * Always in the global scope (store 0).
      */
     public function createProduct(array $params)
     {
@@ -586,7 +586,7 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
             ->setTypeId($typeId)
             ->setAttributeSetId($setId)
             ->setSku($sku);
-        // Anlage immer global (Store 0): url_key mit der Locale der Default-Store-View formatieren
+        // Creation always global (store 0): format url_key with the locale of the default store view
         list($set) = $this->prepareAttributeInput($attributes, $product, 0);
         foreach ($set as $code => $value) {
             $product->setData($code, $value);
@@ -627,7 +627,7 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
         return array_values(array_unique($ids));
     }
 
-    /** Positionen aus [{id, position}] nachtragen (setCategoryIds kennt keine Positionen). */
+    /** Add positions from [{id, position}] afterwards (setCategoryIds knows no positions). */
     protected function applyCategoryPositions($productId, array $categories)
     {
         $resource = Mage::getSingleton('core/resource');
@@ -691,7 +691,7 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
         return ['data' => ['deleted' => true, 'id' => $snapshot['id'], 'sku' => $snapshot['sku'], 'before' => $snapshot]];
     }
 
-    // ---------- Bestand ----------
+    // ---------- Stock ----------
 
     protected function stockItem($productId)
     {
@@ -723,7 +723,7 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
         return ['data' => $this->formatStock($this->stockItem($id))];
     }
 
-    /** PUT /v1/products/{sku}/stock mit {qty?, is_in_stock?, manage_stock?|null} (null = Konfiguration verwenden). */
+    /** PUT /v1/products/{sku}/stock with {qty?, is_in_stock?, manage_stock?|null} (null = use configuration). */
     public function updateStock(array $params)
     {
         $body = $this->body();
@@ -749,7 +749,7 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
         return ['data' => $this->formatStock($this->stockItem($id))];
     }
 
-    // ---------- Kategoriezuordnungen ----------
+    // ---------- Category assignments ----------
 
     public function getCategoryAssignments(array $params)
     {
@@ -758,8 +758,8 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
     }
 
     /**
-     * PUT /v1/products/{sku}/categories mit {add:[{id, position?}], remove:[id], set_position:[{id, position}]}.
-     * Schreibt über das Kategoriemodell (setPostedProducts), damit Indexer und Events wie im Admin laufen.
+     * PUT /v1/products/{sku}/categories with {add:[{id, position?}], remove:[id], set_position:[{id, position}]}.
+     * Writes via the category model (setPostedProducts) so indexers and events run as in the admin.
      */
     public function updateCategoryAssignments(array $params)
     {
@@ -800,7 +800,7 @@ class Lotse_Connector_Model_Api_Product extends Lotse_Connector_Model_Api_Abstra
             }
             $category->setPostedProducts($positions)->save();
             if ($change['remove']) {
-                // Wie ein voller catalog_url-Reindex: Produkt-Rewrites der verlassenen Kategorie entfernen
+                // Like a full catalog_url reindex: remove product rewrites of the left category
                 $resource = Mage::getSingleton('core/resource');
                 $resource->getConnection('core_write')->delete($resource->getTableName('core/url_rewrite'), [
                     'product_id = ?' => (int) $productId,

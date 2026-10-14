@@ -7,7 +7,7 @@ const read = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url),
 
 const CREDENTIALS = 'Zugangsdaten werden verschlüsselt lokal gespeichert und nie an die KI weitergegeben. Gespeicherte Schlüssel werden hier nicht angezeigt.';
 
-test('Einstellungen nennen, was den Rechner verlässt', () => {
+test('settings state what leaves the machine', () => {
   assert.match(EGRESS_NOTICE, /Chat/);
   assert.match(EGRESS_NOTICE, /Produkttexte/);
   assert.match(EGRESS_NOTICE, /CMS-HTML/);
@@ -21,13 +21,13 @@ test('Einstellungen nennen, was den Rechner verlässt', () => {
   assert.doesNotMatch(EGRESS_NOTICE, /Zugangsdaten werden verschlüsselt/);
 });
 
-test('Suchbegriffe gehen an die KI und sind kein Zugangsdatum', () => {
+test('search queries go to the AI and are not credentials', () => {
   assert.match(GSC_QUERY_NOTICE, /Suchbegriffe/);
   assert.match(GSC_QUERY_NOTICE, /KI/);
   assert.doesNotMatch(GSC_QUERY_NOTICE, /Zugangsdatum|Kunden-Zugang|updatedAt/);
 });
 
-test('Chat-Löschen entfernt nur diesen Chat', () => {
+test('deleting a chat removes only this chat', () => {
   const q = chatDeleteQuestion('Sommeraktion');
   assert.match(q, /„Sommeraktion“ löschen\?/);
   assert.match(q, /Nur dieser Chat/);
@@ -37,7 +37,7 @@ test('Chat-Löschen entfernt nur diesen Chat', () => {
   assert.match(q, /bleiben/);
 });
 
-test('Oberfläche hängt die Sätze an die bestehenden Hinweise', () => {
+test('UI appends the sentences to the existing notices', () => {
   const settings = read('src/components/settings/SettingsView.tsx');
   const msgs = read('src/lib/i18n/messages/settings.ts');
   assert.match(msgs, new RegExp(CREDENTIALS.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));

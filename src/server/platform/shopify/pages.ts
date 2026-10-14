@@ -1,6 +1,6 @@
 import 'server-only';
-// Shopify: Vorschau-Daten für Seitenentwürfe (echte Produkte, Bilder), Fokus der Oberfläche und publish_page
-// (Landingpage = Online-Store-Seite, Kollektion/Produkt = Theme-Vorlage mit Lotse-Abschnitten; siehe publish.ts).
+// Shopify: preview data for page drafts (real products, images), UI focus and publish_page
+// (landing page = Online Store page, collection/product = theme template with Lotse sections; see publish.ts).
 import { z } from 'zod';
 import type { ChatEvent } from '@/lib/protocol';
 import type { ImageRef, PageSpec, PreviewCtx, PreviewProduct } from '../../cms';
@@ -28,7 +28,7 @@ async function previewData(session: Session, spec: PageSpec): Promise<PreviewCtx
   }
   const valid = [...ids].filter(i => /^\d+$|^gid:\/\/shopify\/Product\//.test(i));
   const products: Record<string, PreviewProduct> = {};
-  // Shop nicht erreichbar/eingerichtet: Vorschau ohne Produktdaten statt Fehler (der Entwurf selbst braucht den Shop nicht)
+  // Shop unreachable/not configured: preview without product data instead of an error (the draft itself does not need the shop)
   if (valid.length) {
     const shop = await shopOf(r).catch(() => ({ currency: 'EUR', primaryUrl: '' }));
     for (const p of await productsByIds(q, valid, PREVIEW_SEL, 25).catch(() => [])) { const pp = previewProduct(p, shop.currency, shop.primaryUrl); products[pp.id!] = pp; products[p.id] = pp; }

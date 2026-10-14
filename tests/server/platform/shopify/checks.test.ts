@@ -1,4 +1,4 @@
-// Shopify-Shop-Check: reine Auswertung + Durchlauf gegen den Admin-GraphQL-Fake (Seed „Haus Holm“ mit eingebauten Lücken).
+// Shopify shop check: pure evaluation + run against the Admin GraphQL fake (seed "Haus Holm" with built-in gaps).
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -22,7 +22,7 @@ updateSettings({ platform: 'shopify', shopify: { storeDomain: fake.url, accessTo
 reconfigureAll();
 const shopify = getPlatform('shopify');
 
-test('Auswertung (rein): Metas, dünne Texte, Bilder, Bestand, Preise', () => {
+test('evaluation (pure): metas, thin texts, images, stock, prices', () => {
   const row = (id: string, o: Partial<ReturnType<typeof toRow>>) => ({ ...toRow({ id: `gid://shopify/Product/${id}`, title: `P${id}`, handle: `p${id}`, descriptionHtml: '<p>' + 'Wort '.repeat(60) + '</p>', seo: { title: 'Titel', description: 'D' }, tracksInventory: true, variants: { nodes: [{ price: '10.00', inventoryPolicy: 'DENY', inventoryQuantity: 5 }] }, media: { nodes: [{ id: 'm', alt: 'a' }] } }), ...o });
   const h = scanFindings([
     row('1', { metaTitle: '', metaDescription: '' }),
@@ -38,46 +38,46 @@ test('Auswertung (rein): Metas, dünne Texte, Bilder, Bestand, Preise', () => {
   assert.deepEqual(h.priceSpread.map(x => x.id), ['4']);
 });
 
-test('Interne Links: relativ und eigene Domains, mit Sprachpräfix; fremde Domains und Anker zählen nicht', () => {
+test('internal links: relative and own domains, with language prefix; foreign domains and anchors do not count', () => {
   const html = '<a href="/products/vase">a</a><a href="https://haus-holm.myshopify.com/en/collections/keramik">b</a><a href="https://example.com/products/x">c</a><a href="#top">d</a><a href="/pages/ueber-uns">e</a><a href="/collections/all">f</a>';
   assert.deepEqual(internalLinks(html, ['haus-holm.myshopify.com']).map(l => `${l.kind}:${l.handle}`), ['product:vase', 'category:keramik', 'landing:ueber-uns']);
 });
 
-test('Aufträge nennen nur Shopify-Werkzeuge, die es gibt; keine Shopware-Begriffe', () => {
+test('tasks only name Shopify tools that exist; no Shopware terms', () => {
   const names = new Set(toolNamesFor('shopify'));
   for (const d of Object.values(SHOPIFY_DEFS)) {
     const t = d.fix('3 Produkte') + d.hint;
-    for (const m of t.matchAll(/\b([a-z]+(?:_[a-z]+)+)\b/g)) assert.ok(names.has(m[1]) || ['product_list', 'product_detail'].includes(m[1]), `${d.id}: ${m[1]} gibt es nicht`);
+    for (const m of t.matchAll(/\b([a-z]+(?:_[a-z]+)+)\b/g)) assert.ok(names.has(m[1]) || ['product_list', 'product_detail'].includes(m[1]), `${d.id}: ${m[1]} does not exist`);
     assert.doesNotMatch(t, /Shopware|Einkaufswelt|find_products_by_data|get_product_details|suggest_internal_links/, d.id);
     assert.doesNotMatch(t, /[–—]/, d.id);
   }
 });
 
-test('Durchlauf gegen den Fake: Befunde aus echten Daten, Datenschutz-Bereiche wirken', async () => {
-  // eingebaute Lücken: Seite mit kaputtem Link, Kollektion ohne Description
+test('run against the fake: findings from real data, privacy scopes take effect', async () => {
+  // built-in gaps: page with broken link, collection without description
   await fake.graphql('mutation { pageCreate(page: { title: "Ratgeber", handle: "ratgeber", body: "<p><a href=\\"/products/gibt-es-nicht\\">alt</a> <a href=\\"/products/vase-kiesel\\">ok</a></p>", isPublished: true }) { page { id } userErrors { message } } }');
   await shopify.loadChecks();
   const checks = listChecks('shopify'), reader = shopify.openSession('shop-check').reader;
-  assert.ok(checks.length >= 15, `${checks.length} Prüfungen`);
+  assert.ok(checks.length >= 15, `${checks.length} checks`);
   assert.ok(checks.every(c => c.id.startsWith('shopify.') || c.platforms === 'all'));
   const findings: CheckFinding[] = [];
   for (const c of checks.filter(c => c.platforms !== 'all')) { const r = await c.run(reader as never, { platform: 'shopify', reader, lookup: shopify.lookup(reader) }); findings.push(...[r].flat().filter((f): f is CheckFinding => !!f)); }
   const by = (id: string) => findings.find(f => f.id === id);
-  assert.equal(by('bilder.product-without-image')?.count, 1, 'Plaid ohne Bild');
+  assert.equal(by('bilder.product-without-image')?.count, 1, 'plaid without image');
   assert.match(String(by('bilder.product-without-image')?.fixPrompt), /find_image_gaps missing=images[\s\S]*propose_product_images/);
-  assert.ok((by('bilder.alt-missing')?.count ?? 0) >= 1, 'Vase-Bild ohne Alt-Text');
+  assert.ok((by('bilder.alt-missing')?.count ?? 0) >= 1, 'vase image without alt text');
   assert.ok((by('seo.product-meta-description-missing')?.count ?? 0) >= 1);
   assert.equal(by('links.pages')?.count, 1); assert.match(JSON.stringify(by('links.pages')?.sample), /gibt-es-nicht/);
-  assert.ok(by('sprachen.missing-translation.en'), 'Englisch: Übersetzungen fehlen');
+  assert.ok(by('sprachen.missing-translation.en'), 'English: translations missing');
   assert.ok(findings.every(f => f.total == null || f.count <= f.total));
-  assert.ok(checks.filter(c => c.platforms !== 'all').every(c => c.scopes?.length), 'jede Prüfung nennt ihre Bereiche (abschaltbar unter KI-Zugriff)');
+  assert.ok(checks.filter(c => c.platforms !== 'all').every(c => c.scopes?.length), 'every check names its scopes (can be switched off under AI access)');
 });
 
-test('Neutrale Produktzeilen für eigene Prüfungen: Texte, Preise, Bestand, Bild', async () => {
+test('neutral product rows for custom checks: texts, prices, stock, image', async () => {
   const { evaluate } = await import('../../../../src/lib/custom-checks');
   const scan = await shopify.scanProducts(shopify.openSession('shop-check-neutral').reader);
   assert.ok(scan.rows.length > 0 && scan.total >= scan.rows.length && scan.capped === false);
   for (const r of scan.rows) { assert.ok(r.id && r.label && r.name, 'id/label/name'); assert.equal(typeof r.description, 'string'); assert.ok(r.price === null || typeof r.price === 'number'); assert.equal(typeof r.hasImage, 'boolean'); }
   const hits = evaluate(scan.rows, { match: 'any', conditions: [{ field: 'metaDescriptionChars', op: 'eq', value: 0 }, { field: 'hasImage', op: 'eq', value: false }] });
-  assert.ok(hits.count > 0 && hits.sample.length > 0, 'Seed enthält eingebaute Lücken');
+  assert.ok(hits.count > 0 && hits.sample.length > 0, 'seed contains built-in gaps');
 });

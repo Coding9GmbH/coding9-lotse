@@ -1,6 +1,6 @@
 import 'server-only';
-// Begrenzte Wiederholung für Fremd-APIs (Google, OpenAI): nur 429 und 5xx, höchstens 3 Versuche, Retry-After wird beachtet.
-// 4xx außer 429 sind endgültig und werden nie wiederholt. Verlangt der Server eine längere Pause als die Obergrenze, gibt es keinen weiteren Versuch.
+// Limited retries for third-party APIs (Google, OpenAI): only 429 and 5xx, at most 3 attempts, Retry-After is honored.
+// 4xx other than 429 are final and never retried. If the server demands a longer pause than the cap, there is no further attempt.
 
 import { log } from './log';
 
@@ -9,7 +9,7 @@ export const RETRY_MAX_WAIT_MS = 10_000;
 
 export const retryable = (status: number) => status === 429 || (status >= 500 && status <= 599);
 
-/** Wartezeit aus Retry-After (Sekunden oder HTTP-Datum) oder, ohne Header, exponentieller Backoff ab `baseMs`; null = zu lang, nicht warten */
+/** Wait time from Retry-After (seconds or HTTP date) or, without the header, exponential backoff from `baseMs`; null = too long, don't wait */
 export function retryDelay(r: Response, attempt: number, baseMs = 500, maxMs = RETRY_MAX_WAIT_MS): number | null {
   const h = r.headers.get('retry-after')?.trim();
   let ms = baseMs * 2 ** attempt;
@@ -20,7 +20,7 @@ export function retryDelay(r: Response, attempt: number, baseMs = 500, maxMs = R
   return ms > maxMs ? null : ms;
 }
 
-/** `send` ruft die API einmal auf; nach 429/5xx wird mit Pause bis zu `attempts`-mal gesendet, die letzte Antwort wird immer zurückgegeben. */
+/** `send` calls the API once; after 429/5xx it is sent up to `attempts` times with a pause, the last response is always returned. */
 export async function fetchWithRetry(send: () => Promise<Response>, o: { attempts?: number; baseMs?: number; label?: string } = {}): Promise<Response> {
   const attempts = o.attempts ?? 3, api = o.label ?? 'api';
   for (let i = 0; ; i++) {

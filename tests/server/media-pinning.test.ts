@@ -15,8 +15,8 @@ const serve = (handler: (req: http.IncomingMessage, res: http.ServerResponse) =>
 });
 const PNG = Buffer.from('89504e470d0a1a0a', 'hex');
 
-// ---- DNS-Rebinding: fremde Hosts werden über eine geprüfte DNS-Auflösung des Sockets selbst geladen ----
-test('pinnedLookup: jede aufgelöste Adresse wird geprüft (auch beim zweiten, „umgebogenen“ Lookup)', async () => {
+// ---- DNS rebinding: foreign hosts are loaded via a checked DNS resolution of the socket itself ----
+test('pinnedLookup: every resolved address is checked (also on the second, "redirected" lookup)', async () => {
   let n = 0;
   const lk = pinnedLookup(async () => (n++ === 0 ? [{ address: '93.184.215.14', family: 4 }] : [{ address: '93.184.215.14', family: 4 }, { address: '169.254.169.254', family: 4 }]));
   const call = (all: boolean) => new Promise<unknown>((res, rej) => lk('rebind.example', { all }, (e, a) => (e ? rej(e) : res(a))));
@@ -26,18 +26,18 @@ test('pinnedLookup: jede aufgelöste Adresse wird geprüft (auch beim zweiten, �
   await assert.rejects(new Promise((res, rej) => empty('x', {}, (e, a) => (e ? rej(e) : res(a)))), /nicht auflösbar/);
 });
 
-test('pinnedFetch: Hostname, der auf Loopback auflöst, wird beim Verbinden abgewiesen; geprüfte Auflösung lädt', async () => {
+test('pinnedFetch: hostname resolving to loopback is rejected on connect; checked resolution loads', async () => {
   const srv = await serve((req, res) => { res.setHeader('content-type', 'image/png'); res.end(PNG); });
   try {
     await assert.rejects(pinnedFetch(`http://localhost:${srv.port}/a.png`), /interne oder lokale Adressen/);
     await assert.rejects(pinnedFetch(`http://127.0.0.1:${srv.port}/a.png`), /interne oder lokale Adressen/);
-    // Test-Lookup meldet das Ziel ohne Prüfung → Verbindung zum lokalen Testserver
+    // test lookup reports the target without checking → connection to the local test server
     const r = await pinnedFetch(`http://bilder.example:${srv.port}/a.png`, {}, (h, o, cb) => (typeof o === 'object' && o?.all ? cb(null, [{ address: '127.0.0.1', family: 4 }]) : cb(null, '127.0.0.1', 4)));
     assert.equal(r.status, 200); assert.deepEqual(Buffer.from(await r.arrayBuffer()), PNG);
   } finally { srv.close(); }
 });
 
-test('downloadImage: fremde Hosts laufen über den gepinnten Fetcher, Größe ist begrenzt (Content-Length und Stream)', async () => {
+test('downloadImage: foreign hosts go through the pinned fetcher, size is limited (Content-Length and stream)', async () => {
   const seen: string[] = [];
   setPublicFetcher(async u => { seen.push(String(u)); return new Response(PNG, { headers: { 'content-type': 'image/png' } }); });
   try {
@@ -48,13 +48,13 @@ test('downloadImage: fremde Hosts laufen über den gepinnten Fetcher, Größe is
   } finally { setPublicFetcher((u, i) => pinnedFetch(u, { headers: i?.headers as Record<string, string>, signal: i?.signal ?? undefined })); }
   const chunk = new Uint8Array(1024);
   let sent = 0;
-  const stream = new ReadableStream<Uint8Array>({ pull(c) { sent++; c.enqueue(chunk); } }); // endlos, ohne Content-Length
+  const stream = new ReadableStream<Uint8Array>({ pull(c) { sent++; c.enqueue(chunk); } }); // endless, without Content-Length
   await assert.rejects(readCapped(new Response(stream), 10 * 1024), /größer als/);
-  assert.ok(sent < 20, 'Stream wird abgebrochen statt bis zum Ende gelesen');
+  assert.ok(sent < 20, 'stream is aborted instead of read to the end');
   assert.equal((await readCapped(new Response(PNG), 10)).length, PNG.length);
 });
 
-test('Verkaufskanal-Domains: Cloud-Metadaten immer abgewiesen, Docker-intern erlaubt; Shop-URL aus den Einstellungen voll vertrauenswürdig', async () => {
+test('sales channel domains: cloud metadata always rejected, Docker-internal allowed; shop URL from settings fully trusted', async () => {
   for (const ip of ['169.254.169.254', '169.254.0.1', 'fe80::1', 'fd00:ec2::254', '::ffff:169.254.169.254', '::ffff:a9fe:a9fe']) assert.ok(isMetadataIp(ip), ip);
   for (const ip of ['127.0.0.1', '10.0.0.1', '8.8.8.8', '::1', 'fd00::1']) assert.ok(!isMetadataIp(ip), ip);
   const got: string[] = [];

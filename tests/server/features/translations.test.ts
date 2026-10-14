@@ -9,7 +9,7 @@ const EN = SYSTEM_LANGUAGE, DE = 'de'.padEnd(32, '0'), FR = 'f'.padEnd(32, '0');
 const LANGS = [{ id: EN, name: 'English', locale: { code: 'en-GB' }, parentId: null }, { id: DE, name: 'Deutsch', locale: { code: 'de-DE' }, parentId: null }, { id: FR, name: 'Français', locale: { code: 'fr-FR' }, parentId: null }];
 const P = 'a'.repeat(32);
 
-// Fake-Shop: eigene Werte je Sprache; translated = mit Rückfall auf die Systemsprache (wie Shopware mit sw-language-id)
+// Fake shop: own values per language; translated = with fallback to the system language (like Shopware with sw-language-id)
 function fakeShop(own: Record<string, Record<string, SwEntity>>, extra: (entity: string, c: Criteria, lang: string) => SwEntity[] | null = () => null): ShopReader {
   const row = (entity: string, id: string, lang: string) => {
     const o = own[`${entity}:${id}`]; if (!o) return null;
@@ -28,7 +28,7 @@ function fakeShop(own: Record<string, Record<string, SwEntity>>, extra: (entity:
 }
 const L = (id: string): Lang => ({ id, name: id, locale: '', parentId: null, system: id === EN });
 
-test('resolveLang: per ID, Locale, Sprachkürzel oder Name; Rückfallkette endet in der Systemsprache', () => {
+test('resolveLang: by ID, locale, language code or name; fallback chain ends in the system language', () => {
   const langs: Lang[] = LANGS.map(l => ({ id: l.id, name: l.name, locale: l.locale.code, parentId: l.parentId, system: l.id === EN }));
   assert.equal(resolveLang(langs, 'de-DE').id, DE);
   assert.equal(resolveLang(langs, 'fr').id, FR);
@@ -39,7 +39,7 @@ test('resolveLang: per ID, Locale, Sprachkürzel oder Name; Rückfallkette endet
   assert.deepEqual(fallbackChain(ch, ch[1]).map(l => l.id), ['at', DE, EN]);
 });
 
-test('planTranslationWrite: vorhandene Zeile → alte Werte zurück (Zusatzfelder leeren + vollständig setzen), neue Zeile → Zeile löschen', () => {
+test('planTranslationWrite: existing row → old values back (clear custom fields + set completely), new row → delete row', () => {
   const rows = [{ languageId: EN, name: 'Vase', metaTitle: null, customFields: { aicb_blocks: { faq: [{ q: 'a', a: 'b' }], other: 1 } } }];
   const raws: TrRaw[] = [
     { languageId: EN, field: 'metaTitle', value: 'Vase Pebble | Haus Holm' },
@@ -52,7 +52,7 @@ test('planTranslationWrite: vorhandene Zeile → alte Werte zurück (Zusatzfelde
   const blocks = (tr[EN].customFields as { aicb_blocks: { faq: unknown[]; faq_html: string; other: number } }).aicb_blocks;
   assert.equal(blocks.other, 1); assert.equal(blocks.faq.length, 2); assert.match(blocks.faq_html, /Is it watertight\?/);
   assert.deepEqual(tr[DE], { name: 'Vase „Kiesel“' });
-  // Rückwärts ausgeführt: Systemsprache zuerst wiederherstellen, die neue DE-Zeile zuletzt löschen (sonst erbt DE kurz den neuen Text → SEO-URL-Reste)
+  // Executed in reverse: restore the system language first, delete the new DE row last (otherwise DE briefly inherits the new text → leftover SEO URLs)
   assert.deepEqual(undo, [
     { op: 'req', entity: 'product', id: P, method: 'DELETE', path: `/product/${P}/translations/${DE}` },
     { op: 'patch', entity: 'product', id: P, data: { translations: { [EN]: { metaTitle: null, customFields: rows[0].customFields } } } },
@@ -60,7 +60,7 @@ test('planTranslationWrite: vorhandene Zeile → alte Werte zurück (Zusatzfelde
   ]);
 });
 
-test('Übersetzungs-Set: Vorher/Nachher je Sprache, SEO-Hinweise, unverändert, unbekannte Felder', async () => {
+test('Translation set: before/after per language, SEO notes, unchanged, unknown fields', async () => {
   const ro = fakeShop({ [`product:${P}`]: { [EN]: { name: 'Vase „Kiesel“', productNumber: 'HH-VASE-22', description: '<p>Bauchige Vase.</p>', metaTitle: null }, [DE]: {}, [FR]: { name: 'Vase « Galet »' } } });
   const cs = await buildTranslationChangeSet(ro, { title: 'FR', reason: 'Übersetzung', entity: 'product', changes: [
     { id: P, language: 'fr-FR', fields: { name: 'Vase « Galet »', description: '<p>Bauchige Vase.</p>', metaTitle: 'Vase « Galet » en grès mat, 22 cm – un objet calme pour le buffet | Haus Holm', color: 'x' } },
@@ -74,7 +74,7 @@ test('Übersetzungs-Set: Vorher/Nachher je Sprache, SEO-Hinweise, unverändert, 
   assert.match(cs.skipped[0].reason, /„color“ nicht übersetzbar/);
 });
 
-test('Übersetzungs-Set: Systemsprache ändern sichert den Text erbender Sprachen – explizite Werte haben Vorrang', async () => {
+test('Translation set: changing the system language preserves the text of inheriting languages; explicit values take precedence', async () => {
   const ro = fakeShop({ [`product:${P}`]: { [EN]: { name: 'Vase „Kiesel“', description: '<p>Bauchige Vase.</p>' }, [DE]: {}, [FR]: {} } });
   const cs = await buildTranslationChangeSet(ro, { title: 'EN', reason: 'r', entity: 'product', changes: [
     { id: P, language: 'en-GB', fields: { description: '<p>Bulbous vase.</p>' } },
@@ -85,14 +85,14 @@ test('Übersetzungs-Set: Systemsprache ändern sichert den Text erbender Sprache
     [`${P}:${DE}:description`, '<p>Bauchige Vase.</p>'],
     [`${P}:${FR}:description`, '<p>Vase bombé.</p>'],
   ]);
-  assert.match(cs.items[0].warn.join(), /^Deutsch erbt dieses Feld: bisheriger Text wird dort gesichert$/); // Französisch kommt explizit mit
+  assert.match(cs.items[0].warn.join(), /^Deutsch erbt dieses Feld: bisheriger Text wird dort gesichert$/); // French is included explicitly
   const off = await buildTranslationChangeSet(ro, { title: 'EN', reason: 'r', entity: 'product', keepInherited: false, changes: [{ id: P, language: 'en', fields: { description: '<p>Bulbous vase.</p>' } }] });
   assert.equal(off.items.length, 1); assert.match(off.items[0].warn.join(), /Deutsch, Français erben dieses Feld und ändern sich mit/);
   await assert.rejects(buildTranslationChangeSet(ro, { title: 'x', reason: 'r', entity: 'product', changes: [{ id: P, language: 'en', fields: { name: null } }] }), /Systemsprache darf nicht leer/);
   await assert.rejects(buildTranslationChangeSet(ro, { title: 'x', reason: 'r', entity: 'product', changes: [{ id: P, language: 'fr', fields: { faq: [{ q: 'a', a: 'b' }, { q: 'c', a: 'd' }] } }] }), /title in der Zielsprache/);
 });
 
-// Einkaufswelt mit Text-Element (inkl. Plugin-Schlüssel „phone“, der nie ins Änderungsset gehört) und Bild-Element; eigene Config nur in der Systemsprache
+// Shopping Experience with text element (incl. plugin key "phone", which never belongs in the change set) and image element; own config only in the system language
 const S1 = '1'.repeat(32), S2 = '2'.repeat(32), M = 'e'.repeat(32), C = 'c'.repeat(32);
 const HTML = '<h2>Drei Objekte</h2><p>Zur <a href="http://shop.test/Wohnaccessoires/">Kategorie</a></p>';
 const S1_CFG = { content: { source: 'static', value: HTML }, phone: { source: 'static', value: '+49 40 123' } };
@@ -112,7 +112,7 @@ function pageShop() {
   return ro;
 }
 
-test('Seiten-Übersetzung: alle keys Pflicht, nur geänderte Config-Schlüssel als Patch, Links und Alt-Texte', async () => {
+test('Page translation: all keys required, only changed config keys as patch, links and alt texts', async () => {
   const ro = pageShop();
   await assert.rejects(buildPageTranslationChangeSet(ro, { cmsPageId: 'pg', target: 'fr', texts: { 's0.0': 'Trois objets' } }), /Ohne Übersetzung.*s0\.1.*s1\.alt/);
   await assert.rejects(buildPageTranslationChangeSet(ro, { cmsPageId: 'pg', target: 'fr', texts: { 's0.0': 'Trois objets', 's0.1': 'Vers la catégorie', 's1.alt': 'x', 's9.0': 'y' } }), /s0\.1: Inline-Tags.*Unbekannte keys: s9\.0/);
@@ -120,17 +120,17 @@ test('Seiten-Übersetzung: alle keys Pflicht, nur geänderte Config-Schlüssel a
   assert.equal(cs.kind, 'page-translation');
   const slot = cs.items.find(i => i.entity === 'cms-slot')!, alt = cs.items.find(i => i.entity === 'media')!;
   assert.deepEqual(slot.afterRaw, { languageId: FR, field: 'config', patch: { content: { source: 'static', value: '<h2>Trois objets</h2><p>Vers la <a href="http://shop.test/fr/Home-accessories/">catégorie</a></p>' } }, baseLanguageId: EN });
-  assert.ok(!JSON.stringify(cs).includes('+49'), 'nicht übersetzte Config-Schlüssel bleiben dem Änderungsset fern');
+  assert.ok(!JSON.stringify(cs).includes('+49'), 'untranslated config keys stay out of the change set');
   assert.match(slot.before, /^erbt English/); assert.match(slot.warn.join(), /Link → http:\/\/shop.test\/fr\/Home-accessories\//);
   assert.deepEqual(alt.afterRaw, { languageId: FR, field: 'alt', value: 'Vase sur un buffet' });
   assert.equal(cs.items[0].entity, 'info');
-  // Systemsprache als Ziel: erbende Sprachen sichern ihren Stand (leerer Patch, Basis = eigene Sprache)
+  // system language as target: inheriting languages preserve their state (empty patch, base = own language)
   const sys = await buildPageTranslationChangeSet(ro, { cmsPageId: 'pg', target: 'en', source: 'de', texts: { 's0.0': 'Three objects', 's0.1': 'To the <a href="http://shop.test/Wohnaccessoires/">category</a>', 's1.alt': 'Vase on a sideboard' } });
   const saved = sys.items.filter(i => i.entity === 'cms-slot' && /sichern/.test(i.fieldLabel));
   assert.deepEqual(saved.map(i => i.afterRaw), [{ languageId: DE, field: 'config', patch: {}, baseLanguageId: DE }, { languageId: FR, field: 'config', patch: {}, baseLanguageId: FR }]);
 });
 
-test('resolveRaw: Element-Config kommt beim Schreiben frisch und ungekürzt aus dem Shop, nur der Patch wird eingemischt', async () => {
+test('resolveRaw: element config comes fresh and untruncated from the shop on write, only the patch is merged in', async () => {
   const get = async (_e: string, _id: string, _c: unknown, o: { languageId?: string }) => ({ translated: { config: { content: { source: 'static', value: `<p>${o.languageId}</p>` }, phone: { source: 'static', value: '+49 40 1' } } } });
   const sw = { get } as unknown as Pick<Shopware, 'get'>;
   const r = await resolveRaw(sw, 'cms-slot', S1, { languageId: FR, field: 'config', patch: { content: { source: 'static', value: '<p>fr</p>' } }, baseLanguageId: EN });
@@ -140,7 +140,7 @@ test('resolveRaw: Element-Config kommt beim Schreiben frisch und ungekürzt aus 
   assert.equal(await resolveRaw(sw, 'media', M, plainRaw), plainRaw);
 });
 
-// ---- Executor applyTranslations (über applyChangeSet) mit Fake-Writer ----
+// ---- Executor applyTranslations (via applyChangeSet) with fake writer ----
 function writer(rows: Record<string, SwEntity[]>) {
   const calls: unknown[][] = [], searched: string[] = [];
   const w = {
@@ -155,16 +155,16 @@ const item = (entity: string, id: string, field: string, afterRaw: TrRaw | SlotR
 const set = (kind: string, entity: string, items: ChangeItem[]) => ({ id: 'cs', kind, entity, title: 't', reason: null, skipped: [], atomic: false, items });
 const all = (items: ChangeItem[]) => new Set(items.map(i => i.id));
 
-test('applyTranslations: je Datensatz ein Schreibzugriff, Undo genau einmal, FAQ-Feldset nur bei Produkt-FAQ mit Wert', async () => {
+test('applyTranslations: one write per record, undo exactly once, FAQ field set only for product FAQ with a value', async () => {
   const { applyChangeSet } = await import('../../../src/server/changes');
-  // Kategorie: kein Zusatzfeld-Set; neue Übersetzungszeile → Undo löscht die Zeile
+  // category: no custom field set; new translation row → undo deletes the row
   const cat = writer({ [`category:${C}`]: [{ languageId: EN, name: 'Living' }] }), ci = [item('category', C, 'name', { languageId: DE, field: 'name', value: 'Wohnen' }), item('category', C, 'metaTitle', { languageId: DE, field: 'metaTitle', value: 'Wohnen | Haus Holm' })];
   const r1 = await applyChangeSet(cat.w, set('translations', 'category', ci) as never, null, all(ci));
   assert.deepEqual(r1.results.map(x => x.ok), [true, true]);
   assert.deepEqual(cat.calls, [['update', 'category', C, { translations: { [DE]: { name: 'Wohnen', metaTitle: 'Wohnen | Haus Holm' } } }]]);
   assert.deepEqual(r1.undo, [{ op: 'req', entity: 'category', id: C, method: 'DELETE', path: `/category/${C}/translations/${DE}` }]);
   assert.ok(!cat.searched.includes('custom-field-set'));
-  // Produkt mit FAQ-Wert: Feldset wird sichergestellt
+  // product with FAQ value: field set is ensured
   const faq = { title: 'FAQ', items: [{ q: 'a', a: 'b' }, { q: 'c', a: 'd' }] };
   const pr = writer({ [`product:${P}`]: [{ languageId: EN, metaTitle: 'alt', customFields: null }] }), pi = [item('product', P, 'faq', { languageId: EN, field: 'faq', value: faq }), item('product', P, 'metaTitle', { languageId: EN, field: 'metaTitle', value: 'neu' })];
   const r2 = await applyChangeSet(pr.w, set('translations', 'product', pi) as never, null, all(pi));
@@ -173,18 +173,18 @@ test('applyTranslations: je Datensatz ein Schreibzugriff, Undo genau einmal, FAQ
   const data = (pr.calls[0][3] as { translations: Record<string, { metaTitle: string; customFields: { aicb_blocks: { faq: unknown[] } } }> }).translations[EN];
   assert.equal(data.metaTitle, 'neu'); assert.equal(data.customFields.aicb_blocks.faq.length, 2);
   assert.deepEqual(r2.undo, [{ op: 'patch', entity: 'product', id: P, data: { translations: { [EN]: { metaTitle: 'alt', customFields: null } } } }]);
-  // FAQ entfernen neben anderen Zusatzfeldern: erst leeren (pre), dann Rest setzen; Undo trotzdem nur einmal
+  // remove FAQ alongside other custom fields: clear first (pre), then set the rest; undo still only once
   const rows = [{ languageId: DE, customFields: { aicb_blocks: { faq: [{ q: 'x', a: 'y' }], faq_html: 'h' }, color: 'blau' } }];
   const rm = writer({ [`product:${P}`]: rows }), ri = [item('product', P, 'faq', { languageId: DE, field: 'faq', value: null })];
   const r3 = await applyChangeSet(rm.w, set('translations', 'product', ri) as never, null, all(ri));
   assert.deepEqual(rm.calls.map(c => c[3]), [{ translations: { [DE]: { customFields: null } } }, { translations: { [DE]: { customFields: { color: 'blau' } } } }]);
   assert.deepEqual(r3.undo, planTranslationWrite('product', P, rows, ri.map(i => i.afterRaw as TrRaw)).undo);
-  // Datensatz weg → alle Items des Datensatzes fehlgeschlagen
+  // record gone → all items of the record failed
   const gone = await applyChangeSet(writer({}).w, set('translations', 'product', pi) as never, null, all(pi));
   assert.deepEqual(gone.results.map(x => x.error), ['Datensatz nicht mehr vorhanden', 'Datensatz nicht mehr vorhanden']);
 });
 
-test('applyTranslations: Element-Patch wird in die frische Config gemischt, Alt-Texte laufen über denselben Applier', async () => {
+test('applyTranslations: element patch is merged into the fresh config, alt texts go through the same applier', async () => {
   const { applyChangeSet } = await import('../../../src/server/changes');
   const sl = writer({ [`cms-slot:${S1}`]: [{ languageId: EN, config: S1_CFG }], [`media:${M}`]: [{ languageId: EN, alt: 'Vase' }] });
   const items = [
@@ -200,8 +200,8 @@ test('applyTranslations: Element-Patch wird in die frische Config gemischt, Alt-
   assert.deepEqual(r.undo.map(u => u.path).sort(), [`/cms-slot/${S1}/translations/${FR}`, `/media/${M}/translations/${FR}`]);
 });
 
-// ---- Lesefunktionen ----
-test('readTranslations: ids-Paginierung, Hinweis hinter der Liste, onlyMissing, eigene/geerbte/leere Felder, doppelte Locale', async () => {
+// ---- Read functions ----
+test('readTranslations: ids pagination, note after the list, onlyMissing, own/inherited/empty fields, duplicate locale', async () => {
   const Q = 'b'.repeat(32);
   const own = { [`product:${P}`]: { [EN]: { name: 'Vase', productNumber: 'HH-1', description: '<p>Bulbous</p>' }, [DE]: {}, [FR]: { name: 'Vase FR' } }, [`product:${Q}`]: { [EN]: { name: 'Mug', productNumber: 'HH-2' }, [DE]: { name: 'Becher' }, [FR]: { name: 'Tasse' } } };
   const ro = fakeShop(own);
@@ -210,19 +210,19 @@ test('readTranslations: ids-Paginierung, Hinweis hinter der Liste, onlyMissing, 
   const beyond = await readTranslations(ro, { entity: 'product', ids: [P, Q], offset: 5 });
   assert.equal(beyond.returned, 0); assert.match(beyond.hint!, /offset 5 liegt hinter den 2 ids/);
   const m = await readTranslations(ro, { entity: 'product', ids: [P, Q], onlyMissing: true });
-  assert.equal(m.scanned, 2); assert.deepEqual(m.items.map(i => i.id), [P], 'Q ist in allen Sprachen übersetzt (leere Felder zählen nicht als Lücke)');
+  assert.equal(m.scanned, 2); assert.deepEqual(m.items.map(i => i.id), [P], 'Q is translated in all languages (empty fields do not count as a gap)');
   const de = (m.items[0].languages as Record<string, { values: Record<string, unknown>; inherited?: string[]; empty?: string[] }>)['de-DE'];
   assert.deepEqual(de.values, {}); assert.deepEqual(de.inherited, ['name', 'description']); assert.deepEqual(de.empty, ['metaTitle', 'metaDescription', 'keywords', 'faq']);
   assert.deepEqual((m.items[0].languages as Record<string, { values: Record<string, unknown> }>)['fr-FR'].values, { name: 'Vase FR' });
   assert.match(m.hint, /onlyMissing filtert nur die gelesene Seite/);
-  // zwei Sprachen mit derselben Locale: Schlüssel mit ID
+  // two languages with the same locale: key with ID
   const AT = 'a7'.padEnd(32, '0');
   const dup = await readTranslations(fakeShop(own, e => (e === 'language' ? [...LANGS, { id: AT, name: 'Schweiz', locale: { code: 'de-DE' }, parentId: null }] : null)), { entity: 'product', ids: [P], languages: ['de-DE', AT] });
   assert.deepEqual(Object.keys(dup.items[0].languages).sort(), [`de-DE (${AT})`, `de-DE (${DE})`]);
   await assert.rejects(readTranslations(ro, { entity: 'category', categoryId: C }), /categoryId nur bei entity=product/);
 });
 
-test('readPageTexts: keys je Element, Alt-Text des Bildes, Zielsprache und Standard-Quellsprache', async () => {
+test('readPageTexts: keys per element, alt text of the image, target language and default source language', async () => {
   const ro = pageShop();
   const r = await readPageTexts(ro, { cmsPageId: 'pg', target: 'fr' });
   assert.equal(r.sourceLanguage, 'English (en-GB)'); assert.equal(r.targetLanguage, 'Français (fr-FR)'); assert.equal(r.segments, 3);
@@ -231,14 +231,14 @@ test('readPageTexts: keys je Element, Alt-Text des Bildes, Zielsprache und Stand
     ['s1', 'image (image)', false, [['s1.alt', 'mediaAlt', 'Vase auf Sideboard']], []],
   ]);
   assert.equal((r.slots[1] as { targetAlt?: string | null }).targetAlt, null);
-  assert.ok(!JSON.stringify(r).includes('+49'), 'nicht übersetzbare Config-Werte werden nicht ausgegeben');
-  // Ziel = Systemsprache → Quelle ist eine andere Sprache (Standardsprache der Storefront bzw. erste Nicht-Systemsprache)
+  assert.ok(!JSON.stringify(r).includes('+49'), 'non-translatable config values are not output');
+  // target = system language → source is another language (storefront default language or first non-system language)
   const sys = await readPageTexts(ro, { cmsPageId: 'pg', target: 'en' });
   assert.equal(sys.sourceLanguage, 'Deutsch (de-DE)');
   await assert.rejects(readPageTexts(ro, { cmsPageId: 'pg', target: 'it' }), /Sprache „it“ unbekannt/);
 });
 
-test('languageOverview: Sprachen mit Kanälen, Domains, Vererbung und hreflang-Status', async () => {
+test('languageOverview: languages with channels, domains, inheritance and hreflang status', async () => {
   const ro = fakeShop({}, e => (e === 'sales-channel' ? [{ id: 'sc', name: 'Storefront', typeId: '8a243080f92e4c719546314b577cf82b', languageId: EN, languages: [{ id: EN }, { id: DE }], domains: [{ id: 'd1', url: 'http://shop.test', languageId: EN }, { id: 'd2', url: 'http://shop.test/de', languageId: DE }], hreflangActive: true, hreflangDefaultDomainId: 'd1' }] : null));
   const o = await languageOverview(ro);
   assert.equal(o.systemLanguage, 'English');
@@ -249,7 +249,7 @@ test('languageOverview: Sprachen mit Kanälen, Domains, Vererbung und hreflang-S
   assert.deepEqual(o.hreflang, [{ salesChannel: 'Storefront', active: true, defaultDomain: 'http://shop.test', domains: [{ url: 'http://shop.test', language: 'en-GB' }, { url: 'http://shop.test/de', language: 'de-DE' }], hint: 'ok' }]);
 });
 
-test('planTranslationWrite: FAQ null entfernt aicb_blocks der Sprache (erbt dann wieder) – andere Zusatzfelder bleiben', () => {
+test('planTranslationWrite: FAQ null removes the language\'s aicb_blocks (then inherits again); other custom fields stay', () => {
   const faq = [{ q: 'Wasserdicht?', a: 'Ja.' }, { q: 'Größe?', a: '22 cm.' }];
   const only = [{ languageId: DE, customFields: { aicb_blocks: { faq, faq_html: '<h2>FAQ</h2>' } } }];
   const a = planTranslationWrite('product', P, only, [{ languageId: DE, field: 'faq', value: null }]);
@@ -268,7 +268,7 @@ test('planTranslationWrite: FAQ null entfernt aicb_blocks der Sprache (erbt dann
   assert.deepEqual(keep.data, { translations: { [DE]: { customFields: { aicb_blocks: { video: 'v' } } } } });
 });
 
-test('Übersetzungs-Set: FAQ null zeigt den geerbten Wert der Rückfallkette; altes {faq:null} lässt sich entfernen', async () => {
+test('Translation set: FAQ null shows the inherited value of the fallback chain; old {faq:null} can be removed', async () => {
   const faq = (q: string) => [{ q, a: 'a' }, { q: q + '2', a: 'b' }];
   const ro = fakeShop({ [`product:${P}`]: { [EN]: { name: 'Vase', customFields: { aicb_blocks: { faq: faq('Watertight?') } } }, [DE]: { customFields: { aicb_blocks: { faq: faq('Wasserdicht?') } } }, [FR]: { customFields: { aicb_blocks: { faq: null, faq_html: null } } } } });
   const cs = await buildTranslationChangeSet(ro, { title: 'x', reason: 'r', entity: 'product', changes: [{ id: P, language: 'de', fields: { faq: null } }, { id: P, language: 'fr', fields: { faq: null } }] });
@@ -276,19 +276,19 @@ test('Übersetzungs-Set: FAQ null zeigt den geerbten Wert der Rückfallkette; al
   assert.equal(cs.items[0].after, 'eigene Übersetzung entfernen (erbt English: 2 Fragen)');
 });
 
-test('Übersetzungs-Set: Systemsprache bekommt ein bisher leeres Feld → erbende Sprachen werden gewarnt, nichts „gesichert“', async () => {
+test('Translation set: system language gets a previously empty field → inheriting languages are warned, nothing "preserved"', async () => {
   const ro = fakeShop({ [`product:${P}`]: { [EN]: { name: 'Vase', metaTitle: null }, [DE]: { name: 'Vase DE' }, [FR]: {} } });
   const cs = await buildTranslationChangeSet(ro, { title: 'EN', reason: 'r', entity: 'product', changes: [{ id: P, language: 'en-GB', fields: { metaTitle: 'Stoneware vase Pebble | Haus Holm' } }] });
   assert.equal(cs.items.length, 1);
   const w = cs.items[0].warn.join(' ');
   assert.doesNotMatch(w, /gesichert/);
   assert.match(w, /Deutsch, Français erben dieses Feld und zeigen danach diesen Text \(English\)\. Eigene Fassung in Deutsch, Français mitliefern/);
-  // mit eigener deutscher Fassung im selben Set: nur noch Französisch betroffen
+  // with own German version in the same set: only French affected
   const cs2 = await buildTranslationChangeSet(ro, { title: 'EN', reason: 'r', entity: 'product', changes: [{ id: P, language: 'en-GB', fields: { metaTitle: 'Stoneware vase Pebble | Haus Holm' } }, { id: P, language: 'de', fields: { metaTitle: 'Steinzeug-Vase Kiesel | Haus Holm' } }] });
   assert.match(cs2.items[0].warn.join(' '), /^Français erbt dieses Feld und zeigt danach/);
 });
 
-test('Übersetzungs-Set: Sprache mit Elternsprache (eigener Wert) erbt nicht von der Systemsprache – kein Sichern', async () => {
+test('Translation set: language with a parent language (own value) does not inherit from the system language; no preserving', async () => {
   const AT = 'a7'.padEnd(32, '0');
   const langs = [...LANGS, { id: AT, name: 'Österreich', locale: { code: 'de-AT' }, parentId: DE }];
   const ro = fakeShop({ [`product:${P}`]: { [EN]: { name: 'Vase', description: '<p>Bauchige Vase.</p>' }, [DE]: { description: '<p>Bauchige Vase (DE).</p>' }, [FR]: {}, [AT]: {} } }, e => (e === 'language' ? langs : null));
@@ -297,38 +297,38 @@ test('Übersetzungs-Set: Sprache mit Elternsprache (eigener Wert) erbt nicht von
   assert.match(cs.items[0].warn.join(), /^Français erbt dieses Feld: bisheriger Text wird dort gesichert$/);
 });
 
-test('Übersetzungs-Set: Landingpage-URL muss ein Pfad ohne Leerzeichen/Großbuchstaben sein', async () => {
+test('Translation set: landing page URL must be a path without spaces/uppercase letters', async () => {
   const ro = fakeShop({ [`landing-page:${P}`]: { [EN]: { name: 'Sommer', url: 'sommer' }, [DE]: {}, [FR]: {} } });
   const run = (url: string) => buildTranslationChangeSet(ro, { title: 'x', reason: 'r', entity: 'landing-page', changes: [{ id: P, language: 'fr', fields: { url } }] });
   for (const bad of ['/ete', 'Été déco', 'ete/']) await assert.rejects(run(bad), /URL-Pfad/);
   assert.equal((await run('ete-deco')).items[0].after, 'ete-deco');
 });
 
-test('applyTranslations: Stale-Write-Guard – Sprache inzwischen anders übersetzt → nur dieses Item fehlgeschlagen, übrige Felder und Altbestand ohne beforeRaw werden geschrieben', async () => {
+test('applyTranslations: stale write guard: language translated differently in the meantime → only this item failed, other fields and legacy items without beforeRaw are written', async () => {
   const { applyChangeSet } = await import('../../../src/server/changes');
   const rows = [{ languageId: DE, name: 'Wohnen (Admin)', metaTitle: 'Wohnen' }];
   const w = writer({ [`category:${C}`]: rows });
   const items: ChangeItem[] = [
-    { ...item('category', C, 'name', { languageId: DE, field: 'name', value: 'Wohnen & Leben' }), fieldLabel: 'Name (de-DE)', beforeRaw: 'Wohnen' }, // inzwischen „Wohnen (Admin)“
-    { ...item('category', C, 'metaTitle', { languageId: DE, field: 'metaTitle', value: 'Wohnen | Haus Holm' }), beforeRaw: 'Wohnen' },         // unverändert
-    item('category', C, 'description', { languageId: DE, field: 'description', value: '<p>x</p>' }),                                             // Altbestand ohne Snapshot
+    { ...item('category', C, 'name', { languageId: DE, field: 'name', value: 'Wohnen & Leben' }), fieldLabel: 'Name (de-DE)', beforeRaw: 'Wohnen' }, // meanwhile "Wohnen (Admin)"
+    { ...item('category', C, 'metaTitle', { languageId: DE, field: 'metaTitle', value: 'Wohnen | Haus Holm' }), beforeRaw: 'Wohnen' },         // unchanged
+    item('category', C, 'description', { languageId: DE, field: 'description', value: '<p>x</p>' }),                                             // legacy item without snapshot
   ];
   const r = await applyChangeSet(w.w, set('translations', 'category', items) as never, null, all(items));
   assert.deepEqual(r.results, [{ itemId: items[0].id, ok: false, error: 'Name (de-DE): inzwischen geändert, bitte neu vorschlagen' }, { itemId: items[1].id, ok: true }, { itemId: items[2].id, ok: true }]);
   assert.deepEqual(w.calls, [['update', 'category', C, { translations: { [DE]: { metaTitle: 'Wohnen | Haus Holm', description: '<p>x</p>' } } }]]);
   assert.deepEqual(r.undo, [{ op: 'patch', entity: 'category', id: C, data: { translations: { [DE]: { metaTitle: 'Wohnen', description: null } } } }]);
-  // ownOf: FAQ aus aicb_blocks, Element-Config nur in den gepatchten Schlüsseln, leerer Patch = ganze eigene Config
+  // ownOf: FAQ from aicb_blocks, element config only in the patched keys, empty patch = entire own config
   assert.deepEqual(ownOf({ customFields: { aicb_blocks: { faq: [{ q: 'a', a: 'b' }] } } }, { languageId: DE, field: 'faq', value: null }), [{ q: 'a', a: 'b' }]);
   assert.deepEqual(ownOf({ config: S1_CFG }, { languageId: FR, field: 'config', patch: { content: {} }, baseLanguageId: EN }), { content: S1_CFG.content });
   assert.equal(ownOf(undefined, { languageId: FR, field: 'config', patch: {}, baseLanguageId: EN }), null);
-  // „Texte sichern“ (leerer Patch) für eine Sprache, die beim Vorschlag noch erbte: eigene Config inzwischen da → nicht überschreiben
+  // "preserve texts" (empty patch) for a language that still inherited at proposal time: own config exists by now → don't overwrite
   const sl = writer({ [`cms-slot:${S1}`]: [{ languageId: FR, config: S1_CFG }] });
   const si: ChangeItem[] = [{ ...item('cms-slot', S1, 'config', { languageId: FR, field: 'config', patch: {}, baseLanguageId: EN }), fieldLabel: 'Texte (fr-FR) sichern', beforeRaw: null }];
   const r2 = await applyChangeSet(sl.w, set('page-translation', 'cms-slot', si) as never, null, all(si));
   assert.deepEqual([r2.results[0].ok, r2.results[0].error, sl.calls, r2.undo], [false, 'Texte (fr-FR) sichern: inzwischen geändert, bitte neu vorschlagen', [], []]);
 });
 
-test('Builder merkt je Übersetzungs-Item den eigenen Wert der Sprache (beforeRaw)', async () => {
+test('Builder records the language\'s own value per translation item (beforeRaw)', async () => {
   const ro = fakeShop({ [`product:${P}`]: { [EN]: { name: 'Vase', metaTitle: 'Vase | Shop', productNumber: 'HH-1' }, [DE]: { name: 'Vase', metaTitle: null } } });
   const cs = await buildTranslationChangeSet(ro, { title: 't', reason: 'r', entity: 'product', changes: [{ id: P, language: 'de-DE', fields: { name: 'Steinzeug-Vase', metaTitle: 'Steinzeug-Vase | Shop' } }] });
   assert.deepEqual(cs.items.map(i => [i.field, i.beforeRaw]), [['name', 'Vase'], ['metaTitle', null]]);

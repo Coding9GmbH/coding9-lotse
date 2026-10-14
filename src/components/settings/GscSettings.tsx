@@ -10,7 +10,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { rich } from './Rich';
 import styles from './Settings.module.css';
 
-/** Google Search Console: Service-Konto-Schlüssel (nur hinein, nie zurück) + Property. Eigene Speicherung, unabhängig vom übrigen Formular. */
+/** Google Search Console: service account key (write-only, never returned) + property. Saved separately, independent of the rest of the form. */
 export function GscSettings() {
   const { t: all, locale } = useI18n();
   const ts = all.settings, t = ts.gsc;
@@ -31,14 +31,14 @@ export function GscSettings() {
     return () => { off = true; };
   }, []);
 
-  // Automatisch speichern: Property kurz nach der Eingabe, Schlüssel sobald er vollständiges JSON ist (Einfügen oder Datei)
+  // Auto-save: property shortly after input, key as soon as it is complete JSON (paste or file)
   const keyReady = keyComplete(key);
   const propDirty = !!pub && property.trim() !== pub.property;
   useEffect(() => {
     if (!pub || (!keyReady && !propDirty) || notice?.ok === false) return;
     const t = setTimeout(() => { if (!saving.current) void save(); }, keyReady ? 0 : 800);
     return () => clearTimeout(t);
-  }, [pub, keyReady, propDirty, property, notice]); // eslint-disable-line react-hooks/exhaustive-deps -- save liest den aktuellen Stand
+  }, [pub, keyReady, propDirty, property, notice]); // eslint-disable-line react-hooks/exhaustive-deps -- save reads the current state
 
   if (!pub) return <Card connected={null}><p className={styles.hint}>{notice?.text ?? ts.loading}</p></Card>;
   const showKey = !pub.hasKey || replace;

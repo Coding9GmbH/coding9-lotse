@@ -10,7 +10,7 @@ import styles from './ContextPanel.module.css';
 
 interface Props { open: boolean; onClose: () => void; categories: CategoryRow[] | null; categoryError?: string | null; target: Target | null; onSelect: (t: Target | null) => void }
 
-/** Ausklappbares Panel neben der Navigation: Kontext (Kategorie, Produkt, Landingpage) wählen. */
+/** Collapsible panel next to the navigation: choose the context (category, product, landing page). */
 export function ContextPanel({ open, onClose, categories, categoryError = null, target, onSelect }: Props) {
   const ref = useRef<HTMLElement>(null);
   const t = useT().context;

@@ -1,12 +1,12 @@
-// Entwurf auf der echten Seite: das HTML der Shop-Seite (Kopf, Fuß, Theme, Kaufbox, Produktliste) bleibt, nur der CMS-Inhalt
-// (.cms-sections) wird durch den Entwurf ersetzt. Rein (kein Netz): Teile finden, Skripte entfernen, einsetzen. Shopware-Markup.
+// Draft on the real page: the shop page's HTML (header, footer, theme, buy box, product list) stays, only the CMS content
+// (.cms-sections) is replaced by the draft. Pure (no network): find parts, remove scripts, insert. Shopware markup.
 
 const external = (url: string) => /^(?:https?:)?\/\//i.test(url.trim());
 const attr = (tag: string, name: string) => tag.match(new RegExp(`\\b${name}\\s*=\\s*["']?([^"'\\s>]+)`, 'i'))?.[1];
 
 /**
- * Skripte des Shops bleiben (Menü, Slider, Galerie laufen in der isolierten Vorschau), Skripte und Vorladehinweise fremder Domains
- * (Tracking, Consent-Dienste) und Kommentare werden entfernt. Die Shop-URL ist vorher auf /shop umgeschrieben, Shop-Skripte sind also relativ.
+ * The shop's scripts stay (menu, slider, gallery run in the isolated preview); scripts and preload hints from foreign domains
+ * (tracking, consent services) and comments are removed. The shop URL was rewritten to /shop beforehand, so shop scripts are relative.
  */
 export function stripScripts(html: string): string {
   return html
@@ -15,13 +15,13 @@ export function stripScripts(html: string): string {
     .replace(/<link\b[^>]*\brel=["']?(?:modulepreload|preload|prefetch)["']?[^>]*>/gi, m => { const href = attr(m, 'href'); return href && external(href) ? '' : m; });
 }
 
-const openDiv = () => /<div\b[^>]*>/gi; // je Aufruf eine eigene Instanz: ineinander verschachtelte Suchen teilen sonst lastIndex
+const openDiv = () => /<div\b[^>]*>/gi; // a separate instance per call: otherwise nested searches share lastIndex
 const hasClass = (attrs: string, cls: string) => {
   const m = attrs.match(/\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')/i);
   return !!m && (m[1] ?? m[2]).split(/\s+/).includes(cls);
 };
 
-/** Index hinter dem </div>, das das <div> schließt, dessen Start-Tag bei openEnd endet (verschachtelte divs gezählt); null = schließt nicht */
+/** Index after the </div> that closes the <div> whose start tag ends at openEnd (nested divs counted); null = doesn't close */
 function divEnd(html: string, openEnd: number): number | null {
   const tag = /<(\/?)div\b[^>]*>/gi;
   tag.lastIndex = openEnd;
@@ -33,7 +33,7 @@ function divEnd(html: string, openEnd: number): number | null {
   return null;
 }
 
-/** Erstes <div> mit der Klasse; end = Index hinter dem passenden </div> (verschachtelte divs gezählt). null, wenn es fehlt oder nicht schließt. */
+/** First <div> with the class; end = index after the matching </div> (nested divs counted). null if missing or not closed. */
 export function findDivByClass(html: string, cls: string): { start: number; openEnd: number; end: number } | null {
   const re = openDiv();
   for (let m: RegExpExecArray | null; (m = re.exec(html)); ) {
@@ -44,7 +44,7 @@ export function findDivByClass(html: string, cls: string): { start: number; open
   return null;
 }
 
-/** Inhalt von .cms-sections durch sectionsHtml ersetzen. null, wenn die Seite keinen CMS-Bereich hat (anderes Theme, Fehlerseite). */
+/** Replace the content of .cms-sections with sectionsHtml. null if the page has no CMS area (different theme, error page). */
 export function spliceSections(html: string, sectionsHtml: string): string | null {
   const el = findDivByClass(html, 'cms-sections');
   if (!el) return null;
@@ -52,7 +52,7 @@ export function spliceSections(html: string, sectionsHtml: string): string | nul
   return html.slice(0, el.openEnd) + sectionsHtml + html.slice(el.end - closeLen);
 }
 
-/** Erster CMS-Block (<div class="cms-block …">), dessen Markup das Muster enthält; für Themes mit eigenen Blocktypen */
+/** First CMS block (<div class="cms-block …">) whose markup contains the pattern; for themes with their own block types */
 function findBlockContaining(html: string, marker: RegExp): { start: number; end: number } | null {
   const re = openDiv();
   for (let m: RegExpExecArray | null; (m = re.exec(html)); ) {
@@ -63,7 +63,7 @@ function findBlockContaining(html: string, marker: RegExp): { start: number; end
   return null;
 }
 
-/** Dynamische Blöcke des Entwurfs → mögliche CMS-Blocktypen der echten Seite (Standard zuerst, dann gängige Theme-Varianten) */
+/** Dynamic blocks of the draft → possible CMS block types of the real page (default first, then common theme variants) */
 export const REAL_BLOCK_TYPES: Record<string, string[]> = {
   'pdp-heading': ['product-heading'],
   'pdp-gallery-buybox': ['gallery-buybox', 'zen-gallery-heading-buybox', 'zen-gallery-buybox'],
@@ -72,12 +72,12 @@ export const REAL_BLOCK_TYPES: Record<string, string[]> = {
   'product-listing': ['product-listing'],
   'sidebar-filter': ['sidebar-filter'],
 };
-/** Erkennung über das Markup, falls das Theme eigene Blocktypen nutzt (Kaufbox: Standard-Klassen des Storefront-Themes) */
+/** Detection via the markup if the theme uses its own block types (buy box: default classes of the Storefront theme) */
 const REAL_BLOCK_MARKERS: Record<string, RegExp> = { 'pdp-gallery-buybox': /product-detail-buy(?:-container|\b)|product-detail-buybox|buy-widget/ };
 
 /**
- * Echte Blöcke der Seite je Blocktyp des Entwurfs (z. B. die Kaufbox). Fasst ein Theme Überschrift und Kaufbox in einem Block zusammen,
- * ersetzt dieser die Kaufbox und die Überschrift des Entwurfs entfällt (leerer Eintrag), damit nichts doppelt erscheint.
+ * Real blocks of the page per block type of the draft (e.g. the buy box). If a theme combines heading and buy box in one block,
+ * that block replaces the buy box and the draft's heading is dropped (empty entry), so nothing appears twice.
  */
 export function extractBlocks(html: string, byType: Record<string, string[]>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -91,7 +91,7 @@ export function extractBlocks(html: string, byType: Record<string, string[]>): R
   return out;
 }
 
-/** Eigene Styles und Rahmen-Skript vor </head> einsetzen (ohne <head>: an den Anfang) */
+/** Insert own styles and frame script before </head> (without <head>: at the start) */
 export function injectIntoHead(html: string, headExtra: string): string {
-  return /<\/head\s*>/i.test(html) ? html.replace(/<\/head\s*>/i, () => `${headExtra}</head>`) : headExtra + html; // Funktion: kein $-Muster im Skript auswerten
+  return /<\/head\s*>/i.test(html) ? html.replace(/<\/head\s*>/i, () => `${headExtra}</head>`) : headExtra + html; // function: don't evaluate $ patterns in the script
 }

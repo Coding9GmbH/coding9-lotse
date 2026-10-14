@@ -1,4 +1,4 @@
-# Lotse – KI-Lotse für Shopware 6 · `make help` zeigt alle Befehle
+# Lotse: AI pilot for Shopware 6 · `make help` lists all commands
 SHELL        := /bin/sh
 IMAGE        ?= ghcr.io/coding9gmbh/lotse
 VERSION      ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -46,10 +46,10 @@ shell: ## Shell im Container
 open: ## Oberfläche im Browser öffnen
 	@(command -v open >/dev/null && open http://localhost:$(PORT)) || xdg-open http://localhost:$(PORT) 2>/dev/null || echo http://localhost:$(PORT)
 
-# Sicherung: SQLite läuft im WAL-Modus – die Dateien einfach zu kopieren kann einen halben Stand erwischen. Läuft Lotse,
-# schreibt docker/db-snapshot.mjs per VACUUM INTO einen stimmigen Schnappschuss nach /data/.backup/aicb.db; das Archiv enthält
-# ihn als aicb.db (statt der Live-Datei samt -wal/-shm) plus alle übrigen Dateien (secret.key, Wissen, Claude-Sitzungen …).
-# Ist Lotse gestoppt, ist die Datenbank in Ruhe und wird direkt gesichert. Archive haben dasselbe Format wie früher.
+# Backup: SQLite runs in WAL mode, so simply copying the files can capture a half-written state. If Lotse is running,
+# docker/db-snapshot.mjs writes a consistent snapshot via VACUUM INTO to /data/.backup/aicb.db; the archive contains
+# it as aicb.db (instead of the live file with -wal/-shm) plus all other files (secret.key, knowledge base, Claude sessions …).
+# If Lotse is stopped, the database is idle and is backed up directly. Archives have the same format as before.
 backup: ## Datenvolume sichern (DB-Schnappschuss, Schlüssel, Verlauf) nach ./backups
 	@mkdir -p $(BACKUP_DIR)
 	@if [ -n "$$($(COMPOSE) ps -q --status running lotse 2>/dev/null)" ]; then $(COMPOSE) exec -T lotse node --input-type=module - < docker/db-snapshot.mjs; \

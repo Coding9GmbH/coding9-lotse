@@ -1,8 +1,8 @@
 import { DEFAULT_LOCALE, messages, type Locale } from './i18n';
 import type { AuditCheck, DraftAudit } from './protocol';
 
-// Qualitäts-Check: Prüfpunkte vereinheitlichen. Der Server liefert je nach Stand
-// { area, w, msg } (bisher) oder { label, weight, level } (Vertrag) – beides wird verstanden.
+// Quality check: normalize check items. Depending on its version, the server returns
+// { area, w, msg } (legacy) or { label, weight, level } (contract); both are understood.
 
 export type AuditArea = 'SEO' | 'CRO' | 'UX' | 'other';
 export interface AuditRow { area: AuditArea; ok: boolean; important: boolean; text: string; hint?: string }

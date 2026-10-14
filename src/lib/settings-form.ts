@@ -2,23 +2,23 @@ import { DEFAULT_LOCALE, messages, type Locale } from './i18n';
 import { activeAuthMode, PLATFORM_KINDS, PLATFORM_SETTINGS, plainKeys, secretKeys, type PlatformKind } from './platforms';
 import type { AiProvider, PlatformPatch, PublicSettings, ScopeKey, SettingsPatch } from './protocol';
 
-// Formularzustand der Einstellungen. Geheimnisse werden nie vorbefüllt:
-// leeres Feld = unverändert, „Entfernen“ = null (löschen), Eingabe = neuer Wert.
+// Form state of the settings. Secrets are never prefilled:
+// empty field = unchanged, "Entfernen" (remove) = null (delete), input = new value.
 
 export interface SecretInput { value: string; remove: boolean }
 export type SecretKey = 'clientSecret' | 'password' | 'apiKey' | 'openaiKey';
 export type ShopwareAuth = 'integration' | 'user';
-/** Plattformen mit generischem Formular (Felder aus lib/platforms.ts); Shopware hat seine festen Felder */
+/** Platforms with a generic form (fields from lib/platforms.ts); Shopware has its own fixed fields */
 export type GenericPlatform = Exclude<PlatformKind, 'shopware'>;
 export const GENERIC_PLATFORMS = PLATFORM_KINDS.filter((k): k is GenericPlatform => k !== 'shopware');
 
 export interface SettingsForm {
-  /** gewählte Shop-Plattform (genau ein Shop ist verbunden) */
+  /** selected shop platform (exactly one shop is connected) */
   platform: PlatformKind;
   shopware: { url: string; publicUrl: string; clientId: string; user: string; auth: ShopwareAuth };
-  /** Klartextfelder + gewählte Zugangsart je Plattform */
+  /** plain-text fields + selected access type per platform */
   platforms: Record<GenericPlatform, { values: Record<string, string>; auth: string }>;
-  /** Geheimnisse der Plattformen, Schlüssel „plattform.feld“ */
+  /** platform secrets, key "platform.field" */
   platformSecrets: Record<string, SecretInput>;
   ai: { provider: AiProvider; model: string; codexModel: string };
   image: { model: string };
@@ -66,24 +66,24 @@ export function buildPatch(f: SettingsForm): SettingsPatch {
   };
 }
 
-/** Hat das Formular Änderungen gegenüber dem gespeicherten Stand? */
+/** Does the form have changes compared to the saved state? */
 export const isDirty = (f: SettingsForm, saved: PublicSettings): boolean =>
   JSON.stringify(buildPatch(f)) !== JSON.stringify(buildPatch(formFromSettings(saved)));
 
-// ---- Automatisch speichern ----
-// Ein Plattformwechsel wird erst wirksam, wenn die gewählte Plattform eingerichtet ist (Zugangsdaten gespeichert) –
-// sonst wäre der Shop schon beim bloßen Umschalten des Reiters getrennt. Bis dahin speichert Lotse nur deren Felder.
+// ---- Autosave ----
+// A platform switch only takes effect once the selected platform is set up (credentials saved);
+// otherwise the shop would be disconnected just by switching the tab. Until then Lotse only saves its fields.
 
-/** Gewählte Plattform wartet noch auf ihre Zugangsdaten, verbunden bleibt die gespeicherte. */
+/** Selected platform is still waiting for its credentials; the saved one stays connected. */
 export const platformPending = (f: SettingsForm, saved: PublicSettings): boolean =>
   f.platform !== (saved.platform ?? 'shopware') && !savedConfigured(saved, f.platform);
 
-/** Gewählter KI-Anbieter ist noch nicht angemeldet bzw. hat keinen Schlüssel: die bisherige KI bleibt aktiv. */
+/** Selected AI provider is not signed in yet or has no key: the previous AI stays active. */
 export const aiPending = (f: SettingsForm, saved: PublicSettings): boolean =>
   f.ai.provider !== saved.ai.provider
   && !(f.ai.provider === 'codex' ? saved.ai.codexLoggedIn : saved.ai.hasApiKey || saved.ai.viaEnv || !!f.secrets.apiKey.value.trim());
 
-/** Was automatisch gespeichert wird: wie buildPatch, nur ohne einen noch nicht einsatzbereiten Plattform- oder KI-Wechsel. */
+/** What gets autosaved: like buildPatch, but without a platform or AI switch that is not ready yet. */
 export function autosavePatch(f: SettingsForm, saved: PublicSettings): SettingsPatch {
   const p = buildPatch(f);
   return {
@@ -93,15 +93,15 @@ export function autosavePatch(f: SettingsForm, saved: PublicSettings): SettingsP
   };
 }
 
-/** Gibt es etwas automatisch zu speichern? */
+/** Is there anything to autosave? */
 export const autosaveDirty = (f: SettingsForm, saved: PublicSettings): boolean =>
   JSON.stringify(autosavePatch(f, saved)) !== JSON.stringify(buildPatch(formFromSettings(saved)));
 
-/** null = Test erlaubt. Sonst der Hinweis: ungespeicherte Eingaben, auch ein Plattformwechsel, werden nicht mitgeschrieben. */
+/** null = test allowed. Otherwise the hint: unsaved inputs, including a platform switch, are not included. */
 export const connectionTestBlock = (dirty: boolean, locale: Locale = DEFAULT_LOCALE): string | null =>
   (dirty ? messages(locale).lib.settings.testBlocked : null);
 
-/** Claude-Modelle zur Auswahl, Beschriftung in der gewünschten Sprache */
+/** Claude models to choose from, labels in the requested language */
 export const aiModels = (locale: Locale = DEFAULT_LOCALE): { value: string; label: string }[] => {
   const m = messages(locale).lib.settings.aiModels;
   return [{ value: '', label: m.default }, { value: 'sonnet', label: m.sonnet }, { value: 'opus', label: m.opus }];
@@ -109,7 +109,7 @@ export const aiModels = (locale: Locale = DEFAULT_LOCALE): { value: string; labe
 export const AI_MODELS: { value: string; label: string }[] = aiModels();
 
 
-// ---- Generisches Plattform-Formular: Werte lesen/setzen, egal ob Shopware (feste Felder) oder Shopify/Magento/OpenMage ----
+// ---- Generic platform form: read/set values, whether Shopware (fixed fields) or Shopify/Magento/OpenMage ----
 const SW_SECRET: Record<string, SecretKey> = { clientSecret: 'clientSecret', password: 'password' };
 type SwPlain = 'url' | 'publicUrl' | 'clientId' | 'user';
 
@@ -132,25 +132,25 @@ export function withAuth(f: SettingsForm, kind: PlatformKind, auth: string): Set
   if (kind === 'shopware') return { ...f, shopware: { ...f.shopware, auth: auth === 'user' ? 'user' : 'integration' } };
   return { ...f, platforms: { ...f.platforms, [kind]: { ...f.platforms[kind], auth } } };
 }
-/** Geheimnis gespeichert? (Shopware: hasPassword/hasClientSecret) */
+/** Secret saved? (Shopware: hasPassword/hasClientSecret) */
 export function hasSecret(saved: PublicSettings, kind: PlatformKind, key: string): boolean {
   if (kind === 'shopware') return key === 'password' ? saved.shopware.hasPassword : key === 'clientSecret' ? saved.shopware.hasClientSecret : false;
   return !!saved.platforms?.[kind]?.has[key];
 }
-/** Hat der Server beim Speichern Geheimnisse der Plattform verworfen, die das Formular nicht entfernen wollte? (Shop-Adresse auf andere Herkunft:
- *  gespeicherte Zugangsdaten gehen nie an einen neuen Host, sie müssen neu eingegeben werden) */
+/** Did the server discard platform secrets on save that the form did not intend to remove? (Shop address changed to another origin:
+ *  saved credentials never go to a new host, they must be entered again) */
 export const secretsDropped = (before: PublicSettings, after: PublicSettings, sent: SettingsForm, kind: PlatformKind): boolean =>
   secretKeys(kind).some(k => hasSecret(before, kind, k) && !hasSecret(after, kind, k) && !secretState(sent, kind, k).remove);
-/** Gespeicherter Stand: Plattform eingerichtet? */
+/** Saved state: platform set up? */
 export const savedConfigured = (saved: PublicSettings, kind: PlatformKind): boolean => (kind === 'shopware' ? saved.shopware.configured : !!saved.platforms?.[kind]?.configured);
-/** Anbindung fertig (sonst Vorschau) */
+/** Connection ready (otherwise preview) */
 export const platformAvailable = (saved: PublicSettings, kind: PlatformKind): boolean => saved.platforms?.[kind]?.available ?? PLATFORM_SETTINGS[kind].available;
 
-/** Sistrix-API-Schlüssel plausibel (Länge/Zeichen)? Erst dann automatisch speichern. */
+/** Sistrix API key plausible (length/characters)? Only then autosave. */
 export const sistrixKeyComplete = (key: string): boolean => /^[A-Za-z0-9_-]{16,128}$/.test(key.trim());
 
-/** Search-Console-Schlüssel vollständig (Service-Konto-JSON mit E-Mail und privatem Schlüssel)? Erst dann automatisch speichern –
- *  sonst landet ein halb eingefügtes JSON im Speicher. */
+/** Search Console key complete (service account JSON with email and private key)? Only then autosave;
+ *  otherwise a half-pasted JSON ends up in storage. */
 export function gscKeyComplete(key: string): boolean {
   try {
     const k = JSON.parse(key) as { private_key?: unknown; client_email?: unknown } | null;

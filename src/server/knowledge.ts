@@ -1,6 +1,6 @@
 import 'server-only';
-// Wissensbasis (nur lokal, nie im Shop): Dokumente mit Textabschnitten, Produkt-/Kategorie-Bezug und eigene Regeln des Shops.
-// Eigene SQLite-Datei im Datenordner; Suche lokal per BM25 (knowledge-search.ts).
+// Knowledge base (local only, never in the shop): documents with text segments, product/category links and the shop's custom rules.
+// Separate SQLite file in the data folder; local search via BM25 (knowledge-search.ts).
 import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -22,10 +22,10 @@ function open(): DatabaseSync {
     CREATE TABLE IF NOT EXISTS chunks (doc_id TEXT NOT NULL, idx INTEGER NOT NULL, page INTEGER, label TEXT, text TEXT NOT NULL, text_fold TEXT, PRIMARY KEY (doc_id, idx));
     CREATE TABLE IF NOT EXISTS rules (id TEXT PRIMARY KEY, text TEXT NOT NULL, scope TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
   `);
-  // Ältere Datenbanken: Kategorie-Bezug der Regeln nachrüsten
+  // Older databases: add the category link of rules
   const ruleCols = d.prepare("SELECT name FROM pragma_table_info('rules')").all() as unknown as { name: string }[];
   if (!ruleCols.some(c => c.name === 'target')) d.exec('ALTER TABLE rules ADD COLUMN target TEXT');
-  // Ältere Datenbanken: gefaltete Textspalte (wörtliche Suche per LIKE statt alle Abschnitte in den Speicher zu laden) nachrüsten
+  // Older databases: add the folded text column (literal search via LIKE instead of loading all segments into memory)
   const cols = d.prepare("SELECT name FROM pragma_table_info('chunks')").all() as unknown as { name: string }[];
   if (!cols.some(c => c.name === 'text_fold')) {
     d.exec('ALTER TABLE chunks ADD COLUMN text_fold TEXT');
@@ -34,11 +34,11 @@ function open(): DatabaseSync {
   }
   return d;
 }
-/** Gefaltete Form für die wörtliche Suche (wie containsLoose: Kleinschreibung, Umlaute, ein Leerzeichen) */
+/** Folded form for literal search (like containsLoose: lowercase, umlauts, single spaces) */
 const foldText = (s: string) => fold(s).replace(/\s+/g, ' ');
-/** LIKE-Muster für einen Suchbegriff (Jokerzeichen maskiert) */
+/** LIKE pattern for a search term (wildcards escaped) */
 const likeNeedle = (s: string) => `%${foldText(s).trim().replace(/[\\%_]/g, '\\$&')}%`;
-// Je Datenordner eine Verbindung (Tests wechseln AICB_DATA)
+// One connection per data folder (tests switch AICB_DATA)
 const db = () => singleton(`knowledge-db:${dataDir()}`, open);
 const state = () => singleton(`knowledge-state:${dataDir()}`, () => ({ version: 0, built: -1, index: null as SearchIndex | null }));
 const touch = () => { state().version++; };
@@ -46,7 +46,7 @@ const tx = <T>(fn: () => T): T => { const d = db(); d.exec('BEGIN'); try { const
 const now = () => new Date().toISOString();
 const newId = (p: string) => `${p}_${crypto.randomBytes(8).toString('hex')}`;
 
-// ---------- Dokumente ----------
+// ---------- Documents ----------
 interface DocRow { id: string; title: string; source: string; file_id: string | null; file_name: string | null; mime: string | null; size: number; pages: number | null; chars: number; chunks: number; tags: string; links: string; created_at: string; updated_at: string }
 const toDoc = (r: DocRow): KnowledgeDoc => ({
   id: r.id, title: r.title, source: r.source as KnowledgeSource, fileId: r.file_id, fileName: r.file_name, mime: r.mime, size: r.size, pages: r.pages,
@@ -67,7 +67,7 @@ const cleanTitle = (t: string) => t.replace(/\s+/g, ' ').trim().slice(0, TITLE_M
 export interface DocInput { title: string; tags?: string[]; links?: KnowledgeLink[] }
 interface Extracted { segments: Segment[]; pages?: number; source: KnowledgeSource; fileId?: string; fileName?: string; mime?: string; size: number }
 
-/** Vorschau ohne Speichern (für die Rückfrage vor dem Aufnehmen). */
+/** Preview without saving (for the confirmation before adding). */
 export async function extractFromFile(fileId: string): Promise<Extracted> {
   const f = getFile(fileId); if (!f) throw new Error(`Datei ${fileId} nicht gefunden`);
   const { segments, pages } = await extractSegments(f.buf, f.name);
@@ -104,7 +104,7 @@ export function updateDoc(id: string, patch: Partial<DocInput>): KnowledgeDoc {
   return getDoc(id)!;
 }
 
-/** Löscht Dokument + Abschnitte; auf der Seite Wissen hochgeladene Dateien werden mitgelöscht (Chat-Anhänge bleiben). */
+/** Deletes document + segments; files uploaded on the knowledge base page are deleted too (chat attachments remain). */
 export function deleteDoc(id: string): boolean {
   const doc = getDoc(id); if (!doc) return false;
   tx(() => { db().prepare('DELETE FROM chunks WHERE doc_id = ?').run(id); db().prepare('DELETE FROM docs WHERE id = ?').run(id); });
@@ -113,7 +113,7 @@ export function deleteDoc(id: string): boolean {
   return true;
 }
 
-// ---------- Suche ----------
+// ---------- Search ----------
 interface ChunkRow { doc_id: string; idx: number; page: number | null; label: string | null; text: string; text_fold?: string | null }
 export interface KnowledgeHit { docId: string; title: string; cite: string; page?: number; label?: string; text: string; score?: number; match?: string }
 
@@ -132,7 +132,7 @@ const hitOf = (r: ChunkRow, docs: Map<string, KnowledgeDoc>, score?: number): Kn
 const chunkRow = (key: string) => { const i = key.lastIndexOf(':'); return db().prepare('SELECT * FROM chunks WHERE doc_id = ? AND idx = ?').get(key.slice(0, i), Number(key.slice(i + 1))) as ChunkRow | undefined; };
 const linked = (d: KnowledgeDoc, productId?: string, categoryIds: string[] = []) => d.links.some(l => (l.kind === 'product' && l.id === productId) || (l.kind === 'category' && categoryIds.includes(l.id)));
 
-/** BM25-Suche; Abschnitte aus Dokumenten, die mit dem Produkt (oder seinen Kategorien) verknüpft sind, zählen 1,5-fach. */
+/** BM25 search; segments from documents linked to the product (or its categories) count 1.5 times. */
 export function searchKnowledge(query: string, opts: { productId?: string; categoryIds?: string[]; limit?: number } = {}): KnowledgeHit[] {
   const docs = new Map(listDocs().map(d => [d.id, d]));
   const boost = (key: string) => { const d = docs.get(key.slice(0, key.lastIndexOf(':'))); return d && (opts.productId || opts.categoryIds?.length) && linked(d, opts.productId, opts.categoryIds) ? 1.5 : 1; };
@@ -140,8 +140,8 @@ export function searchKnowledge(query: string, opts: { productId?: string; categ
     .map(h => { const r = chunkRow(h.key); return r && docs.has(r.doc_id) ? hitOf(r, docs, h.score) : null; }).filter((h): h is KnowledgeHit => !!h);
 }
 
-/** Alles Wissen zu einem Produkt: verknüpfte Dokumente (bzw. über die Kategorien) + Abschnitte, die Artikelnummer, EAN oder Namen wörtlich nennen.
- *  Die wörtliche Suche läuft in SQLite (gefaltete Spalte, LIKE, LIMIT): auch große Wissensbasen werden nicht in den Speicher geladen. */
+/** All knowledge for a product: linked documents (or via the categories) + segments that literally mention the product number, EAN or name.
+ *  The literal search runs in SQLite (folded column, LIKE, LIMIT): even large knowledge bases are not loaded into memory. */
 export function productKnowledge(p: { id: string; number?: string | null; ean?: string | null; name?: string | null; categoryIds?: string[] }, limit = 30) {
   const docs = new Map(listDocs().map(d => [d.id, d]));
   const linkedDocs = [...docs.values()].filter(d => linked(d, p.id, p.categoryIds));
@@ -151,9 +151,9 @@ export function productKnowledge(p: { id: string; number?: string | null; ean?: 
   const needles = [p.number, p.ean, p.name].filter((x): x is string => !!x && x.trim().length >= 3);
   for (const n of needles) {
     if (out.length >= limit) break;
-    if (foldText(n).trim().length < 3) continue; // wie containsLoose: zu kurze Begriffe (z. B. nur Akzente) treffen nicht alles
+    if (foldText(n).trim().length < 3) continue; // like containsLoose: terms that are too short (e.g. accents only) do not match everything
     const why = n === p.number ? 'Artikelnummer genannt' : n === p.ean ? 'EAN genannt' : 'Name genannt';
-    // Dokumente, deren Titel den Begriff nennt (Titel sind wenige: einmal je Dokument falten)
+    // Documents whose title mentions the term (titles are few: fold once per document)
     const byTitle = [...docs.values()].filter(d => containsLoose(d.title, n)).map(d => d.id);
     for (const id of byTitle) for (const r of db().prepare('SELECT * FROM chunks WHERE doc_id = ? ORDER BY idx LIMIT ?').all(id, limit) as unknown as ChunkRow[]) add(r, why);
     if (out.length >= limit) break;
@@ -162,7 +162,7 @@ export function productKnowledge(p: { id: string; number?: string | null; ean?: 
   return { linkedDocs: linkedDocs.map(d => ({ id: d.id, title: d.title })), chunks: out };
 }
 
-// ---------- Eigene Regeln ----------
+// ---------- Custom rules ----------
 interface RuleRow { id: string; text: string; scope: string; target: string | null; created_at: string; updated_at: string }
 const parseTarget = (raw: string | null): RuleTarget | null => { try { const t = raw ? JSON.parse(raw) : null; return t?.id ? { id: String(t.id), name: String(t.name ?? t.id) } : null; } catch { return null; } };
 const toRule = (r: RuleRow): KnowledgeRule => ({ id: r.id, text: r.text, scope: r.scope as RuleScope, target: parseTarget(r.target), createdAt: r.created_at, updatedAt: r.updated_at });
@@ -186,7 +186,7 @@ export function addRule(text: string, scope: string = 'all', target?: { id: stri
   db().prepare('INSERT INTO rules (id, text, scope, target, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(r.id, r.text, r.scope, r.target ? JSON.stringify(r.target) : null, t, t);
   return r;
 }
-/** target: undefined = unverändert, null = Begrenzung aufheben */
+/** target: undefined = unchanged, null = remove the restriction */
 export function updateRule(id: string, patch: { text?: string; scope?: string; target?: { id: string; name?: string | null } | null }): KnowledgeRule {
   const cur = listRules().find(r => r.id === id); if (!cur) throw new Error('Regel nicht gefunden');
   const text = patch.text != null ? cleanRule(patch.text) : cur.text, scope = patch.scope != null ? checkScope(patch.scope) : cur.scope;
@@ -197,7 +197,7 @@ export function updateRule(id: string, patch: { text?: string; scope?: string; t
 export const removeRule = (id: string): boolean => Number(db().prepare('DELETE FROM rules WHERE id = ?').run(id).changes) > 0;
 
 export const PROMPT_RULES = { count: 40, chars: 3000 };
-/** Regeln für den System-Prompt: kompakt, gedeckelt (Anzahl + Zeichen), Rest nur über list_rules. */
+/** Rules for the system prompt: compact, capped (count + characters), the rest only via list_rules. */
 export function rulesPromptBlock(rules: KnowledgeRule[] = listRules(), cap = PROMPT_RULES): string {
   if (!rules.length) return '';
   const lines: string[] = []; let size = 0;

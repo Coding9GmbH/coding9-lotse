@@ -6,7 +6,7 @@ import type { DraftAudit } from '@/lib/protocol';
 import { Dialog } from '@/components/ui/Dialog';
 import styles from './dialogs.module.css';
 
-/** Qualitäts-Check (SEO · Conversion · Design) des aktuellen Entwurfs. */
+/** Quality check (SEO · conversion · design) of the current draft. */
 export function AuditDialog({ audit, open, onClose }: { audit: DraftAudit | null; open: boolean; onClose: () => void }) {
   const { locale, t: { dialogs: { audit: t } } } = useI18n();
   return (

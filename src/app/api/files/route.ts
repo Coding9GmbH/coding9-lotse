@@ -4,7 +4,7 @@ import { FILE_LIMIT, saveFile } from '@/server/files';
 
 export const dynamic = 'force-dynamic';
 
-// Rohe Datei im Body, Dateiname als Query-Parameter (Typ wird an der Endung erkannt)
+// Raw file in the body, file name as query parameter (type is detected from the extension)
 export async function POST(req: NextRequest) {
   const name = String(req.nextUrl.searchParams.get('name') || '');
   const buf = await readBodyLimited(req, FILE_LIMIT);

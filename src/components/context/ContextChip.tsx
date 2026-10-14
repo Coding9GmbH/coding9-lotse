@@ -7,7 +7,7 @@ import styles from './ContextChip.module.css';
 
 interface Props { target: Target | null; onPick: () => void; onClear: () => void }
 
-/** Kontext direkt im Eingabefeld (unter dem Text): gewählt (mit Entfernen) oder „automatisch“ – dann findet Lotse ihn aus der Nachricht. */
+/** Context right in the input field (below the text): selected (with remove) or "automatic", in which case Lotse infers it from the message. */
 export function ContextChip({ target, onPick, onClear }: Props) {
   const t = useT().context;
   if (target) {

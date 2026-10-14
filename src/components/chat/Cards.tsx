@@ -4,7 +4,7 @@ import { adminUrl, asList } from '@/lib/urls';
 import { useT } from '@/lib/i18n/I18nProvider';
 import styles from './Cards.module.css';
 
-/* eslint-disable @next/next/no-img-element -- Bilder aus Medienbibliothek/Vormerkung, Größen unbekannt */
+/* eslint-disable @next/next/no-img-element -- images from media library/staging, sizes unknown */
 
 export function ImageCard({ url, alt, fileName }: { url: string; alt: string; fileName: string }) {
   const t = useT().chat.cards;

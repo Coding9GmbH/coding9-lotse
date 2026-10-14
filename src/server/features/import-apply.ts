@@ -1,5 +1,5 @@
 import 'server-only';
-// Lieferanten-Import: Executor (schreibt nur nach Freigabe mit dem privilegierten Client) + exakte Rückgängig-Schritte.
+// Supplier import: executor (writes only after approval with the privileged client) + exact undo steps.
 import type { ChangeSet, UndoOp } from '@/lib/protocol';
 import { DEFAULT_CURRENCY, WRITE_CONCURRENCY, errMsg, pool, registerApplier, type ApplyCtx, type ApplyResult } from '../changes';
 import { importFromUrl } from '../media';
@@ -14,13 +14,13 @@ export interface ImportReport {
   failed: { line: number; number: string; error: string }[];
   imageErrors: string[];
 }
-// Ergebnis je Änderungsset für das Werkzeug (der Applier läuft innerhalb von requestChange im selben Prozess)
+// Result per change set for the tool (the applier runs inside requestChange in the same process)
 const REPORTS = singleton('import-reports', () => new Map<string, ImportReport>());
 export const takeReport = (csId: string) => { const r = REPORTS.get(csId) ?? null; REPORTS.delete(csId); return r; };
 
 const del = (entity: string, id: string): UndoOp => ({ op: 'delete', entity, id });
 
-/** Bild-URL zeigt auf ein Medium dieses Shops (z. B. aus einem eigenen Export) → vorhandenes Medium verwenden statt ein Duplikat hochzuladen */
+/** Image URL points to a media item of this shop (e.g. from its own export) → use the existing media instead of uploading a duplicate */
 export async function shopMediaId(sw: Shopware, url: string): Promise<string | null> {
   let u: URL; try { u = new URL(url); } catch { return null; }
   const own = [sw.base, sw.publicUrl].flatMap(b => { try { return b ? [new URL(b).host] : []; } catch { return []; } });
@@ -29,7 +29,7 @@ export async function shopMediaId(sw: Shopware, url: string): Promise<string | n
   return (r?.data?.[0]?.id as string | undefined) ?? null;
 }
 
-/** Bilder herunterladen und hochladen; ein fehlerhaftes Bild bricht das Produkt nicht ab */
+/** Download and upload images; a broken image does not abort the product */
 async function uploadImages(swW: Shopware, jobs: ImageJob[], undo: UndoOp[], errors: string[]) {
   const out = new Map<string, { id: string; mediaId: string; position: number }[]>();
   for (const j of jobs) {
@@ -37,7 +37,7 @@ async function uploadImages(swW: Shopware, jobs: ImageJob[], undo: UndoOp[], err
     for (const url of j.urls) {
       try {
         const own = await shopMediaId(swW, url);
-        if (own) { list.push({ id: newId(), mediaId: own, position: list.length }); continue; } // gehört dem Shop – Rückgängig löscht es nicht
+        if (own) { list.push({ id: newId(), mediaId: own, position: list.length }); continue; } // belongs to the shop: undo does not delete it
         const m = await importFromUrl(swW, url, { alt: j.alt, folder: 'product' }); undo.push(del('media', m.mediaId)); list.push({ id: newId(), mediaId: m.mediaId, position: list.length });
       }
       catch (e) { errors.push(`${j.alt}: ${errMsg(e)}`); }
@@ -57,7 +57,7 @@ async function applyCreate(swW: Shopware, p: CreatePlan, channels: SwEntity[], u
   }
   data.visibilities = channels.map(s => ({ salesChannelId: s.id, visibility: 30 }));
   try { await swW.create('product', data); }
-  catch (e) { for (const op of media) await swW.req('DELETE', `/media/${op.id}`).catch(() => {}); throw e; } // keine verwaisten Bilder
+  catch (e) { for (const op of media) await swW.req('DELETE', `/media/${op.id}`).catch(() => {}); throw e; } // no orphaned images
   undo.push(...media, del('product', p.id), ...p.childIds.map(id => del('product', id)));
   report.created.push({ id: p.id, number: p.number, name: String(p.product.name), line: p.line, variants: p.childIds.length });
 }
@@ -91,7 +91,7 @@ async function applyUpdate(swW: Shopware, p: UpdatePlan, undo: UndoOp[], report:
   if (!Object.keys(data).length) { for (const op of media) await swW.req('DELETE', `/media/${op.id}`).catch(() => {}); return; }
   try { await swW.update('product', p.id, data); }
   catch (e) { for (const op of media) await swW.req('DELETE', `/media/${op.id}`).catch(() => {}); throw e; }
-  // Rückgängig (rückwärts): Felder zurück, Zuordnungen lösen, Bilder löschen
+  // Undo (in reverse): restore fields, remove assignments, delete images
   undo.push(...media, ...extra, { op: 'patch', entity: 'product', id: p.id, data: back });
   report.updated.push({ id: p.id, number: p.number, line: p.line });
 }
@@ -116,7 +116,7 @@ export async function applyImport(swW: Shopware, cs: ChangeSet, payload: ImportP
   const plans = payload.plans.filter(p => isSelected(p, selected));
   const report: ImportReport = { created: [], updated: [], failed: [], imageErrors: [] };
   const undo: UndoOp[] = [], all: ApplyResult['results'] = [];
-  // 1) Neue Hersteller/Eigenschaften – nur, was ausgewählte Produkte brauchen (Gruppe vor Ausprägung)
+  // 1) New manufacturers/properties: only what selected products need (group before option)
   const used = new Set(plans.flatMap(p => p.uses));
   for (const c of payload.creates) if (used.has(c.id) && c.needs) used.add(c.needs);
   const order = ['product-manufacturer', 'property-group', 'property-group-option'];
@@ -124,7 +124,7 @@ export async function applyImport(swW: Shopware, cs: ChangeSet, payload: ImportP
     try { await swW.create(c.entity, { id: c.id, ...c.data }); undo.push(del(c.entity, c.id)); }
     catch (e) { REPORTS.set(cs.id, report); return { results: [], undo, error: `${c.label} konnte nicht angelegt werden: ${errMsg(e)}` }; }
   }
-  // 2) Produkte (schonend parallel, mit Fortschritt)
+  // 2) Products (gently parallel, with progress)
   const channels = plans.some(p => p.kind === 'create') ? (await swW.salesChannels()).filter(s => s.domains?.length) : [];
   let done = 0; ctx?.progress?.(0, plans.length);
   await pool(plans, WRITE_CONCURRENCY, async (p: ImportPlan) => {
@@ -135,12 +135,12 @@ export async function applyImport(swW: Shopware, cs: ChangeSet, payload: ImportP
       else await applyVariants(swW, p, u, report);
       all.push({ itemId: `p:${p.key}`, ok: true });
     } catch (e) { all.push({ itemId: `p:${p.key}`, ok: false, error: errMsg(e) }); report.failed.push({ line: p.line, number: p.number, error: errMsg(e) }); }
-    undo.push(...u); // auch bei Teilfehlern (z. B. Varianten) bleibt Rückgängig vollständig
+    undo.push(...u); // undo stays complete even on partial failures (e.g. variants)
     ctx?.progress?.(++done, plans.length, { results: all, undo });
   });
   REPORTS.set(cs.id, report);
   if (cs.total == null) return { results: all, undo };
-  // Gruppen-Ansicht: je Gruppe eine Zeile + Stichprobe + höchstens 100 Fehler, Zahlen in counts
+  // Group view: one row per group + sample + at most 100 errors, numbers in counts
   const bad = new Map(all.filter(r => !r.ok).map(r => [r.itemId, r])), sample = new Set((cs.sample ?? []).map(i => i.id)), results: ApplyResult['results'] = [];
   for (const g of new Set(plans.map(p => p.group))) {
     const ids = plans.filter(p => p.group === g).map(p => `p:${p.key}`), f = ids.filter(id => bad.has(id)).length;

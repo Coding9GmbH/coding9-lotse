@@ -16,14 +16,14 @@ const saved: PublicSettings = {
   scopeInfo: { manufacturers: { label: '', hint: '' }, gsc: { label: '', hint: '' }, sistrix: { label: '', hint: '' }, web: { label: '', hint: '' }, products: { label: '', hint: '' }, categories: { label: '', hint: '' }, cms: { label: '', hint: '' }, media: { label: '', hint: '' }, marketing: { label: '', hint: '' }, shop: { label: '', hint: '' } },
 };
 
-test('Plattform-Formular: Shopware über feste Felder, Shopify/Magento generisch, Zugangsart aus gespeicherten Werten', () => {
+test('Platform form: Shopware via fixed fields, Shopify/Magento generic, access method from stored values', () => {
   const f = formFromSettings(saved);
   assert.equal(f.platform, 'shopware');
   assert.equal(fieldValue(f, 'shopware', 'url'), 'https://shop.test');
   assert.equal(authOf(f, 'shopware'), 'user');
   assert.equal(fieldValue(f, 'shopify', 'storeDomain'), 'holm.myshopify.com');
   assert.equal(authOf(f, 'shopify'), 'token');
-  assert.equal(authOf(f, 'magento'), 'user', 'Magento: Benutzer gesetzt → Admin-Benutzer');
+  assert.equal(authOf(f, 'magento'), 'user', 'Magento: user set → admin user');
   assert.equal(hasSecret(saved, 'shopware', 'password'), true);
   assert.equal(hasSecret(saved, 'shopify', 'accessToken'), true);
   assert.equal(savedConfigured(saved, 'shopify'), true);
@@ -31,7 +31,7 @@ test('Plattform-Formular: Shopware über feste Felder, Shopify/Magento generisch
   assert.equal(isDirty(f, saved), false);
 });
 
-test('Plattform wechseln und Felder setzen: Patch enthält Plattform, Klartext getrimmt, Geheimnis nur bei Eingabe', () => {
+test('Switch platform and set fields: patch contains platform, plain text trimmed, secret only when entered', () => {
   let f = formFromSettings(saved);
   f = { ...f, platform: 'magento' };
   f = withFieldValue(f, 'magento', 'url', ' https://mage.test ');
@@ -43,16 +43,16 @@ test('Plattform wechseln und Felder setzen: Patch enthält Plattform, Klartext g
   assert.equal(p.platform, 'magento');
   assert.equal(p.magento?.url, 'https://mage.test');
   assert.equal(p.magento?.accessToken, 'tok');
-  assert.equal(p.magento?.password, undefined, 'unverändert');
-  assert.equal(p.shopify?.accessToken, null, 'Entfernen = null');
+  assert.equal(p.magento?.password, undefined, 'unchanged');
+  assert.equal(p.shopify?.accessToken, null, 'remove = null');
   assert.equal(isDirty(f, saved), true);
-  // Shopware-Felder laufen weiter über die alten Schlüssel
+  // Shopware fields still go through the old keys
   const g = withSecret(withFieldValue(formFromSettings(saved), 'shopware', 'clientId', 'SWIA2'), 'shopware', 'clientSecret', { value: 'geheim', remove: false });
   assert.equal(buildPatch(g).shopware?.clientId, 'SWIA2');
   assert.equal(buildPatch(g).shopware?.clientSecret, 'geheim');
 });
 
-test('Ältere Server ohne Plattform-Angaben: Shopware als Standard', () => {
+test('Older servers without platform info: Shopware as default', () => {
   const old = { ...saved, platform: undefined, platforms: undefined };
   const f = formFromSettings(old);
   assert.equal(f.platform, 'shopware');
@@ -60,20 +60,20 @@ test('Ältere Server ohne Plattform-Angaben: Shopware als Standard', () => {
   assert.equal(platformAvailable(old, 'shopware'), true);
 });
 
-test('Automatisch speichern: Plattform- und KI-Wechsel erst, wenn das Ziel eingerichtet ist', () => {
-  // Magento hat keine Zugangsdaten → Felder werden gespeichert, verbunden bleibt Shopware
+test('Auto-save: platform and AI switch only once the target is configured', () => {
+  // Magento has no credentials → fields are saved, Shopware stays connected
   let f = withFieldValue({ ...formFromSettings(saved), platform: 'magento' }, 'magento', 'url', 'https://mage.test');
   assert.equal(platformPending(f, saved), true);
   assert.equal(autosavePatch(f, saved).platform, 'shopware');
   assert.equal(autosavePatch(f, saved).magento?.url, 'https://mage.test');
   assert.equal(autosaveDirty(f, saved), true);
-  // Nur den Reiter wechseln ist keine Änderung (sonst Speicherschleife)
+  // Just switching the tab is not a change (otherwise save loop)
   assert.equal(autosaveDirty({ ...formFromSettings(saved), platform: 'magento' }, saved), false);
-  // Shopify ist eingerichtet → Wechsel greift sofort
+  // Shopify is configured → switch takes effect immediately
   f = { ...formFromSettings(saved), platform: 'shopify' };
   assert.equal(platformPending(f, saved), false);
   assert.equal(autosavePatch(f, saved).platform, 'shopify');
-  // ChatGPT ohne Anmeldung: Claude bleibt aktiv
+  // ChatGPT without sign-in: Claude stays active
   f = { ...formFromSettings(saved), ai: { ...formFromSettings(saved).ai, provider: 'codex' } };
   assert.equal(aiPending(f, saved), true);
   assert.equal(autosavePatch(f, saved).ai?.provider, 'claude');

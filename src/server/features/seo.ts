@@ -1,5 +1,5 @@
 import 'server-only';
-// SEO-Modul: kanonische SEO-URLs lesen, interne Links vorschlagen, eigene SEO-URLs setzen (Freigabe) und shopweiter SEO-Check.
+// SEO module: read canonical SEO URLs, suggest internal links, set custom SEO URLs (approval) and shop-wide SEO check.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { applyEach, registerApplier } from '../changes';
@@ -14,13 +14,13 @@ import { applySeoUrl, buildSeoUrlChangeSet, duplicates, evaluate, KIND, summariz
 registerApplier(KIND, (swW, cs, _payload, selected, ctx) => applyEach(cs, selected, it => applySeoUrl(swW, it.afterRaw as SeoUrlPayload), ctx));
 
 const NAV_FILTER = (ctx: LinkCtx) => (ctx.navigationCategoryId ? [{ type: 'contains', field: 'path', value: `|${ctx.navigationCategoryId}|` }] : []);
-// Kategorien mit eigener Seite im Kanal: unter Navigation, Footer oder Service
+// Categories with their own page in the channel: under navigation, footer or service
 const ROOTS_FILTER = (ctx: LinkCtx) => (ctx.rootIds.length ? [{ type: 'multi', operator: 'or', queries: ctx.rootIds.map(r => ({ type: 'contains', field: 'path', value: `|${r}|` })) }] : []);
 const plainText = (t: unknown) => String(t ?? '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 const STOP = new Set('der die das und oder mit für von aus auf in im am an zu zum zur ein eine einer eines den dem des ist sind wie was wer the and for with to of a an unsere unser ihr ihre sie wir du dich dein deine alle mehr sehr auch nur noch bei als so'.split(' '));
-/** Suchbegriffe aus Freitext: Inhaltswörter, längste zuerst (max. 6) */
+/** Search terms from free text: content words, longest first (max. 6) */
 export const keywords = (text: string) => [...new Set((text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}-]{2,}/gu) ?? []).filter(w => !STOP.has(w)))].sort((a, b) => b.length - a.length).slice(0, 6).join(' ');
-/** Ankertext: Produktname ohne Maßangaben-Anhang bzw. Kategoriename/Meta-Title-Kern */
+/** Anchor text: product name without trailing dimensions, or category name/meta title core */
 export function anchorFor(kind: LinkKind, e: SwEntity): string {
   const name = String(e.translated?.name ?? e.name ?? '').trim();
   if (kind === 'product') { const parts = name.split(/,\s*/); const two = parts.slice(0, 2).join(', '); return two.length <= 55 ? two : parts[0]; }
@@ -28,8 +28,8 @@ export function anchorFor(kind: LinkKind, e: SwEntity): string {
   return core && core.length <= 60 && core.toLowerCase().includes(name.toLowerCase()) ? core : name;
 }
 
-/** Doppelte Metas je (Shop, Entität, Filter): der Scan (nur id + Metas, bis 5000 Datensätze) läuft auf der ersten Audit-Seite
- *  und wird für Folgeseiten kurz vorgehalten, statt bei jeder Seite alle Datensätze erneut zu lesen. */
+/** Duplicate metas per (shop, entity, filter): the scan (only id + metas, up to 5000 records) runs on the first audit page
+ *  and is kept briefly for following pages instead of re-reading all records for every page. */
 interface DupScan { at: number; title: Map<string, string[]>; desc: Map<string, string[]>; truncated: boolean }
 export const DUP_TTL_MS = 5 * 60_000;
 const dupCache = () => singleton('seo-dup-scan', () => new Map<string, DupScan>());
@@ -106,7 +106,7 @@ export const seo: Feature = {
               : (await sw.search('category', { limit: n * 2, term, filter: cFilter })).data;
           let cats = catRows.filter(c => !ex.has(c.id) && c.id !== ctx.navigationCategoryId).slice(0, n);
           const more = [...new Set(products.flatMap(p => (p.categoryIds ?? []) as string[]))].filter(id => !ex.has(id) && id !== ctx.navigationCategoryId && !cats.some(c => c.id === id));
-          if (cats.length < n && more.length) cats = [...cats, ...(await sw.search('category', { ids: more, limit: more.length, filter: cFilter })).data].slice(0, n); // Kategorien der passenden Produkte
+          if (cats.length < n && more.length) cats = [...cats, ...(await sw.search('category', { ids: more, limit: more.length, filter: cFilter })).data].slice(0, n); // categories of the matching products
           const pu = await seoFor(sw, ctx, 'product', products), cu = await seoFor(sw, ctx, 'category', cats);
           return ok({
             salesChannel: ctx.salesChannel, domain: ctx.domain, term: term || undefined,
@@ -128,11 +128,11 @@ export const seo: Feature = {
           const pages = a.entity === 'pages', { limit, page, offset, note: offsetNote } = pageOf(a.offset, Math.min(Math.max(Math.round(a.limit ?? (pages ? 20 : 100)), 1), pages ? 50 : 250));
           if (pages) return ok(await auditPages(sw, ctx, limit, offset, offsetNote));
           const isP = a.entity === 'product';
-          // Produkte: nur im Kanal sichtbare (nur für sie erzeugt Shopware SEO-URLs); Kategorien: unter Navigation/Footer/Service
+          // Products: only those visible in the channel (Shopware only generates SEO URLs for them); categories: under navigation/footer/service
           const filter: Record<string, unknown>[] = isP ? [{ type: 'equals', field: 'parentId', value: null }, { type: 'equals', field: 'visibilities.salesChannelId', value: ctx.salesChannelId }, ...(a.categoryId ? [{ type: 'equals', field: 'categoriesRo.id', value: a.categoryId }] : [])] : [{ type: 'equals', field: 'type', value: 'page' }, ...ROOTS_FILTER(ctx)];
           if (!a.includeInactive) filter.push({ type: 'equals', field: 'active', value: true });
           const r = await sw.search(a.entity, { limit, page, filter, 'total-count-mode': 1, sort: [{ field: isP ? 'productNumber' : 'level', order: 'ASC' }, ...(isP ? [] : [{ field: 'name', order: 'ASC' }])], ...(isP ? { associations: { media: { associations: { media: {} } } } } : {}) });
-          const { title: dT, desc: dD, truncated } = await duplicateMetas(sw, a.entity, filter, offset === 0); // Doppelte Metas shopweit, Folgeseiten aus dem Zwischenspeicher
+          const { title: dT, desc: dD, truncated } = await duplicateMetas(sw, a.entity, filter, offset === 0); // duplicate metas shop-wide, following pages from the cache
           const seo = await canonicalSeoPaths(sw, ctx, r.data.map(e => ({ kind: a.entity as LinkKind, id: e.id }))).catch(() => null);
           const links = await checkLinks(sw, r.data.flatMap(e => extractLinks(e.translated?.description ?? '')), { ctx }).catch(() => null);
           const broken = new Set((links?.findings ?? []).filter(f => f.level === 'wichtig').map(f => f.href));
@@ -140,8 +140,8 @@ export const seo: Feature = {
           const rows = r.data.map(e => {
             const input = {
               id: e.id, name: e.translated?.name ?? e.name, number: e.productNumber, metaTitle: e.translated?.metaTitle, metaDescription: e.translated?.metaDescription, description: e.translated?.description, isProduct: isP,
-              hasCover: !!e.coverId, imagesWithoutAlt: (e.media ?? []).filter((m: SwEntity) => { if (!m.media) return false; const alt = m.media.translated?.alt ?? m.media.alt; return !plainText(alt) || altIsFileName(alt, m.media.fileName); }).length, // wie get_product_images/find_image_gaps: leer oder nur der Dateiname
-              seoPath: seo && e.active !== false ? (seo.get(`${ROUTE[a.entity as LinkKind]}:${e.id}`)?.seoPathInfo ?? null) : undefined, // inaktive bekommen keine SEO-URL
+              hasCover: !!e.coverId, imagesWithoutAlt: (e.media ?? []).filter((m: SwEntity) => { if (!m.media) return false; const alt = m.media.translated?.alt ?? m.media.alt; return !plainText(alt) || altIsFileName(alt, m.media.fileName); }).length, // like get_product_images/find_image_gaps: empty or just the file name
+              seoPath: seo && e.active !== false ? (seo.get(`${ROUTE[a.entity as LinkKind]}:${e.id}`)?.seoPathInfo ?? null) : undefined, // inactive ones get no SEO URL
               brokenLinks: extractLinks(e.translated?.description ?? '').filter(l => broken.has(l.href)).length,
             };
             return { ...input, issues: evaluate(input, dups) };
@@ -160,7 +160,7 @@ export const seo: Feature = {
   },
 };
 
-/** Einkaufswelten: Links in Text-/HTML-Elementen und feste Produkte in Slidern/Boxen gegen den Shop prüfen. */
+/** Shopping Experiences: check links in text/HTML elements and fixed products in sliders/boxes against the shop. */
 export async function auditPages(sw: ShopReader, ctx: LinkCtx, limit: number, offset: number, offsetNote?: string) {
   const r = await sw.search('cms-page', { limit, page: offset / limit + 1, 'total-count-mode': 1, sort: [{ field: 'name', order: 'ASC' }], associations: { sections: { associations: { blocks: { associations: { slots: {} } } } } } });
   const pages = r.data.map(p => {

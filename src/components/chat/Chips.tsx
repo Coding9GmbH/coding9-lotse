@@ -1,7 +1,7 @@
 import { useT } from '@/lib/i18n/I18nProvider';
 import styles from './Chips.module.css';
 
-/** Vorschläge passend zum gewählten Kontext. */
+/** Suggestions matching the selected context. */
 export function Chips({ items, onPick }: { items: string[]; onPick: (s: string) => void }) {
   const t = useT();
   if (!items.length) return null;

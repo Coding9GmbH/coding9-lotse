@@ -1,6 +1,6 @@
 import 'server-only';
-// OpenMage: Varianten = konfigurierbare Produkte mit Einzelprodukten je Ausprägung. Lesen: Achsen und Kinder (aus dem Produktdetail).
-// Ändern: Preis, Bestand, Status der vorhandenen Einzelprodukte (das Modul verknüpft keine neuen Kinder an bestehende Configurables).
+// OpenMage: variants = configurable products with simple products per option. Read: axes and children (from the product detail).
+// Change: price, stock, status of the existing simple products (the module doesn't link new children to existing configurables).
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { errMsg, newIdSafe, partialTicker, pool, resolvePrice, WRITE_CONCURRENCY, type ApplyResult, type PriceSpec } from './kit';
 import type { OmClient } from './client';

@@ -1,14 +1,14 @@
-// Nur für Tests und lokale Prüfung: winziger Fake der Sistrix-API (POST /<methode>, api_key + Parameter im Form-Body, JSON-Hülle).
-// Die Hülle (method/answer/credits, Zahlen als Text) folgt dem, was Sistrix liefert; die Daten kommen aus `data` je Methode.
+// For tests and local checks only: tiny fake of the Sistrix API (POST /<method>, api_key + parameters in the form body, JSON envelope).
+// The envelope (method/answer/credits, numbers as text) follows what Sistrix returns; the data comes from `data` per method.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 export interface FakeSistrix {
   base: string;
   calls: { method: string; params: Record<string, string> }[];
-  /** Antwortzeilen je Methode (answer[0][<schlüssel>]); Schlüssel = Wert hinter dem Methodennamen */
+  /** Response rows per method (answer[0][<key>]); key = value after the method name */
   data: Record<string, unknown[]>;
-  /** nächste Antwort ist ein Fehler dieser Art */
+  /** next response is an error of this kind */
   failNext?: { code: string; message: string };
   close: () => Promise<void>;
 }
@@ -31,7 +31,7 @@ export async function startFakeSistrix(o: { apiKey: string; data?: FakeSistrix['
     if (method === 'credits') return send(200, { method: ['credits'], answer: [{ credits: [{ value: 1234 }] }], credits: [{ used: '0' }] });
     const rows = (f.data[method] ?? []).slice(0, Number(params.limit ?? 100));
     const key = method.split('.').at(-1)!;
-    // Wie Sistrix: die URLs einer Fehlerart stecken verschachtelt in {count, "optimizer.onpage.issue": [...]}
+    // like Sistrix: the URLs of an issue type are nested in {count, "optimizer.onpage.issue": [...]}
     if (method === 'project.onpage.issue') return send(200, { method: [['optimizer.onpage.issue']], answer: [{ 'optimizer.onpage.issue': [{ count: rows.length, 'optimizer.onpage.issue': rows }] }], credits: [{ used: '0' }] });
     return send(200, { method: [method], answer: [{ [key]: rows }], credits: [{ used: String(rows.length) }] });
   });

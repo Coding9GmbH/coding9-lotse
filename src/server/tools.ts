@@ -16,35 +16,35 @@ import { persist, type Session } from './sessions';
 import { ok, fail, guard, type AnyTool } from './tool-kit';
 import { FEATURES } from './features';
 import type { Feature } from './features/types';
-// Bild-Ereignis für die Oberfläche (alt: null → weglassen, siehe protocol.ts)
+// Image event for the UI (alt: null → omit, see protocol.ts)
 const imageEvent = (m: StagedResult) => ({ t: 'image' as const, ...m, alt: m.alt ?? undefined });
 
-// Verbindet Session-State (Lese-Client der Plattform, Draft, UI-Events) mit den Agent-Tools – anbieterneutral (Claude: In-Process-MCP, Codex: MCP über HTTP).
-// Kern-Werkzeuge hier; plattformspezifische im Adapter (platform/<kind>/), Fachbereiche in features/ (Feature.platforms).
-/** Version des Vorschau-Renderers (Produktboxen, Muster …) – erhöhen, wenn sich das Aussehen ändert. */
+// Connects session state (platform read client, draft, UI events) with the agent tools, provider-neutral (Claude: in-process MCP, Codex: MCP over HTTP).
+// Core tools here; platform-specific ones in the adapter (platform/<kind>/), feature areas in features/ (Feature.platforms).
+/** Version of the preview renderer (product boxes, patterns …); bump when the appearance changes. */
 export const PREVIEW_VERSION = 6;
 
-/** Zeichnet die Vorschau des letzten Entwurfs eines Chats mit dem aktuellen Renderer neu (einmal je Version). */
+/** Re-renders the preview of a chat's last draft with the current renderer (once per version). */
 export async function refreshDraftPreview(session: Session): Promise<boolean> {
   if (session.running) return false;
   const ev = [...session.events].reverse().find((e): e is Extract<ChatEvent, { t: 'draft' }> => e.t === 'draft' && !!e.spec);
   if (!ev || ev.rv === PREVIEW_VERSION) return false;
-  installRenderDraft(session, getPlatform(session.platform)); // frische Zeichenfunktion (aktueller Renderer), ohne alle Werkzeuge zu bauen
+  installRenderDraft(session, getPlatform(session.platform)); // fresh render function (current renderer) without building all tools
   try { ev.html = await session.renderDraft!(ev.spec as PageSpec); ev.rv = PREVIEW_VERSION; persist(session); return true; }
-  catch { return false; } // Shop nicht erreichbar o. Ä.: alte Vorschau bleiben lassen
+  catch { return false; } // shop unreachable or similar: keep the old preview
 }
 
-/** Reihenfolge der Werkzeuge im Katalog (Kern + Plattform gemischt wie gewachsen); Unbekannte folgen in ihrer Reihenfolge. */
+/** Order of tools in the catalog (core + platform mixed as they grew); unknown ones follow in their own order. */
 const TOOL_ORDER = ['list_sales_channels', 'search_categories', 'search_products', 'get_product', 'get_category', 'search_media', 'list_cms_pages', 'get_cms_page', 'read_page', 'import_image', 'create_svg_image', 'generate_image', 'get_styleguide', 'get_brand_signals', 'save_styleguide', 'draft_page', 'ask_user', 'list_products', 'propose_product_changes', 'view_image', 'propose_new_products', 'propose_category_changes', 'publish_page'];
 const rank = (n: string) => { const i = TOOL_ORDER.indexOf(n); return i < 0 ? TOOL_ORDER.length : i; };
 const byOrder = <T>(list: T[], name: (x: T) => string) => list.map((x, i) => ({ x, i })).sort((a, b) => rank(name(a.x)) - rank(name(b.x)) || a.i - b.i).map(e => e.x);
 
 export const CORE_TOOL_NAMES = ['import_image', 'create_svg_image', 'generate_image', 'get_styleguide', 'save_styleguide', 'draft_page', 'ask_user', 'view_image', 'publish_page'];
 
-/** Feature-Module einer Plattform: Kern (platforms 'all') + für sie markierte + eigene des Adapters */
+/** Feature modules of a platform: core (platforms 'all') + those marked for it + the adapter's own */
 export const featuresFor = (p: Pick<PlatformAdapter, 'kind' | 'features'>): Feature[] => [...FEATURES.filter(f => f.platforms === 'all' || f.platforms.includes(p.kind)), ...(p.features ?? [])];
 
-/** Zeichenfunktion der Session: Entwurf → Vorschau-HTML (final: mit Produkt-/Medienkontext der Plattform; partial: schnell, ohne Shop-Abfragen) */
+/** The session's render function: draft → preview HTML (final: with the platform's product/media context; partial: fast, without shop queries) */
 export function installRenderDraft(session: Session, p: PlatformAdapter) {
   const pages = p.pages;
   session.renderDraft = async (spec: PageSpec, partial = false) => {
@@ -133,7 +133,7 @@ function coreTools(session: Session, p: PlatformAdapter): AnyTool[] {
     tool('view_image', 'Bild ANSEHEN (z. B. ein hochgeladenes Produktfoto), um Produkt, Material, Farbe, Form und Details zu erkennen. Eingabe: mediaId aus einem Anhang/der Medienverwaltung, „staged:…“ oder eine Bild-URL des Shops bzw. aus dem öffentlichen Internet (keine internen Adressen).',
       { mediaId: z.string().optional(), url: z.string().optional() }, guard(async ({ mediaId, url }) => {
         let buf: Buffer, mime: string, src = url ?? '';
-        const stagedId = mediaId?.startsWith('staged:') ? mediaId.slice(7) : url?.match(/^\/staged\/([a-z0-9]+)\.[a-z0-9]+$/i)?.[1]; // auch die Vorschau-URL „/staged/<id>.png“
+        const stagedId = mediaId?.startsWith('staged:') ? mediaId.slice(7) : url?.match(/^\/staged\/([a-z0-9]+)\.[a-z0-9]+$/i)?.[1]; // also the preview URL "/staged/<id>.png"
         if (stagedId) {
           const m = readStaged(stagedId); if (!m) throw new Error('Vorgemerktes Bild nicht gefunden');
           ({ buf, mime } = m); src = m.name;
@@ -167,15 +167,15 @@ export function buildTools(session: Session): AnyTool[] {
 }
 export type ShopTool = ReturnType<typeof buildTools>[number];
 
-/** Claude: Tools als In-Process-MCP-Server „shop“. */
+/** Claude: tools as in-process MCP server "shop". */
 export const buildToolServer = (session: Session) => createSdkMcpServer({ name: 'shop', version: '1.0.0', tools: buildTools(session) });
 
-/** Namen aller Werkzeuge einer Plattform (Freigabeliste für den Agenten) */
+/** Names of all tools of a platform (allowlist for the agent) */
 export const toolNamesFor = (kind: PlatformKind): string[] => {
   const p = getPlatform(kind);
   return [...byOrder([...CORE_TOOL_NAMES, ...p.toolNames], n => n), ...featuresFor(p).flatMap(f => f.toolNames)];
 };
 export const allToolsFor = (kind: PlatformKind): string[] => toolNamesFor(kind).map(n => `mcp__shop__${n}`);
-/** Shopware (Standard) – für Tests und Altaufrufe */
+/** Shopware (default), for tests and legacy calls */
 export const TOOL_NAMES: string[] = toolNamesFor('shopware');
 export const ALL_TOOLS: string[] = allToolsFor('shopware');

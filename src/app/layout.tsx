@@ -9,7 +9,7 @@ import { I18nProvider } from '@/lib/i18n/I18nProvider';
 import { getLocale, getMessages } from '@/lib/i18n/server';
 import './globals.css';
 
-// Inter und Satoshi liegen im Repo (src/app/fonts). Der Build braucht dafür kein Netz.
+// Inter and Satoshi live in the repo (src/app/fonts), so the build needs no network for them.
 const inter = localFont({ src: './fonts/inter-latin-wght-normal.woff2', weight: '100 900', display: 'swap', variable: '--font-inter' });
 const satoshi = localFont({
   src: [

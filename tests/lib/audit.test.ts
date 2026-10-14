@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { groupAudit, normalizeCheck, scoreClass } from '../../src/lib/audit';
 import type { AuditCheck, DraftAudit } from '../../src/lib/protocol';
 
-test('normalizeCheck versteht beide Prüfpunkt-Formate', () => {
+test('normalizeCheck understands both check item formats', () => {
   assert.deepEqual(normalizeCheck({ area: 'seo', w: 3, msg: 'Titel fehlt', ok: false, hint: 'Titel setzen' } as unknown as AuditCheck),
     { area: 'SEO', ok: false, important: true, text: 'Titel fehlt', hint: 'Titel setzen' });
   assert.deepEqual(normalizeCheck({ area: 'CRO', label: 'CTA vorhanden', weight: 1, level: 'wichtig', ok: true, hint: 'egal' } as unknown as AuditCheck),
@@ -15,7 +15,7 @@ test('normalizeCheck versteht beide Prüfpunkt-Formate', () => {
   assert.equal(normalizeCheck({} as unknown as unknown as AuditCheck).ok, false);
 });
 
-test('groupAudit gruppiert nach Bereich in fester Reihenfolge und lässt leere Bereiche weg', () => {
+test('groupAudit groups by area in a fixed order and omits empty areas', () => {
   const a = { score: 70, warnings: [], stats: { words: 1, h1: 1, internalLinks: 0 }, checks: [
     { area: 'UX', label: 'u', weight: 1, ok: true }, { area: 'seo', msg: 's', w: 5, ok: false }, { area: '?', msg: 'o', ok: true },
   ] } as unknown as DraftAudit;

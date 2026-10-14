@@ -1,22 +1,22 @@
-// Läuft vor jeder Anfrage: Host-/Origin-Prüfung (Schutz vor DNS-Rebinding und CSRF), optionaler Login,
-// und Weiterleitung der Storefront-Pfade an den Shop-Proxy.
+// Runs before every request: host/origin check (protection against DNS rebinding and CSRF), optional login,
+// and forwarding of storefront paths to the shop proxy.
 import { NextResponse, type NextRequest } from 'next/server';
 import { STOREFRONT_PREFIX_HEADER, storefrontPrefix } from '@/lib/platforms';
 import { LOCAL_HOSTS, PEER_HEADER, extraAllowedHosts, normalizeIp } from '@/server/access';
 
 const LOOPBACK_HOPS = new Set(['127.0.0.1', '::1', 'localhost', '[::1]']);
-/** Docker-Bridge/VM-Gateway (Docker Desktop, OrbStack, Linux-Bridge): privat, nie öffentlich. */
+/** Docker bridge/VM gateway (Docker Desktop, OrbStack, Linux bridge): private, never public. */
 function privateHop(hop: string): boolean {
   const m = hop.match(/^(\d+)\.(\d+)\.\d+\.\d+$/);
   if (!m) return /^f[cd][0-9a-f]{2}:/.test(hop);
   const a = Number(m[1]), b = Number(m[2]);
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 198 && (b === 18 || b === 19));
 }
-/** Im Container mit Loopback-Publish (LOTSE_BIND) erreicht nur der eigene Rechner den Port; Next setzt dort X-Forwarded-For auf das Bridge-Gateway. */
+/** In a container with loopback publish (LOTSE_BIND) only the own machine reaches the port; Next sets X-Forwarded-For to the bridge gateway there. */
 const dockerLoopbackPublish = () => process.env.AICB_DOCKER === '1' && LOOPBACK_HOPS.has((process.env.LOTSE_BIND ?? '').trim().toLowerCase());
 const allowedHosts = () => new Set([...LOCAL_HOSTS, ...extraAllowedHosts(process.env.ALLOWED_HOSTS)]);
 
-/** Host ohne Port. [::1]:3333 bleibt [::1]; nacktes ::1 verliert nicht die letzte Gruppe. */
+/** Host without port. [::1]:3333 stays [::1]; a bare ::1 does not lose its last group. */
 function hostName(host: string): string {
   const value = host.trim();
   if (value.startsWith('[')) return value.replace(/]:\d+$/, ']');
@@ -24,23 +24,23 @@ function hostName(host: string): string {
   return value.replace(/:\d+$/, '');
 }
 
-/** Absender ist dieser Rechner (im Container mit Loopback-Publish zusätzlich private Gateway-Adressen, nie öffentliche) */
+/** Sender is this machine (in a container with loopback publish also private gateway addresses, never public ones) */
 const localHop = (hop: string) => LOOPBACK_HOPS.has(hop) || (dockerLoopbackPublish() && privateHop(hop));
 const hopsOf = (forwardedFor: string | null) => (forwardedFor ?? '').split(',').map(normalizeIp).filter(Boolean);
 
-/** Loopback-Namen nur von Loopback: jeder Hop in X-Forwarded-For und die Socket-Adresse (peer, von instrumentation.ts gestempelt) müssen lokal sein.
- *  X-Forwarded-For allein reicht nicht: Next übernimmt einen vom Client mitgeschickten Wert unverändert. Ohne beides (Tests) erlaubt. */
+/** Loopback names only from loopback: every hop in X-Forwarded-For and the socket address (peer, stamped by instrumentation.ts) must be local.
+ *  X-Forwarded-For alone is not enough: Next passes a client-supplied value through unchanged. Allowed without both (tests). */
 export function hostAllowed(host: string, forwardedFor: string | null, peer: string | null = null): boolean {
   const name = hostName(host);
   if (LOCAL_HOSTS.includes(name)) return [...hopsOf(forwardedFor), ...hopsOf(peer)].every(localHop);
   return allowedHosts().has(name);
 }
 
-// ---- Login-Bremse: nach FAIL_MAX falschen Passwörtern in FAIL_WINDOW sperrt die Adresse für BLOCK_MS (429). Speicher begrenzt. ----
+// ---- Login throttle: after FAIL_MAX wrong passwords within FAIL_WINDOW the address is blocked for BLOCK_MS (429). Bounded memory. ----
 const FAIL_MAX = 10, FAIL_WINDOW = 15 * 60_000, BLOCK_MS = 5 * 60_000, MAX_TRACKED = 5_000;
 const failures = new Map<string, { n: number; since: number; until: number }>();
 const ipv4 = (ip: string) => { const m = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/); return m ? m.slice(1).reduce((n, x) => n * 256 + Number(x), 0) : null; };
-/** LOTSE_TRUSTED_PROXIES: Reverse-Proxy auf einem anderen Rechner (IPs oder IPv4-CIDR, kommagetrennt) – deren X-Forwarded-For zählt für die Login-Bremse */
+/** LOTSE_TRUSTED_PROXIES: reverse proxy on another machine (IPs or IPv4 CIDR, comma-separated); its X-Forwarded-For counts for the login throttle */
 export function trustedProxy(ip: string, list = process.env.LOTSE_TRUSTED_PROXIES ?? ''): boolean {
   return list.split(',').map(e => e.trim().toLowerCase()).filter(Boolean).some(e => {
     const [net, bits] = e.split('/'); if (bits === undefined) return normalizeIp(net) === ip;
@@ -48,12 +48,12 @@ export function trustedProxy(ip: string, list = process.env.LOTSE_TRUSTED_PROXIE
     return a !== null && b !== null && n >= 0 && n <= 32 && (n === 0 || (a >>> (32 - n)) === (b >>> (32 - n)));
   });
 }
-/** Wer zählt: die Socket-Adresse; steht davor ein lokaler oder vertrauter Reverse-Proxy, der letzte Eintrag in X-Forwarded-For (den hat der Proxy angehängt). */
+/** Who counts: the socket address; if a local or trusted reverse proxy sits in front, the last X-Forwarded-For entry (appended by the proxy). */
 export function clientKey(peer: string | null, forwardedFor: string | null): string {
   const p = normalizeIp(peer ?? ''), last = hopsOf(forwardedFor).at(-1);
   return (p && !localHop(p) && !trustedProxy(p) ? p : last || p) || 'unbekannt';
 }
-/** Restliche Sperrzeit in ms (0 = nicht gesperrt) */
+/** Remaining block time in ms (0 = not blocked) */
 export function loginBlocked(key: string, now = Date.now()): number {
   const f = failures.get(key);
   return f && f.until > now ? f.until - now : 0;
@@ -62,24 +62,24 @@ export function loginFailed(key: string, now = Date.now()) {
   let f = failures.get(key);
   if (!f || now - f.since > FAIL_WINDOW) f = { n: 0, since: now, until: 0 };
   if (++f.n >= FAIL_MAX) { f.until = now + BLOCK_MS; f.n = 0; f.since = now; }
-  failures.delete(key); failures.set(key, f); // neueste zuletzt
+  failures.delete(key); failures.set(key, f); // newest last
   if (failures.size > MAX_TRACKED) {
     for (const [k, v] of failures) if (v.until <= now && now - v.since > FAIL_WINDOW) failures.delete(k);
-    for (const k of failures.keys()) { if (failures.size <= MAX_TRACKED) break; failures.delete(k); } // älteste zuerst
+    for (const k of failures.keys()) { if (failures.size <= MAX_TRACKED) break; failures.delete(k); } // oldest first
   }
 }
 export const loginOk = (key: string) => { failures.delete(key); };
 export const loginLimitSize = () => failures.size;
 export const resetLoginLimit = () => failures.clear(); // Tests
 
-// Shop-JS ruft Widget-/Asset-Pfade ohne /shop-Präfix auf → ebenfalls an den Shop-Proxy (nur GET).
-// Präfixe je Plattform: PLATFORM_SETTINGS[kind].storefrontPaths; die /shop-Route lässt nur die der aktiven Plattform durch.
+// Shop JS calls widget/asset paths without the /shop prefix → also forwarded to the shop proxy (GET only).
+// Prefixes per platform: PLATFORM_SETTINGS[kind].storefrontPaths; the /shop route only lets through those of the active platform.
 
 const encoder = new TextEncoder();
 async function sha256(text: string) { return new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(text))); }
 function constantTimeEqual(a: Uint8Array, b: Uint8Array) { let d = a.length ^ b.length; for (let i = 0; i < a.length; i++) d |= a[i] ^ b[i % b.length]; return d === 0; }
 
-/** Basic-Auth: Base64 → UTF-8 (atob allein liefert Latin-1, Umlaute im Passwort scheiterten). null = keine Zugangsdaten gesendet (kein Fehlversuch). */
+/** Basic auth: Base64 → UTF-8 (atob alone yields Latin-1, umlauts in the password failed). null = no credentials sent (not a failed attempt). */
 export async function passwordOk(authorization: string | null, password: string): Promise<boolean | null> {
   const [scheme, b64 = ''] = (authorization ?? '').trim().split(/\s+/);
   if (!authorization || scheme.toLowerCase() !== 'basic') return null;
@@ -97,21 +97,21 @@ export async function proxy(req: NextRequest) {
   const origin = req.headers.get('origin');
   const writes = req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS';
   if (writes && origin) {
-    let ok = false; try { ok = new URL(origin).host === hostHeader; } catch {} // Origin "null" (sandboxed Vorschau) fällt hier durch
+    let ok = false; try { ok = new URL(origin).host === hostHeader; } catch {} // Origin "null" (sandboxed preview) fails here
     if (!ok) return new NextResponse('Origin nicht erlaubt', { status: 403 });
   }
-  // Doppelboden: schreibende Aufrufe nur mit der Kennung der Oberfläche (lib/api.ts); ein Simple-Request aus einer eingebetteten
-  // Vorschau oder fremden Seite hat sie nicht. MCP (Codex) hat sein eigenes Token je Chat.
+  // Double safeguard: writing calls only with the UI's marker (lib/api.ts); a simple request from an embedded
+  // preview or a foreign page doesn't have it. MCP (Codex) has its own token per chat.
   if (writes && !pathname.startsWith('/api/mcp/') && req.headers.get('x-lotse') !== '1') return new NextResponse('Kennung der Oberfläche fehlt', { status: 403 });
 
-  // MCP-Endpunkt für Codex: eigenes Token je Chat statt Browser-Login
+  // MCP endpoint for Codex: own token per chat instead of browser login
   const password = process.env.LOTSE_PASSWORD;
   if (password && !pathname.startsWith('/api/mcp/')) {
     const key = clientKey(peer, forwardedFor), wait = loginBlocked(key);
     if (wait) return new NextResponse('Zu viele Fehlversuche, bitte später erneut versuchen', { status: 429, headers: { 'retry-after': String(Math.ceil(wait / 1000)) } });
     const ok = await passwordOk(req.headers.get('authorization'), password);
     if (!ok) {
-      if (ok === false) loginFailed(key); // ohne Zugangsdaten (erste Anfrage des Browsers) zählt nicht
+      if (ok === false) loginFailed(key); // without credentials (the browser's first request) it doesn't count
       return new NextResponse('Login erforderlich', { status: 401, headers: { 'www-authenticate': 'Basic realm="Lotse", charset="UTF-8"' } });
     }
     loginOk(key);

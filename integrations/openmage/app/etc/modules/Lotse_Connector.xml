@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<!-- Lotse Connector für OpenMage (Magento 1): token-gesicherte JSON-API für Lotse. -->
+<!-- Lotse Connector for OpenMage (Magento 1): token-secured JSON API for Lotse. -->
 <config>
     <modules>
         <Lotse_Connector>

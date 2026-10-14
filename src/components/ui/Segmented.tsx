@@ -3,7 +3,7 @@ import styles from './Segmented.module.css';
 export interface SegOption<T extends string> { value: T; label: React.ReactNode; title?: string }
 interface Props<T extends string> { options: SegOption<T>[]; value: T; onChange: (v: T) => void; label: string; className?: string }
 
-/** Segment-Umschalter (Kategorie/Produkt/Landingpage, Aktuell/Entwurf/JSON …); Pfeiltasten wechseln wie bei Radiogruppen. */
+/** Segmented switch (category/product/landing page, current/draft/JSON …); arrow keys switch as in radio groups. */
 export function Segmented<T extends string>({ options, value, onChange, label, className }: Props<T>) {
   const onKey = (e: React.KeyboardEvent<HTMLButtonElement>, idx: number) => {
     const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;

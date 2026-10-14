@@ -7,7 +7,7 @@ import { useT } from '@/lib/i18n/I18nProvider';
 
 export interface PendingAttachment extends Partial<Attachment> { key: string; name: string; local: string; uploading: boolean; file?: FileAttachment }
 
-/** Anhänge: Bilder sofort lokal anzeigen und vormerken (POST /api/upload; in den Shop erst nach Freigabe), Dateien (CSV, Excel, PDF …) lokal ablegen (POST /api/files). */
+/** Attachments: show images locally right away and queue them (POST /api/upload; into the shop only after approval), store files (CSV, Excel, PDF …) locally (POST /api/files). */
 export function useAttachments(onError: (message: string) => void) {
   const [atts, setAtts] = useState<PendingAttachment[]>([]);
   const seq = useRef(0);

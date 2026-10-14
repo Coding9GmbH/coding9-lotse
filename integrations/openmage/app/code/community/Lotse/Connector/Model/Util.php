@@ -1,13 +1,13 @@
 <?php
 /**
- * Reine Helfer ohne Magento-Abhängigkeit (Paginierung, LIKE-Escaping, Datumsformat, Location-Auflösung,
- * HTTP-Methode mit Override). Werden von Abstract/Media/ApiController genutzt und in tests/unit.php geprüft.
+ * Pure helpers without Magento dependency (pagination, LIKE escaping, date format, location resolution,
+ * HTTP method with override). Used by Abstract/Media/ApiController and tested in tests/unit.php.
  */
 class Lotse_Connector_Model_Util
 {
     public const MAX_LIMIT = 200;
 
-    /** @return array{page:int,limit:int} page >= 1, limit 1..MAX_LIMIT (Standard 50 bei fehlend/ungültig) */
+    /** @return array{page:int,limit:int} page >= 1, limit 1..MAX_LIMIT (default 50 if missing/invalid) */
     public static function pagination(array $query, $defaultLimit = 50)
     {
         $page = max(1, (int) ($query['page'] ?? 1));
@@ -18,13 +18,13 @@ class Lotse_Connector_Model_Util
         return ['page' => $page, 'limit' => min(self::MAX_LIMIT, $limit)];
     }
 
-    /** Escaped %, _ und \ für LIKE-Filter aus Nutzereingaben. */
+    /** Escapes %, _ and \ for LIKE filters from user input. */
     public static function escapeLike($value)
     {
         return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], (string) $value);
     }
 
-    /** Datum einheitlich als UTC "Y-m-d H:i:s"; leer/Nulldatum = null; ISO-8601 mit Zeitzone (Store-Scope) wird umgerechnet. */
+    /** Date uniformly as UTC "Y-m-d H:i:s"; empty/zero date = null; ISO-8601 with time zone (store scope) is converted. */
     public static function formatDate($value)
     {
         if ($value === null || $value === '' || $value === '0000-00-00 00:00:00') {
@@ -36,7 +36,7 @@ class Lotse_Connector_Model_Util
         return (string) $value;
     }
 
-    /** Absolute, protokoll-relative, wurzel-relative oder relative Location gegen die vorherige URL auflösen. */
+    /** Resolve an absolute, protocol-relative, root-relative or relative location against the previous URL. */
     public static function resolveLocation($base, $location)
     {
         if (preg_match('#^https?://#i', $location)) {
@@ -54,7 +54,7 @@ class Lotse_Connector_Model_Util
         return $origin . ($dir === '' ? '/' : $dir) . $location;
     }
 
-    /** Effektive HTTP-Methode: HEAD zählt als GET, POST mit X-HTTP-Method-Override wird umgedeutet. */
+    /** Effective HTTP method: HEAD counts as GET, POST with X-HTTP-Method-Override is reinterpreted. */
     public static function httpMethod($method, $override = null)
     {
         $method = strtoupper((string) $method);

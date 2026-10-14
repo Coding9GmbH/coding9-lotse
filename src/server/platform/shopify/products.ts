@@ -1,6 +1,6 @@
 import 'server-only';
-// Shopify: Änderungssets für Produkte (Felder, neue Produkte, Varianten, Stapel) + Executor mit exakten Rückgängig-Schritten.
-// Preise liegen bei Shopify an den Varianten: ein Produktpreis gilt für alle Varianten, Regeln ({percent, add, set, round}) rechnet der Server je Variante.
+// Shopify: change sets for products (fields, new products, variants, bulk) + executor with exact undo steps.
+// On Shopify prices live on the variants: a product price applies to all variants, the server computes rules ({percent, add, set, round}) per variant.
 import type { ChangeAsset, ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { MAX_ITEMS, WRITE_CONCURRENCY, assertFresh, errMsg, faqHtml, normFaq, pool, resolvePrice, trackedUndo, type ApplyCtx, type ApplyResult, type PriceSpec, type RawFaq } from '../../changes';
 import { stagedMeta } from '../../media';
@@ -20,7 +20,7 @@ export const PRODUCT_FIELDS: Record<string, { label: string; kind: FieldKind }> 
   sku: { label: 'Artikelnummer (SKU)', kind: 'variantStr' }, barcode: { label: 'Barcode (EAN/GTIN)', kind: 'variantStr' },
   faq: { label: 'FAQ (Metafeld lotse.faq)', kind: 'faq' },
 };
-/** Shopware-Namen, die auf Shopify anders heißen */
+/** Shopware names that are called differently on Shopify */
 const ALIAS: Record<string, string> = { ean: 'barcode', manufacturer: 'vendor', productNumber: 'sku', compareAtPrice: 'listPrice', title: 'name', descriptionHtml: 'description' };
 const NOT_HERE: Record<string, string> = {
   stock: 'Bestand ist in Lotse für Shopify nur lesbar (Lagerbestände je Standort pflegst du im Shopify-Admin)',
@@ -41,20 +41,20 @@ const tagsAfter = (cur: string[], raw: unknown): string[] => {
 };
 const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
-/** Werte-Spanne als Text, z. B. „18,00 € – 22,00 € (4 Varianten)“ */
+/** Value range as text, e.g. "18,00 € – 22,00 € (4 Varianten)" */
 export function priceRange(vals: (number | null)[], currency: string, n = vals.length): string {
   const nums = vals.filter((v): v is number => v != null);
   const txt = !nums.length ? '–' : Math.min(...nums) === Math.max(...nums) ? fmtMoney(nums[0], currency)! : `${fmtMoney(Math.min(...nums), currency)} bis ${fmtMoney(Math.max(...nums), currency)}`;
   return `${txt}${nums.length && nums.length < vals.length ? ' / ohne' : ''}${n > 1 ? ` (${n} Varianten)` : ''}`;
 }
 
-/** Preise je Variante nach Regel (rein, testbar). field: price | listPrice; newPrices: neue Preise je Variante (für Streichpreis-Warnung) */
+/** Prices per variant by rule (pure, testable). field: price | listPrice; newPrices: new prices per variant (for the list price warning) */
 export function planPrices(variants: Json[], field: 'price' | 'listPrice', spec: PriceSpec, newPrices?: Map<string, number>) {
   const out: { id: string; before: number | null; after: number | null }[] = [], warn = new Set<string>();
   for (const v of variants) {
     const cur = toNum(field === 'price' ? v.price : v.compareAtPrice);
     let next: number | null;
-    if (field === 'listPrice' && cur == null && spec !== null && typeof spec === 'object' && spec.set == null) next = null; // Regel ohne Streichpreis: nichts zu tun
+    if (field === 'listPrice' && cur == null && spec !== null && typeof spec === 'object' && spec.set == null) next = null; // rule without list price: nothing to do
     else next = resolvePrice(cur, spec);
     if (field === 'price' && next === null) throw new Error('Preis kann bei Shopify nicht entfernt werden');
     if (next !== null && (!Number.isFinite(next) || next < 0)) throw new Error(`ungültiger Wert ${next}`);
@@ -71,7 +71,7 @@ export function planPrices(variants: Json[], field: 'price' | 'listPrice', spec:
 
 export interface ProposeArgs { title: string; reason: string; changes: { id: string; fields: Record<string, unknown> }[] }
 
-/** Produktfelder-Änderungsset (liest über den geschützten Reader) */
+/** Product fields change set (reads via the protected reader) */
 export async function buildProductChangeSet(q: Q, a: ProposeArgs, currency: string): Promise<ChangeSet> {
   if (!a.changes?.length) throw new Error('changes ist leer');
   if (a.changes.length > MAX_ITEMS) throw new Error(`Maximal ${MAX_ITEMS} Produkte pro Änderungsset: bitte aufteilen oder propose_bulk_product_change nutzen.`);
@@ -103,7 +103,7 @@ export async function buildProductChangeSet(q: Q, a: ProposeArgs, currency: stri
         }
         if (def.kind === 'faq') {
           const faq = normFaq(raw as RawFaq, p.title);
-          let cur: { items?: unknown[] } | null = null; try { cur = p.faq?.value ? JSON.parse(p.faq.value) : null; } catch { /* altes Format */ }
+          let cur: { items?: unknown[] } | null = null; try { cur = p.faq?.value ? JSON.parse(p.faq.value) : null; } catch { /* old format */ }
           items.push({ ...base, before: cur?.items?.length ? `${cur.items.length} Fragen` : '–', after: `${faq.items.length} Fragen: „${cut(faq.items[0].q, 70)}“ …`, afterRaw: faq, beforeRaw: cur ?? null, html: { before: '', after: faq.items.map(i => `F: ${i.q}\nA: ${i.a}`).join('\n\n').slice(0, 4000) }, warn: ['Das Theme muss das Metafeld lotse.faq ausgeben (z. B. als FAQ-Abschnitt)'] });
           continue;
         }
@@ -139,7 +139,7 @@ export async function buildProductChangeSet(q: Q, a: ProposeArgs, currency: stri
   return { id: newId(), kind: 'products', entity: 'product', title: a.title, reason: a.reason, items, skipped, unchanged, atomic: false };
 }
 
-// ---- Executor: Produktfelder ----
+// ---- Executor: product fields ----
 const seoOf = (p: Json) => ({ title: p.seo?.title ?? null, description: p.seo?.description ?? null });
 export async function freshProduct(client: ShopifyClient, id: string): Promise<Json> {
   const q: Q = (d, v) => client.gql(d, v);
@@ -149,7 +149,7 @@ export async function freshProduct(client: ShopifyClient, id: string): Promise<J
   return p;
 }
 
-/** Wert, den der Vorschlag als beforeRaw gemerkt hat (Tags sortiert, Preise je Variante als Zahl). */
+/** Value the proposal remembered as beforeRaw (tags sorted, prices per variant as numbers). */
 function shopifyFresh(p: Json, it: ChangeItem, varById: Map<string, Json>): unknown {
   switch (it.field) {
     case 'name': return p.title ?? null;
@@ -170,7 +170,7 @@ function shopifyFresh(p: Json, it: ChangeItem, varById: Map<string, Json>): unkn
   }
 }
 
-/** schreibt alle Felder eines Produkts; liefert die Rückgängig-Schritte (auch bei Teilfehlern die der erfolgreichen Schritte) */
+/** writes all fields of a product; returns the undo steps (on partial failure, those of the successful steps too) */
 export async function applyProductItems(client: ShopifyClient, its: ChangeItem[], results: ApplyResult['results'], undo: UndoOp[]) {
   const p = await freshProduct(client, its[0].entityId!), gid = p.id;
   const varById = new Map<string, Json>((p.variants?.nodes ?? []).map((v: Json) => [v.id, v]));
@@ -238,7 +238,7 @@ export async function applyProducts(client: ShopifyClient, cs: ChangeSet, select
   return { results, undo };
 }
 
-// ---- Neue Produkte ----
+// ---- New products ----
 export interface NewProductInput {
   name: string; description: string; price: number; listPrice?: number | null; sku?: string; barcode?: string; vendor?: string; productType?: string; tags?: string[];
   metaTitle?: string; metaDescription?: string; collectionIds?: string[]; images?: string[]; active?: boolean;
@@ -291,7 +291,7 @@ export async function buildNewProductsChangeSet(q: Q, a: { title: string; reason
   return { id: newId(), kind: 'new-products', entity: 'product', title: a.title, reason: a.reason, items, assets, skipped, atomic: false };
 }
 
-/** Online-Store-Publikation (für Veröffentlichen von Produkten/Kollektionen) */
+/** Online Store publication (for publishing products/collections) */
 export async function onlineStorePublication(client: ShopifyClient): Promise<string> {
   const r = await client.gql<Json>('query Pubs { publications(first: 20) { nodes { id name } } }');
   const p = r.publications.nodes.find((x: Json) => /online store|onlineshop|online-shop/i.test(x.name)) ?? r.publications.nodes[0];
@@ -299,13 +299,13 @@ export async function onlineStorePublication(client: ShopifyClient): Promise<str
   return p.id;
 }
 
-/** Produkt-IDs mit diesem Titel (Kandidaten für das Rückgängig eines Anlegens mit unklarem Ausgang) */
+/** Product IDs with this title (candidates for undoing a creation with unclear outcome) */
 export const productIdsByTitle = (client: ShopifyClient, title: string) => idsWhere((d, v) => client.gql(d, v), 'products', qField('title', title));
 
 /**
- * Legt ein Produkt an. Rückgängig-Schritte landen SOFORT nach jeder erfolgreichen Mutation in undo (auch wenn ein späterer Schritt
- * scheitert, bleibt das angelegte Produkt rückgängig machbar; geht die Antwort von productCreate verloren, wird das Produkt per Titel
- * nachgelesen). Wirft beim ersten Fehler.
+ * Creates a product. Undo steps go into undo IMMEDIATELY after each successful mutation (even if a later step
+ * fails, the created product stays undoable; if the productCreate response is lost, the product is looked up
+ * by title). Throws on the first error.
  */
 export async function createProduct(client: ShopifyClient, p: NewProductPayload, undo: UndoOp[]): Promise<void> {
   const sku = p.sku?.trim();
@@ -326,16 +326,16 @@ export async function createProduct(client: ShopifyClient, p: NewProductPayload,
     media: media.length ? media : null,
   }, undo, 'product', () => productIdsByTitle(client, p.name));
   const gid = r.product.id;
-  undo.push(deleteOp('product', gid)); // läuft beim Rückgängig zuletzt (umgekehrte Reihenfolge)
+  undo.push(deleteOp('product', gid)); // runs last on undo (reverse order)
   const variantId = r.product.variants?.nodes?.[0]?.id;
   if (variantId) await run(client, M.variantsUpdate, { productId: gid, variants: [{ id: variantId, price: money(p.price, p.currency), ...(p.listPrice ? { compareAtPrice: money(p.listPrice, p.currency) } : {}), ...(p.sku ? { inventoryItem: { sku: p.sku } } : {}), ...(p.barcode ? { barcode: p.barcode } : {}) }] });
-  if (files.length) { // vorhandene Dateien nur verknüpfen; beim Rückgängig zuerst lösen, damit das Löschen des Produkts sie nicht mitnimmt
+  if (files.length) { // only link existing files; on undo detach them first so deleting the product doesn't take them along
     await runRecording(client, M.fileUpdate, { files: files.map(id => ({ id, referencesToAdd: [gid] })) }, undo, reqOp('product-media', gid, M.fileUpdate, { files: files.map(id => ({ id, referencesToRemove: [gid] })) }));
   }
   if (p.active) await run(client, M.publish, { id: gid, input: [{ publicationId: await onlineStorePublication(client) }] });
 }
 
-// ---- Varianten ----
+// ---- Variants ----
 export interface VariantsArgs {
   title: string; reason: string; productId: string;
   update?: { id: string; price?: PriceSpec; listPrice?: PriceSpec; sku?: string; barcode?: string }[];
@@ -348,7 +348,7 @@ export async function buildVariantsChangeSet(q: Q, a: VariantsArgs, currency: st
   if (p.variants?.pageInfo?.hasNextPage) p.variants.nodes = await allVariants(q, p);
   const variants: Json[] = p.variants.nodes, byId = new Map(variants.map(v => [shortId(v.id), v]));
   const items: ChangeItem[] = [], skipped: { id: string; reason: string }[] = [], pid = shortId(p.id);
-  // updateAll gilt für alle Varianten, update je Variante hat feldweise Vorrang; fremde IDs aus update bleiben als „gehört nicht zu diesem Produkt“ stehen
+  // updateAll applies to all variants, per-variant update takes precedence field by field; foreign IDs from update remain as "does not belong to this product"
   const vid = (id: string) => { try { return shortId(toGid('ProductVariant', id)); } catch { return String(id); } };
   const byUpd = new Map((a.update ?? []).map(u => [vid(u.id), u]));
   const updates = a.updateAll ? [...variants.map(v => ({ id: shortId(v.id), ...a.updateAll, ...byUpd.get(shortId(v.id)) })), ...(a.update ?? []).filter(u => !byId.has(vid(u.id)))] : [...(a.update ?? [])];
@@ -412,11 +412,11 @@ export async function applyVariants(client: ShopifyClient, cs: ChangeSet, select
       note((r.productVariants ?? []).map((v: Json) => v.id));
       creates.forEach(i => results.push({ itemId: i.id, ok: true }));
     } catch (e) {
-      if (!isUserError(e)) { // Ausgang unklar: angelegte Varianten an ihren Optionswerten erkennen und zum Löschen vormerken
+      if (!isUserError(e)) { // outcome unclear: identify created variants by their option values and mark them for deletion
         try {
           const want = new Set(creates.map(i => ((i.afterRaw as Json).optionValues as Json[]).map(o => `${o.optionName}=${o.name}`).join('|'))), p = await freshProduct(client, creates[0].entityId!);
           note((p.variants.nodes as Json[]).filter(v => want.has((v.selectedOptions as Json[]).map(o => `${o.name}=${o.value}`).join('|'))).map(v => v.id));
-        } catch { /* nicht lesbar */ }
+        } catch { /* not readable */ }
       }
       creates.forEach(i => results.push({ itemId: i.id, ok: false, error: errMsg(e) }));
     }
@@ -424,14 +424,14 @@ export async function applyVariants(client: ShopifyClient, cs: ChangeSet, select
   return { results, undo };
 }
 
-// ---- Stapelverarbeitung: eine Regel für alle Produkte eines Filters ----
+// ---- Bulk edit: one rule for all products of a filter ----
 export const BULK_MAX = 10_000;
 const SAMPLE = 50;
 export interface PriceRule { percent?: number; add?: number; set?: number; round?: string }
 export interface BulkChange { price?: PriceRule; listPrice?: PriceRule | null | 'currentPrice'; active?: boolean; status?: string; tags?: { add?: string[]; remove?: string[] } }
 export interface BulkPlan {
   id: string; group: 'ok' | 'warn'; variants?: { id: string; price?: string; compareAtPrice?: string | null }[]; status?: string; tags?: string[];
-  /** Werte beim Vorschlag: hat sich das Produkt bis zur Freigabe geändert, wird es nicht überschrieben */
+  /** Values at proposal time: if the product has changed by the time of approval, it is not overwritten */
   prev?: { status?: string; tags?: string[]; variants?: Record<string, { price?: string | null; compareAtPrice?: string | null }> };
 }
 
@@ -462,7 +462,7 @@ export function describeBulk(c: BulkChange, currency: string): string {
   return out.join(' · ');
 }
 
-/** Plan je Produkt (rein, testbar) */
+/** Plan per product (pure, testable) */
 export function planBulk(p: Json, c: BulkChange, currency: string): { plan: BulkPlan | null; before: string[]; after: string[]; warn: string[]; skip?: string; old?: number; neu?: number } {
   const plan: BulkPlan = { id: shortId(p.id), group: 'ok' }, prev: NonNullable<BulkPlan['prev']> = {}, before: string[] = [], after: string[] = [], warn = new Set<string>();
   const vs: Json[] = p.variants?.nodes ?? [];
@@ -482,7 +482,7 @@ export function planBulk(p: Json, c: BulkChange, currency: string): { plan: Bulk
       }
       if (out.length) {
         plan.variants = out;
-        // Anzahl der geänderten Varianten mit anzeigen (sonst wirkt ein Produkt mit 4 Varianten wie eine einzelne Preisänderung)
+        // Also show the number of changed variants (otherwise a product with 4 variants looks like a single price change)
         if (news.length) { before.push(`Preis ${priceRange(olds, currency)}`); after.push(`Preis ${priceRange(news, currency)}`); }
         if (la.length) { before.push(`Streichpreis ${priceRange(lb, currency)}`); after.push(la.every(x => x === null) ? 'Streichpreis entfernt' : `Streichpreis ${priceRange(la, currency)}`); }
       }
@@ -502,11 +502,11 @@ export function planBulk(p: Json, c: BulkChange, currency: string): { plan: Bulk
   }
 }
 
-// Shopify rechnet die Kostengrenze (1000) nach der ANGEFRAGTEN Größe: 50 Produkte × (1 + 2 + 15 Varianten) + 2 = 902 je Seite;
-// die wenigen Produkte mit mehr als 15 Varianten lädt allVariants nach
+// Shopify computes the cost limit (1000) from the REQUESTED size: 50 products × (1 + 2 + 15 variants) + 2 = 902 per page;
+// allVariants loads the few products with more than 15 variants afterwards
 const BULK_SEL = 'id title status tags variants(first: 15) { nodes { id sku price compareAtPrice } pageInfo { hasNextPage endCursor } }';
 export const BULK_PAGE = 50;
-/** alle Produkte eines Filters (seitenweise, mit allen Varianten) */
+/** all products of a filter (page by page, with all variants) */
 export async function scanProducts(q: Q, f: ProductFilter, cap = BULK_MAX, sel = BULK_SEL): Promise<Json[]> {
   const out: Json[] = [], query = productQuery(f); let after: string | null = null;
   for (;;) {
@@ -537,7 +537,7 @@ export function bulkChangeSet(title: string, reason: string, c: BulkChange, rows
   return { cs, payload: { plans: todo.map(x => x.r.plan!) } };
 }
 
-/** Was hat sich seit dem Vorschlag geändert? null = nichts (rein, testbar) */
+/** What has changed since the proposal? null = nothing (pure, testable) */
 export function bulkStale(plan: BulkPlan, p: Json, vById: Map<string, Json>): string | null {
   const pv = plan.prev; if (!pv) return null;
   if (pv.status !== undefined && pv.status !== p.status) return 'Status';
@@ -578,7 +578,7 @@ export async function applyBulk(client: ShopifyClient, cs: ChangeSet, payload: {
       ctx?.progress?.(++done, plans.length, { results: all, undo });
     }
   });
-  // Ergebnis klein halten: je Gruppe eine Zeile + Stichprobe + höchstens 100 Fehler
+  // Keep the result small: one line per group + sample + at most 100 errors
   const bad = new Map(all.filter(r => !r.ok).map(r => [r.itemId, r])), sample = new Set((cs.sample ?? []).map(i => i.id)), results: ApplyResult['results'] = [];
   for (const g of ['ok', 'warn'] as const) {
     const ids = plans.filter(p => p.group === g).map(p => p.id); if (!ids.length) continue;

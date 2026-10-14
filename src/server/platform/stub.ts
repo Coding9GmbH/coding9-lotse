@@ -1,6 +1,6 @@
 import 'server-only';
-// Vorlage für künftige Adapter (heute ungenutzt, alle vier Plattformen sind fertig; siehe docs/platform.md §1): Einstellungen und Typen
-// sind vollständig, Werkzeuge melden ehrlich „noch nicht verfügbar“. Wird beim Umsetzen durch einen echten Adapter ersetzt.
+// Template for future adapters (unused today, all four platforms are done; see docs/platform.md §1): settings and types
+// are complete, tools honestly report "not available yet". Replaced by a real adapter during implementation.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { PLATFORM_SETTINGS, type PlatformKind } from '@/lib/platforms';
@@ -12,7 +12,7 @@ import type { PlatformAdapter, PlatformCapabilities, ShopLookup } from './types'
 
 export class NotAvailableError extends Error { notAvailable = true as const; }
 
-/** Lese-Werkzeuge mit den vereinbarten Namen (gleiche Namen auf allen Plattformen), die nur den Hinweis liefern */
+/** Read tools with the agreed names (same names on all platforms) that only return the notice */
 const STUB_TOOLS = ['search_products', 'get_product', 'list_products', 'search_categories', 'get_category'];
 
 export function stubAdapter(kind: Exclude<PlatformKind, 'shopware'>, o: { capabilities: PlatformCapabilities; promptVars: Record<string, string>; paths: { adminCategory: string; adminProduct: string; adminCms: string; category: string; product: string } }): PlatformAdapter {
@@ -49,5 +49,5 @@ export function stubAdapter(kind: Exclude<PlatformKind, 'shopware'>, o: { capabi
   };
 }
 
-/** Grundausstattung einer HTML-Plattform: freie Landingpages und Kategorie-/Kollektionsseiten aus generischen Blöcken */
+/** Basic setup of an HTML platform: free landing pages and category/collection pages from generic blocks */
 export const HTML_CAPABILITIES: PlatformCapabilities = { pageTypes: ['landingpage', 'product_list'], publishTargets: ['landingpage', 'category'], blocks: GENERIC_BLOCKS, pageFormat: 'html', reuse: false };

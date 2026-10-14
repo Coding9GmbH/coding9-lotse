@@ -1,12 +1,12 @@
 import 'server-only';
-// Shopify: geschützter Lese-Client der KI. Freigabeliste der GraphQL-Root-Felder (keine Sperrliste), Bereiche aus den Einstellungen
-// (KI-Zugriff), verbotene Begriffe in Feldern/Argumenten, nur Queries (nie Mutationen), Bereinigung sensibler Felder, Zugriffsprotokoll.
-// Die Werkzeuge rufen feste Queries aus dem Code auf; die KI bestimmt nie selbst eine Query.
+// Shopify: the AI's protected read client. Allowlist of GraphQL root fields (not a denylist), scopes from settings
+// (AI access), forbidden terms in fields/arguments, queries only (never mutations), scrubbing of sensitive fields, access log.
+// The tools call fixed queries from the code; the AI never decides a query itself.
 import type { ScopeKey } from '@/lib/protocol';
 import { DENIED_TERMS, DEFAULT_SCOPES, DeniedError, SCOPES, scrubSensitive, type AccessEvent, type Scopes } from '../../policy';
 import { gidType, type Json, type ShopifyClient } from './client';
 
-/** Root-Felder, die die KI lesen darf → Bereich. null = Bereich hängt an den IDs (nodes, translatableResourcesByIds) */
+/** Root fields the AI may read → scope. null = scope depends on the IDs (nodes, translatableResourcesByIds) */
 export const ROOTS: Record<string, ScopeKey | null> = {
   shop: 'shop', shopLocales: 'shop', publications: 'shop', locations: 'shop',
   products: 'products', product: 'products', productsCount: 'products', productVariants: 'products', productVariant: 'products',
@@ -16,23 +16,23 @@ export const ROOTS: Record<string, ScopeKey | null> = {
   codeDiscountNodes: 'marketing', codeDiscountNode: 'marketing',
   nodes: null, translatableResourcesByIds: null,
 };
-/** Bereich je GID-Typ (für nodes/translatableResourcesByIds); alle anderen Typen (Customer, Order, …) sind gesperrt */
+/** Scope per GID type (for nodes/translatableResourcesByIds); all other types (Customer, Order, …) are blocked */
 export const GID_SCOPE: Record<string, ScopeKey> = {
   Product: 'products', ProductVariant: 'products', ProductOption: 'products', ProductOptionValue: 'products',
   Collection: 'categories', MediaImage: 'media', Page: 'cms', DiscountCodeNode: 'marketing',
 };
-/** verschachtelte Felder, die zusätzlich einen Bereich brauchen (z. B. Produkte einer Kollektion, Bilder eines Produkts) */
+/** nested fields that additionally need a scope (e.g. products of a collection, images of a product) */
 const NESTED: Record<string, ScopeKey> = { products: 'products', variants: 'products', productVariants: 'products', collections: 'categories', media: 'media', featuredMedia: 'media', files: 'media' };
-/** harmlose Bezeichner, die DENIED_TERMS sonst träfe (Sortierung einer Kollektion, Rabatt-Einstellungen ohne Kundenbezug) */
+/** harmless identifiers that DENIED_TERMS would otherwise hit (a collection's sort order, discount settings without customer reference) */
 const BENIGN = new Set(['sortOrder', 'appliesOncePerCustomer', 'customerGets', 'orderDiscounts']);
 
 const stripLiterals = (doc: string) => doc.replace(/"""[\s\S]*?"""/g, '""').replace(/"(?:\\.|[^"\\])*"/g, '""').replace(/#[^\n]*/g, '');
 
-/** Root-Felder der (einzigen) Query eines Dokuments; Aliase werden aufgelöst. Wirft bei Mutation/Subscription/mehreren Operationen. */
+/** Root fields of a document's (single) query; aliases are resolved. Throws on mutation/subscription/multiple operations. */
 export function rootFields(doc: string): string[] {
   const s = stripLiterals(doc);
   let i = 0, depth = 0, ops = 0, start = -1;
-  // Operationen auf oberster Ebene zählen (Fragmente sind erlaubt, liefern aber keine Root-Felder)
+  // Count top-level operations (fragments are allowed but yield no root fields)
   for (; i < s.length; i++) {
     const ch = s[i];
     if (ch === '{') { if (depth === 0) { const head = s.slice(s.lastIndexOf('}', i) + 1, i).trim(); if (/^(mutation|subscription)\b/.test(head)) throw new DeniedError('ZUGRIFF VERWEIGERT: Die KI darf nur lesen (keine Mutationen).'); if (!/^fragment\b/.test(head)) { ops++; if (start < 0) start = i; } } depth++; }
@@ -53,12 +53,12 @@ export function rootFields(doc: string): string[] {
   }
   return out;
 }
-/** alle Bezeichner (Felder, Argumente, Enum-Werte, Typnamen) ohne Variablen-Namen und Literale */
+/** all identifiers (fields, arguments, enum values, type names) without variable names and literals */
 export const identifiers = (doc: string) => [...stripLiterals(doc).replace(/\$\w+/g, ' ').matchAll(/[A-Za-z_]\w*/g)].map(m => m[0]);
 
 export interface ReaderOpts { chat?: string; getScopes?: () => Scopes; onAccess?: (a: AccessEvent & { chat?: string }) => void }
 
-/** Zählt gelesene Datensätze grob (Connection-Knoten bzw. 1 je Objekt) */
+/** Roughly counts records read (connection nodes or 1 per object) */
 function countOf(data: Json): number {
   let n = 0;
   for (const v of Object.values(data ?? {})) n += Array.isArray(v) ? v.length : v && typeof v === 'object' ? (Array.isArray(v.nodes) ? v.nodes.length : Array.isArray(v.edges) ? v.edges.length : 'count' in v ? 1 : 1) : 0;
@@ -69,19 +69,19 @@ export class ShopifyReader {
   readonly platform = 'shopify' as const;
   readonly #client: ShopifyClient;
   readonly #o: ReaderOpts;
-  /** Zwischenspeicher je Reader (Session bzw. Shop-Check-Durchlauf), z. B. Shop-Grunddaten */
+  /** Cache per reader (session or shop check run), e.g. basic shop data */
   readonly cache = new Map<string, Promise<unknown>>();
   constructor(client: ShopifyClient, o: ReaderOpts = {}) { this.#client = client; this.#o = o; }
 
   #deny(entity: string, msg: string): DeniedError {
-    try { this.#o.onAccess?.({ chat: this.#o.chat, op: 'deny', entity, n: 0, denied: msg.slice(0, 160) }); } catch { /* Protokoll darf nie stören */ }
+    try { this.#o.onAccess?.({ chat: this.#o.chat, op: 'deny', entity, n: 0, denied: msg.slice(0, 160) }); } catch { /* logging must never interfere */ }
     return new DeniedError('ZUGRIFF VERWEIGERT: ' + msg);
   }
   #enabled(entity: string, sc: ScopeKey) {
     if (!(this.#o.getScopes ?? (() => DEFAULT_SCOPES))()[sc]) throw this.#deny(entity, `Zugriff auf „${SCOPES[sc].label}“ ist vom Betreiber nicht freigegeben (Einstellungen → KI-Zugriff).`);
   }
 
-  /** Prüft ein Query-Dokument gegen die Freigabeliste; liefert die Root-Felder */
+  /** Checks a query document against the allowlist; returns the root fields */
   check(doc: string, vars: Json = {}): string[] {
     let roots: string[];
     try { roots = rootFields(doc); } catch (e) { if (e instanceof DeniedError) throw this.#deny('graphql', e.message.replace(/^ZUGRIFF VERWEIGERT: /, '')); throw e; }
@@ -102,16 +102,16 @@ export class ShopifyReader {
     return roots;
   }
 
-  /** feste Query ausführen (nach Prüfung), Ergebnis bereinigen, Zugriff protokollieren */
+  /** run a fixed query (after the check), scrub the result, log the access */
   async query<T = Json>(doc: string, vars: Json = {}): Promise<T> {
     const roots = this.check(doc, vars);
     const data = await this.#client.gql<Json>(doc, vars);
     const scrubbed = scrubSensitive(data);
-    try { this.#o.onAccess?.({ chat: this.#o.chat, op: 'read', entity: roots.join(','), n: countOf(data), scrubbed }); } catch { /* Protokoll darf nie stören */ }
+    try { this.#o.onAccess?.({ chat: this.#o.chat, op: 'read', entity: roots.join(','), n: countOf(data), scrubbed }); } catch { /* logging must never interfere */ }
     return data as T;
   }
 
-  /** einmal je Reader: Ergebnis zwischenspeichern */
+  /** once per reader: cache the result */
   memo<T>(key: string, fn: () => Promise<T>): Promise<T> {
     let p = this.cache.get(key) as Promise<T> | undefined;
     if (!p) { p = fn(); this.cache.set(key, p); p.catch(() => this.cache.delete(key)); }

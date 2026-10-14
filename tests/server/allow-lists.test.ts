@@ -5,7 +5,7 @@ import { ROOTS } from '../../src/server/platform/shopify/reader';
 import { ALLOW as MAGENTO_ALLOW } from '../../src/server/platform/magento/reader';
 import { ALLOW as OPENMAGE_ALLOW } from '../../src/server/platform/openmage/reader';
 
-// Exakte Freigabelisten: ein zusätzlicher Eintrag macht den Vergleich rot. Sortiert, damit nur der Inhalt zählt.
+// Exact allow-lists: an extra entry turns the comparison red. Sorted so only the content matters.
 const reKey = (re: RegExp) => `${re.flags}\0${re.source}`;
 const sortRe = (list: readonly RegExp[]) => [...list].sort((a, b) => reKey(a).localeCompare(reKey(b)));
 type Row = { re: RegExp; scope: string; entity: string; method?: string };
@@ -15,7 +15,7 @@ const entriesOf = (roots: Record<string, string | null>) => Object.entries(roots
 
 const SHOPWARE_ENTITIES = {
   products: ['product', 'product-media', 'tax', 'property-group', 'property-group-option', 'product-configurator-setting', 'product-visibility', 'product-cross-selling', 'product-cross-selling-assigned-products', 'product-stream', 'product-stream-filter', 'delivery-time', 'tag', 'unit'],
-  // Hersteller haben einen eigenen Schalter; Integrationen (gsc, sistrix) sind reine Daten-Schalter ohne Shop-Entitäten
+  // Manufacturers have their own switch; integrations (gsc, sistrix) are pure data switches without shop entities
   manufacturers: ['product-manufacturer'],
   categories: ['category'],
   cms: ['cms-page', 'cms-section', 'cms-block', 'cms-slot', 'landing-page', 'seo-url'],
@@ -80,20 +80,20 @@ const OPENMAGE: Row[] = [
   { re: /^\/v1\/urlrewrites(\/\d+)?$/, scope: 'shop', entity: 'url-rewrite' },
 ];
 
-test('Shopware: SCOPES-Entitäten und GET_ALLOW exakt', () => {
+test('Shopware: SCOPES entities and GET_ALLOW exact', () => {
   const expected = Object.fromEntries(Object.entries(SHOPWARE_ENTITIES).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, [...v].sort()]));
   assert.deepEqual(entitiesOf(SCOPES), expected);
   assert.deepEqual(sortRe(GET_ALLOW), sortRe(SHOPWARE_GET_ALLOW));
 });
 
-test('Shopify: ROOTS exakt', () => {
+test('Shopify: ROOTS exact', () => {
   assert.deepEqual(entriesOf(ROOTS), entriesOf(SHOPIFY_ROOTS));
 });
 
-test('Magento: ALLOW exakt', () => {
+test('Magento: ALLOW exact', () => {
   assert.deepEqual(sortRows(MAGENTO_ALLOW), sortRows(MAGENTO));
 });
 
-test('OpenMage: ALLOW exakt', () => {
+test('OpenMage: ALLOW exact', () => {
   assert.deepEqual(sortRows(OPENMAGE_ALLOW), sortRows(OPENMAGE));
 });

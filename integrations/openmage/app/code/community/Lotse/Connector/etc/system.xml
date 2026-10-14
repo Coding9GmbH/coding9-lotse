@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<!-- Lotse Connector: Admin-Konfiguration (System > Konfiguration > Lotse > API). -->
+<!-- Lotse Connector: admin configuration (System > Konfiguration > Lotse > API). -->
 <config>
     <tabs>
         <lotse translate="label" module="lotse_connector">

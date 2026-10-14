@@ -1,5 +1,5 @@
-// Shopware-Adapter gegen einen Fake-Lese-Client: Werkzeuge (Paginierung, Filter, Deckel, read_page-Herkunft, Vorschlag → Änderungsset),
-// Seiten (Vorschau-Daten, Veröffentlichungsprüfung) und Lookup. Kein Shop nötig; der Fake zeichnet jede Suche auf.
+// Shopware adapter against a fake read client: tools (pagination, filters, caps, read_page origin, proposal → change set),
+// pages (preview data, publish check) and lookup. No shop needed; the fake records every search.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -20,7 +20,7 @@ type ShopReader = import('../../../../src/server/shopware').ShopReader;
 type SwEntity = import('../../../../src/server/shopware').SwEntity;
 type Criteria = import('../../../../src/server/policy').Criteria;
 
-// ---- Fake-Shop: 120 Hauptprodukte (Preis = laufende Nummer), Kategorien, Medien, eine Einkaufswelt ----
+// ---- Fake shop: 120 parent products (price = sequence number), categories, media, one Shopping Experience ----
 const pad = (n: number) => String(n).padStart(3, '0');
 const products: SwEntity[] = Array.from({ length: 120 }, (_, i) => ({ id: `p${pad(i + 1)}`, productNumber: `P-${pad(i + 1)}`, name: `Produkt ${i + 1}`, translated: { name: `Produkt ${i + 1}`, description: '<p>Text</p>' }, parentId: null, active: i % 10 !== 0, stock: i, price: [{ currencyId: 'cur', gross: i + 1, net: (i + 1) / 1.19 }], tax: { taxRate: 19 }, coverId: null, categoryTree: i < 10 ? ['c1'] : null, categoriesRo: i < 10 ? [{ id: 'c1' }] : [] }));
 const categories: SwEntity[] = [{ id: 'c1', name: 'Wohnen', translated: { name: 'Wohnen', breadcrumb: ['Home', 'Wohnen'] }, type: 'page', level: 2, cmsPageId: 'cms1', active: true }];
@@ -67,28 +67,28 @@ const session = {
   requestChange: async (cs: ChangeSet) => { requested.push(cs); return { status: 'applied' as const, message: 'ok', applied: cs.items.length }; },
 } as unknown as Session;
 const tools = shopwareTools(session);
-const call = async (name: string, args: Record<string, unknown>) => { const t = tools.find(x => x.name === name); assert.ok(t, `Werkzeug ${name} fehlt`); return (await t.handler(args, {})) as Res; };
+const call = async (name: string, args: Record<string, unknown>) => { const t = tools.find(x => x.name === name); assert.ok(t, `tool ${name} missing`); return (await t.handler(args, {})) as Res; };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const json = (r: Res): any => { assert.equal(r.isError ?? false, false, r.content[0].text); return JSON.parse(r.content[0].text); };
 
-// ================= Werkzeuge =================
-test('list_products: offset wird auf die Seite gerundet und ehrlich gemeldet, nextOffset bis total', async () => {
+// ================= tools =================
+test('list_products: offset is rounded to the page and reported honestly, nextOffset up to total', async () => {
   const after = since();
   const r = json(await call('list_products', { limit: 50, offset: 30 }));
   const c = after().find(x => x.entity === 'product')!.criteria;
   assert.equal(c.limit, 50); assert.equal(c.page, 1);
-  assert.equal(r.offset, 0, 'gemeldeter offset = tatsächlich gelesene Seite'); assert.match(r.note, /offset auf 0 gerundet/);
+  assert.equal(r.offset, 0, 'reported offset = page actually read'); assert.match(r.note, /offset auf 0 gerundet/);
   assert.equal(r.total, 120); assert.equal(r.returned, 50); assert.equal(r.nextOffset, 50);
   assert.equal(r.products[0].number, 'P-001'); assert.equal(r.products[0].gross, 1);
   const last = json(await call('list_products', { limit: 50, offset: 100 }));
   assert.deepEqual([last.offset, last.returned, last.nextOffset, last.note], [100, 20, undefined, undefined]);
-  // details: Deckel 25, Seite entsprechend
+  // details: cap 25, page accordingly
   const d = json(await call('list_products', { limit: 50, offset: 25, details: true }));
   assert.deepEqual([d.offset, d.returned, d.nextOffset], [25, 25, 50]);
   assert.equal(d.products[0].description, 'Text');
 });
 
-test('list_products: Preisspanne filtert serverseitig (range auf price), total passt', async () => {
+test('list_products: price range filters server-side (range on price), total matches', async () => {
   const after = since();
   const r = json(await call('list_products', { minPrice: 100, maxPrice: 110, limit: 5 }));
   const c = after().find(x => x.entity === 'product')!.criteria;
@@ -100,7 +100,7 @@ test('list_products: Preisspanne filtert serverseitig (range auf price), total p
   assert.deepEqual(json(await call('list_products', { minPrice: 1000 })), { total: 0, returned: 0, offset: 0, products: [] });
 });
 
-test('search_*: limit ist gedeckelt (keine riesigen Antworten)', async () => {
+test('search_*: limit is capped (no huge responses)', async () => {
   const after = since();
   json(await call('search_products', { limit: 5000 }));
   json(await call('search_categories', { limit: 5000 }));
@@ -110,7 +110,7 @@ test('search_*: limit ist gedeckelt (keine riesigen Antworten)', async () => {
   assert.deepEqual(lims, [['product', 50], ['category', 100], ['media', 1], ['product', 15]]);
 });
 
-test('search_categories liefert, was die Beschreibung verspricht (keine Produktanzahl)', async () => {
+test('search_categories returns what the description promises (no product count)', async () => {
   const t = tools.find(x => x.name === 'search_categories')!;
   assert.doesNotMatch(t.description, /Produktanzahl/);
   const r = json(await call('search_categories', { term: 'Wohnen' }));
@@ -118,7 +118,7 @@ test('search_categories liefert, was die Beschreibung verspricht (keine Produkta
   assert.equal(r[0].path, 'Home > Wohnen');
 });
 
-test('get_cms_page: blockIndex entspricht der Reihenfolge von loadRawBlocks (Quelle für reuse)', async () => {
+test('get_cms_page: blockIndex matches the order of loadRawBlocks (source for reuse)', async () => {
   const r = json(await call('get_cms_page', { categoryId: 'c1' }));
   assert.equal(r.id, 'cms1');
   const raw = await loadRawBlocks(fake, 'cms1');
@@ -129,23 +129,23 @@ test('get_cms_page: blockIndex entspricht der Reihenfolge von loadRawBlocks (Que
   assert.match(r.hint, /cmsPageId:"cms1"/);
 });
 
-test('read_page: nur Shop-Domains, auch nach Weiterleitung', async () => {
+test('read_page: shop domains only, also after redirect', async () => {
   fetched = [];
   const foreign = await call('read_page', { url: 'https://fremd.example/aktion' });
   assert.equal(foreign.isError, true); assert.match(foreign.content[0].text, /nur Seiten des eigenen Shops/);
-  assert.equal(fetched.length, 0, 'fremde URL wird nicht abgerufen');
+  assert.equal(fetched.length, 0, 'foreign URL is not fetched');
   const ok = json(await call('read_page', { url: 'https://shop.example/wohnen/' }));
   assert.equal(ok.url, 'https://shop.example/wohnen/'); assert.equal(ok.title, 'Wohnen');
-  // Shop leitet auf fremde Adresse weiter: wird nicht an die KI gegeben
+  // shop redirects to a foreign address: not passed to the AI
   fetchResponse = () => ({ ok: true, status: 200, url: 'https://fremd.example/landing', text: async () => '<html><title>Fremd</title></html>' });
   const redirected = await call('read_page', { url: 'https://shop.example/aktion' });
   assert.equal(redirected.isError, true); assert.match(redirected.content[0].text, /fremd\.example/);
-  // Weiterleitung innerhalb des Shops (z. B. auf die interne Adresse) ist in Ordnung
+  // redirect within the shop (e.g. to the internal address) is fine
   fetchResponse = () => ({ ok: true, status: 200, url: 'http://shopware:8000/wohnen/', text: async () => '<html><title>Intern</title></html>' });
   assert.equal(json(await call('read_page', { url: 'https://shop.example/wohnen' })).title, 'Intern');
 });
 
-test('propose_product_changes: nichts wird geschrieben, Änderungsset geht an session.requestChange', async () => {
+test('propose_product_changes: nothing is written, change set goes to session.requestChange', async () => {
   const r = json(await call('propose_product_changes', { title: 'Bestand', reason: 'Inventur', changes: [{ id: 'p001', fields: { stock: 5 } }, { id: 'p002', fields: { price: { percent: -10, round: '.99' } } }] }));
   assert.equal(r.status, 'applied');
   const cs = requested.at(-1)!;
@@ -154,8 +154,8 @@ test('propose_product_changes: nichts wird geschrieben, Änderungsset geht an se
   assert.equal(cs.title, 'Bestand');
 });
 
-// ================= Seiten =================
-test('previewData: vorgemerkte Bilder → /staged/<datei>, Medien in einer Suche, alle Slider-Produkte', async () => {
+// ================= pages =================
+test('previewData: staged images → /staged/<file>, media in one search, all slider products', async () => {
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64');
   const staged = stageImage(png, 'image/png', { name: 'hero', alt: 'Hero' });
   const ids = products.slice(0, 70).map(p => p.id);
@@ -168,14 +168,14 @@ test('previewData: vorgemerkte Bilder → /staged/<datei>, Medien in einer Suche
   assert.equal(ctx.imageUrl!({ mediaId: 'm1' }), 'https://shop.example/media/m1.jpg');
   assert.equal(ctx.imageUrl!({ mediaId: 'fehlt' }), null);
   assert.equal(ctx.imageUrl!('https://x.example/a.jpg'), 'https://x.example/a.jpg');
-  assert.equal(Object.keys(ctx.products!).length, 70, 'alle Slider-Produkte (die 8 aktiven der Vorschau-Kategorie sind schon darunter)');
+  assert.equal(Object.keys(ctx.products!).length, 70, 'all slider products (the 8 active ones of the preview category are already included)');
   assert.equal(ctx.products!.p001.price, '1,00 €');
   const c = after();
-  assert.deepEqual(c.filter(x => x.entity === 'media').map(x => [x.op, (x.criteria.ids as string[]).length]), [['search', 2]], 'Medien gesammelt in einer Suche');
+  assert.deepEqual(c.filter(x => x.entity === 'media').map(x => [x.op, (x.criteria.ids as string[]).length]), [['search', 2]], 'media collected in one search');
   assert.deepEqual(c.filter(x => x.entity === 'product' && Array.isArray(x.criteria.ids)).map(x => (x.criteria.ids as string[]).length), [50, 20]);
 });
 
-test('buildPublish: fehlende Angaben werden benannt, wichtige Link-Befunde landen als Warnung am Änderungsset', async () => {
+test('buildPublish: missing details are named, important link findings end up as a warning on the change set', async () => {
   const spec = { name: 'Wohnen', type: 'product_list' as const, sections: [{ blocks: [{ type: 'text', html: '<p>Hi</p>', linkUrl: 'javascript:alert(1)' }, { type: 'product-listing' }] }] };
   await assert.rejects(shopwarePages.buildPublish(session, spec, { target: 'landingpage', url: 'aktion' }), /url und salesChannelId fehlen/);
   await assert.rejects(shopwarePages.buildPublish(session, spec, { target: 'category' }), /categoryId fehlt/);
@@ -188,12 +188,12 @@ test('buildPublish: fehlende Angaben werden benannt, wichtige Link-Befunde lande
 });
 
 // ================= Lookup =================
-test('shopwareLookup: erst IDs, dann Nummern; ohne Angaben kein Abruf; asLookup reicht durch', async () => {
+test('shopwareLookup: IDs first, then numbers; no fetch without input; asLookup passes through', async () => {
   const lookup = shopwareLookup(fake);
   const after = since();
   assert.deepEqual(await lookup.findProducts({ ids: ['p002'], numbers: ['P-001'] }), [{ id: 'p002', number: 'P-002', name: 'Produkt 2' }, { id: 'p001', number: 'P-001', name: 'Produkt 1' }]);
   assert.deepEqual(await lookup.findProducts({}), []);
-  assert.equal(after().length, 2, 'genau zwei Suchen, keine für leere Angaben');
+  assert.equal(after().length, 2, 'exactly two searches, none for empty input');
   assert.deepEqual(await lookup.getProduct('p050'), { id: 'p050', number: 'P-050', name: 'Produkt 50', ean: undefined, categoryIds: [] });
   assert.deepEqual((await lookup.getProduct('p001'))?.categoryIds, ['c1']);
   assert.equal(await lookup.getProduct('nix'), null);
@@ -203,7 +203,7 @@ test('shopwareLookup: erst IDs, dann Nummern; ohne Angaben kein Abruf; asLookup 
   assert.equal(typeof asLookup(fake).mapUrls, 'function');
 });
 
-test('Vorschau: ohne Beispielprodukt/-kategorie wird ein echtes aktives Produkt mit Titelbild gewählt; genannte Werte bleiben', async () => {
+test('Preview: without a sample product/category a real active product with cover image is chosen; given values are kept', async () => {
   const { withPreviewDefaults } = await import('../../../../src/server/platform/shopware/pages');
   const calls: Record<string, unknown>[] = [];
   const sw = { search: async (_e: string, c: Record<string, unknown>) => { calls.push(c); return { data: [{ id: 'p-real', categoryIds: ['c-real'] }] }; } } as never;
@@ -214,13 +214,13 @@ test('Vorschau: ohne Beispielprodukt/-kategorie wird ein echtes aktives Produkt 
   const list = await withPreviewDefaults(sw, { name: 'x', type: 'product_list', sections: [] } as never);
   assert.equal(list.previewCategoryId, 'c-real'); assert.equal(list.previewProductId, undefined);
   const given = { name: 'x', type: 'product_detail', previewProductId: 'mine', sections: [] } as never;
-  assert.equal(await withPreviewDefaults(sw, given), given, 'genanntes Produkt bleibt');
+  assert.equal(await withPreviewDefaults(sw, given), given, 'given product is kept');
   assert.equal((await withPreviewDefaults(sw, { name: 'x', type: 'landingpage', sections: [] } as never)).previewProductId, undefined);
   const broken = { search: async () => { throw new Error('Shop weg'); } } as never;
-  assert.equal((await withPreviewDefaults(broken, pdp)).previewProductId, undefined, 'Fehler → Platzhalter statt Abbruch');
+  assert.equal((await withPreviewDefaults(broken, pdp)).previewProductId, undefined, 'error → placeholder instead of abort');
 });
 
-test('Neutrale Produktzeilen (Shopware): Standardwährung, Texte aus translated, Bestand, Titelbild; Deckel und Seiten', async () => {
+test('Neutral product rows (Shopware): default currency, texts from translated, stock, cover image; cap and pages', async () => {
   const { toNeutral, scanNeutral } = await import('../../../../src/server/platform/shopware/scan');
   const { DEFAULT_CURRENCY } = await import('../../../../src/server/changes');
   const n = toNeutral({ id: 'p1', productNumber: 'A-1', name: 'Roh', translated: { name: 'Vase', description: '<p>Text</p>', metaTitle: ' T ' }, stock: 4, coverId: 'm1',
@@ -234,6 +234,6 @@ test('Neutrale Produktzeilen (Shopware): Standardwährung, Texte aus translated,
   } } as never;
   const s = await scanNeutral(sw);
   assert.equal(s.rows.length, 251); assert.equal(s.total, 251); assert.equal(s.capped, false); assert.deepEqual(pages, [1, 2]);
-  assert.equal(await scanNeutral(sw), s, 'je Lese-Client einmal');
+  assert.equal(await scanNeutral(sw), s, 'once per read client');
   assert.equal(s.rows[0].hasImage, false);
 });

@@ -1,7 +1,7 @@
 <?php
 /**
- * Router für /lotse-api/...: fängt den Pfad vor dem Standard-Router ab und dispatcht
- * Lotse_Connector_ApiController::indexAction mit dem Restpfad als Parameter "lotse_path".
+ * Router for /lotse-api/...: intercepts the path before the standard router and dispatches
+ * Lotse_Connector_ApiController::indexAction with the remaining path as parameter "lotse_path".
  */
 class Lotse_Connector_Controller_Router extends Mage_Core_Controller_Varien_Router_Standard
 {

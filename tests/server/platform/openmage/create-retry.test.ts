@@ -7,7 +7,7 @@ after(() => fake.close());
 
 const plan = { name: 'Neu', description: '<p>x</p>', price: 10, sku: 'VASE-NEU', urlKey: 'vase-neu', attributeSetId: 4, websiteIds: [1], taxClassId: 2, images: [] as string[], categoryIds: [] as string[], stock: 0, active: false };
 
-test('OpenMage: Zeitlimit nach dem Anlegen lässt einen Löschschritt zurück, ein zweiter Lauf legt nicht noch eins an', async () => {
+test('OpenMage: a timeout after creating leaves a delete step behind, a second run does not create another one', async () => {
   const { OmClient } = await import('../../../../src/server/platform/openmage/client');
   const { createProduct } = await import('../../../../src/server/platform/openmage/images');
   const c = new OmClient({ url: fake.base, token: fake.token, storeCode: 'default' });
@@ -26,10 +26,10 @@ test('OpenMage: Zeitlimit nach dem Anlegen lässt einen Löschschritt zurück, e
   });
   assert.equal(fake.products.filter(p => p.sku === 'VASE-NEU').length, 1);
   await assert.rejects(createProduct(c, plan), /SKU VASE-NEU ist schon vergeben/);
-  assert.equal(fake.products.filter(p => p.sku === 'VASE-NEU').length, 1, 'kein zweites Produkt');
+  assert.equal(fake.products.filter(p => p.sku === 'VASE-NEU').length, 1, 'no second product');
 });
 
-test('OpenMage: Rückgängig überspringt ein Feld, das weder den geschriebenen noch den vorherigen Wert hat', async () => {
+test('OpenMage: undo skips a field that has neither the written nor the previous value', async () => {
   const { OmClient } = await import('../../../../src/server/platform/openmage/client');
   const { writeScoped, undoOpenmage } = await import('../../../../src/server/platform/openmage/write');
   const c = new OmClient({ url: fake.base, token: fake.token, storeCode: 'default' });

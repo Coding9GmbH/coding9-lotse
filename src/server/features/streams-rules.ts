@@ -1,26 +1,26 @@
-// Produktstreams: lesbare Regel (Gruppen/Bedingungen) ⇄ Shopware-Filterbaum (product-stream-filter). Reine Logik, ohne Shop-Zugriff.
+// Product streams: readable rule (groups/conditions) ⇄ Shopware filter tree (product-stream-filter). Pure logic, no shop access.
 
 export const COND_FIELDS = ['category', 'manufacturer', 'property', 'tag', 'productNumber', 'price', 'onSale', 'stock', 'active', 'releaseDate'] as const;
 export type CondField = typeof COND_FIELDS[number];
 export type IdKind = 'category' | 'manufacturer' | 'property' | 'tag' | 'product';
 
-/** Eine Bedingung, wie die KI sie formuliert (ids ODER names für Kategorie/Hersteller/Eigenschaft/Tag). */
+/** A condition as the AI phrases it (ids OR names for category/manufacturer/property/tag). */
 export interface CondSpec {
   field: CondField; ids?: string[]; names?: string[]; values?: string[];
   min?: number; max?: number; value?: boolean; from?: string; to?: string;
   includeSubcategories?: boolean; negate?: boolean;
 }
-/** Gruppen sind ODER-verknüpft, Bedingungen innerhalb einer Gruppe UND-verknüpft (so baut auch die Shopware-Administration Streams). */
+/** Groups are OR-combined, conditions within a group AND-combined (the Shopware Administration builds streams the same way). */
 export interface GroupSpec { conditions: CondSpec[] }
 
-/** Knoten im Filterbaum (Format der Admin-API, auch für die Stream-Vorschau) */
+/** Node in the filter tree (Admin API format, also used for the stream preview) */
 export interface FilterNode { type: string; field?: string | null; operator?: string | null; value?: string | null; parameters?: Record<string, unknown> | null; queries?: FilterNode[] }
-/** Gespeicherte Zeile von product-stream-filter (flach, über parentId verschachtelt) */
+/** Stored row of product-stream-filter (flat, nested via parentId) */
 export interface FilterRow { id: string; type: string; field?: string | null; operator?: string | null; value?: string | null; parameters?: Record<string, unknown> | null; position: number; parentId: string | null }
 
 export const MAX_GROUPS = 10, MAX_CONDS = 20;
 const ID_FIELD: Record<string, string> = { category: 'categoriesRo.id', manufacturer: 'manufacturerId', property: 'properties.id', tag: 'tags.id' };
-// Bekannte Felder (auch in der Administration angelegte Streams) → Anzeige
+// Known fields (also streams created in the Administration) → display
 const ID_FIELDS: Record<string, { kind: IdKind; label: string }> = {
   'categoriesRo.id': { kind: 'category', label: 'Kategorie (inkl. Unterkategorien)' }, 'categories.id': { kind: 'category', label: 'Kategorie' }, categoryIds: { kind: 'category', label: 'Kategorie' },
   manufacturerId: { kind: 'manufacturer', label: 'Hersteller' }, 'manufacturer.id': { kind: 'manufacturer', label: 'Hersteller' },
@@ -42,7 +42,7 @@ const deDate = (v: unknown) => { const m = String(v).match(/^(\d{4})-(\d{2})-(\d
 const num = (v: unknown, what: string) => { if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) throw new Error(`${what}: Zahl ≥ 0 erwartet`); return v; };
 const strip = (f: string | null | undefined) => (f ?? '').replace(/^product\./, '');
 
-/** Bereich min/max → parameters (mindestens eine Grenze, min ≤ max) */
+/** Range min/max → parameters (at least one bound, min ≤ max) */
 function range(c: CondSpec, what: string, int = false): Record<string, number> {
   const p: Record<string, number> = {};
   if (c.min != null) p.gte = num(c.min, what);
@@ -53,7 +53,7 @@ function range(c: CondSpec, what: string, int = false): Record<string, number> {
   return p;
 }
 
-/** Bedingung (mit aufgelösten ids) → Filterknoten. Wirft bei ungültigen Angaben. */
+/** Condition (with resolved ids) → filter node. Throws on invalid input. */
 export function condToNode(c: CondSpec): FilterNode {
   let n: FilterNode;
   switch (c.field) {
@@ -73,7 +73,7 @@ export function condToNode(c: CondSpec): FilterNode {
     }
     case 'price': n = { type: 'range', field: 'cheapestPrice', parameters: range(c, 'Preis') }; break;
     case 'stock': n = { type: 'range', field: 'stock', parameters: range(c, 'Bestand', true) }; break;
-    case 'onSale': { // Streichpreis vorhanden (optional Mindest-Rabatt in %); value:false = NICHT im Angebot
+    case 'onSale': { // List price present (optionally minimum discount in %); value:false = NOT on sale
       if (c.min != null && (num(c.min, 'Rabatt') > 100)) throw new Error('Rabatt: höchstens 100 %');
       n = { type: 'range', field: 'cheapestPrice.percentage', parameters: c.min != null && c.min > 0 ? { gte: c.min } : { gt: 0 } };
       if (c.value === false) n = { type: 'not', operator: 'AND', queries: [n] };
@@ -96,7 +96,7 @@ export function condToNode(c: CondSpec): FilterNode {
   return c.negate ? { type: 'not', operator: 'AND', queries: [n] } : n;
 }
 
-/** Regel → Baum: ODER (Wurzel) → UND-Gruppen → Bedingungen */
+/** Rule → tree: OR (root) → AND groups → conditions */
 export function specToTree(groups: GroupSpec[]): FilterNode {
   if (!groups?.length) throw new Error('Regel ist leer – mindestens eine Gruppe mit einer Bedingung angeben');
   if (groups.length > MAX_GROUPS) throw new Error(`Höchstens ${MAX_GROUPS} ODER-Gruppen`);
@@ -107,7 +107,7 @@ export function specToTree(groups: GroupSpec[]): FilterNode {
   }) };
 }
 
-/** Baum → flache Zeilen für product-stream-filter (neue IDs) */
+/** Tree → flat rows for product-stream-filter (new IDs) */
 export function treeToRows(roots: FilterNode[], newId: () => string): FilterRow[] {
   const out: FilterRow[] = [];
   const walk = (n: FilterNode, parentId: string | null, position: number) => {
@@ -119,7 +119,7 @@ export function treeToRows(roots: FilterNode[], newId: () => string): FilterRow[
   return out;
 }
 
-/** Gespeicherte Zeilen → Baum (Wurzeln nach Position) */
+/** Stored rows → tree (roots by position) */
 export function rowsToTree(rows: Partial<FilterRow>[]): FilterNode[] {
   const kids = new Map<string | null, Partial<FilterRow>[]>();
   for (const r of rows) { const k = r.parentId ?? null; if (!kids.has(k)) kids.set(k, []); kids.get(k)!.push(r); }
@@ -131,7 +131,7 @@ export function rowsToTree(rows: Partial<FilterRow>[]): FilterNode[] {
   return (kids.get(null) ?? []).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map(r => build(r, 0));
 }
 
-/** Baum → Regel (nur wenn er sich verlustfrei abbilden lässt; sonst null, z. B. bei eigenen Feldern aus der Administration) */
+/** Tree → rule (only if it maps losslessly; otherwise null, e.g. for custom fields from the Administration) */
 export function treeToSpec(roots: FilterNode[]): GroupSpec[] | null {
   if (roots.length !== 1) return null;
   const root = roots[0];
@@ -171,7 +171,7 @@ function nodeToCond(n: FilterNode): CondSpec | null {
   return null;
 }
 
-/** Alle referenzierten IDs je Art (für die Namensauflösung) */
+/** All referenced IDs per kind (for name resolution) */
 export function collectIds(roots: FilterNode[], acc: Record<IdKind, Set<string>> = { category: new Set(), manufacturer: new Set(), property: new Set(), tag: new Set(), product: new Set() }) {
   const walk = (n: FilterNode) => {
     const def = ID_FIELDS[strip(n.field)];
@@ -182,7 +182,7 @@ export function collectIds(roots: FilterNode[], acc: Record<IdKind, Set<string>>
   return acc;
 }
 
-/** Lesbare Regel, z. B. „Kategorie (inkl. Unterkategorien) = Wohnaccessoires UND Preis ≤ 50,00 €“ */
+/** Readable rule, e.g. "Kategorie (inkl. Unterkategorien) = Wohnaccessoires UND Preis ≤ 50,00 €" */
 export function renderRule(roots: FilterNode[], names: Record<string, string> = {}): string {
   if (!roots.length) return 'alle Produkte (keine Bedingung)';
   const name = (id: string) => names[id] ?? `unbekannt (${id.slice(0, 8)}…)`;
@@ -219,10 +219,10 @@ export function renderRule(roots: FilterNode[], names: Record<string, string> = 
     }
     return leaf(n, neg);
   };
-  // Mehrere Wurzeln verknüpft Shopware mit UND; Klammern nur, wo mehrere Teile verknüpft werden
+  // Shopware combines multiple roots with AND; parentheses only where several parts are combined
   return roots.map(r => node(r, roots.length > 1)).join(' UND ');
 }
 
-/** Struktur-Vergleich zweier Bäume (ohne IDs/Positionen) */
+/** Structural comparison of two trees (without IDs/positions) */
 export const sameTree = (a: FilterNode[], b: FilterNode[]) => JSON.stringify(norm(a)) === JSON.stringify(norm(b));
 const norm = (ns: FilterNode[]): unknown => ns.map(n => [n.type, strip(n.field) || null, n.operator ?? null, n.value ?? null, n.parameters ? Object.entries(n.parameters).sort() : null, norm(n.queries ?? [])]);

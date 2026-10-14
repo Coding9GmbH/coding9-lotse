@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   const body = await parseJson(req, schema);
   if (!body.ok) return body.res;
   const { chatId, approvalId, allow, selected } = body.data;
-  noteChatActor(chatId, actorFromRequest(req)); // für die Audit-Einträge des folgenden Anwendens (läuft in der Runde der KI weiter)
+  noteChatActor(chatId, actorFromRequest(req)); // for the audit entries of the subsequent apply (continues in the AI's turn)
   if (!decideChange(chatId, approvalId, allow, selected)) return jsonError(404, 'Diese Freigabe gibt es nicht mehr.');
   return Response.json({ ok: true });
 }

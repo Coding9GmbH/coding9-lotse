@@ -4,7 +4,7 @@ import { loadStyleguide, saveStyleguide } from '@/server/styleguide';
 
 export const dynamic = 'force-dynamic';
 
-// Wie bisher wird der Styleguide als Ganzes gespeichert; geprüft werden nur Form und Typen der bekannten Felder.
+// As before, the styleguide is stored as a whole; only the shape and types of known fields are validated.
 const str = z.string().optional();
 const schema = z.looseObject({
   brandName: str, summary: str, imagery: str, logoUrl: str, layoutNotes: str,

@@ -1,11 +1,11 @@
 import 'server-only';
-// Magento: plattform-neutrale Lesefunktionen (ShopLookup) über den geschützten Lese-Client – Wissensbasis, Search Console, view_image.
+// Magento: platform-neutral read functions (ShopLookup) via the protected read client: knowledge base, Search Console, view_image.
 import type { PageRef } from '../../features/gsc-map';
 import type { ShopLookup } from '../types';
 import { attrStr, isActive, parseMediaId, type MRecord } from './map';
 import type { MagentoReader } from './reader';
 
-/** Kategorien-IDs inkl. Eltern (ohne Wurzel 1) aus den Pfaden der Kategorien eines Produkts */
+/** Category IDs incl. parents (without root 1) from the paths of a product's categories */
 async function categoryIdsWithParents(ro: MagentoReader, ids: string[]): Promise<string[]> {
   const out = new Set<string>();
   for (const id of ids.slice(0, 30)) { const c = await ro.category(id).catch(() => null); for (const x of String(c?.path ?? id).split('/')) if (x && x !== '1') out.add(x); }
@@ -13,7 +13,7 @@ async function categoryIdsWithParents(ro: MagentoReader, ids: string[]): Promise
 }
 export const productCategoryIds = (p: MRecord): string[] => [...new Set([...((p.extension_attributes?.category_links ?? []) as { category_id: string }[]).map(l => String(l.category_id)), ...(((p.custom_attributes ?? []) as { attribute_code: string; value: unknown }[]).find(a => a.attribute_code === 'category_ids')?.value as string[] | undefined ?? []).map(String)])];
 
-/** Pfad einer Storefront-URL relativ zur Shop-Basis (ohne führenden Slash, ohne Query) */
+/** Path of a storefront URL relative to the shop base (without leading slash, without query) */
 export function relPath(url: string, bases: string[]): string | null {
   let u: URL; try { u = new URL(url); } catch { return null; }
   for (const b of bases) { if (!b) continue; let bu: URL; try { bu = new URL(b); } catch { continue; } if (bu.host !== u.host) continue; const pre = bu.pathname.replace(/\/+$/, ''); if (u.pathname.startsWith(pre)) return u.pathname.slice(pre.length).replace(/^\/+/, ''); }

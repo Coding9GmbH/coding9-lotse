@@ -23,10 +23,10 @@ interface Props {
   onUndo: () => void;
 }
 
-/** Stapelverarbeitung: Anzahl Produkte einer Gruppe (afterRaw.count), sonst 1 */
+/** Bulk edit: number of products in a group (afterRaw.count), otherwise 1 */
 const groupCount = (i: ChangeItem) => ((i.afterRaw as { count?: number } | undefined)?.count ?? 1);
 
-// Leere Seite eines Vergleichs: neu angelegt bzw. entfernt statt „– → …“
+// Empty side of a comparison: newly created or removed instead of "– → …"
 const EMPTY = new Set(['', '–', '-', '—', '(leer)', 'leer', 'keine', 'kein']);
 const isAdded = (i: ChangeItem) => EMPTY.has(i.before.trim());
 function Diff({ i, groupNew }: { i: ChangeItem; groupNew?: boolean }) {
@@ -43,12 +43,12 @@ function Diff({ i, groupNew }: { i: ChangeItem; groupNew?: boolean }) {
   );
 }
 
-/** Änderungsset: Vergleich vorher/nachher → Auswahl → Freigabe → Ergebnis → Rückgängig. */
+/** Change set: before/after comparison → selection → approval → result → undo. */
 export function ChangeSetCard({ cs, interactive, decision, sent, result, progress, undo, onDecide, onUndo }: Props) {
   const { locale, t: m } = useI18n();
   const t = m.chat.changeset;
   const fmt = (x: number) => formatNumber(x, locale);
-  const real = useMemo(() => cs.items.filter(i => i.entity !== 'info'), [cs]); // Hinweiszeilen zählen und wählen nicht mit
+  const real = useMemo(() => cs.items.filter(i => i.entity !== 'info'), [cs]); // info rows are not counted or selectable
   const selectable = real.length > 0;
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(real.map(i => i.id)));
   const [clickLocked, setClickLocked] = useState(false);
@@ -56,7 +56,7 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
   const n = selected.size;
   const entities = new Set(real.map(i => i.entityId)).size;
   const warns = cs.items.filter(i => i.warn?.length).length;
-  // JavaScript in der Änderung (Seiten-Spec vom Server, sonst neue Werte der Zeilen): deutlich VOR dem Anwenden zeigen
+  // JavaScript in the change (page spec from the server, otherwise the rows' new values): show clearly BEFORE applying
   const script = useMemo(() => cs.script ?? scriptRisk(cs.items.map(i => [i.after, i.afterRaw, i.html?.after])), [cs]);
   const locked = !interactive;
   const bulk = cs.total != null;
@@ -69,8 +69,8 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
     if (!selectable || i.entity === 'info') return false;
     if (interactive) return !selected.has(id);
     if (sent?.selected) return !sent.selected.includes(id);
-    if (bulk && !result?.counts) return false; // ältere Stapel-Ergebnisse ohne Gruppenzeilen
-    return !!applied && !!result?.results && !resultFor(id); // gespeicherter Chat: nicht ausgewählte Zeilen haben kein Ergebnis
+    if (bulk && !result?.counts) return false; // older bulk results without group rows
+    return !!applied && !!result?.results && !resultFor(id); // saved chat: unselected rows have no result
   };
   const bulkSel = bulk ? real.filter(i => !isOff(i)).reduce((m, i) => m + groupCount(i), 0) : 0;
 
@@ -84,7 +84,7 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
 
   let res: React.ReactNode = null;
   if (result) {
-    if (result.status === 'rejected') res = result.error ? `✗ ${result.error}` : t.rejected; // error: Grund (z. B. Neustart)
+    if (result.status === 'rejected') res = result.error ? `✗ ${result.error}` : t.rejected; // error: reason (e.g. restart)
     else if (result.error) res = `✗ ${result.error}`;
     else {
       const ok = result.counts?.applied ?? (result.results ?? []).filter(r => r.ok).length;
@@ -92,13 +92,13 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
       const off = real.filter(isOff).reduce((m, i) => m + (bulk ? groupCount(i) : 1), 0);
       res = `${bad ? '⚠' : '✓'} ${t.applied(fmt(ok))}${bad ? t.failedPart(fmt(bad)) : ''}${off ? t.unselectedPart(fmt(off)) : ''}`;
     }
-  } else if (progress) res = progress.total > 1 ? t.progress(fmt(progress.done), fmt(progress.total)) : t.applying; // auch nach erneutem Verbinden (ohne sent); Einzelsätze zählen nicht mit
+  } else if (progress) res = progress.total > 1 ? t.progress(fmt(progress.done), fmt(progress.total)) : t.applying; // also after reconnecting (without sent); single records are not counted
   else if (sent) res = sent.allow ? t.applying : t.rejecting;
   else if (locked && decision === undefined) res = t.open;
 
   const undoPhase: UndoPhase = result?.undone && undo === 'idle' ? 'done' : undo;
   const undoTotal = result?.undo?.length ?? 0, undoOk = result?.undoResults?.filter(x => x.ok).length;
-  const undoPartial = undoOk !== undefined && !result?.undone && undoPhase === 'idle'; // teilweise zurückgesetzt: Rest ist erneut klickbar
+  const undoPartial = undoOk !== undefined && !result?.undone && undoPhase === 'idle'; // partially undone: the rest is clickable again
 
   return (
     <section className={styles.cs} aria-label={t.aria(cs.title)}>
@@ -114,7 +114,7 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
         <div className={styles.assets}>
           {cs.assets.map(a => (
             <span key={a.url} className={styles.asset}>
-              {/* eslint-disable-next-line @next/next/no-img-element -- vorgemerkte Bilder */}
+              {/* eslint-disable-next-line @next/next/no-img-element -- staged images */}
               <img src={a.url} alt={a.alt ?? ''} />
               <span><small>{a.note}</small>{a.name}</span>
             </span>
@@ -125,8 +125,8 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
       <div className={styles.rows}>
         {cs.items.map((i, k) => {
           const r = resultFor(i.id);
-          const head = k === 0 || cs.items[k - 1].label !== i.label; // gleicher Eintrag: Name nur einmal
-          const group = cs.items.filter(x => x.label === i.label), groupNew = group.length > 1 && group.every(isAdded); // ganz neu: „neu“ einmal am Namen
+          const head = k === 0 || cs.items[k - 1].label !== i.label; // same entry: name only once
+          const group = cs.items.filter(x => x.label === i.label), groupNew = group.length > 1 && group.every(isAdded); // entirely new: "neu" (new) once at the name
           return (
             <div key={i.id} className={`${styles.row} ${head ? '' : styles.cont} ${isOff(i) ? styles.off : ''}`}>
               <span>
@@ -170,7 +170,7 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
         </details>
       )}
 
-      {!result && progress && progress.total > 5 && ( // Balken erst bei größeren Sets: kleine melden nur den Text
+      {!result && progress && progress.total > 5 && ( // bar only for larger sets: small ones just report the text
         <div className={styles.progress} role="progressbar" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.done} aria-label={t.progressAria}>
           <span style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }} />
         </div>

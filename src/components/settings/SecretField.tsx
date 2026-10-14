@@ -15,7 +15,7 @@ interface Props {
   autoComplete?: string;
 }
 
-/** Geheimnis-Eingabe: nie vorbefüllt; zeigt „gespeichert“, leeres Feld lässt den Wert unverändert, „Entfernen“ löscht (nach Rückfrage, gespeichert wird automatisch). */
+/** Secret input: never prefilled; shows "gespeichert" (saved), an empty field leaves the value unchanged, "Entfernen" (remove) deletes (after confirmation, saved automatically). */
 export function SecretField({ label, has, state, onChange, placeholder, hint, autoComplete = 'off' }: Props) {
   const t = useT().settings.secret;
   const id = useId();

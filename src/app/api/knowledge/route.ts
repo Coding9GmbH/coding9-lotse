@@ -10,7 +10,7 @@ export function GET() {
   return Response.json({ docs: listDocs(), rules: listRules() });
 }
 
-// Dokument aus einer zuvor über /api/files hochgeladenen Datei aufnehmen
+// Add a document from a file previously uploaded via /api/files
 const schema = z.object({ fileId: z.string().min(1), title: z.string().max(TITLE_MAX).optional(), tags: z.array(z.string()).max(20).optional(), links: z.array(linkSchema).max(200).optional() });
 
 export async function POST(req: Request) {

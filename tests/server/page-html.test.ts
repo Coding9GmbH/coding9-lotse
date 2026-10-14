@@ -18,7 +18,7 @@ const spec: PageSpec = {
   ] }],
 };
 
-test('renderPageHtml: generische Blöcke + Patterns als eigenständiges HTML mit begrenztem CSS', () => {
+test('renderPageHtml: generic blocks + patterns as standalone HTML with scoped CSS', () => {
   const html = renderPageHtml(spec, {
     imageUrl: im => (typeof im === 'string' ? im : im.mediaId === 'm1' ? 'https://cdn.test/vase.jpg' : null),
     products: { p1: { name: 'Vase „Kiesel“', price: '49,00 €', img: 'https://cdn.test/p1.jpg', url: 'https://shop.test/products/kiesel' }, p2: { name: 'Becher <Holm>', price: null } },
@@ -28,20 +28,20 @@ test('renderPageHtml: generische Blöcke + Patterns als eigenständiges HTML mit
   assert.match(html, /<h1>Vasen aus Steinzeug<\/h1>/);
   assert.match(html, /<img src="https:\/\/cdn\.test\/vase\.jpg" alt="Vase auf Eichentisch"/);
   assert.match(html, /<a class="lp-card" href="https:\/\/shop\.test\/products\/kiesel">/);
-  assert.match(html, /Becher &lt;Holm&gt;/, 'Produktnamen escaped');
+  assert.match(html, /Becher &lt;Holm&gt;/, 'product names escaped');
   assert.ok(!html.includes('fehlt'));
-  assert.match(html, /Spülmaschine\?/, 'Pattern ist aufgelöst');
+  assert.match(html, /Spülmaschine\?/, 'pattern is resolved');
   assert.ok(!html.includes('<html') && !html.includes('<body'));
 });
 
-test('Shopware-only-Blöcke: werden erkannt und abgewiesen', () => {
+test('Shopware-only blocks: are detected and rejected', () => {
   const bad: PageSpec = { name: 'x', type: 'product_list', sections: [{ blocks: [{ type: 'text', html: '<p>a</p>' }, { type: 'product-listing' }, { type: 'reuse', cmsPageId: 'a', blockIndex: 0 }] }] };
   assert.deepEqual(unsupportedBlocks(bad).sort(), ['product-listing', 'reuse']);
   assert.deepEqual(unsupportedBlocks(spec), []);
   assert.throws(() => renderPageHtml(bad, { imageUrl: () => null }), /nur in Shopware-Einkaufswelten/);
 });
 
-test('renderPageParts: Teilung am theme-main (Inhalt davor/danach), weitere Sections danach, leere Teile sind leer', async () => {
+test('renderPageParts: split at theme-main (content before/after), further sections after, empty parts are empty', async () => {
   const { renderPageParts } = await import('../../src/server/page-html');
   const ctx = { imageUrl: () => null, scope: 'lp-y' };
   const mk = (blocks: PageSpec['sections'][0]['blocks'], more: PageSpec['sections'] = []): PageSpec => ({ name: 'K', type: 'product_list', sections: [{ blocks }, ...more] });
@@ -49,7 +49,7 @@ test('renderPageParts: Teilung am theme-main (Inhalt davor/danach), weitere Sect
   assert.equal(r.themeMain, true);
   assert.match(r.before, /^<div class="lp-y"><style>/); assert.match(r.before, /EINS/); assert.ok(!r.before.includes('DREI') && !r.before.includes('VIER'));
   assert.match(r.after, /DREI/); assert.match(r.after, /VIER/); assert.ok(!r.after.includes('EINS'));
-  assert.equal(r.after.indexOf('DREI') < r.after.indexOf('VIER'), true, 'Reihenfolge bleibt');
+  assert.equal(r.after.indexOf('DREI') < r.after.indexOf('VIER'), true, 'order is kept');
   const first = renderPageParts(mk([{ type: 'theme-main' }, { type: 'text', html: '<p>B</p>' }]), ctx);
   assert.equal(first.before, ''); assert.match(first.after, /B/);
   const none = renderPageParts(mk([{ type: 'text', html: '<p>A</p>' }]), ctx);

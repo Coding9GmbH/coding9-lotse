@@ -8,7 +8,7 @@ import type { Shopware } from '../../../src/server/shopware';
 process.env.AICB_DATA ??= fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-import-apply-'));
 const { shopMediaId } = await import('../../../src/server/features/import-apply');
 
-test('shopMediaId: Bild-URL des eigenen Shops nutzt das vorhandene Medium, fremde URLs nicht', async () => {
+test('shopMediaId: image URL of the own shop uses the existing media, foreign URLs do not', async () => {
   const calls: unknown[] = [];
   const sw = {
     base: 'http://shopware:8000', publicUrl: 'http://localhost:8888',
@@ -26,11 +26,11 @@ test('shopMediaId: Bild-URL des eigenen Shops nutzt das vorhandene Medium, fremd
   assert.equal(await shopMediaId(failing, 'http://localhost:8888/media/x.jpg'), null);
 });
 
-test('Bilder beim Anlegen: fehlerhaftes Bild bricht das Produkt nicht ab, Shop-eigene Medien werden nicht hochgeladen und nicht per Rückgängig gelöscht', async () => {
+test('Images on create: a broken image does not abort the product, the shop\'s own media are neither uploaded nor deleted by undo', async () => {
   const { applyImport, takeReport } = await import('../../../src/server/features/import-apply');
   const { planImport } = await import('../../../src/server/features/import-plan');
   const { setFetcher, setTrustedOrigins } = await import('../../../src/server/media');
-  // SSRF-Schutz (media.ts) löst fremde Hosts per DNS auf – cdn.example gibt es nicht; als Shop-Adresse eingetragen wird direkt geladen und der HTTP-Status genannt
+  // SSRF protection (media.ts) resolves foreign hosts via DNS, and cdn.example doesn't exist; entered as the shop address, it is loaded directly and the HTTP status is reported
   setTrustedOrigins(async () => ['https://cdn.example']);
   const urls = ['https://cdn.example/404.jpg', 'https://shop.example/media/a/b.jpg', 'https://cdn.example/ok.jpg'];
   const fetched: string[] = [];
@@ -50,13 +50,13 @@ test('Bilder beim Anlegen: fehlerhaftes Bild bricht das Produkt nicht ab, Shop-e
   } as unknown as Shopware;
   const res = await applyImport(sw, cs, payload, new Set(cs.items.map(i => i.id)));
   assert.deepEqual(res.results.map(r => r.ok), [true]);
-  assert.deepEqual(fetched, [urls[0], urls[2]], 'Shop-eigene URL wird nicht geladen');
+  assert.deepEqual(fetched, [urls[0], urls[2]], 'the shop\'s own URL is not loaded');
   assert.ok(log.includes('upload bild fold') && log.includes('create product'));
   const media = (created as unknown as { media: { id: string; mediaId: string; position: number }[]; coverId: string }).media;
   assert.deepEqual(media.map(m => [m.mediaId, m.position]), [['mOwn', 0], ['mNew', 1]]);
   assert.equal((created as unknown as { coverId: string; media: { id: string }[] }).coverId, media[0].id);
   const rep = takeReport(cs.id)!;
   assert.equal(rep.imageErrors.length, 1); assert.match(rep.imageErrors[0], /404\.jpg.*HTTP 404/);
-  assert.deepEqual(res.undo.map(u => `${u.op} ${u.entity} ${u.id}`), ['delete media mNew', `delete product ${(created as unknown as { id: string }).id}`], 'nur das neu hochgeladene Medium wird rückgängig gelöscht');
+  assert.deepEqual(res.undo.map(u => `${u.op} ${u.entity} ${u.id}`), ['delete media mNew', `delete product ${(created as unknown as { id: string }).id}`], 'only the newly uploaded media is deleted by undo');
   setFetcher(fetch); setTrustedOrigins(async () => []);
 });

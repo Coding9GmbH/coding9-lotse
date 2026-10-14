@@ -29,7 +29,7 @@ const cat = (): ImportCatalog => ({
 const M: ImportMapping = { productNumber: 'Nr', ean: 'EAN', name: 'Name', description: 'Text', priceNet: 'Netto', taxRate: 'MwSt', stock: 'Bestand', manufacturer: 'Marke', category: 'Kategorie', properties: [{ group: 'Farbe', column: 'Farbe' }] };
 const H = ['Nr', 'EAN', 'Name', 'Text', 'Netto', 'MwSt', 'Bestand', 'Marke', 'Kategorie', 'Farbe'];
 
-test('Neue Produkte: Entwurf, Netto → Brutto, Kategorie-Pfad, neuer Hersteller und neue Ausprägung', () => {
+test('new products: draft, net → gross, category path, new manufacturer and new option', () => {
   const t = table(H, [
     ['NL-1', '', 'Kissen „Fjord“', 'Weich.\n\nZweiter Absatz', '20,00', '19 %', '', 'Nordlicht', 'Wohnaccessoires > Vasen', 'Sand, Taupe'],
     ['NL-2', '', 'Decke', '', '', '', '5', 'Haus Holm', 'Garten > Töpfe', ''],
@@ -52,7 +52,7 @@ test('Neue Produkte: Entwurf, Netto → Brutto, Kategorie-Pfad, neuer Hersteller
   assert.match(cs.skipped.map(s => s.reason).join('\n'), /Zeile 3 \(NL-2\): Preis fehlt[\s\S]*Zeile 4 \(NL-1\): doppelt/);
 });
 
-test('Vorhandene Produkte: nur geänderte zugeordnete Felder; Preise/Bestand nur mit Freigabe-Option', () => {
+test('existing products: only changed mapped fields; prices/stock only with approval option', () => {
   const t = table(H, [['HH-VASE-22', '4000000000001', 'Vase „Kiesel“', 'neu', '50,00', '19', '0', 'Haus Holm', 'Wohnaccessoires', 'Sand']]);
   const a = planImport(t, M, cat(), {}, META, genId);
   const u = a.payload.plans[0] as UpdatePlan;
@@ -65,22 +65,22 @@ test('Vorhandene Produkte: nur geänderte zugeordnete Felder; Preise/Bestand nur
   assert.deepEqual(v.set, {}); assert.deepEqual(v.price, { gross: 59.5 }); assert.equal(v.stock, 0);
   assert.deepEqual(b.cs.items[0].warn, ['Bestand auf 0']);
   assert.equal(b.cs.items[0].before, '49,00 € · 40'); assert.equal(b.cs.items[0].after, '59,50 € · 0');
-  // Modus „nur neue“: vorhandenes Produkt wird übersprungen
+  // mode "new only": existing product is skipped
   assert.throws(() => planImport(t, M, cat(), { mode: 'create' }, META, genId), /existiert bereits/);
 });
 
-test('Abgleich per EAN ohne Produktnummer; unbekannte Kategorie wird nie angelegt', () => {
+test('matching by EAN without product number; unknown category is never created', () => {
   const m: ImportMapping = { ean: 'EAN', name: 'Name', category: 'Kategorie' };
   const t = table(['EAN', 'Name', 'Kategorie'], [['4000000000001', 'Vase „Kiesel“ groß', 'Kissen']]);
   const { payload, cs } = planImport(t, m, cat(), {}, META, genId);
   const u = payload.plans[0] as UpdatePlan;
   assert.equal(u.id, 'pVase'); assert.deepEqual(u.set, { name: 'Vase „Kiesel“ groß' });
   assert.match(cs.items[0].warn.join(' '), /Kategorie „Kissen \(mehrdeutig\)“ nicht gefunden/);
-  assert.equal(cs.skipped.length, 0); // Produkt wird trotzdem aktualisiert: Warnung statt übersprungen
+  assert.equal(cs.skipped.length, 0); // product is updated anyway: warning instead of skipped
   assert.equal(payload.creates.length, 0);
 });
 
-test('Varianten: Hauptprodukt aus den Zeilen gebildet, gleicher Preis wird geerbt, abweichender Preis eigen', () => {
+test('variants: parent product built from the rows, equal price is inherited, differing price is own', () => {
   const m: ImportMapping = { productNumber: 'Nr', parentNumber: 'Haupt', name: 'Name', priceGross: 'Preis', variantOptions: [{ group: 'Farbe', column: 'Farbe' }, { group: 'Größe', column: 'Größe' }] };
   const t = table(['Nr', 'Haupt', 'Name', 'Preis', 'Farbe', 'Größe'], [
     ['NL-SH.1', 'NL-SH', 'Shirt Nordlicht, Sand, M', '29,90', 'Sand', 'M'],
@@ -97,25 +97,25 @@ test('Varianten: Hauptprodukt aus den Zeilen gebildet, gleicher Preis wird geerb
   assert.equal(p.childIds.length, 3);
   const groupGr = payload.creates.find(c => c.entity === 'property-group')!;
   assert.equal(groupGr.data.name, 'Größe');
-  assert.equal(payload.creates.filter(c => c.entity === 'property-group-option').length, 3); // M, L, XL (Sand gibt es)
+  assert.equal(payload.creates.filter(c => c.entity === 'property-group-option').length, 3); // M, L, XL (Sand exists)
   assert.equal((p.product.configuratorSettings as unknown[]).length, 4);
   assert.match(cs.items[0].fieldLabel, /Neues Produkt mit 3 Varianten/);
   assert.ok(cs.items[0].warn.includes('Hauptprodukt aus den Variantenzeilen gebildet'));
   assert.match(cs.skipped.map(s => s.reason).join(' '), /NL-SH\.4.*keine Varianten-Ausprägung/);
 });
 
-test('Varianten: neue Varianten unter vorhandenem Hauptprodukt ergänzen den Konfigurator', () => {
+test('variants: new variants under an existing parent product extend the configurator', () => {
   const m: ImportMapping = { productNumber: 'Nr', parentNumber: 'Haupt', priceGross: 'Preis', variantOptions: [{ group: 'Farbe', column: 'Farbe' }] };
-  const c = cat(); c.products[1] = { ...plaid, configuratorSettings: [{ optionId: 'oSand' }], children: [] }; // Sand im Konfigurator, noch ohne Variante
+  const c = cat(); c.products[1] = { ...plaid, configuratorSettings: [{ optionId: 'oSand' }], children: [] }; // Sand in the configurator, no variant yet
   const t = table(['Nr', 'Haupt', 'Preis', 'Farbe'], [['HH-PLAID.7', 'HH-PLAID', '89', 'Sand'], ['HH-PLAID.8', 'HH-PLAID', '95', 'Nebel']]);
   const { payload } = planImport(t, m, c, {}, META, genId);
   const v = payload.plans[0] as VariantPlan;
   assert.equal(v.kind, 'variants'); assert.equal(v.id, 'pPlaid');
   assert.deepEqual(v.children.map(c => [c.productNumber, c.parentId, !!c.price]), [['HH-PLAID.7', 'pPlaid', false], ['HH-PLAID.8', 'pPlaid', true]]);
-  assert.equal(v.configurator.length, 1); // nur „Nebel“ ist neu im Konfigurator
+  assert.equal(v.configurator.length, 1); // only "Nebel" is new in the configurator
 });
 
-test('Große Dateien: Gruppen + Stichprobe, Auswahl je Gruppe; Abschnitte trennen keine Variantenfamilie', () => {
+test('large files: groups + sample, selection per group; sections never split a variant family', () => {
   const rows = Array.from({ length: 130 }, (_, i) => [`B-${i}`, '', `Becher ${i}`, '', i === 5 ? '0' : '10', '', '', '', 'Wohnaccessoires', '']);
   const { cs, payload, stats } = planImport(table(H, rows), M, cat(), {}, META, genId);
   assert.equal(cs.total, 130); assert.equal(stats.create, 130);
@@ -129,14 +129,14 @@ test('Große Dateien: Gruppen + Stichprobe, Auswahl je Gruppe; Abschnitte trenne
   assert.equal(part.stats.rows, 3); assert.equal(part.stats.nextOffset, 3);
 });
 
-test('Hilfen: Kategorien, gemeinsamer Name, HTML bereinigen', () => {
+test('helpers: categories, common name, HTML sanitizing', () => {
   const cats = cat().categories;
   assert.deepEqual(resolveCategories('Vasen | Küche > Kissen', cats), { ids: ['cVasen', 'cK1'], missing: [], raw: [] });
   assert.deepEqual(resolveCategories('Garten/Töpfe', cats, { 'Garten/Töpfe': 'cWohn' }), { ids: ['cWohn'], missing: [], raw: [] });
   assert.equal(commonName(['Plaid Düne, Sand', 'Plaid Düne, Grau']), 'Plaid Düne');
   assert.equal(toHtml('<p onclick="x()">Hallo<script>alert(1)</script> <a href="javascript:evil()">x</a></p>'), '<p>Hallo <a href="#">x</a></p>');
   assert.equal(toHtml('a < b'), '<p>a &lt; b</p>');
-  // getarnte javascript:-Links (Entities, Steuerzeichen, Groß-/Kleinschreibung), data:/vbscript: und Formulare/Meta
+  // disguised javascript: links (entities, control characters, upper/lower case), data:/vbscript: and forms/meta
   for (const h of ['&#106;avascript:fetch(1)', 'java&#9;script:alert(1)', 'javascript&#58;alert(1)', ' &#x6A;avascript:alert(1)', 'JAVASCRIPT:alert(1)', 'data:text/html;base64,AA', 'vbscript:msgbox'])
     assert.equal(toHtml(`<p>Infos <a href="${h}">hier</a></p>`), '<p>Infos <a href="#">hier</a></p>', h);
   assert.equal(toHtml("<a href='javascript:x()'>a</a><img src=javascript:x()>"), '<a href="#">a</a><img src="#">');
@@ -145,7 +145,7 @@ test('Hilfen: Kategorien, gemeinsamer Name, HTML bereinigen', () => {
   assert.equal(toHtml(okHtml), okHtml);
 });
 
-test('Executor: legt an, aktualisiert, sammelt exaktes Rückgängig (Fake-Shop)', async () => {
+test('executor: creates, updates, collects exact undo (fake shop)', async () => {
   const { applyImport, takeReport } = await import('../../../src/server/features/import-apply');
   const t = table(H, [
     ['NL-9', '', 'Kissen', '', '10', '7', '3', 'Nordlicht', 'Wohnaccessoires', ''],
@@ -168,7 +168,7 @@ test('Executor: legt an, aktualisiert, sammelt exaktes Rückgängig (Fake-Shop)'
   const created = (payload.plans[0] as CreatePlan).id, man = payload.creates[0].id;
   assert.deepEqual(calls.slice(0, 2), [`create product-manufacturer ${man}`, `create product ${created}`]);
   assert.ok(calls.includes('update product pVase description,properties'));
-  // Rückgängig (rückwärts ausgeführt): Felder zurück, Zuordnung lösen, Produkt löschen, Hersteller zuletzt
+  // Undo (run backwards): revert fields, remove assignment, delete product, manufacturer last
   assert.deepEqual(res.undo.map(u => `${u.op} ${u.entity} ${u.id}${u.path ? ` ${u.path}` : ''}`), [
     `delete product-manufacturer ${man}`, `delete product ${created}`,
     'req product pVase /product/pVase/properties/oSand', 'patch product pVase',
@@ -179,37 +179,37 @@ test('Executor: legt an, aktualisiert, sammelt exaktes Rückgängig (Fake-Shop)'
   assert.equal(takeReport(cs.id), null);
 });
 
-/** Jede Datenzeile taucht genau einmal auf: neu, aktualisiert, als Variante, unverändert oder übersprungen */
+/** Each data row appears exactly once: new, updated, as variant, unchanged or skipped */
 function balance({ cs, payload, stats }: PlanResult) {
   const planned = payload.plans.reduce((n, p) => n + (p.kind === 'create' ? (p.synthetic ? 0 : 1) + p.childIds.length : p.kind === 'update' ? 1 : p.children.length), 0);
   const lines = cs.skipped.map(x => x.reason.match(/^Zeile (\d+)/)?.[1]);
-  assert.equal(new Set(lines).size, lines.length, `doppelt übersprungen: ${lines.join(',')}`);
+  assert.equal(new Set(lines).size, lines.length, `skipped twice: ${lines.join(',')}`);
   assert.equal(stats.rows, planned + stats.unchanged + stats.skipped);
   assert.equal(stats.rows, stats.create - stats.synthetic + stats.update + stats.variantRows + stats.unchanged + stats.skipped);
 }
 
-test('Varianten: scheitert das Hauptprodukt, stehen alle Variantenzeilen mit Grund in skipped', () => {
+test('variants: if the parent product fails, all variant rows are in skipped with a reason', () => {
   const m: ImportMapping = { productNumber: 'Nr', parentNumber: 'Haupt', name: 'Name', priceGross: 'Preis', taxRate: 'MwSt', variantOptions: [{ group: 'Farbe', column: 'Farbe' }] };
   const h = ['Nr', 'Haupt', 'Name', 'Preis', 'MwSt', 'Farbe'];
-  // Hauptprodukt mit eigener Zeile ohne Preis
+  // parent product with its own row without price
   const a = planImport(table(h, [['P', '', 'Plaid', '', '', ''], ['P.1', 'P', 'Plaid Sand', '10', '', 'Sand'], ['P.2', 'P', 'Plaid Rot', '10', '', 'Rot'], ['X', '', 'Becher', '5', '', '']]), m, cat(), {}, META, genId);
   assert.deepEqual(a.cs.skipped.map(x => x.reason), ['Zeile 2 (P): Preis fehlt (für neue Produkte Pflicht)', 'Zeile 3 (P.1): Hauptprodukt P konnte nicht angelegt werden: Preis fehlt (für neue Produkte Pflicht)', 'Zeile 4 (P.2): Hauptprodukt P konnte nicht angelegt werden: Preis fehlt (für neue Produkte Pflicht)']);
   assert.equal(a.stats.create, 1); balance(a);
-  // aus den Varianten gebildetes Hauptprodukt mit unbekanntem Steuersatz
+  // parent product built from the variants with unknown tax rate
   const b = planImport(table(h, [['Q.1', 'Q', 'Kissen Sand', '10', '5', 'Sand'], ['Q.2', 'Q', 'Kissen Rot', '10', '5', 'Rot'], ['X', '', 'Becher', '5', '', '']]), m, cat(), {}, META, genId);
   assert.equal(b.cs.skipped.length, 2); assert.match(b.cs.skipped[1].reason, /^Zeile 3 \(Q\.2\): Hauptprodukt Q konnte nicht angelegt werden: Steuersatz 5 %/); balance(b);
-  // alle Varianten ungültig: jede Zeile genau einmal mit eigenem Grund
+  // all variants invalid: each row exactly once with its own reason
   const c = planImport(table(h, [['R', '', 'Decke', '10', '', ''], ['R.1', 'R', 'Decke', '10', '', ''], ['X', '', 'Becher', '5', '', '']]), m, cat(), {}, META, genId);
   assert.deepEqual(c.cs.skipped.map(x => x.reason), ['Zeile 2 (R): keine gültige Variante', 'Zeile 3 (R.1): keine Varianten-Ausprägung (z. B. Farbe/Größe) angegeben']); balance(c);
-  // vorhandenes Hauptprodukt, alle neuen Varianten ungültig: erste Zeile nicht doppelt
+  // existing parent product, all new variants invalid: first row not duplicated
   const d = planImport(table(h, [['HH-PLAID.7', 'HH-PLAID', '', '89', '', ''], ['HH-PLAID.8', 'HH-PLAID', '', '89', '', ''], ['X', '', 'Becher', '5', '', '']]), m, cat(), {}, META, genId);
   assert.equal(d.cs.skipped.length, 2); balance(d);
-  // Hauptprodukt-Zeile ist selbst eine Variante
+  // parent product row is itself a variant
   const e = planImport(table(h, [['S.1', 'S', 'Shirt', '10', '', 'Sand'], ['S.1.a', 'S.1', 'Shirt', '10', '', 'Rot']]), m, cat(), {}, META, genId);
   assert.match(e.cs.skipped.map(x => x.reason).join(' '), /Zeile 3 \(S\.1\.a\): Hauptprodukt S\.1 ist selbst eine Variante/); balance(e);
 });
 
-test('Varianten: doppelte Ausprägungs-Kombination (in der Datei oder schon im Shop) wird übersprungen', () => {
+test('variants: duplicate option combination (in the file or already in the shop) is skipped', () => {
   const m: ImportMapping = { productNumber: 'Nr', parentNumber: 'Haupt', name: 'Name', priceGross: 'Preis', variantOptions: [{ group: 'Farbe', column: 'Farbe' }] };
   const h = ['Nr', 'Haupt', 'Name', 'Preis', 'Farbe'];
   const a = planImport(table(h, [['HH-PLAID.7', 'HH-PLAID', '', '89', 'Sand'], ['HH-PLAID.8', 'HH-PLAID', '', '89', 'Nebel'], ['HH-PLAID.9', 'HH-PLAID', '', '89', 'nebel']]), m, cat(), {}, META, genId);
@@ -218,7 +218,7 @@ test('Varianten: doppelte Ausprägungs-Kombination (in der Datei oder schon im S
   balance(a);
 });
 
-test('Variante ohne Hauptartikel-Spalte erbt den Steuersatz des Hauptprodukts', () => {
+test('variant without parent product column inherits the parent product tax rate', () => {
   const kid = { id: 'k7', parentId: 'pBuch', productNumber: 'BU.1', price: null, tax: null };
   const buch = { id: 'pBuch', productNumber: 'BU', name: 'Buch', price: [{ currencyId: 'eur', gross: 10.7 }], tax: { taxRate: 7 } };
   const c = { ...cat(), products: [kid, buch] };
@@ -228,7 +228,7 @@ test('Variante ohne Hauptartikel-Spalte erbt den Steuersatz des Hauptprodukts', 
   assert.match(r.cs.items[0].before, /10,70 € \(geerbt\)/);
 });
 
-test('Große Dateien: neue Hersteller/Ausprägungen als eine Sammelzeile', () => {
+test('large files: new manufacturers/options as one summary row', () => {
   const rows = Array.from({ length: 120 }, (_, i) => [`G-${i}`, '', `Glas ${i}`, '', '10', '', '', `Marke ${i}`, '', `Ton ${i}`]);
   const r = planImport(table(H, rows), M, cat(), {}, META, genId);
   const infos = r.cs.items.filter(i => i.entity === 'info');

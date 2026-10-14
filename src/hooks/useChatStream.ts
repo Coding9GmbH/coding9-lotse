@@ -8,9 +8,9 @@ import type { ChatEvent, ChatRequest } from '@/lib/protocol';
 interface Handlers { onEvent: (ev: ChatEvent) => void; onError: (message: string, status?: number) => void }
 
 /**
- * Liest Chat-Ereignisse als NDJSON-Strom: run() startet eine neue Runde (POST), listen() verbindet sich mit einem
- * bestehenden Chat (GET: erst „snapshot“, dann live). abort() trennt nur die Verbindung – die Runde läuft auf dem
- * Server weiter.
+ * Reads chat events as an NDJSON stream: run() starts a new turn (POST), listen() connects to an
+ * existing chat (GET: first "snapshot", then live). abort() only drops the connection; the turn keeps running on the
+ * server.
  */
 export function useChatStream() {
   const ctrl = useRef<AbortController | null>(null);
@@ -27,7 +27,7 @@ export function useChatStream() {
       if (!r.ok || !r.body) {
         const t = await r.text().catch(() => '');
         let msg = t;
-        try { const j = JSON.parse(t) as { error?: string; message?: string }; msg = j.error ?? j.message ?? t; } catch { /* Klartext */ }
+        try { const j = JSON.parse(t) as { error?: string; message?: string }; msg = j.error ?? j.message ?? t; } catch { /* plain text */ }
         throw new ApiError(msg || `HTTP ${r.status}`, r.status);
       }
       const reader = r.body.getReader();

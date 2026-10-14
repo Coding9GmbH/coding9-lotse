@@ -6,7 +6,7 @@ import styles from './Dialog.module.css';
 
 interface Props { open: boolean; onClose: () => void; title: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode; wide?: boolean }
 
-/** Modaler Dialog auf Basis des nativen <dialog> (Fokusfalle, Esc und Backdrop vom Browser). */
+/** Modal dialog based on the native <dialog> (focus trap, Esc and backdrop handled by the browser). */
 export function Dialog({ open, onClose, title, children, footer, wide }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();

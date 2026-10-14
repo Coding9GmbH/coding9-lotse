@@ -1,4 +1,4 @@
-// Kleine Auszeichnung für übersetzte Texte: **fett**, `Code`, [Linktext] (ein Link je Text, Ziel per href).
+// Minimal markup for translated texts: **bold**, `code`, [link text] (one link per text, target via href).
 const TOKEN = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\])/g;
 
 export function rich(text: string, link?: { href: string; text?: string }): React.ReactNode {

@@ -1,5 +1,5 @@
 import 'server-only';
-// Shop-Check (rein): Befund-Definitionen (Titel, Gewicht, Begründung, Auftrag an Lotse) und Auswertung der gelesenen Produktzeilen.
+// Shop check (pure): finding definitions (title, weight, rationale, task for Lotse) and evaluation of the product rows read.
 import type { CheckFinding, CheckSeverity } from '@/lib/protocol';
 import { DEFAULT_CURRENCY } from '../changes';
 import type { SwEntity } from '../shopware';
@@ -63,11 +63,11 @@ export const DEFS = {
     fix: n => `Übersetze alle aktiven Produkte ohne eigene Übersetzung (betrifft ${n}; get_translations entity=product, onlyMissing=true). Name, Beschreibung und Meta-Daten, Fachbegriffe und Maße unverändert, Vorschlag mit propose_translations.` },
 } satisfies Record<string, FindingDef>;
 
-/** Befund aus Definition + Treffern. count = Anzahl (bei gedeckelten Prüfungen eine Untergrenze). */
+/** Finding from definition + hits. count = number (a lower bound for capped checks). */
 export function makeFinding(d: FindingDef, count: number, total: number | undefined, sample: Hit[], o: { atLeast?: boolean; title?: string; idSuffix?: string; fixExtra?: string } = {}): CheckFinding | null {
   if (!count) return null;
   const n = `${o.atLeast ? 'mindestens ' : ''}${count.toLocaleString('de-DE')} ${d.noun[count === 1 ? 0 : 1]}`;
-  // Shop-Texte (Namen) nur gekürzt und in Anführungszeichen, damit sie im Auftrag als Daten erkennbar bleiben
+  // Shop texts (names) only truncated and in quotes, so they remain recognizable as data in the task
   const named = count <= sample.length ? ` Betroffen: ${sample.slice(0, 5).map(s => quoteLabel(s.label)).join(', ')}.` : '';
   return {
     id: d.id + (o.idSuffix ? `.${o.idSuffix}` : ''), area: d.area, title: o.title ?? d.title, severity: d.severity, count, total, unit: d.unit,
@@ -77,11 +77,11 @@ export function makeFinding(d: FindingDef, count: number, total: number | undefi
 
 export const quoteLabel = (t: string, max = 80) => { const c = clean(t).replace(/[„“"]/g, "'"); return `„${c.length > max ? c.slice(0, max - 1) + '…' : c}“`; };
 
-// ---- Produktzeilen (gelesen mit includes, siehe SCAN_INCLUDES) ----
+// ---- Product rows (read with includes, see SCAN_INCLUDES) ----
 export const SCAN_INCLUDES = { product: ['id', 'productNumber', 'name', 'translated', 'price', 'purchasePrices'] };
 export interface ScanRow { id: string; label: string; metaTitle: string; description: string; price: number | null; listPrice: number | null; purchase: number | null }
 const clean = (t: unknown) => String(t ?? '').replace(/\s+/g, ' ').trim();
-// Nur die Standardwährung (Pflichtpreis in Shopware); andere Währungen nicht mischen
+// Only the default currency (required price in Shopware); don't mix other currencies
 const inCurrency = (prices: unknown) => (Array.isArray(prices) ? (prices as SwEntity[]) : []).find(p => p?.currencyId === DEFAULT_CURRENCY) ?? null;
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 export const productLabel = (p: SwEntity) => { const name = clean(p.translated?.name ?? p.name) || p.productNumber || p.id; return p.productNumber ? `${name} (${p.productNumber})` : name; };
@@ -92,14 +92,14 @@ export function toScanRow(p: SwEntity): ScanRow {
     price: num(pr?.gross), listPrice: num(pr?.listPrice?.gross), purchase: num(pu?.gross) };
 }
 
-/** Auswertung der gelesenen Produkte: Länge/Dubletten der Titles, dünne Texte, Preisprobleme */
+/** Evaluation of the products read: length/duplicates of titles, thin texts, price problems */
 export function scanHits(rows: ScanRow[], currency = '€') {
   const money = (v: number) => `${v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${currency ? ` ${currency}` : ''}`;
   const hit = (r: ScanRow): Hit => ({ id: r.id, label: r.label });
   const dups = duplicates(rows.map(r => ({ id: r.id, value: r.metaTitle })));
   const dupIds = new Set([...dups.values()].flat());
   const byId = new Map(rows.map(r => [r.id, r]));
-  // Beispiele für Dubletten: je Gruppe nebeneinander, mit dem doppelten Title
+  // Examples of duplicates: side by side per group, with the duplicated title
   const dupSample = [...dups.entries()].flatMap(([, ids]) => ids.map(id => byId.get(id)!)).map(r => ({ id: r.id, label: `${r.label}: „${r.metaTitle.slice(0, 60)}“` }));
   return {
     metaTitleLong: rows.filter(r => r.metaTitle.length > META.titleMax).map(r => ({ id: r.id, label: `${r.label}, ${r.metaTitle.length} Zeichen` })),

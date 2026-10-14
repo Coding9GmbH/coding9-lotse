@@ -1,6 +1,6 @@
 import 'server-only';
-// Datenschutz-/Zugriffsschicht für die KI: Freigabeliste statt Vertrauen.
-// Die KI kennt weder Zugangsdaten noch darf sie Kunden-/Bestelldaten lesen – egal was in einem Prompt steht.
+// Privacy/access layer for the AI: allow-list instead of trust.
+// The AI never knows credentials and may not read customer/order data, no matter what a prompt says.
 import type { ScopeKey } from '@/lib/protocol';
 
 export const SCOPES: Record<ScopeKey, { label: string; hint: string; entities: string[] }> = {
@@ -11,18 +11,18 @@ export const SCOPES: Record<ScopeKey, { label: string; hint: string; entities: s
   media:      { label: 'Medienbibliothek', hint: 'Dateinamen, URLs, Alt-Texte', entities: ['media', 'media-folder', 'media-default-folder'] },
   marketing:  { label: 'Marketing', hint: 'Promotionen, Rabatte, Gutscheincodes (ohne Bestell- und Kundendaten)', entities: ['promotion', 'promotion-discount', 'promotion-discount-prices', 'promotion-sales-channel', 'promotion-setgroup', 'promotion-individual-code', 'rule', 'rule-condition'] },
   shop:       { label: 'Shop-Grunddaten', hint: 'Verkaufskanäle & Domains, Sprachen, Währungen, Theme-Einstellungen (Farben, Schriften)', entities: ['sales-channel', 'sales-channel-domain', 'theme', 'language', 'locale', 'currency'] },
-  // Integrationen: keine Shop-Entitäten, sondern ob die KI die Daten lesen darf (Werkzeuge, Shop-Prüfungen, SEO-Übersicht)
+  // Integrations: not shop entities, but whether the AI may read the data (tools, shop checks, SEO overview)
   gsc:        { label: 'Search Console', hint: 'Klicks, Impressionen, Klickrate und Position deiner Seiten (Google Search Console)', entities: [] },
   sistrix:    { label: 'Sistrix', hint: 'Sichtbarkeitsindex, Wettbewerber, Keyword-Potenzial und OnPage-Crawl (Sistrix)', entities: [] },
-  // Internetrecherche: Websuche und Abruf öffentlicher Webseiten durch die KI (Claude: WebSearch/WebFetch, Codex: web_search); standardmäßig aus
+  // Web research: web search and fetching public web pages by the AI (Claude: WebSearch/WebFetch, Codex: web_search); off by default
   web:        { label: 'Internetrecherche', hint: 'Websuche und Abruf öffentlicher Webseiten, z. B. Herstellerangaben, Datenblätter, Normen', entities: [] },
 };
 export type Scopes = Record<ScopeKey, boolean>;
 export const SCOPE_KEYS = Object.keys(SCOPES) as ScopeKey[];
-/** Alles an außer der Internetrecherche: Inhalte aus dem Netz sind fremder Text, den der Betreiber bewusst zulassen soll */
+/** Everything on except web research: content from the web is third-party text the operator should allow deliberately */
 export const DEFAULT_SCOPES = Object.fromEntries(SCOPE_KEYS.map(k => [k, k !== 'web'])) as Scopes;
 const ENTITY_SCOPE: Record<string, ScopeKey> = Object.fromEntries(SCOPE_KEYS.flatMap(k => SCOPES[k].entities.map(e => [e, k])));
-// Erlaubte Beziehungen je Entität (Name → Ziel-Entität). Alles andere (z.B. reviews, orderLineItems, customer …) wird abgewiesen.
+// Allowed associations per entity (name → target entity). Everything else (e.g. reviews, orderLineItems, customer …) is rejected.
 const ASSOC: Record<string, Record<string, string>> = {
   product: { tax: 'tax', manufacturer: 'product-manufacturer', cover: 'product-media', media: 'product-media', categories: 'category', properties: 'property-group-option', cmsPage: 'cms-page',
     tags: 'tag', deliveryTime: 'delivery-time', visibilities: 'product-visibility', crossSellings: 'product-cross-selling',
@@ -38,25 +38,25 @@ const ASSOC: Record<string, Record<string, string>> = {
   'promotion-discount': { discountRules: 'rule', promotionDiscountPrices: 'promotion-discount-prices' }, 'promotion-setgroup': { setGroupRules: 'rule' }, rule: { conditions: 'rule-condition' },
   'sales-channel': { domains: 'sales-channel-domain', languages: 'language' }, language: { locale: 'locale' }, theme: { salesChannels: 'sales-channel' }, 'media-default-folder': { folder: 'media-folder' },
 };
-// Lesende Nicht-Such-Endpunkte, die erlaubt sind
+// Allowed read-only non-search endpoints
 export const GET_ALLOW = [/^\/_info\/version$/, /^\/_action\/theme\/[0-9a-f]{32}\/configuration$/];
-// Lesende POST-Endpunkte: der Body wird wie eine Suche auf der Entität geprüft (nur diese Schlüssel, Beziehungen/Filter laut Freigabeliste)
+// Read-only POST endpoints: the body is checked like a search on the entity (only these keys, associations/filters per allow-list)
 const POST_READ: { re: RegExp; entity: string }[] = [{ re: /^\/_admin\/product-stream-preview\/[0-9a-f]{32}$/, entity: 'product' }];
 const POST_KEYS = new Set(['filter', 'limit', 'page', 'total-count-mode', 'associations', 'sort']);
-// Bekannte Schlüssel einer Shopware-Suche; alles andere (künftige oder unbekannte Parameter) wird abgewiesen, damit die Prüfung vollständig bleibt
+// Known keys of a Shopware search; everything else (future or unknown parameters) is rejected so the check stays complete
 const CRITERIA_KEYS = new Set(['ids', 'limit', 'page', 'term', 'total-count-mode', 'includes', 'filter', 'post-filter', 'query', 'sort', 'fields', 'aggregations', 'associations', 'grouping']);
-// Lesende GET-Endpunkte mit Bereichsprüfung + Bereinigung (z. B. Stammdaten-Einstellungen: zugeordnete Rechtstexte; E-Mail und Schlüssel werden entfernt)
+// Read-only GET endpoints with scope check + scrubbing (e.g. basic information settings: assigned legal pages; email and keys are removed)
 const GET_READ: { re: RegExp; entity: string }[] = [{ re: /^\/_action\/system-config\?domain=core\.basicInformation(&salesChannelId=[0-9a-f]{32})?$/, entity: 'sales-channel' }];
 
 const DENY_STRUCT = /(customer|order|invoice|document|newsletter|password|passwd|e-?mail|iban|\bbic\b|token|secret|payment|address|salutation|birthday|user|integration|api[-_]?key)/i;
 const SENSITIVE_KEY = { test: (k: string) => /(e-?mail|password|passwd|iban|secret|token|api[-_]?key|phone|access[-_]?key)/i.test(k) || /^(bic|firstName|lastName|street|zipcode|city|birthday|vatIds?|customerNumber|username|ipAddress|customerId|customerName|orderId|ordersPerCustomerCount)$/i.test(k) };
-// Regelbedingungen: Werte nur bei Warenkorb-/Produkt-/Zeit-Bedingungen; bei allem anderen (Kundengruppe, E-Mail, Kundennummer, Adresse …) nur der Typ
+// Rule conditions: values only for cart/product/time conditions; for everything else (customer group, email, customer number, address …) only the type
 const RULE_VALUE_OK = /^(cartLineItem\w*|cartCartAmount|cartGoodsCount|cartGoodsPrice|cartPositionPrice|cartWeight|cartVolume|cartHasDeliveryFreeItem|cartLineItemsInCart\w*|dateRange|dayOfWeek|timeRange|salesChannel|currency|language|alwaysValid|(and|or|xor|not)Container)$/;
 
-/** Für andere Plattformen (docs/platform.md): Begriffe, die in Filtern/Feldern/Pfaden nie vorkommen dürfen, und sensible Feldnamen */
+/** For other platforms (docs/platform.md): terms that must never appear in filters/fields/paths, and sensitive field names */
 export const DENIED_TERMS = new RegExp(`${DENY_STRUCT.source}|staff|checkout|cart|gift.?card|abandon|refund|transaction|fulfil|shipment|credit.?memo|company.?contact|segment|marketing.?consent`, 'i');
 export const isSensitiveKey = (k: string) => SENSITIVE_KEY.test(k);
-/** Entfernt sensible Felder (E-Mail, Passwort, Token, Adresse, Kunden-/Bestellbezug …) rekursiv; liefert die Anzahl entfernter Felder */
+/** Recursively removes sensitive fields (email, password, token, address, customer/order related …); returns the number of removed fields */
 export function scrubSensitive(data: unknown): number {
   let n = 0;
   const walk = (x: unknown) => {
@@ -77,9 +77,9 @@ export interface Guard {
   scopes: () => Scopes;
   checkSearch(entity: string, criteria?: Criteria): void;
   checkGet(method: string, p: string): void;
-  /** Sprach-ID für den Header sw-language-id: nur 32-stellige Hex-ID (keine Header-Injektion) */
+  /** Language ID for the sw-language-id header: only a 32-digit hex ID (no header injection) */
   checkLanguage(languageId?: string): void;
-  /** Direkter API-Aufruf: GET laut GET_ALLOW oder lesender POST laut POST_READ (Body geprüft); liefert die Entität für afterRead */
+  /** Direct API call: GET per GET_ALLOW or read-only POST per POST_READ (body checked); returns the entity for afterRead */
   checkReq(method: string, p: string, body?: unknown): string | null;
   afterRead<T extends { data?: unknown } | null | undefined>(op: string, entity: string, res: T): T;
 }
@@ -116,7 +116,7 @@ export function createGuard({ getScopes = () => DEFAULT_SCOPES, onAccess = () =>
     const extra = Object.keys(criteria).filter(k => !CRITERIA_KEYS.has(k));
     if (extra.length) throw deny(entity, `Suchparameter ${extra.join(', ')} sind nicht erlaubt.`);
     checkAssociations(entity, criteria.associations);
-    // alle Stellen, an denen Feldnamen stehen können: filter, post-filter, query (Score-Queries), sort, fields, aggregations, grouping, associations
+    // all places where field names can appear: filter, post-filter, query (score queries), sort, fields, aggregations, grouping, associations
     const fields = { filter: criteria.filter, pf: criteria['post-filter'], q: criteria.query, sort: criteria.sort, fields: criteria.fields, aggregations: criteria.aggregations, grouping: criteria.grouping };
     const structural = keysDeep({ ...fields, associations: criteria.associations }).filter(k => k !== 'order');
     const fieldVals = JSON.stringify(fields).match(/"field":"[^"]*"|"fields":\[[^\]]*\]/g) ?? [];

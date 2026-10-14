@@ -5,7 +5,7 @@ import { visibilityOverview } from '@/server/features/sistrix';
 
 export const dynamic = 'force-dynamic';
 
-// Startseiten-Karte: Sichtbarkeitsverlauf der Shop-Domain (lesend, gedeckelt, lange zwischengespeichert)
+// Home page card: visibility history of the shop domain (read-only, capped, cached for a long time)
 export async function GET() {
   const cfg = getSistrixConfig();
   if (!cfg?.domain) return Response.json({ connected: false } satisfies SistrixOverview);

@@ -1,4 +1,4 @@
-# Nur das Nötigste in den Build-Kontext
+# Only the bare minimum in the build context
 *
 !package.json
 !package-lock.json

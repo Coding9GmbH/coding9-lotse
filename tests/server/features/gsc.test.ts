@@ -7,7 +7,7 @@ import path from 'node:path';
 import type { ShopReader, SwEntity } from '../../../src/server/shopware';
 import type { FakeRow } from '../../support/gsc-fake';
 
-// Ganzer Ablauf gegen einen lokalen Fake von Google (Token-Endpunkt + Search Console API): JWT, Token-Cache, Paging, Chancen, Zuordnung, Messung.
+// Full flow against a local Google fake (token endpoint + Search Console API): JWT, token cache, paging, opportunities, mapping, measurement.
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-gsc-'));
 const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
 const EMAIL = 'lotse-test@projekt.iam.gserviceaccount.com';
@@ -23,7 +23,7 @@ const F = await import('../../../src/server/features/gsc');
 const { mapUrls } = await import('../../../src/server/features/gsc-map');
 const { kvGet } = await import('../../../src/server/db');
 
-/** Fake-Leser: ids, equals, equalsAny auf flachen Feldern */
+/** Fake reader: ids, equals, equalsAny on flat fields */
 function fakeReader(db: Record<string, SwEntity[]>): ShopReader {
   const search = async (entity: string, c: Record<string, unknown> = {}) => {
     let rows = db[entity] ?? [];
@@ -48,7 +48,7 @@ const shopDb = () => ({
 type Done = Exclude<Awaited<ReturnType<typeof F.measure>>, { status: 'zu früh' }>;
 const days = (from: string, n: number) => Array.from({ length: n }, (_, i) => new Date(Date.parse(from + 'T00:00:00Z') + i * 86_400_000).toISOString().slice(0, 10));
 
-test('Schlüssel: Prüfung, verschlüsselt gespeichert, nach außen nur client_email', () => {
+test('Key: validation, stored encrypted, only client_email exposed', () => {
   assert.throws(() => G.parseServiceKey('kein json'), /Kein gültiges JSON/);
   assert.throws(() => G.parseServiceKey('{"type":"authorized_user"}'), /kein Service-Konto/);
   assert.throws(() => G.parseServiceKey(JSON.stringify({ type: 'service_account', client_email: 'x@y', private_key: 'kaputt' })), /nicht lesbar/);
@@ -61,12 +61,12 @@ test('Schlüssel: Prüfung, verschlüsselt gespeichert, nach außen nur client_e
   assert.ok(!JSON.stringify(pub).includes('PRIVATE KEY'));
   const raw = JSON.stringify(kvGet('gsc'));
   assert.ok(!raw.includes('PRIVATE KEY') && raw.includes('enc:v1:'));
-  G.saveGsc({ property: 'https://www.shop.de' }); // Property ändern, Schlüssel bleibt
+  G.saveGsc({ property: 'https://www.shop.de' }); // change property, key stays
   assert.equal(G.getGscConfig()?.key.client_email, EMAIL);
   G.saveGsc({ property: 'sc-domain:shop.de' });
 });
 
-test('JWT: RS256, Claims und Signatur prüfbar mit dem öffentlichen Schlüssel', () => {
+test('JWT: RS256, claims and signature verifiable with the public key', () => {
   const jwt = G.signJwt(G.parseServiceKey(KEY), 'https://oauth2.googleapis.com/token', 1_800_000_000);
   const [h, c, s] = jwt.split('.');
   assert.deepEqual(JSON.parse(Buffer.from(h, 'base64url').toString()), { alg: 'RS256', typ: 'JWT', kid: 'kid1' });
@@ -74,7 +74,7 @@ test('JWT: RS256, Claims und Signatur prüfbar mit dem öffentlichen Schlüssel'
   assert.ok(crypto.verify('RSA-SHA256', Buffer.from(`${h}.${c}`), publicKey, Buffer.from(s, 'base64url')));
 });
 
-test('Verbindung testen: Token wird geholt und zwischengespeichert, Property muss freigegeben sein', async () => {
+test('Test connection: token is fetched and cached, property must be granted', async () => {
   const t0 = fake.stats.token;
   let r = await G.testGsc();
   assert.equal(r.ok, false); assert.match(r.message, /sieht keine Property/);
@@ -84,13 +84,13 @@ test('Verbindung testen: Token wird geholt und zwischengespeichert, Property mus
   fake.sites.push({ siteUrl: 'sc-domain:shop.de', permissionLevel: 'siteRestrictedUser' });
   r = await G.testGsc();
   assert.equal(r.ok, true); assert.match(r.message, /Verbunden mit sc-domain:shop.de/);
-  assert.equal(fake.stats.token - t0, 1, 'nur ein Token für drei Aufrufe');
-  // falscher Schlüssel → Google lehnt die Signatur ab
+  assert.equal(fake.stats.token - t0, 1, 'only one token for three calls');
+  // wrong key → Google rejects the signature
   const other = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' });
   await assert.rejects(G.accessToken({ client_email: 'fremd@x.iam.gserviceaccount.com', private_key: String(other) }), /Google-Anmeldung fehlgeschlagen: Invalid JWT Signature/);
 });
 
-test('Search Analytics: Paging über startRow bis maxRows, Filter und dataState im Body', async () => {
+test('Search Analytics: paging via startRow up to maxRows, filters and dataState in the body', async () => {
   fake.data = Array.from({ length: 30_000 }, (_, i) => ({ date: '2026-08-01', page: `https://www.shop.de/p${i}`, query: `q${i}`, clicks: 1, impressions: 10, position: 5 }));
   const q0 = fake.stats.query;
   const rows = await G.searchAnalytics(G.getGscConfig()!, { startDate: '2026-08-01', endDate: '2026-08-01', dimensions: ['page'], maxRows: 50_000 });
@@ -103,7 +103,7 @@ test('Search Analytics: Paging über startRow bis maxRows, Filter und dataState 
   fake.data = [];
 });
 
-test('Zuordnung: GSC-URLs → Produkt/Kategorie über SEO-URLs, Sprachpräfix, technische Pfade, Startseite', async () => {
+test('Mapping: GSC URLs → product/category via SEO URLs, language prefix, technical paths, home page', async () => {
   const ro = fakeReader(shopDb());
   const urls = ['https://www.shop.de/Vase-Kiesel-22-cm/HH-VASE-22', 'https://www.shop.de/en/Vase-Pebble/HH-VASE-22', 'https://www.shop.de/Wohnen/Vasen/', `https://www.shop.de/detail/${P2}`, 'https://www.shop.de/', 'https://www.shop.de/gibt-es-nicht', 'https://www.shop.de/alt/vase'];
   const m = await mapUrls(ro, urls, { metas: true });
@@ -113,16 +113,16 @@ test('Zuordnung: GSC-URLs → Produkt/Kategorie über SEO-URLs, Sprachpräfix, t
   assert.equal(m.get(urls[3])?.name, 'Becher');
   assert.equal(m.get(urls[4])?.kind, 'home');
   assert.equal(m.get(urls[5]), null);
-  assert.equal(m.get(urls[6])?.id, P1, 'alte (nicht kanonische) URL zeigt noch auf das Produkt');
+  assert.equal(m.get(urls[6])?.id, P1, 'old (non-canonical) URL still points to the product');
 });
 
-test('Chancen, Ausgangswert beim Anwenden, Messung danach und Shop-Check', async () => {
+test('Opportunities, baseline on apply, measurement afterwards and shop check', async () => {
   const db = shopDb(), ro = fakeReader(db);
   const vase = 'https://www.shop.de/Vase-Kiesel-22-cm/HH-VASE-22', becher = 'https://www.shop.de/Becher/HH-BECH-350';
   const rows: FakeRow[] = [];
-  // vorher (August): Vase 100 Impr./Tag, 1 Klick, Pos. 3 → CTR 1 % statt ~10 %; Becher normal
+  // before (August): vase 100 impr./day, 1 click, pos. 3 → CTR 1 % instead of ~10 %; mug normal
   for (const d of days('2026-08-01', 31)) rows.push({ date: d, page: vase, query: 'vase steinzeug', clicks: 1, impressions: 100, position: 3 }, { date: d, page: becher, query: 'becher', clicks: 10, impressions: 100, position: 3 });
-  // nachher (September/Oktober): Vase 6 Klicks/Tag
+  // after (September/October): vase 6 clicks/day
   for (const d of days('2026-09-02', 38)) rows.push({ date: d, page: vase, query: 'vase steinzeug', clicks: 6, impressions: 100, position: 3 }, { date: d, page: becher, query: 'becher', clicks: 10, impressions: 100, position: 3 });
   fake.data = rows;
   const cfg = G.getGscConfig()!;
@@ -132,54 +132,54 @@ test('Chancen, Ausgangswert beim Anwenden, Messung danach und Shop-Check', async
   assert.equal(opp.items[0].queries[0].keys[0], 'vase steinzeug');
   assert.equal(opp.items[0].o.impressions, 2800);
 
-  // Änderungsset angewendet (über den Beobachter in changes.ts)
+  // change set applied (via the observer in changes.ts)
   const { notifyApplied } = await import('../../../src/server/changes');
   const cs = { id: 'cs1', kind: 'products', entity: 'product', title: 'Metas', reason: null, atomic: false, skipped: [], items: [
     { id: `${P1}:metaTitle`, entity: 'product', entityId: P1, label: 'Vase „Kiesel“ (HH-VASE-22)', field: 'metaTitle', fieldLabel: 'Meta-Title', before: 'Vase Kiesel | Haus Holm', after: 'Vase Kiesel aus Steinzeug, 22 cm | Haus Holm', afterRaw: 'Vase Kiesel aus Steinzeug, 22 cm | Haus Holm', warn: [] },
     { id: `${P2}:stock`, entity: 'product', entityId: P2, label: 'Becher', field: 'stock', fieldLabel: 'Bestand', before: '1', after: '2', afterRaw: 2, warn: [] },
   ] };
-  // Zeitpunkt der Änderung: 1.9. (Beobachter nutzt „jetzt“ → hier direkt mit festem Datum)
+  // time of change: Sept 1 (observer uses "now" → here directly with a fixed date)
   const made = await F.baselinesFor(cfg, cs.items, { ro, changeSetId: cs.id }, new Date('2026-09-01T12:00:00Z'));
-  assert.equal(made.length, 1, 'nur Meta-Felder erzeugen Ausgangswerte');
+  assert.equal(made.length, 1, 'only meta fields create baselines');
   const b = made[0];
   assert.deepEqual([b.before.startDate, b.before.endDate, b.before.days, b.before.clicks, b.before.impressions], ['2026-08-02', '2026-08-29', 28, 28, 2800]);
   assert.deepEqual(b.urls, [vase]);
   assert.equal(b.site?.impressions, 5600);
-  // Beobachter-Weg: ohne festes Datum, aber gleicher Mechanismus (Seite bekannt → Ausgangswert)
+  // observer path: without a fixed date, but same mechanism (page known → baseline)
   await notifyApplied(cs, { results: [{ itemId: `${P1}:metaTitle`, ok: true }] }, { ro, chatId: 'chat1' });
   assert.equal(F.listBaselines().length, 2);
-  assert.match(F.listBaselines()[0].measured?.verdict ?? '', /überholt/, 'ältere offene Messung derselben Seite ist überholt');
-  // Seite, die Google nicht kennt → kein Ausgangswert
+  assert.match(F.listBaselines()[0].measured?.verdict ?? '', /überholt/, 'older open measurement of the same page is superseded');
+  // page unknown to Google → no baseline
   assert.equal((await F.baselinesFor(cfg, [{ ...cs.items[0], entity: 'category', entityId: C1, field: 'metaDescription' }], { ro, changeSetId: 'cs2' }, new Date('2026-09-01T12:00:00Z'))).length, 0);
 
-  // Messen: zu früh → Datum nennen
+  // measure: too early → state the date
   const early = await F.measure(cfg, ro, b, new Date('2026-09-10T12:00:00Z'));
   assert.equal(early.status, 'zu früh'); assert.match(String(early.message), /ab 2026-09-18/);
-  // vollständig: CTR 1 % → 6 %, signifikant
+  // complete: CTR 1 % → 6 %, significant
   db.product[0].metaTitle = 'Vase Kiesel aus Steinzeug, 22 cm | Haus Holm';
   const full = await F.measure(cfg, ro, b, new Date('2026-10-10T12:00:00Z')) as Done;
   assert.equal(full.status, 'vollständig'); assert.equal(full.verdict, 'verbessert');
   assert.equal(full.after.clicks, 168); assert.equal(full.change.clicksPerDay, '+500 %');
   assert.ok(!full.notes.some(n => /anderen Wert/.test(n)));
-  // inzwischen zurückgesetzt → Hinweis
+  // reset in the meantime → note
   db.product[0].metaTitle = 'Vase Kiesel | Haus Holm';
   const drift = await F.measure(cfg, ro, b, new Date('2026-10-10T12:00:00Z')) as Done;
   assert.ok(drift.notes.some(n => /anderen Wert/.test(n)));
 
-  // Shop-Check: Chancen + fällige Messungen (nur wenn verbunden)
+  // shop check: opportunities + due measurements (only when connected)
   const { listChecks } = await import('../../../src/server/checks');
   const checks = listChecks().filter(c => c.area === 'Search Console');
   assert.deepEqual(checks.map(c => c.id).sort(), ['gsc.cannibalization', 'gsc.decline', 'gsc.low-ctr', 'gsc.measure-due']);
   const due = await checks.find(c => c.id === 'gsc.measure-due')!.run(ro) as { count: number; title: string };
-  assert.equal(due.count, 0, 'die vollständig gemessene und die überholte Messung sind erledigt; die neue ist noch nicht fällig');
+  assert.equal(due.count, 0, 'the fully measured and the superseded measurement are done; the new one is not due yet');
   const low = await checks.find(c => c.id === 'gsc.low-ctr')!.run(ro) as { count: number; title: string };
   assert.equal(typeof low.count, 'number'); assert.match(low.title, /Klickrate/);
   G.saveGsc({ key: null });
-  assert.equal(await checks[0].run(ro), null, 'ohne Verbindung keine Befunde');
+  assert.equal(await checks[0].run(ro), null, 'no findings without a connection');
   fake.data = [];
 });
 
-test('Ausgangswert für SEO-URL mit Umlaut und Sprachpräfix: Google kennt die Seite percent-kodiert unter /en', async () => {
+test('Baseline for SEO URL with umlaut and language prefix: Google knows the page percent-encoded under /en', async () => {
   G.saveGsc({ key: KEY, property: 'sc-domain:shop.de' });
   const P3 = '9'.repeat(32), db = shopDb();
   db.product.push({ id: P3, name: 'Küchenvase', productNumber: 'HH-KUECHE-1', active: true, metaTitle: 'Alt', metaDescription: '' });
@@ -187,33 +187,33 @@ test('Ausgangswert für SEO-URL mit Umlaut und Sprachpräfix: Google kennt die S
   const ro = fakeReader(db), page = 'https://www.shop.de/en/k%C3%BCche/vase-kiesel';
   fake.data = days('2026-08-01', 31).map(d => ({ date: d, page, query: 'vase', clicks: 2, impressions: 50, position: 4 }));
   const b = await F.recordBaseline(G.getGscConfig()!, ro, { entity: 'product', entityId: P3, label: 'Küchenvase', fields: [{ field: 'metaTitle', before: 'Alt', after: 'Neu' }], changeSetId: 'cs9' }, new Date('2026-09-01T12:00:00Z'));
-  assert.ok(b, 'Ausgangswert angelegt');
+  assert.ok(b, 'baseline created');
   assert.equal(b!.before.impressions, 28 * 50);
-  assert.deepEqual(b!.urls, [page], 'URLs aus den Search-Console-Zeilen');
+  assert.deepEqual(b!.urls, [page], 'URLs from the Search Console rows');
   assert.match(b!.pathRegex, /k%C3%BCche/);
-  assert.ok(new RegExp(b!.pathRegex).test('https://www.shop.de/küche/vase-kiesel'), 'rohe Form bleibt treffbar');
+  assert.ok(new RegExp(b!.pathRegex).test('https://www.shop.de/küche/vase-kiesel'), 'raw form still matches');
   G.saveGsc({ key: null });
   fake.data = [];
 });
 
-test('Rankings: kurz vor Seite 1, Kannibalisierung und Verluste gegen den Vorzeitraum, dem Shop zugeordnet', async () => {
+test('Rankings: just short of page 1, cannibalization and losses against the previous period, mapped to the shop', async () => {
   G.saveGsc({ key: KEY, property: 'sc-domain:shop.de' }); G.clearGscCache();
   const ro = fakeReader(shopDb()), now = new Date('2026-10-14T12:00:00Z');
   const VASE = 'https://www.shop.de/Vase-Kiesel-22-cm/HH-VASE-22', CAT = 'https://www.shop.de/Wohnen/Vasen/', BECHER = 'https://www.shop.de/Becher/HH-BECH-350';
-  const cur = days('2026-09-14', 28), prev = days('2026-08-17', 28); // Zeiträume bis 2026-10-11 (heute minus 3 Tage) und die 28 Tage davor
+  const cur = days('2026-09-14', 28), prev = days('2026-08-17', 28); // periods up to 2026-10-11 (today minus 3 days) and the 28 days before
   fake.data = [
     ...cur.map(d => ({ date: d, page: VASE, query: 'vase steinzeug', clicks: 0, impressions: 10, position: 8 })),
     ...cur.map(d => ({ date: d, page: CAT, query: 'vase steinzeug', clicks: 0, impressions: 8, position: 9 })),
     ...prev.map(d => ({ date: d, page: BECHER, query: 'becher', clicks: 3, impressions: 30, position: 3 })),
     ...cur.map(d => ({ date: d, page: BECHER, query: 'becher', clicks: 1, impressions: 30, position: 7 })),
-    ...[...prev, ...cur].map(d => ({ date: d, page: 'https://www.shop.de/', query: 'haus holm', clicks: 10, impressions: 20, position: 1 })), // stabiler Shop-Trend
+    ...[...prev, ...cur].map(d => ({ date: d, page: 'https://www.shop.de/', query: 'haus holm', clicks: 10, impressions: 20, position: 1 })), // stable shop trend
   ];
   const r = await F.rankingInsights(G.getGscConfig()!, ro, {}, now);
   assert.equal(r.period.endDate, '2026-10-11'); assert.equal(r.previous.endDate, '2026-09-13');
   assert.deepEqual(r.cannibal.map(c => c.x.query), ['vase steinzeug']);
-  assert.deepEqual(r.cannibal[0].refs.map(x => x?.id).sort(), [P1, C1].sort(), 'beide Seiten dem Shop zugeordnet');
-  assert.ok(r.striking.some(s => s.ref?.id === P1), 'Vase rankt auf Position 8: kurz vor Seite 1');
-  assert.deepEqual(r.decline.map(d => d.ref?.id), [P2], 'Becher: 84 → 28 Klicks');
+  assert.deepEqual(r.cannibal[0].refs.map(x => x?.id).sort(), [P1, C1].sort(), 'both pages mapped to the shop');
+  assert.ok(r.striking.some(s => s.ref?.id === P1), 'vase ranks at position 8: just short of page 1');
+  assert.deepEqual(r.decline.map(d => d.ref?.id), [P2], 'mug: 84 → 28 clicks');
   assert.equal(r.decline[0].x.before.clicks, 84);
   G.saveGsc({ key: null });
   fake.data = [];

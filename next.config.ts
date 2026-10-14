@@ -1,15 +1,15 @@
 import type { NextConfig } from 'next';
 
-// Für alles: /shop (Live-Vorschau im iframe der Oberfläche) und /staged setzen ihre eigene CSP, deshalb hier nur SAMEORIGIN.
+// For everything: /shop (live preview in the UI's iframe) and /staged set their own CSP, so only SAMEORIGIN here.
 const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'same-origin' },
   { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
   { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
 ];
-// Oberfläche und API: nie eingebettet (Clickjacking auf „Freigeben“), keine Plugins, kein <base>, Formulare nur an Lotse.
-// Bewusst ohne script-src: Next braucht Inline-Skripte (Hydration), eine Nonce-CSP wäre ein eigenes Projekt.
-// Die Entwurfs-Vorschau (srcdoc) erbt diese CSP; sie nutzt weder <base> noch <object>, Formulare sperrt ihre Sandbox ohnehin.
+// UI and API: never embedded (clickjacking on "Freigeben"), no plugins, no <base>, forms only to Lotse.
+// Deliberately without script-src: Next needs inline scripts (hydration); a nonce CSP would be a project of its own.
+// The draft preview (srcdoc) inherits this CSP; it uses neither <base> nor <object>, and its sandbox blocks forms anyway.
 const APP_CSP = "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'";
 const appHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
@@ -18,23 +18,23 @@ const appHeaders = [
 const APP_ROUTES = ['/', '/settings/:path*', '/wissen/:path*', '/api/:path*'];
 
 const nextConfig: NextConfig = {
-  output: 'standalone',           // schlankes Docker-Image: nur die benötigten Dateien
+  output: 'standalone',           // slim Docker image: only the required files
   poweredByHeader: false,
-  skipTrailingSlashRedirect: true, // Shopware-SEO-URLs enden auf / – sonst Redirect-Schleife im Shop-Proxy
-  compress: false,                // Chat-Stream (NDJSON) nicht puffern; Lotse läuft lokal
+  skipTrailingSlashRedirect: true, // Shopware SEO URLs end with /, otherwise redirect loop in the shop proxy
+  compress: false,                // don't buffer the chat stream (NDJSON); Lotse runs locally
   reactStrictMode: true,
-  devIndicators: { position: 'bottom-right' }, // links unten liegt der Status der Navigation
-  // KI-Laufzeiten (Claude Agent SDK, OpenAI Codex) starten native Programme aus node_modules → nicht bundeln
+  devIndicators: { position: 'bottom-right' }, // the navigation status sits at the bottom left
+  // AI runtimes (Claude Agent SDK, OpenAI Codex) launch native binaries from node_modules → don't bundle
   serverExternalPackages: ['@anthropic-ai/claude-agent-sdk', '@openai/codex-sdk'],
   outputFileTracingIncludes: {
     '/*': ['./prompts/**/*', './node_modules/@anthropic-ai/claude-agent-sdk-linux-*/**/*', './node_modules/@openai/codex/**/*', './node_modules/@openai/codex-linux-*/**/*'],
   },
-  images: { unoptimized: true }, // next/image wird nicht genutzt → sharp entfällt im Docker-Image
+  images: { unoptimized: true }, // next/image is not used → no sharp in the Docker image
   experimental: {
-    proxyClientMaxBodySize: '30mb', // Bild-Uploads (max. 25 MB) passieren den Proxy
+    proxyClientMaxBodySize: '30mb', // image uploads (max. 25 MB) pass through the proxy
   },
   async headers() {
-    // Spätere Einträge überschreiben gleiche Schlüssel (X-Frame-Options): App-Routen DENY, Rest SAMEORIGIN
+    // Later entries override identical keys (X-Frame-Options): app routes DENY, everything else SAMEORIGIN
     return [{ source: '/:path*', headers: securityHeaders }, ...APP_ROUTES.map(source => ({ source, headers: appHeaders }))];
   },
 };

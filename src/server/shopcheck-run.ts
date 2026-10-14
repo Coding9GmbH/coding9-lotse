@@ -1,5 +1,5 @@
 import 'server-only';
-// Shop-Check (rein): registrierte Prüfungen mit Zeitlimit, begrenzter Parallelität und Fehler-Isolation ausführen.
+// Shop check (pure): run registered checks with a time limit, limited concurrency and error isolation.
 import type { CheckFinding, CheckRun, CheckSeverity, ScopeKey } from '@/lib/protocol';
 import { errMsg, pool } from './changes';
 import type { CheckCtx, ShopCheck } from './checks';
@@ -8,7 +8,7 @@ import type { ShopReader } from './shopware';
 export const SEVERITY_ORDER: Record<CheckSeverity, number> = { hoch: 0, mittel: 1, niedrig: 2 };
 export const SAMPLE_MAX = 5;
 
-/** ctx: Kontext je Durchlauf (bekommt den Lese-Client dieses Durchlaufs); perRun: false = Lese-Client nicht einhüllen (andere Plattformen liefern je Durchlauf einen frischen) */
+/** ctx: context per run (gets this run's read client); perRun: false = don't wrap the read client (other platforms provide a fresh one per run) */
 export interface RunOpts { scopes?: Partial<Record<ScopeKey, boolean>>; timeoutMs?: number; concurrency?: number; now?: () => number; ctx?: (reader: ShopReader) => CheckCtx; perRun?: boolean }
 
 export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
@@ -17,7 +17,7 @@ export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise
   return Promise.race([p, to]).finally(() => clearTimeout(t));
 }
 
-/** Befund bereinigen: Bereich aus der Prüfung, Zahlen ganzzahlig, max. 5 Beispiele. null = nichts zu melden. */
+/** Clean up a finding: area from the check, integer numbers, max. 5 examples. null = nothing to report. */
 export function normalizeFinding(f: CheckFinding | null | undefined, check: Pick<ShopCheck, 'area'>): CheckFinding | null {
   if (!f || !f.id || !f.title || !f.fixPrompt) return null;
   const count = Math.max(0, Math.round(Number(f.count) || 0));
@@ -30,11 +30,11 @@ export function normalizeFinding(f: CheckFinding | null | undefined, check: Pick
   };
 }
 
-/** Wichtig zuerst, dann nach Anzahl */
+/** Important first, then by count */
 export const sortFindings = (list: CheckFinding[]) => [...list].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || b.count - a.count || a.title.localeCompare(b.title));
 
-/** Eigenes Objekt je Durchlauf: Zwischenspeicher der Prüfungen (WeakMap je Lese-Client) gelten so nur für diesen Durchlauf,
- *  auch wenn derselbe Lese-Client mehrfach geprüft wird. */
+/** Own object per run: the checks' caches (WeakMap per read client) thus only apply to this run,
+ *  even if the same read client is checked several times. */
 export const perRun = (sw: ShopReader): ShopReader => ({
   get base() { return sw.base; },
   search: (...a) => sw.search(...a), get: (...a) => sw.get(...a), salesChannels: () => sw.salesChannels(), req: (...a) => sw.req(...a),
@@ -53,7 +53,7 @@ export async function runChecks(reader: ShopReader, checks: ShopCheck[], o: RunO
       const out = await withTimeout(Promise.resolve().then(() => c.run(sw, ctx)), o.timeoutMs ?? 90_000, c.id);
       for (const f of [out ?? []].flat()) { const n = normalizeFinding(f, c); if (n) findings.push(n); }
     } catch (e) {
-      if (isDenied(e)) skipped.push(c.id); // Bereich gesperrt: kein Fehler, nur nicht geprüft
+      if (isDenied(e)) skipped.push(c.id); // area locked: not an error, just not checked
       else errors.push({ check: c.id, error: errMsg(e).slice(0, 300) });
     }
   });

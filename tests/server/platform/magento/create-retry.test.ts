@@ -7,7 +7,7 @@ after(() => fake.close());
 
 const plan = { name: 'Neu', description: '<p>x</p>', price: 10, sku: 'VASE-NEU', urlKey: 'vase-neu', attributeSetId: 4, websiteIds: [1], taxClassId: '2', images: [] as string[], categoryIds: [] as string[], stock: 0, active: false, source: null as string | null };
 
-test('Magento: Zeitlimit nach dem Anlegen lässt einen Löschschritt zurück, ein zweiter Lauf legt nicht noch eins an', async () => {
+test('Magento: timeout after creation leaves a delete step behind, a second run does not create another one', async () => {
   const { MagentoClient } = await import('../../../../src/server/platform/magento/client');
   const { createProduct } = await import('../../../../src/server/platform/magento/images');
   const c = new MagentoClient({ url: fake.base, accessToken: fake.token, storeCode: 'default' });
@@ -26,10 +26,10 @@ test('Magento: Zeitlimit nach dem Anlegen lässt einen Löschschritt zurück, ei
   });
   assert.equal(fake.products.filter(p => p.sku === 'VASE-NEU').length, 1);
   await assert.rejects(createProduct(c, plan), /SKU VASE-NEU ist schon vergeben/);
-  assert.equal(fake.products.filter(p => p.sku === 'VASE-NEU').length, 1, 'kein zweites Produkt');
+  assert.equal(fake.products.filter(p => p.sku === 'VASE-NEU').length, 1, 'no second product');
 });
 
-test('Magento: Rückgängig überspringt ein Feld, das weder den geschriebenen noch den vorherigen Wert hat', async () => {
+test('Magento: undo skips a field that has neither the written nor the previous value', async () => {
   const { MagentoClient } = await import('../../../../src/server/platform/magento/client');
   const { writeScoped, undoMagento } = await import('../../../../src/server/platform/magento/write');
   const c = new MagentoClient({ url: fake.base, accessToken: fake.token, storeCode: 'default' });

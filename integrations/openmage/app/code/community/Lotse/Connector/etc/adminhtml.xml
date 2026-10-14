@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<!-- Lotse Connector: ACL für den Konfigurationsabschnitt (gilt auch für die Token-Erzeugung). -->
+<!-- Lotse Connector: ACL for the configuration section (also applies to token generation). -->
 <config>
     <acl>
         <resources>

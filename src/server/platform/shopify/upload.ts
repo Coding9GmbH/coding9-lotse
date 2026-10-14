@@ -1,13 +1,13 @@
 import 'server-only';
-// Shopify: vorgemerkte Bilder (staged:…) nach Freigabe hochladen. stagedUploadsCreate (POST, multipart wie von Shopify dokumentiert)
-// → Datei an das Ziel senden → resourceUrl als originalSource für Produktmedien bzw. Dateien. Nur im Executor (privilegierter Client).
+// Shopify: upload staged images (staged:…) after approval. stagedUploadsCreate (POST, multipart as documented by Shopify)
+// → send the file to the target → resourceUrl as originalSource for product media or files. Executor only (privileged client).
 import { readStaged, stagedMeta } from '../../media';
 import type { Json, ShopifyClient } from './client';
 import { M, run } from './ops';
 
 export interface ImageSource { originalSource: string; alt: string; ai?: boolean }
 
-/** Bild aus dem lokalen Staging hochladen; liefert die resourceUrl */
+/** Upload an image from the local staging; returns the resourceUrl */
 export async function uploadStagedImage(client: ShopifyClient, stagedId: string, f: typeof fetch = fetch): Promise<ImageSource> {
   const meta = stagedMeta(stagedId), file = readStaged(stagedId);
   if (!meta || !file) throw new Error(`Vorgemerktes Bild ${stagedId} nicht gefunden`);

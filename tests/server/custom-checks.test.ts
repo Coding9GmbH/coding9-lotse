@@ -13,12 +13,12 @@ const { registerCheck } = await import('../../src/server/checks');
 const row = (id: string, o: Partial<NeutralProduct> = {}): NeutralProduct => ({ id, label: `Produkt ${id}`, name: `Produkt ${id}`, description: 'kurz', metaTitle: 't', metaDescription: '', price: 10, listPrice: null, stock: 3, hasImage: true, ...o });
 const scan = { rows: [row('1'), row('2', { description: 'x'.repeat(3000), stock: 10 }), row('3', { stock: 0 })], total: 3, capped: false };
 
-test('Eigene Prüfungen: anlegen, ändern, löschen, Grenzen', () => {
+test('custom checks: create, update, delete, limits', () => {
   const a = cc.addCustom({ title: 'Beschreibung unter 2000 Zeichen', severity: 'hoch', conditions: [{ field: 'descriptionChars', op: 'lt', value: 2000 }] });
   assert.equal(a.id, 'custom.beschreibung-unter-2000-zeichen');
   assert.equal(cc.addCustom({ title: 'Beschreibung unter 2000 Zeichen', conditions: [{ field: 'stock', op: 'lt', value: 1 }] }).id, 'custom.beschreibung-unter-2000-zeichen-2');
   const u = cc.updateCustom(a.id, { title: 'Zu kurz', conditions: [{ field: 'descriptionChars', op: 'lt', value: 1500 }] });
-  assert.equal(u.title, 'Zu kurz'); assert.equal(u.id, a.id); assert.equal(u.severity, 'hoch', 'nicht genannte Felder bleiben');
+  assert.equal(u.title, 'Zu kurz'); assert.equal(u.id, a.id); assert.equal(u.severity, 'hoch', 'fields not mentioned stay');
   assert.throws(() => cc.updateCustom('custom.gibt-es-nicht', { title: 'x' }), /nicht gefunden/);
   assert.ok(cc.removeCustom(a.id)); assert.equal(cc.removeCustom(a.id), false);
   for (const c of cc.listCustom()) cc.removeCustom(c.id);
@@ -27,7 +27,7 @@ test('Eigene Prüfungen: anlegen, ändern, löschen, Grenzen', () => {
   for (const c of cc.listCustom()) cc.removeCustom(c.id);
 });
 
-test('Befund einer eigenen Prüfung: Anzahl, „mindestens“ bei gedecktem Scan, nichts bei null Treffern', () => {
+test('finding of a custom check: count, "mindestens" (at least) for a capped scan, nothing at zero hits', () => {
   const c = cc.addCustom({ title: 'Wenig Bestand', severity: 'niedrig', area: 'Daten', conditions: [{ field: 'stock', op: 'lt', value: 5 }] });
   const f = cc.customFinding(c, scan)!;
   assert.equal(f.id, c.id); assert.equal(f.count, 2); assert.equal(f.total, 3); assert.equal(f.severity, 'niedrig'); assert.equal(f.area, 'Daten');
@@ -37,7 +37,7 @@ test('Befund einer eigenen Prüfung: Anzahl, „mindestens“ bei gedecktem Scan
   cc.removeCustom(c.id);
 });
 
-test('Durchlauf: eigene Prüfungen laufen mit, ausgeschaltete nicht; Liste zeigt Zustand', async () => {
+test('run: custom checks run along, disabled ones don\'t; list shows state', async () => {
   registerCheck({ id: 'shopcheck.price-zero', area: 'Preise', platforms: 'all', run: async () => null });
   const c = cc.addCustom({ title: 'Ohne Bild', conditions: [{ field: 'hasImage', op: 'eq', value: false }] });
   const lowStock = cc.addCustom({ title: 'Wenig Bestand', conditions: [{ field: 'stock', op: 'lt', value: 5 }] });
@@ -46,8 +46,8 @@ test('Durchlauf: eigene Prüfungen laufen mit, ausgeschaltete nicht; Liste zeigt
   const run = await runChecks({ base: 'x' } as never, checks, { perRun: false });
   assert.deepEqual(run.errors, []);
   assert.equal(run.findings.find(f => f.id === c.id)?.count, 1);
-  assert.equal(run.findings.find(f => f.id === lowStock.id)?.count, 3, 'Produkte 1, 3 und 4 haben weniger als 5 im Bestand');
-  assert.equal(scans, 2, 'jede Prüfung fragt den Scan an; die Plattform liefert ihn je Durchlauf memoisiert');
+  assert.equal(run.findings.find(f => f.id === lowStock.id)?.count, 3, 'products 1, 3 and 4 have less than 5 in stock');
+  assert.equal(scans, 2, 'every check requests the scan; the platform delivers it memoized per run');
 
   const list = cc.checkList('shopware');
   assert.ok(list.some(x => x.id === 'shopcheck.price-zero' && x.title === 'Preis ist 0' && x.enabled && !x.custom));
@@ -56,7 +56,7 @@ test('Durchlauf: eigene Prüfungen laufen mit, ausgeschaltete nicht; Liste zeigt
   assert.deepEqual([...cc.disabledChecks()].sort(), ['shopcheck.price-zero', c.id].sort());
   assert.equal(cc.checkList('shopware').find(x => x.id === c.id)!.enabled, false);
   cc.removeCustom(c.id);
-  assert.ok(!cc.disabledChecks().has(c.id), 'Löschen räumt die Aus-Liste auf');
+  assert.ok(!cc.disabledChecks().has(c.id), 'delete cleans up the disabled list');
   cc.setCheckEnabled('shopcheck.price-zero', true);
   cc.removeCustom(lowStock.id);
 });

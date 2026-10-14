@@ -1,4 +1,4 @@
-// Galerie-Download: dieselbe öffentliche Adresse darf nicht auf einen fremden Host umgeschrieben werden.
+// Gallery download: the same public address must not be rewritten to a foreign host.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { imageContent } from '../../../../src/server/platform/openmage/images';
@@ -6,7 +6,7 @@ import type { OmClient } from '../../../../src/server/platform/openmage/client';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64');
 
-test('imageContent: Shop-Bild mit Pfad-Prefix bleibt auf dem Shop-Host', async () => {
+test('imageContent: shop image with path prefix stays on the shop host', async () => {
   const fetched: { url: string; redirect?: RequestRedirect }[] = [];
   const attack = 'https://mein-shop.de/de@169.254.169.254/media/a.jpg';
   const c = {

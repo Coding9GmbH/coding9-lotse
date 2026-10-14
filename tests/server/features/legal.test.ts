@@ -18,7 +18,7 @@ function fakeReader(db: Record<string, SwEntity[]>): ShopReader {
   return { base: 'http://shop', search, get: async (e, id) => (await search(e, { ids: [id] })).data[0] ?? null, salesChannels: async () => [], req: async () => null };
 }
 
-test('Füllmenge: Gewicht, Volumen, Mehrfachpackung; Maße sind kein Grundpreis-Fall', () => {
+test('fill quantity: weight, volume, multipack; dimensions are not a base price case', () => {
   assert.deepEqual(parseQuantity('Cold Brew „Ebbe“, grob gemahlen, 250 g'), { amount: 0.25, unit: 'kg', raw: '250 g', source: 'name' });
   assert.equal(parseQuantity('Probierset „Drei Häfen“, 3 × 250 g')?.amount, 0.75);
   assert.equal(parseQuantity('Olivenöl 0,75 l')?.unit, 'l');
@@ -28,7 +28,7 @@ test('Füllmenge: Gewicht, Volumen, Mehrfachpackung; Maße sind kein Grundpreis-
   assert.equal(parseQuantity('Tee', '<p>Inhalt: 100 g loser Tee.</p>')?.amount, 0.1);
 });
 
-test('Grundpreis-Kandidat: Gefäß = prüfen, 1 kg = nicht nötig, Text', () => {
+test('base price candidate: container = check, 1 kg = not needed, text', () => {
   const mug = basePriceCandidate('Becher „Morgen“, Steinzeug gesprenkelt, 350 ml')!;
   assert.equal(mug.confidence, 'prüfen'); assert.match(mug.reasons[0], /Fassungsvermögen/);
   assert.equal(basePriceCandidate('Espresso, 500 g')!.confidence, 'sicher');
@@ -38,7 +38,7 @@ test('Grundpreis-Kandidat: Gefäß = prüfen, 1 kg = nicht nötig, Text', () => 
   assert.equal(unitKeyOf({ shortCode: 'm²' }), 'm2');
 });
 
-test('Grundpreis-Status je Produkt', () => {
+test('base price status per product', () => {
   const units = [{ id: 'u-kg', shortCode: 'kg', name: 'Kilogramm' }];
   const p = { id: 'p', name: 'Espresso, 500 g', productNumber: 'E', price: [{ currencyId: 'b7d2554b0ce847cd82f3ac9bd1c0dfca', gross: 12.9 }] };
   assert.equal(basePriceRow(p, units)?.status, 'fehlt');
@@ -48,7 +48,7 @@ test('Grundpreis-Status je Produkt', () => {
   assert.equal(basePriceRow({ ...p, name: 'Vase, 22 cm' }, units), null);
 });
 
-test('GPSR: Herstellerstatus, EU-Verantwortliche, Produkte, Lebensmittel', () => {
+test('GPSR: manufacturer status, EU responsible person, products, food', () => {
   const m = gpsrManufacturer({ id: 'm', name: 'Haus Holm', link: 'https://haus-holm.de' });
   assert.equal(m.complete, false); assert.ok(m.missing.includes('Postanschrift')); assert.equal(m.euResponsibleNeeded, 'prüfen'); assert.match(m.notes[0], /Nur Website/);
   const cn = gpsrManufacturer({ id: 'c', name: 'X', customFields: { lotse_gpsr_address: 'Road 1, 518000 Shenzhen, China', lotse_gpsr_country: 'CN', lotse_gpsr_contact: 'info@x.cn' } });
@@ -62,7 +62,7 @@ test('GPSR: Herstellerstatus, EU-Verantwortliche, Produkte, Lebensmittel', () =>
   assert.deepEqual(gpsrProduct({ id: 'v', name: 'Vase', manufacturerId: 'd', ean: '4006381333931' }, [], de).missing, []);
 });
 
-test('GPSR-Werte: Validierung, Platzhalter werden abgewiesen', () => {
+test('GPSR values: validation, placeholders are rejected', () => {
   assert.equal(validateGpsrValue('lotse_gpsr_country', 'de'), 'DE');
   assert.throws(() => validateGpsrValue('lotse_gpsr_country', 'Deutschland'), /ISO-Code/);
   assert.equal(validateGpsrValue('lotse_gpsr_contact', 'service@haus-holm.de'), 'service@haus-holm.de');
@@ -72,7 +72,7 @@ test('GPSR-Werte: Validierung, Platzhalter werden abgewiesen', () => {
   assert.equal(validateGpsrValue('lotse_gpsr_safety', null), null);
 });
 
-test('BFSG-Texte: Linktexte, Überschriften, Buttons, Bilder', () => {
+test('BFSG texts: link texts, headings, buttons, images', () => {
   const types = (h: string, embedded = true) => htmlA11y(h, { embedded }).map(i => i.type);
   assert.deepEqual(types('<p>Infos <a href="/x">hier</a> und <a href="/y">Pflegehinweise lesen</a></p>'), ['link-vague']);
   assert.deepEqual(types('<a href="/x"><img src="a.jpg" alt="Vase Kiesel"></a><a href="/y"><i class="icon"></i></a>'), ['link-empty']);
@@ -83,7 +83,7 @@ test('BFSG-Texte: Linktexte, Überschriften, Buttons, Bilder', () => {
   assert.deepEqual(types('<h2>Pflege</h2><p><a href="/p">Mehr erfahren »</a></p>'), ['link-vague']);
 });
 
-test('BFSG-Kontrast: Verhältnis, Vorschlag, Theme-Verweise', () => {
+test('BFSG contrast: ratio, suggestion, theme references', () => {
   assert.equal(contrastRatio('#000', '#fff'), 21);
   assert.equal(contrastRatio('#777777', '#ffffff'), 4.48);
   const s = suggestColor('#777777', '#ffffff')!;
@@ -94,7 +94,7 @@ test('BFSG-Kontrast: Verhältnis, Vorschlag, Theme-Verweise', () => {
   assert.ok(r[0].suggestion);
 });
 
-test('Rechtstexte: Platzhalter, fehlende Zuordnung, Footer-Link', () => {
+test('legal pages: placeholders, missing assignment, footer link', () => {
   const imp = LEGAL_PAGES[0];
   assert.deepEqual(evaluateLegalPage(imp, { cmsPageId: null, exists: false, text: '', linked: false, reachable: null }).problems, ['Keine Seite zugeordnet (Einstellungen › Stammdaten)']);
   assert.deepEqual(evaluateLegalPage(imp, { cmsPageId: 'p', exists: true, text: '<h2>Imprint</h2><p>Lorem ipsum dolor sit amet</p>', linked: false, reachable: true }).problems, ['Enthält Platzhaltertext (Lorem ipsum)', 'Nicht im Footer der Startseite verlinkt']);
@@ -105,7 +105,7 @@ test('Rechtstexte: Platzhalter, fehlende Zuordnung, Footer-Link', () => {
   assert.equal(isLinked(LEGAL_PAGES[2], null, links), true);
 });
 
-test('GPSR-Änderungsset: Quelle Pflicht, Vorher/Nachher, Einrichtungshinweis', async () => {
+test('GPSR change set: source required, before/after, setup notice', async () => {
   const ro = fakeReader({ 'product-manufacturer': [{ id: 'm1', name: 'Haus Holm', customFields: { lotse_gpsr_country: 'DE' } }], product: [{ id: 'p1', name: 'Kerze', productNumber: 'K1' }] });
   const cs = await buildGpsrChangeSet(ro, { title: 'GPSR', reason: 'r', manufacturers: [
     { manufacturerId: 'm1', source: 'Nutzerangabe im Chat', address: 'Hafenstraße 3, 20457 Hamburg, Deutschland', country: 'DE', contact: 'service@haus-holm.de' },
@@ -120,7 +120,7 @@ test('GPSR-Änderungsset: Quelle Pflicht, Vorher/Nachher, Einrichtungshinweis', 
   await assert.rejects(buildGpsrChangeSet(ro, { title: 't', reason: 'r', manufacturers: [{ manufacturerId: 'm1', source: 'Nutzer', address: 'Musterstraße 1, 12345 Musterstadt' }] }), /Nichts zu ändern/);
 });
 
-/** Fake-Schreiber: merkt sich Schreibzugriffe */
+/** Fake writer: records writes */
 function fakeWriter(db: Record<string, SwEntity[]>) {
   const log: string[] = [];
   const sw = {
@@ -133,7 +133,7 @@ function fakeWriter(db: Record<string, SwEntity[]>) {
   return { sw: sw as unknown as Shopware, log };
 }
 
-test('Grundpreis-Änderungsset: Einheit wird mit angelegt, Rückgängig exakt', async () => {
+test('base price change set: unit is created along with it, exact undo', async () => {
   const db: Record<string, SwEntity[]> = { unit: [], product: [{ id: 'p1', name: 'Espresso „Hafenblick“, ganze Bohne, 500 g', productNumber: 'HB-ESP-500', price: [{ currencyId: 'b7d2554b0ce847cd82f3ac9bd1c0dfca', gross: 14.9 }], purchaseUnit: null, referenceUnit: null, unitId: null }] };
   const cs = await buildBasePriceChangeSet(fakeReader(db), { title: 'Grundpreise', reason: 'PAngV', products: [{ productId: 'p1' }] });
   assert.deepEqual(cs.items.map(i => i.id), ['unit:kg', 'p1:baseprice']);
@@ -146,13 +146,13 @@ test('Grundpreis-Änderungsset: Einheit wird mit angelegt, Rückgängig exakt', 
   const unitId = db.unit[0].id;
   assert.equal(log[1], `update product p1 ${JSON.stringify({ purchaseUnit: 0.5, referenceUnit: 1, unitId })}`);
   assert.deepEqual(res.undo, [{ op: 'delete', entity: 'unit', id: unitId }, { op: 'patch', entity: 'product', id: 'p1', data: { purchaseUnit: null, referenceUnit: null, unitId: null } }]);
-  // ohne freigegebene Einheit scheitert das Produkt sauber
+  // without an approved unit the product fails cleanly
   db.unit = [];
   const res2 = await applyChangeSet(sw, cs, undefined, new Set(['p1:baseprice']));
   assert.match(res2.results[0].error ?? '', /Maßeinheit/);
 });
 
-test('GPSR-Applier: Zusatzfelder anlegen, je Datensatz ein Schreibzugriff, Rückgängig mit alten Werten', async () => {
+test('GPSR applier: create custom fields, one write per record, undo with old values', async () => {
   const db: Record<string, SwEntity[]> = { 'custom-field-set': [], 'product-manufacturer': [{ id: 'm1', name: 'Haus Holm', customFields: { lotse_gpsr_contact: 'alt@haus-holm.de', other: 1 } }] };
   const cs = await buildGpsrChangeSet(fakeReader(db), { title: 'GPSR', reason: 'r', manufacturers: [{ manufacturerId: 'm1', source: 'Nutzer', address: 'Hafenstraße 3, 20457 Hamburg', contact: 'service@haus-holm.de' }] });
   const { sw, log } = fakeWriter(db);
@@ -163,7 +163,7 @@ test('GPSR-Applier: Zusatzfelder anlegen, je Datensatz ein Schreibzugriff, Rück
   assert.deepEqual(res.undo[1], { op: 'patch', entity: 'product-manufacturer', id: 'm1', data: { customFields: { lotse_gpsr_address: null, lotse_gpsr_contact: 'alt@haus-holm.de' } } });
 });
 
-test('GPSR: Geräte und Zubehör sind keine Lebensmittel, auch in Kaffee-/Tee-Kategorien', () => {
+test('GPSR: appliances and accessories are not food, even in coffee/tea categories', () => {
   const g = (name: string, cats: string[] = []) => gpsrProduct({ id: 'x', name, manufacturerId: 'm' }, cats);
   for (const [name, cats] of [['Elektrische Kaffeemühle, 150 W', []], ['Espressokocher Edelstahl', []], ['Wasserkocher 1,7 l', ['Tee']], ['Kerze Bienenwachs', ['Honig & Wachs']]] as const) {
     const p = g(name, [...cats]);
@@ -174,7 +174,7 @@ test('GPSR: Geräte und Zubehör sind keine Lebensmittel, auch in Kaffee-/Tee-Ka
   assert.equal(g('Espresso „Hafenblick“, ganze Bohne, 500 g', ['Kaffee']).food, true);
   assert.equal(g('Grüner Tee Sencha, 100 g').food, true);
   assert.equal(g('Filterkaffee „Morgenwache“, Äthiopien, 500 g').food, true); assert.equal(g('Kaffeefilter Gr. 4, 100 Stück').food, false);
-  // nur die Kategorie klingt nach Lebensmittel: ausgenommen, aber als „prüfen“ markiert; Sortennamen wie „Leuchtfeuer“ sind keine Gefahr
+  // only the category sounds like food: excluded, but marked as "prüfen" (check); variety names like "Leuchtfeuer" are no danger
   assert.equal(g('Crema „Leuchtfeuer“, 1 kg', ['Kaffee']).food, true);
   const cat = g('Röstung „Nachtwache“, 500 g', ['Kaffee']);
   assert.equal(cat.food, true); assert.match(cat.notes.join(' '), /Laut Kategorie ein Lebensmittel \(prüfen\)/);
@@ -183,7 +183,7 @@ test('GPSR: Geräte und Zubehör sind keine Lebensmittel, auch in Kaffee-/Tee-Ka
   assert.equal(gpsrProduct({ id: 'b', name: 'Becher', description: 'Spülmaschinenfest.' }).risky, false);
 });
 
-test('GPSR: Kennnummern an den Varianten zählen für das Hauptprodukt', () => {
+test('GPSR: identification numbers on the variants count for the parent product', () => {
   const parent = { id: 'p', name: 'Shirt', manufacturerId: 'm' };
   assert.deepEqual(gpsrProduct(parent, [], null, [{ ean: '4006381333931' }, { manufacturerNumber: 'S-2' }]).missing, []);
   const some = gpsrProduct(parent, [], null, [{ ean: '4006381333931' }, { ean: null }]);
@@ -192,7 +192,7 @@ test('GPSR: Kennnummern an den Varianten zählen für das Hauptprodukt', () => {
   assert.deepEqual(gpsrProduct({ ...parent, ean: '4006381333931' }, [], null, [{}]).missing, []);
 });
 
-test('Grundpreis: Geräte, Taschen, Elektronik und Teppiche sind „prüfen“; Packungen werden eingerechnet', () => {
+test('base price: appliances, bags, electronics and rugs are "prüfen" (check); packs are factored in', () => {
   for (const n of ['Wasserkocher 1,7 l', 'Rucksack 20 l', 'Laptop 15,6 Zoll 1,5 kg', 'Teppich 2 m²', 'Kurzhantel 5 kg']) assert.equal(basePriceCandidate(n)?.confidence, 'prüfen', n);
   assert.equal(parseQuantity('Duschgel 250 ml, 3er-Pack')?.amount, 0.75);
   assert.equal(parseQuantity('Duschgel 250 ml x 3')?.amount, 0.75);
@@ -202,7 +202,7 @@ test('Grundpreis: Geräte, Taschen, Elektronik und Teppiche sind „prüfen“; 
   assert.equal(c.confidence, 'sicher'); assert.match(c.reasons[0], /Packungsanzahl 3/);
 });
 
-test('Grundpreis: Varianten mit Mengen-Ausprägung werden einzeln bewertet, sonst das Hauptprodukt', () => {
+test('base price: variants with a quantity option are rated individually, otherwise the parent product', () => {
   const units = [{ id: 'u-kg', shortCode: 'kg', name: 'Kilogramm' }];
   const price = [{ currencyId: 'b7d2554b0ce847cd82f3ac9bd1c0dfca', gross: 10 }];
   const products = [
@@ -219,7 +219,7 @@ test('Grundpreis: Varianten mit Mengen-Ausprägung werden einzeln bewertet, sons
   assert.equal(rows[0].parentId, 'e');
 });
 
-test('Grundpreis-Änderungsset: Variante erbt Name/Preis, Menge aus der Ausprägung', async () => {
+test('base price change set: variant inherits name/price, quantity from the option', async () => {
   const db: Record<string, SwEntity[]> = { unit: [{ id: 'u-kg', shortCode: 'kg', name: 'Kilogramm' }], product: [
     { id: 'e', name: 'Espresso Hafenblick', productNumber: 'E', childCount: 1, price: [{ currencyId: 'b7d2554b0ce847cd82f3ac9bd1c0dfca', gross: 10 }] },
     { id: 'e1', parentId: 'e', productNumber: 'E.1', name: null, price: null, options: [{ name: '250 g' }], purchaseUnit: null, referenceUnit: null, unitId: null },
@@ -231,7 +231,7 @@ test('Grundpreis-Änderungsset: Variante erbt Name/Preis, Menge aus der Auspräg
   assert.deepEqual(cs.items[0].afterRaw, { purchaseUnit: 0.25, referenceUnit: 1, unitKey: 'kg', unitId: 'u-kg' });
 });
 
-test('Recht-Prüfungen: ein Katalog-Scan je Durchlauf mit Feldauswahl; GPSR, Grundpreis und Texte lesen daraus', async () => {
+test('legal checks: one catalog scan per run with field selection; GPSR, base price and texts read from it', async () => {
   const EUR = 'b7d2554b0ce847cd82f3ac9bd1c0dfca';
   const db: Record<string, SwEntity[]> = {
     product: [
@@ -253,14 +253,14 @@ test('Recht-Prüfungen: ein Katalog-Scan je Durchlauf mit Feldauswahl; GPSR, Gru
   type F = { id: string; count: number; total: number; severity: string };
   const sw = perRun(ro), run = async (id: string, r: ShopReader = sw) => [await LEGAL_CHECKS.find(c => c.id === id)!.run(r) ?? []].flat() as F[];
   const [gpsr, grund, texte] = await Promise.all([run('recht.gpsr'), run('recht.grundpreis'), run('bfsg.texte')]);
-  assert.equal(calls.filter(x => x.entity === 'product').length, 1, 'ein Produkt-Scan für drei Prüfungen');
+  assert.equal(calls.filter(x => x.entity === 'product').length, 1, 'one product scan for three checks');
   const scans = calls.filter(x => x.entity !== 'unit');
-  assert.ok(scans.every(x => x.c.includes), `alle Scans mit Feldauswahl: ${scans.filter(x => !x.c.includes).map(x => x.entity).join(', ')}`);
+  assert.ok(scans.every(x => x.c.includes), `all scans with field selection: ${scans.filter(x => !x.c.includes).map(x => x.entity).join(', ')}`);
   const by = Object.fromEntries([...gpsr, ...grund, ...texte].map(f => [f.id, f]));
-  assert.deepEqual([by['recht.gpsr-hersteller'].count, by['recht.gpsr-produkte'].count, by['recht.gpsr-produkte'].total], [1, 1, 1], 'Kerze ohne Kennnummer; Espresso ist Lebensmittel');
-  assert.deepEqual([by['recht.grundpreis'].count, by['recht.grundpreis'].severity, by['recht.grundpreis'].total], [2, 'hoch', 4], 'beide Mengen-Varianten ohne Grundpreis');
-  assert.deepEqual([by['bfsg.linktexte'].count, by['bfsg.struktur'].count, by['bfsg.linktexte'].total], [2, 1, 3], 'Produkt + Kategorie mit „hier/mehr“, Layout mit Überschriftensprung');
-  // dasselbe Lese-Client-Objekt liest nicht erneut, ein neues (nächster Durchlauf/Aufruf) schon
+  assert.deepEqual([by['recht.gpsr-hersteller'].count, by['recht.gpsr-produkte'].count, by['recht.gpsr-produkte'].total], [1, 1, 1], 'candle without identification number; espresso is food');
+  assert.deepEqual([by['recht.grundpreis'].count, by['recht.grundpreis'].severity, by['recht.grundpreis'].total], [2, 'hoch', 4], 'both quantity variants without base price');
+  assert.deepEqual([by['bfsg.linktexte'].count, by['bfsg.struktur'].count, by['bfsg.linktexte'].total], [2, 1, 3], 'product + category with "hier/mehr", layout with heading level jump');
+  // the same read client object does not read again, a new one (next run/call) does
   await run('recht.grundpreis');
   assert.equal(calls.filter(x => x.entity === 'product').length, 1);
   await run('recht.grundpreis', perRun(ro));

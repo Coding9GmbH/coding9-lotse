@@ -1,5 +1,5 @@
 import 'server-only';
-// Automatischer SEO-/Conversion-/UX-Check eines (expandierten) Seitenentwurfs
+// Automatic SEO/conversion/UX check of an (expanded) page draft
 import type { AuditCheck, DraftAudit } from '@/lib/protocol';
 import type { BlockSpec, ImageRef, PageSpec } from './cms';
 import { AI_CREDIT, aiImagesIn } from './media';
@@ -9,15 +9,15 @@ import { scriptRisk, scriptRiskText } from '@/lib/script-scan';
 const strip = (h: unknown) => String(h ?? '').replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 const words = (t: string) => (t.match(/[\p{L}\p{N}-]+/gu) ?? []).length;
 const TEXT_FIELDS = ['html', 'leftHtml', 'centerHtml', 'rightHtml'] as const;
-/** Sichtbarer Text (ohne FAQ) je Seite: Prüfung und Meldung nutzen denselben Wert */
+/** Visible text (without FAQ) per page: check and message use the same value */
 export const VISIBLE_MAX = 700;
 type Area = 'SEO' | 'CRO' | 'UX';
-/** Prüfpunkt: area/w/msg (intern, wie bisher) + label/weight/level laut protocol.ts */
+/** Check item: area/w/msg (internal, as before) + label/weight/level per protocol.ts */
 export type Check = AuditCheck & { area: Area; w: number; msg: string };
 export type Audit = Omit<DraftAudit, 'checks'> & { checks: Check[] };
 interface Flow { b: BlockSpec; type: string; html: string; text: string }
 
-// Typische KI-Floskeln („Slop“): machen Seiten austauschbar – siehe prompts/06-gestaltung.md
+// Typical AI stock phrases ("slop"): make pages interchangeable; see prompts/06-gestaltung.md
 const FLOSKELN: [RegExp, string][] = [
   [/entdecken? sie (unsere|die)|entdecke (unsere|die)|jetzt entdecken!/i, 'Entdecken Sie …'],
   [/willkommen in der welt/i, 'Willkommen in der Welt …'], [/tauchen? sie ein|tauch ein/i, 'Tauchen Sie ein'],
@@ -28,7 +28,7 @@ const FLOSKELN: [RegExp, string][] = [
 ];
 export const findFloskeln = (text: string) => FLOSKELN.filter(([re]) => re.test(text)).map(([, label]) => label);
 
-// Link-Prüfung (seo-links.ts): kaputte/inaktive Ziele = wichtig, Rest (SEO-URL, rel/target, Linktext) = empfohlen
+// Link check (seo-links.ts): broken/inactive targets = important, the rest (SEO URL, rel/target, link text) = recommended
 function linkChecks(C: Check[], r: LinkReport) {
   const hint = (fs: LinkReport['findings']) => fs.slice(0, 6).map(findingText).join(' · ') + (fs.length > 6 ? ` · … (+${fs.length - 6})` : '');
   const bad = r.findings.filter(f => f.level === 'wichtig'), minor = r.findings.filter(f => f.level !== 'wichtig');
@@ -39,25 +39,25 @@ function linkChecks(C: Check[], r: LinkReport) {
 }
 
 /**
- * links: Ergebnis der Link-Prüfung gegen den Shop (optional – ohne Shop-Zugriff entfällt sie).
- * format: 'html' = Plattform ohne Einkaufswelten (Shopify, Magento): Kategorie-/Produktinhalt ist nur ein Abschnitt der Seite,
- * H1, Produktliste bzw. Galerie und Kaufbox liefert das Theme – die Prüfungen richten sich danach.
+ * links: result of the link check against the shop (optional; skipped without shop access).
+ * format: 'html' = platform without Shopping Experiences (Shopify, Magento): category/product content is only a section of the page,
+ * the theme provides the H1, product list or gallery and buy box; the checks adapt accordingly.
  */
 export function auditSpec(spec: PageSpec, links?: LinkReport | null, { format = 'cms' }: { format?: 'cms' | 'html' } = {}): Audit {
   const seo: NonNullable<PageSpec['seo']> = spec.seo ?? {}, kw = (seo.keyword ?? '').toLowerCase().trim();
-  const flow: Flow[] = []; // geordnete Blöcke mit Inhalt
+  const flow: Flow[] = []; // ordered blocks with content
   for (const s of spec.sections ?? []) for (const b of s.blocks ?? []) {
     if (!b?.type) continue;
     const html = TEXT_FIELDS.map(f => b[f] ?? '').join(' ') + (b.title ? ` <h2>${b.title}</h2>` : '');
     flow.push({ b, type: b.pattern ?? b._pattern ?? (b.type === 'reuse' ? `reuse:${b.cmsType ?? '?'}` : b.type), html, text: strip(html) });
   }
-  // Theme-Inhalt (theme-main, HTML-Plattformen mit Theme): zählt bei Kollektionen wie die Produktliste, bei Produkten wie Galerie/Kaufbox + Beschreibung
+  // Theme content (theme-main, HTML platforms with a theme): counts as the product list for collections, as gallery/buy box + description for products
   const themed = flow.some(f => f.b.type === 'theme-main');
   const THEME_LIKE: Record<string, string[]> = { product_list: ['product-listing'], product_detail: ['pdp-gallery-buybox', 'pdp-description-reviews', 'pdp-heading'] };
-  const isLike = (f: Flow, t: string) => f.b.type === t || f.type === t || f.b.like === t || (f.b.type === 'theme-main' && (THEME_LIKE[spec.type] ?? []).includes(t)); // übernommene Blöcke zählen wie ihr Katalog-Gegenstück
+  const isLike = (f: Flow, t: string) => f.b.type === t || f.type === t || f.b.like === t || (f.b.type === 'theme-main' && (THEME_LIKE[spec.type] ?? []).includes(t)); // reused blocks count like their catalog counterpart
   const all = flow.map(f => f.html).join('\n'), allText = strip(all), nWords = words(allText);
   const heads = [...all.matchAll(/<h([1-4])[^>]*>([\s\S]*?)<\/h\1>/gi)].map(m => ({ l: +m[1], t: strip(m[2]).toLowerCase() }));
-  // Überschrift aus dem Shop: pdp-heading bzw. das Theme (Produkt- oder Kollektionstitel als H1 neben theme-main)
+  // Heading from the shop: pdp-heading or the theme (product or collection title as H1 next to theme-main)
   const hasPdpHeading = flow.some(f => f.b.type === 'pdp-heading') || themed;
   const h1s = heads.filter(h => h.l === 1), h1Count = h1s.length + (hasPdpHeading ? 1 : 0);
   const h2s = heads.filter(h => h.l === 2);
@@ -69,20 +69,20 @@ export function auditSpec(spec: PageSpec, links?: LinkReport | null, { format = 
   const listingIdx = flow.findIndex(f => isLike(f, 'product-listing'));
   const imgs = flow.flatMap(f => (['image', 'image2'] as const).map(k => f.b[k]).filter((i): i is ImageRef => !!i));
   const noAlt = imgs.filter(i => typeof i === 'string' || !i.alt).length;
-  // HTML-Plattform ohne theme-main-Marker (Magento): der Inhalt ist nur ein Abschnitt, H1/Produktliste/Kaufbox liefert das Theme drumherum.
-  // Mit theme-main (Shopify) markiert der Block selbst die Stelle des Theme-Inhalts, es gelten die Regeln mit themed.
-  const html = format === 'html' && !themed, themeH1 = html && spec.type !== 'landingpage'; // H1 = Kategorie-/Produktname des Themes
+  // HTML platform without theme-main marker (Magento): the content is only a section, the surrounding theme provides H1/product list/buy box.
+  // With theme-main (Shopify) the block itself marks the position of the theme content, and the themed rules apply.
+  const html = format === 'html' && !themed, themeH1 = html && spec.type !== 'landingpage'; // H1 = the theme's category/product name
   const target = ({ product_list: html ? 150 : 250, landingpage: 450, product_detail: 120 } as Record<string, number>)[spec.type] ?? 200;
   const wordsBeforeListing = listingIdx < 0 ? 0 : words(flow.slice(0, listingIdx).map(f => f.text).join(' '));
   const maxTextBlock = Math.max(0, ...flow.filter(f => ['text', 'text-two-column', 'text-three-column'].includes(f.type)).map(f => words(f.text)));
 
-  // JavaScript im Entwurf (custom-html js/<script>/on…=/javascript:): wichtiger Hinweis, unabhängig vom Score – der Mensch muss es vor der Freigabe sehen
+  // JavaScript in the draft (custom-html js/<script>/on…=/javascript:): important notice, independent of the score; the human must see it before approval
   const js = scriptRisk(spec.sections), jsWarn = js ? [scriptRiskText(js)] : [];
   const pdp = spec.type === 'product_detail';
   const C: Check[] = [];
   const h1Ok = themeH1 ? h1Count === 0 : h1Count === 1, h1Msg = themeH1 ? `Keine eigene H1 im Inhalt (die H1 ist der ${spec.type === 'product_list' ? 'Kategoriename' : 'Produktname'} des Themes; aktuell ${h1Count})` : `Es muss genau EINE H1 geben (aktuell ${h1Count})`;
   const add = (area: Area, w: number, ok: unknown, ok_msg: string, bad_msg: string) => { const msg = ok ? ok_msg : bad_msg; C.push({ area, w, ok: !!ok, msg, label: msg, weight: w, level: w >= 3 ? 'wichtig' : 'empfohlen' }); };
-  if (pdp && html) {  // Produktbeschreibung (HTML-Plattform): Galerie, Preis, Warenkorb liefert das Theme
+  if (pdp && html) {  // Product description (HTML platform): the theme provides gallery, price, cart
     const has = (t: string) => flow.some(f => isLike(f, t));
     add('SEO', 4, h1Ok, 'Keine eigene H1 (Produktname kommt vom Theme)', h1Msg);
     add('SEO', 3, has('faq'), 'FAQ mit FAQPage-Schema vorhanden', 'FAQ-Block (pattern faq) ergänzen');
@@ -95,7 +95,7 @@ export function auditSpec(spec: PageSpec, links?: LinkReport | null, { format = 
     const total = C.reduce((n, c) => n + c.w, 0), got = C.filter(c => c.ok).reduce((n, c) => n + c.w, 0);
     return { score: Math.round((got / total) * 100), checks: C, warnings: jsWarn, stats: { words: nWords, h1: h1Count, internalLinks: internal } };
   }
-  if (pdp) {  // Produktseiten-Layout: gilt für viele Produkte → Qualität = Struktur, FAQ, Vertrauen, Lesbarkeit
+  if (pdp) {  // Product page layout: applies to many products → quality = structure, FAQ, trust, readability
     const has = (t: string) => flow.some(f => isLike(f, t));
     add('SEO', 4, h1Count === 1, 'Genau eine H1 (Produktname)', themed ? `Das Theme setzt den Produktnamen als H1: im eigenen Inhalt keine H1 verwenden (aktuell ${h1Count} H1 insgesamt)` : `Es muss genau EINE H1 geben (aktuell ${h1Count})`);
     add('SEO', 3, has('pdp-faq') || has('faq'), 'FAQ mit FAQPage-Schema vorhanden', themed ? 'FAQ-Block (pattern faq) ergänzen' : 'FAQ-Block (pdp-faq oder pattern faq) ergänzen');
@@ -131,7 +131,7 @@ export function auditSpec(spec: PageSpec, links?: LinkReport | null, { format = 
   if (links) linkChecks(C, links);
   add('SEO', 2, /application\/ld\+json/.test(all) && /FAQPage/.test(all), 'FAQ mit Schema.org-JSON-LD', 'FAQ-Block (pattern faq) mit FAQPage-Schema ergänzen');
   // Conversion
-  const themeList = html && spec.type === 'product_list'; // Produktliste des Themes folgt unter dem Inhalt
+  const themeList = html && spec.type === 'product_list'; // the theme's product list follows below the content
   add('CRO', 4, themeList || flow.slice(0, 2).some(hasCta) || flow.slice(0, 2).some(f => ['product-slider', 'product-listing', 'pdp-gallery-buybox'].some(t => isLike(f, t))), 'Handlungsaufforderung/Produkte im ersten Sichtbereich', 'Im ersten Sichtbereich fehlt ein klarer CTA oder Produktzugang');
   add('CRO', 2, themeList || flow.slice(-3).some(hasCta) || flow.slice(-3).some(f => isLike(f, 'product-listing')), 'Abschluss mit CTA/Produkten', 'Am Seitenende fehlt ein abschließender CTA (pattern cta-banner)');
   add('CRO', 3, flow.some(f => ['usp-bar', 'benefits'].includes(f.type) || f.b.type === 'text-three-column'), 'Vorteile/USPs sichtbar', 'USP-/Vorteils-Block (usp-bar oder benefits) fehlt');
@@ -142,15 +142,15 @@ export function auditSpec(spec: PageSpec, links?: LinkReport | null, { format = 
   // UX / Design
   add('UX', 2, maxTextBlock <= 160, 'Keine Textwüsten', `Ein Textblock hat ${maxTextBlock} Wörter, höchstens ~160: kürzen oder als Bild-Text-Split (split) mit dem passenden Produktfoto zeigen`);
   add('UX', 1, new Set(flow.map(f => f.type)).size >= 3, 'Abwechslungsreicher Seitenaufbau', 'Mehr Abwechslung: mind. 3 verschiedene Blocktypen/Patterns');
-  // Gestaltung (Art Direction, siehe prompts/06-gestaltung.md)
-  // Wirkung: erster Bildschirm mit Bild, ein großer Bild-Moment, nicht zu textlastig (FAQ zählt nicht – sie ist zugeklappt)
+  // Design (art direction, see prompts/06-gestaltung.md)
+  // Impact: first screen with an image, one large image moment, not too text-heavy (FAQ does not count, it is collapsed)
   const hasImg = (f: Flow) => /<img\b/i.test(f.html) || !!f.b.mediaId;
   const pageHasImages = flow.some(hasImg) || /imageUrl|mediaId|<img\b/i.test(JSON.stringify(spec.sections ?? []));
   if (pageHasImages && flow[0]?.type === 'hero') add('UX', 2, hasImg(flow[0]), 'Erster Eindruck mit starkem Bild', 'Hero ohne Bild, obwohl der Shop Fotos hat: stärkstes Foto groß in den Hero (variant „image“ für Stimmung, „split“ für Produkt)');
   add('UX', 1, flow.some(f => f.type === 'band' || /class="hero image/.test(f.html)), 'Ein großer Bild-Moment', 'Ein großes, atmosphärisches Bild als Signatur-Moment fehlt (Muster band oder Hero „image“)');
   const visibleWords = words(flow.filter(f => f.type !== 'faq').map(f => f.text).join(' '));
   add('UX', 2, visibleWords <= VISIBLE_MAX, 'Bild vor Text', `Zu textlastig: ${visibleWords} Wörter sichtbarer Text (ohne FAQ), auf höchstens ${VISIBLE_MAX} kürzen, Details in FAQ/Vergleich, Bilder statt Absätze`);
-  // KI-Bilder müssen sichtbar gekennzeichnet sein (Transparenz, AI Act Art. 50)
+  // AI images must be visibly labeled (transparency, AI Act Art. 50)
   const aiImgs = aiImagesIn(JSON.stringify(spec.sections ?? []));
   if (aiImgs.length) add('UX', 3, flow.some(f => f.html.includes(AI_CREDIT)), 'KI-Bilder gekennzeichnet', `KI-generierte Bilder sichtbar kennzeichnen: Bildzeile „${AI_CREDIT}“ ergänzen (Muster hero/split/band machen das automatisch)`);
   const floskeln = findFloskeln(allText);

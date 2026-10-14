@@ -20,7 +20,7 @@ const typeOf = (d: KnowledgeDoc) => (d.fileName?.match(/\.([a-z0-9]+)$/i)?.[1] ?
 
 interface Job { name: string; error?: string }
 
-/** Wissensbasis: Dokumente (Datenblätter, PDFs …) als Faktenquelle und eigene Regeln des Shops. */
+/** Knowledge base: documents (data sheets, PDFs …) as a source of facts, plus the shop's own rules. */
 export function KnowledgeView() {
   const [docs, setDocs] = useState<KnowledgeDoc[] | null>(null);
   const [rules, setRules] = useState<KnowledgeRule[]>([]);
@@ -150,7 +150,7 @@ function DocRow({ doc, onChange, onDelete }: { doc: KnowledgeDoc; onChange: (d: 
 
 function ProductPicker({ exclude, onPick, onClose }: { exclude: string[]; onPick: (p: ProductRow) => void; onClose: () => void }) {
   const [term, setTerm] = useState('');
-  const [found, setFound] = useState<{ term: string; rows: ProductRow[] } | null>(null); // Treffer gehören zu genau einem Suchbegriff
+  const [found, setFound] = useState<{ term: string; rows: ProductRow[] } | null>(null); // hits belong to exactly one search term
   const [err, setErr] = useState<string | null>(null);
   const t = useT().knowledge;
   const q = term.trim();
@@ -178,7 +178,7 @@ function ProductPicker({ exclude, onPick, onClose }: { exclude: string[]; onPick
             return (
               <li key={p.id}>
                 <button type="button" disabled={linked} onClick={() => onPick(p)}>
-                  {/* eslint-disable-next-line @next/next/no-img-element -- Shop-Bild */}
+                  {/* eslint-disable-next-line @next/next/no-img-element -- shop image */}
                   {p.img ? <img src={p.img} alt="" width={28} height={28} /> : <i className={styles.noImg} />}
                   <span>{p.name}<small>{p.number}</small></span>
                   {linked && <em>{t.linked}</em>}
@@ -192,7 +192,7 @@ function ProductPicker({ exclude, onPick, onClose }: { exclude: string[]; onPick
   );
 }
 
-/** Regeln leben im Styleguide (Marke und Vorgaben an einem Ort); hier nur der Hinweis samt Weg dorthin. */
+/** Rules live in the style guide (brand and guidelines in one place); here only a hint with the way there. */
 function RulesCard({ rules }: { rules: KnowledgeRule[] }) {
   const shell = useShell();
   const t = useT().knowledge;

@@ -1,13 +1,13 @@
 import 'server-only';
-// Privilegierter OpenMage-Client: JSON-API des Lotse-Moduls (Lotse_Connector) unter <shop>/lotse-api/v1 (integrations/openmage/openapi.yaml).
-// Bleibt im Adapter: nie in der Session, nie an die KI. Auth: Bearer-Token; Store-Scope über ?store=<code> (leer = global, Store 0).
-// Schutz des Shops: Timeout je Anfrage, höchstens MAX_CONC Anfragen gleichzeitig, bei 429/503 (nur Lesen) kurz warten und höchstens 2× wiederholen.
+// Privileged OpenMage client: JSON API of the Lotse module (Lotse_Connector) at <shop>/lotse-api/v1 (integrations/openmage/openapi.yaml).
+// Stays in the adapter: never in the session, never given to the AI. Auth: bearer token; store scope via ?store=<code> (empty = global, store 0).
+// Protecting the shop: timeout per request, at most MAX_CONC concurrent requests, on 429/503 (reads only) wait briefly and retry at most 2×.
 import { log, urlForLog } from '../../log';
 
 export interface OmConfig { url: string; publicUrl?: string; storeCode?: string; token?: string }
 export class OmError extends Error { constructor(msg: string, public status: number, public code = '') { super(msg); } }
 
-/** Antwort von GET /v1/info (Auszug) */
+/** Response of GET /v1/info (excerpt) */
 export interface OmStoreView { id: number; code: string; name: string; website_id: number; group_id: number; is_active: boolean; is_default: boolean; locale: string; currency: string; base_url: string; link_url: string; media_url: string; root_category_id: number; store_in_url: boolean; title_prefix?: string; title_suffix?: string }
 export interface OmInfo {
   platform: string; version: string; magento_version: string; edition: string; module_version: string; shop_name: string; default_store_view: string;
@@ -20,12 +20,12 @@ export interface OmListMeta { page: number; limit: number; total: number; pages:
 const TIMEOUT_MS = Math.max(5_000, parseInt(process.env.LOTSE_SHOP_TIMEOUT_MS ?? '', 10) || 60_000);
 const MAX_CONC = Math.min(8, Math.max(1, parseInt(process.env.LOTSE_OPENMAGE_CONCURRENCY ?? '', 10) || 4));
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-/** Store-Code: Kleinbuchstaben, Ziffern, Unterstrich (keine Query-Injektion); '' = global */
+/** Store code: lowercase letters, digits, underscore (no query injection); '' = global */
 export const STORE_RE = /^[a-z][a-z0-9_]{0,31}$/;
 export const isGlobal = (store: string | undefined) => !store || store === 'admin' || store === '0' || store === 'all';
 export type Query = Record<string, string | number | boolean | undefined | null>;
 
-/** Fehlertext der API ({ error: { code, message, details } }), ohne Stacktrace */
+/** Error text of the API ({ error: { code, message, details } }), without stack trace */
 export function omMessage(json: unknown, fallback: string): { message: string; code: string } {
   const e = (json as { error?: { code?: string; message?: string; details?: unknown } } | null)?.error;
   if (e && typeof e.message === 'string') {
@@ -39,7 +39,7 @@ export class OmClient {
   cfg!: OmConfig;
   base = '';
   publicUrl = '';
-  /** Store-View aus den Einstellungen ('' = Standard-Store-View des Shops, siehe workStore()) */
+  /** Store view from the settings ('' = the shop's default store view, see workStore()) */
   storeCode = '';
   #info: Promise<OmInfo> | null = null;
   #active = 0;
@@ -57,7 +57,7 @@ export class OmClient {
     if (this.#active >= MAX_CONC) await new Promise<void>(r => this.#queue.push(r)); else this.#active++;
     try { return await fn(); } finally { const next = this.#queue.shift(); if (next) next(); else this.#active--; }
   }
-  // Schreibende Aufrufe nacheinander: parallele Produkt-Saves lösen in OpenMage Deadlocks im Indexer aus (index_process)
+  // Writing calls one after another: parallel product saves cause deadlocks in the OpenMage indexer (index_process)
   #writes: Promise<unknown> = Promise.resolve();
   async #fetch(url: string, init: RequestInit): Promise<Response> {
     if ((init.method ?? 'GET') === 'GET') return this.#fetchRetry(url, init);
@@ -79,7 +79,7 @@ export class OmClient {
     }
   }
 
-  /** Vollständige URL eines API-Pfads (/v1/…) mit Store und Query; path darf schon eine Query tragen (gespeicherte Rückgängig-Schritte) */
+  /** Full URL of an API path (/v1/…) with store and query; path may already carry a query (stored undo steps) */
   url(path: string, o: { store?: string; query?: Query } = {}): string {
     if (!path.startsWith('/v1/')) throw new OmError(`Ungültiger OpenMage-Pfad ${path}`, 0);
     const [p, q = ''] = path.split('?'), params = new URLSearchParams(q);
@@ -89,7 +89,7 @@ export class OmClient {
     return `${this.base}/lotse-api${p}${qs ? `?${qs}` : ''}`;
   }
 
-  /** API-Aufruf: liefert die vollständige Antwort ({ data, meta }); 404 bei GET mit nullOn404 → null */
+  /** API call: returns the full response ({ data, meta }); 404 on GET with nullOn404 → null */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async call(method: string, path: string, body?: unknown, o: { store?: string; query?: Query; nullOn404?: boolean } = {}): Promise<any> {
     if (!this.base) throw new OmError('OpenMage ist noch nicht verbunden (Einstellungen).', 0);
@@ -105,13 +105,13 @@ export class OmClient {
     }
     return json;
   }
-  /** Nur die Daten einer Antwort */
+  /** Only the data of a response */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async req(method: string, path: string, body?: unknown, o: { store?: string; query?: Query; nullOn404?: boolean } = {}): Promise<any> {
     const r = await this.call(method, path, body, o);
     return r === null ? null : r?.data ?? r;
   }
-  /** Liste mit Paginierung (page ab 1, limit max. 200) */
+  /** List with pagination (page from 1, limit max. 200) */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async list(path: string, query: Query = {}, store?: string): Promise<{ items: any[]; meta: OmListMeta }> {
     const r = await this.call('GET', path, undefined, { store, query: { ...query, limit: Math.max(1, Math.min(Number(query.limit ?? 50), 200)) } });
@@ -119,24 +119,24 @@ export class OmClient {
     return { items: Array.isArray(r?.data) ? r.data : [], meta: { page: Number(m.page ?? 1), limit: Number(m.limit ?? 50), total: Number(m.total ?? (Array.isArray(r?.data) ? r.data.length : 0)), pages: Number(m.pages ?? 1) } };
   }
 
-  /** Shop-Info (einmal je Prozess, nach reconfigure neu) */
+  /** Shop info (once per process, refreshed after reconfigure) */
   info(): Promise<OmInfo> {
     if (!this.#info) this.#info = this.req('GET', '/v1/info').catch(e => { this.#info = null; throw e; }) as Promise<OmInfo>;
     return this.#info;
   }
   resetInfo() { this.#info = null; }
-  /** Haupt-Store-View des Shops (Standard-Store-View): deren geerbte Texte schreibt Lotse global */
+  /** Main store view of the shop (default store view): Lotse writes its inherited texts globally */
   async mainStore(): Promise<string> { return (await this.info()).default_store_view || 'default'; }
-  /** Store-View, in der Lotse liest und schreibt: Einstellung, sonst die Haupt-Store-View */
+  /** Store view in which Lotse reads and writes: the setting, otherwise the main store view */
   async workStore(): Promise<string> { return this.storeCode || this.mainStore(); }
-  /** Preisbasis der Katalogpreise aus der Steuerkonfiguration (tax/calculation/price_includes_tax) */
+  /** Price basis of catalog prices from the tax config (tax/calculation/price_includes_tax) */
   async priceBasis(): Promise<'gross' | 'net'> { return (await this.info()).price_includes_tax ? 'gross' : 'net'; }
 
-  /** Storefront-Abruf für die Vorschau (ohne Token) */
+  /** Storefront fetch for the preview (without token) */
   storefrontFetch(url: string, init: RequestInit = {}): Promise<Response> { return this.#fetch(url, init); }
 }
 
-/** SKU sicher als Pfadsegment (SKUs mit „/“ sind über die API nicht adressierbar) */
+/** SKU safely as a path segment (SKUs with "/" are not addressable via the API) */
 export const skuPath = (sku: string) => encodeURIComponent(sku);
-/** Produkt-ID als Pfadsegment („id:<n>“) */
+/** Product ID as a path segment ("id:<n>") */
 export const idPath = (id: string | number) => `id:${Number(id)}`;

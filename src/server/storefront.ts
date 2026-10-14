@@ -1,22 +1,22 @@
 import 'server-only';
-// Storefront-Seiten des eigenen Shops lesen: Text, Bilder, Links und – aus dem Shopware-Markup – der echte Aufbau der
-// Einkaufswelt (Sections → Blöcke → Elemente, auch Plugin-Blöcke). Dazu die Zuordnung URL → CMS-Seite über die SEO-URLs.
+// Read storefront pages of the own shop: text, images, links and (from the Shopware markup) the real structure of the
+// Shopping Experience (sections → blocks → elements, plugin blocks too). Plus the mapping URL → CMS page via the SEO URLs.
 import type { ShopReader, SwEntity } from './shopware';
 
 export interface CmsBlockOutline { block: string; elements: string[] }
 export interface CmsSectionOutline { section: string; blocks: CmsBlockOutline[] }
 export interface PageOutline {
   title?: string; metaDescription?: string; canonical?: string;
-  /** Seitenart laut Body-Klassen: Startseite, Kategorie, Produktseite, Landingpage, Sonstige */
+  /** Page type per body classes: home page, category, product page, landing page, other */
   kind: string;
   headings: { level: number; text: string }[];
   text: string;
   images: { src: string; alt: string }[];
   links: { href: string; text: string }[];
   sections: CmsSectionOutline[];
-  /** Blocktypen in Lesereihenfolge (z.B. "text-hero", "acme-trust-bar") */
+  /** Block types in reading order (e.g. "text-hero", "acme-trust-bar") */
   blockSequence: string[];
-  /** Häufige Komponenten-Klassen (Buttons, Karten, Badges …) */
+  /** Common component classes (buttons, cards, badges …) */
   componentClasses: Record<string, number>;
 }
 
@@ -34,7 +34,7 @@ export function pageKind(html: string): string {
   return 'Sonstige';
 }
 
-/** Aufbau der Einkaufswelt aus dem gerenderten Markup: Reihenfolge der class-Attribute im Dokument ergibt die Verschachtelung. */
+/** Structure of the Shopping Experience from the rendered markup: the order of class attributes in the document yields the nesting. */
 export function cmsOutline(html: string): { sections: CmsSectionOutline[]; componentClasses: Record<string, number> } {
   const sections: CmsSectionOutline[] = [];
   const comp: Record<string, number> = {};
@@ -57,7 +57,7 @@ export function cmsOutline(html: string): { sections: CmsSectionOutline[]; compo
   return { sections, componentClasses: Object.fromEntries(Object.entries(comp).sort((a, b) => b[1] - a[1]).slice(0, 30)) };
 }
 
-/** Lesbare Zusammenfassung einer Storefront-Seite (ohne Kopf-/Fußbereich). */
+/** Readable summary of a storefront page (without header/footer area). */
 export function parseStorefront(html: string, url: string, limits = { text: 6000, images: 20, links: 30, headings: 40 }): PageOutline {
   const title = text(html.match(/<title>([^<]*)/i)?.[1] ?? '') || undefined;
   const metaDescription = html.match(/<meta[^>]+name="description"[^>]+content="([^"]*)"/i)?.[1];
@@ -81,10 +81,10 @@ export function parseStorefront(html: string, url: string, limits = { text: 6000
 
 export interface CmsTarget { kind: 'category' | 'product' | 'landingpage'; id: string; name?: string; cmsPage: { id: string; name?: string; type?: string } | null }
 
-/** URL-Pfad → Ziel (Kategorie/Produkt/Landingpage) und dessen Einkaufswelt – über SEO-URLs oder die technischen Pfade. */
+/** URL path → target (category/product/landing page) and its Shopping Experience, via SEO URLs or the technical paths. */
 export async function resolveCmsTarget(sw: ShopReader, url: string): Promise<CmsTarget | null> {
   const raw = new URL(url).pathname.replace(/^\/+|\/+$/g, '');
-  let path = raw; try { path = decodeURIComponent(raw); } catch { /* ungültige Kodierung: Rohwert */ } // Shopware speichert seoPathInfo dekodiert (Umlaute), der Browser kopiert kodiert
+  let path = raw; try { path = decodeURIComponent(raw); } catch { /* invalid encoding: raw value */ } // Shopware stores seoPathInfo decoded (umlauts), the browser copies it encoded
   let route: string | undefined, key: string | undefined, m: RegExpMatchArray | null;
   if ((m = path.match(/^navigation\/([0-9a-f]{32})$/))) [route, key] = ['frontend.navigation.page', m[1]];
   else if ((m = path.match(/^detail\/([0-9a-f]{32})$/))) [route, key] = ['frontend.detail.page', m[1]];
@@ -103,7 +103,7 @@ export async function resolveCmsTarget(sw: ShopReader, url: string): Promise<Cms
   return null;
 }
 
-/** Nur Seiten des eigenen Shops (Verkaufskanal-Domains bzw. API-Basis) – kein freier Internetzugriff für die KI. */
+/** Only pages of the own shop (sales channel domains or API base); no free internet access for the AI. */
 export function assertShopUrl(url: string, allowedOrigins: string[]): URL {
   let u: URL; try { u = new URL(url); } catch { throw new Error('Keine gültige URL.'); }
   if (!/^https?:$/.test(u.protocol)) throw new Error('Nur http(s)-URLs.');
@@ -116,10 +116,10 @@ export function assertShopUrl(url: string, allowedOrigins: string[]): URL {
 const stripTrail = (s: string) => s.trim().replace(/\/+$/, '');
 
 /**
- * Öffentliche Shop-URL auf die interne Basis legen (Docker: der Browser kennt https://shop/de, Lotse holt http://172.17.0.2).
- * Nur wenn der Rest leer ist oder mit /, ? oder # beginnt. Sonst bleibt die öffentliche URL: ein angehängtes @ oder ein
- * weiterer Hostname darf aus der internen Basis keinen anderen Host machen. Zusammensetzen über origin + Pfad, nicht über
- * `new URL(rest, basis)` – ein Rest `//fremd` würde sonst den Host wechseln.
+ * Map the public shop URL onto the internal base (Docker: the browser knows https://shop/de, Lotse fetches http://172.17.0.2).
+ * Only if the rest is empty or starts with /, ? or #. Otherwise the public URL stays: an appended @ or a
+ * further host name must not turn the internal base into another host. Compose via origin + path, not via
+ * `new URL(rest, basis)`; a rest `//fremd` would otherwise switch the host.
  */
 export function mapPublicToInternal(publicUrl: string, internalBase: string, pageHref: string): string {
   const pub = stripTrail(publicUrl), baseRaw = stripTrail(internalBase);
@@ -138,9 +138,9 @@ export function mapPublicToInternal(publicUrl: string, internalBase: string, pag
 const REDIRECT = new Set([301, 302, 303, 307, 308]);
 
 /**
- * Seite des eigenen Shops laden. Die öffentliche Adresse wird vorher auf die interne Basis gelegt.
- * Weiterleitungen folgen manuell (höchstens drei): jedes Ziel muss wieder eine erlaubte Shop-Adresse sein
- * und wird erneut intern gelegt, bevor es abgerufen wird.
+ * Load a page of the own shop. The public address is mapped onto the internal base first.
+ * Follow redirects manually (at most three): every target must again be an allowed shop address
+ * and is mapped internally again before it is fetched.
  */
 export async function fetchShopPage(pageHref: string, allowed: string[], opts: {
   publicUrl?: string; internalBase?: string;

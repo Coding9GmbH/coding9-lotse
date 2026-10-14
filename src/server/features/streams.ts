@@ -1,6 +1,6 @@
 import 'server-only';
-// Produktstreams (dynamische Produktgruppen): lesen, Treffer prüfen, anlegen/ändern und Kategorien/Cross-Sellings zuordnen.
-// Lesen über session.sw (inkl. Stream-Vorschau-Endpunkt), Schreiben nur per Änderungsset nach Freigabe.
+// Product streams (dynamic product groups): read, check matches, create/change and assign to categories/cross-sellings.
+// Reading via session.sw (incl. the stream preview endpoint), writing only via change set after approval.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { ChangeAsset, ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
@@ -24,7 +24,7 @@ const KIND: Record<IdKind, { entity: string; label: string; crit?: Record<string
 };
 const display = (k: IdKind, e: SwEntity) => (k === 'category' ? catPath(e) : k === 'property' ? `${nameOf(e.group)}: ${nameOf(e)}` : k === 'product' ? prodLabel(e) : nameOf(e));
 
-/** IDs aus Filterbäumen → Anzeigenamen (je Art eine Abfrage) */
+/** IDs from filter trees → display names (one query per kind) */
 export async function lookupNames(ro: ShopReader, trees: FilterNode[][]): Promise<Record<string, string>> {
   const acc = collectIds([]); for (const t of trees) collectIds(t, acc);
   const names: Record<string, string> = {};
@@ -35,7 +35,7 @@ export async function lookupNames(ro: ShopReader, trees: FilterNode[][]): Promis
   return names;
 }
 
-/** Namen in Bedingungen → IDs (Kategorien eindeutig, sonst alle Treffer mit Hinweis); unbekannte IDs/Namen → Fehler mit Vorschlägen */
+/** Names in conditions → IDs (categories unique, otherwise all matches with a note); unknown IDs/names → error with suggestions */
 export async function resolveGroups(ro: ShopReader, groups: GroupSpec[]): Promise<{ groups: GroupSpec[]; names: Record<string, string>; notes: string[] }> {
   const names: Record<string, string> = {}, notes: string[] = [];
   const out: GroupSpec[] = [];
@@ -71,7 +71,7 @@ export async function resolveGroups(ro: ShopReader, groups: GroupSpec[]): Promis
   return { groups: out, names, notes };
 }
 
-/** Verkaufskanal für die Vorschau: genannter oder der erste mit Domain (Storefront) */
+/** Sales channel for the preview: the named one or the first with a domain (storefront) */
 async function channel(ro: ShopReader, id?: string) {
   const sc = await ro.salesChannels();
   const c = id ? sc.find(s => s.id === id) : sc.find(s => s.domains?.length) ?? sc[0];
@@ -80,7 +80,7 @@ async function channel(ro: ShopReader, id?: string) {
 }
 
 export interface PreviewProduct { id: string; number: string; name: string; price: number | null; image: string | null }
-/** Treffer laut Shopware (Stream-Vorschau je Verkaufskanal): Gesamtzahl + Beispiele */
+/** Matches according to Shopware (stream preview per sales channel): total + examples */
 export async function previewStream(ro: ShopReader, salesChannelId: string, roots: FilterNode[], limit = 6): Promise<{ total: number; sample: PreviewProduct[] }> {
   const r = await ro.req('POST', `/_admin/product-stream-preview/${salesChannelId}`, { filter: roots, limit: Math.max(1, limit), page: 1, 'total-count-mode': 1, associations: { cover: { associations: { media: {} } } } });
   const els: SwEntity[] = Array.isArray(r?.elements) ? r.elements : Object.values(r?.elements ?? {});
@@ -95,12 +95,12 @@ const usage = (s: SwEntity) => ({
   crossSellings: ((s.productCrossSellings ?? []) as SwEntity[]).map(x => ({ id: x.id, name: nameOf(x), product: x.product ? prodLabel(x.product) : x.productId, active: x.active })),
 });
 const rowOf = (f: SwEntity): FilterRow => ({ id: f.id, type: f.type, field: f.field ?? null, operator: f.operator ?? null, value: f.value ?? null, parameters: f.parameters ?? null, position: f.position ?? 0, parentId: f.parentId ?? null });
-/** Zustand eines Streams für den Stale-Write-Guard: Name, Beschreibung, Regelbaum (ohne Filter-IDs) */
+/** State of a stream for the stale-write guard: name, description, rule tree (without filter IDs) */
 const streamState = (s: SwEntity) => ({ name: nameOf(s), description: s.translated?.description ?? s.description ?? null, tree: rowsToTree(((s.filters ?? []) as SwEntity[]).map(rowOf)) });
-/** Produktzuordnung einer Kategorie für den Stale-Write-Guard */
+/** Product assignment of a category for the stale-write guard */
 const assignState = (c: SwEntity) => ({ productAssignmentType: c.productAssignmentType ?? 'product', productStreamId: c.productStreamId ?? null });
 
-// ================= Änderungsset: Streams anlegen/ändern =================
+// ================= Change set: create/change streams =================
 export interface StreamInput { id?: string; name: string; description?: string; groups: GroupSpec[] }
 export interface StreamArgs { title: string; reason: string; salesChannelId?: string; streams: StreamInput[] }
 export interface StreamPayload { mode: 'create' | 'update'; id: string; name: string; description: string | null; rows: FilterRow[] }
@@ -153,8 +153,8 @@ export async function buildStreamChangeSet(ro: ShopReader, { title, reason, sale
   return { id: newId(), kind: 'product-streams', entity: 'product-stream', noun: { one: 'Produktstream', many: 'Produktstreams' }, applyLabel: single, title, reason, items, assets, skipped, unchanged, atomic: false };
 }
 
-/** Schreibt einen Stream; Rückgängig: neu angelegt → löschen (Filter kaskadieren), geändert → neue Filter löschen und alten Baum mit gleichen IDs neu anlegen.
- *  before = beforeRaw des Items (Stale-Write-Guard: Stream inzwischen geändert → nicht überschreiben) */
+/** Writes a stream; undo: newly created → delete (filters cascade), changed → delete new filters and recreate the old tree with the same IDs.
+ *  before = the item's beforeRaw (stale-write guard: stream changed in the meantime → do not overwrite) */
 export async function applyStream(swW: Shopware, p: StreamPayload, before?: unknown): Promise<UndoOp[]> {
   if (p.mode === 'create') {
     await swW.create('product-stream', { id: p.id, name: p.name, ...(p.description ? { description: p.description } : {}), filters: p.rows });
@@ -164,7 +164,7 @@ export async function applyStream(swW: Shopware, p: StreamPayload, before?: unkn
   if (!cur) throw new Error('Produktstream nicht mehr vorhanden');
   assertFresh('Produktstream', streamState(cur), before);
   const restore = { name: cur.name ?? nameOf(cur), description: cur.description ?? null, filters: ((cur.filters ?? []) as SwEntity[]).map(rowOf) };
-  for (const r of restore.filters.filter(r => !r.parentId)) await swW.req('DELETE', `/product-stream-filter/${r.id}`); // Kinder werden mitgelöscht
+  for (const r of restore.filters.filter(r => !r.parentId)) await swW.req('DELETE', `/product-stream-filter/${r.id}`); // children are deleted along with it
   try { await swW.update('product-stream', p.id, { name: p.name, description: p.description, filters: p.rows }); }
   catch (e) { await swW.update('product-stream', p.id, restore).catch(() => {}); throw e; }
   return [
@@ -174,7 +174,7 @@ export async function applyStream(swW: Shopware, p: StreamPayload, before?: unkn
 }
 registerApplier('product-streams', (swW, cs, _payload, selected, ctx) => applyEach(cs, selected, it => applyStream(swW, it.afterRaw as StreamPayload, it.beforeRaw), ctx));
 
-// ================= Änderungsset: Stream zuordnen (Kategorie / Cross-Selling) =================
+// ================= Change set: assign stream (category / cross-selling) =================
 export const CS_SORT = ['name', 'cheapestPrice', 'releaseDate'] as const;
 const SORT_LABEL: Record<string, string> = { name: 'Name', cheapestPrice: 'Preis', releaseDate: 'Erscheinungsdatum' };
 export interface CrossSellingOpts { name: string; position?: number; limit?: number; sortBy?: typeof CS_SORT[number]; sortDirection?: 'ASC' | 'DESC'; active?: boolean }
@@ -247,7 +247,7 @@ export async function buildStreamAssignmentChangeSet(ro: ShopReader, a: AssignAr
   return { id: newId(), kind: 'product-stream-assignment', noun: { one: 'Ziel', many: 'Ziele' }, applyLabel: 'Zuordnung speichern', title: a.title, reason: a.reason, items, assets, skipped, unchanged, atomic: false };
 }
 
-/** Zuordnung schreiben; Rückgängig: alte Zuordnung der Kategorie zurück bzw. neues Cross-Selling löschen. before = beforeRaw des Items (Stale-Write-Guard) */
+/** Write the assignment; undo: restore the category's old assignment or delete the new cross-selling. before = the item's beforeRaw (stale-write guard) */
 export async function applyAssignment(swW: Shopware, p: AssignPayload, before?: unknown): Promise<UndoOp> {
   if (p.kind === 'category') {
     const cur = await swW.get('category', p.categoryId);
@@ -261,7 +261,7 @@ export async function applyAssignment(swW: Shopware, p: AssignPayload, before?: 
 }
 registerApplier('product-stream-assignment', (swW, cs, _payload, selected, ctx) => applyEach(cs, selected, it => applyAssignment(swW, it.afterRaw as AssignPayload, it.beforeRaw), ctx));
 
-// ================= Werkzeuge =================
+// ================= Tools =================
 const condSchema = z.object({
   field: z.enum(COND_FIELDS).describe('category | manufacturer | property (Eigenschaftswert) | tag | productNumber | price (Bruttopreis €) | onSale (Streichpreis vorhanden) | stock | active | releaseDate'),
   ids: z.array(z.string()).optional().describe('IDs für category/manufacturer/property/tag (bevorzugt)'),

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { LOCALES, fromAcceptLanguage, localeFromCookieHeader, messages, resolveLocale } from '@/lib/i18n';
 import { MESSAGES } from '@/lib/i18n/messages';
 
-test('Accept-Language: Gewichte, Grundsprache, unbekannte Sprachen', () => {
+test('Accept-Language: weights, base language, unknown languages', () => {
   assert.equal(fromAcceptLanguage('en-US,en;q=0.9,de;q=0.8'), 'en');
   assert.equal(fromAcceptLanguage('fr-FR,fr;q=0.9,de;q=0.8,en;q=0.7'), 'de');
   assert.equal(fromAcceptLanguage('de;q=0.5,en;q=0.9'), 'en');
@@ -11,7 +11,7 @@ test('Accept-Language: Gewichte, Grundsprache, unbekannte Sprachen', () => {
   assert.equal(fromAcceptLanguage(''), null);
 });
 
-test('Cookie geht vor Accept-Language, Standard ist Deutsch', () => {
+test('cookie takes precedence over Accept-Language, default is German', () => {
   assert.equal(resolveLocale('en', 'de'), 'en');
   assert.equal(resolveLocale('xx', 'en'), 'en');
   assert.equal(resolveLocale(undefined, null), 'de');
@@ -19,15 +19,15 @@ test('Cookie geht vor Accept-Language, Standard ist Deutsch', () => {
   assert.equal(localeFromCookieHeader('lotse_lang=fr'), null);
 });
 
-// Jede Sprache hat dieselben Schlüssel wie Deutsch, keine leeren Texte, Funktionen bleiben Funktionen
+// Every language has the same keys as German, no empty texts, functions stay functions
 function shape(v: unknown, path: string, out: Map<string, string>) {
   if (typeof v === 'function') out.set(path, 'fn');
-  else if (typeof v === 'string') { assert.ok(v.trim(), `leerer Text: ${path}`); out.set(path, 'str'); }
+  else if (typeof v === 'string') { assert.ok(v.trim(), `empty text: ${path}`); out.set(path, 'str'); }
   else if (Array.isArray(v)) v.forEach((x, i) => shape(x, `${path}[${i}]`, out));
   else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) shape(x, path ? `${path}.${k}` : k, out);
   else out.set(path, typeof v);
 }
-test('Wörterbücher: alle Sprachen vollständig und gleich aufgebaut', () => {
+test('dictionaries: all languages complete and structured identically', () => {
   const ref = new Map<string, string>(); shape(MESSAGES.de, '', ref);
   for (const l of LOCALES) {
     const got = new Map<string, string>(); shape(MESSAGES[l], '', got);

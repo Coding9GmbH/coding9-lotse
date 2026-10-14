@@ -4,7 +4,7 @@ import { saveSistrix, sistrixPublic } from '@/server/features/sistrix-api';
 
 export const dynamic = 'force-dynamic';
 
-// Sistrix: API-Schlüssel nur hinein, nie heraus. Zurück kommt nur, ob einer gespeichert ist.
+// Sistrix: API key only goes in, never out. All that comes back is whether one is stored.
 const schema = z.object({ key: z.string().max(200).optional(), domain: z.string().max(300).optional(), country: z.string().max(10).optional(), project: z.string().max(100).optional() });
 
 export function GET() {

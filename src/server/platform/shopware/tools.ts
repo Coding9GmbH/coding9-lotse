@@ -1,6 +1,6 @@
 import 'server-only';
-// Shopware-Werkzeuge der KI (lesen über session.sw = ReadOnlyShopware, schreiben nur über Änderungssets).
-// Kern-Werkzeuge (ask_user, draft_page, publish_page, Styleguide, Bilder) liegen in ../../tools.ts, Fachbereiche in ../../features.
+// Shopware tools of the AI (read via session.sw = ReadOnlyShopware, write only via change sets).
+// Core tools (ask_user, draft_page, publish_page, style guide, images) live in ../../tools.ts, feature areas in ../../features.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { PAGE_TYPES, type RawBlock } from '../../cms';
@@ -13,7 +13,7 @@ import { assertShopUrl, parseStorefront, resolveCmsTarget } from '../../storefro
 import { collectSignals } from '../../styleguide';
 import { fail, guard, nextOffsetOf, ok, pageOf, type AnyTool } from '../../tool-kit';
 
-/** Seitengröße begrenzen (Schutz vor riesigen Antworten) */
+/** Limit page size (protection against huge responses) */
 const lim = (v: number | undefined, d: number, max: number) => Math.max(1, Math.min(Math.floor(v ?? d), max));
 const money = (p: SwEntity) => (p?.price?.[0]?.gross != null ? `${Number(p.price[0].gross).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : null);
 export const brief = (p: SwEntity) => ({
@@ -22,7 +22,7 @@ export const brief = (p: SwEntity) => ({
   ...(noteMedia(p.cover?.media) ? { imageAiGenerated: true } : {}),
 });
 
-// Blöcke einer bestehenden Einkaufswelt in Lesereihenfolge (Quelle für reuse-Blöcke)
+// Blocks of an existing Shopping Experience in reading order (source for reuse blocks)
 export const cmsPageCriteria = { associations: { sections: { sort: [{ field: 'position' }], associations: { blocks: { sort: [{ field: 'position' }], associations: { slots: {} } } } } } };
 export async function loadRawBlocks(sw: ShopReader, cmsPageId: string): Promise<RawBlock[]> {
   const p = await sw.get('cms-page', cmsPageId, cmsPageCriteria);
@@ -102,7 +102,7 @@ export function shopwareTools(session: Session): AnyTool[] {
         const p = await sw.get('cms-page', id, cmsPageCriteria);
         if (!p) return fail('CMS-Seite nicht gefunden');
         const cut = (v: unknown) => (typeof v === 'string' && v.length > 1500 ? v.slice(0, 1500) + '…' : v);
-        let blockIndex = 0; // fortlaufend über alle Sections – so adressiert ein reuse-Block seine Quelle
+        let blockIndex = 0; // running across all sections; this is how a reuse block addresses its source
         return ok({
           id: p.id, name: p.name, type: p.type,
           hint: 'Einen Block 1:1 übernehmen: {type:"reuse", cmsPageId:"' + p.id + '", blockIndex:<blockIndex>}',
@@ -116,7 +116,7 @@ export function shopwareTools(session: Session): AnyTool[] {
         const allowed = [...sc.flatMap(c => (c.domains ?? []).map((d: SwEntity) => String(d.url))), sw.base, await storefrontBase().catch(() => '')];
         const u = assertShopUrl(url, allowed);
         const r = await (session.storefrontFetch ?? fetch)(u.href, { redirect: 'follow' });
-        if (r.url && r.url !== u.href) assertShopUrl(r.url, allowed); // Weiterleitung darf den Shop nicht verlassen
+        if (r.url && r.url !== u.href) assertShopUrl(r.url, allowed); // redirect must not leave the shop
         if (!r.ok) return fail(`Seite antwortet mit HTTP ${r.status}`);
         const html = (await r.text()).slice(0, 2_500_000);
         const page = parseStorefront(html, u.href);
@@ -136,9 +136,9 @@ export function shopwareTools(session: Session): AnyTool[] {
         if (a.categoryId) filter.push({ type: 'equals', field: 'categoriesRo.id', value: a.categoryId });
         if (a.active != null) filter.push({ type: 'equals', field: 'active', value: a.active });
         if (a.maxStock != null) filter.push({ type: 'range', field: 'stock', parameters: { lte: a.maxStock } });
-        // Preisspanne serverseitig (Bruttopreis der Standardwährung), damit total und Seiten stimmen
+        // price range server-side (gross price of the default currency) so that total and pages are correct
         if (a.minPrice != null || a.maxPrice != null) filter.push({ type: 'range', field: 'price', parameters: { ...(a.minPrice != null ? { gte: a.minPrice } : {}), ...(a.maxPrice != null ? { lte: a.maxPrice } : {}) } });
-        const pg = pageOf(a.offset, lim(a.limit, 50, a.details ? 25 : 100)); // Shopware blättert seitenweise
+        const pg = pageOf(a.offset, lim(a.limit, 50, a.details ? 25 : 100)); // Shopware paginates by page
         const r = await sw.search('product', { limit: pg.limit, page: pg.page, ...(a.term ? { term: a.term } : {}), filter, 'total-count-mode': 1, associations: { tax: {}, manufacturer: {}, ...(a.details ? { properties: { associations: { group: {} } } } : {}) }, sort: [{ field: 'productNumber', order: 'ASC' }] });
         const rows = r.data, nextOffset = nextOffsetOf(pg.offset, rows.length, pg.limit, r.total);
         return ok({ total: r.total, returned: rows.length, offset: pg.offset, ...(pg.note ? { note: pg.note } : {}), ...(nextOffset != null ? { nextOffset } : {}), products: rows.map(p => ({ id: p.id, number: p.productNumber, name: p.translated?.name ?? p.name, gross: p.price?.[0]?.gross ?? null, net: p.price?.[0]?.net ?? null, listPriceGross: p.price?.[0]?.listPrice?.gross ?? null, stock: p.stock, active: p.active, taxRate: p.tax?.taxRate, manufacturer: p.manufacturer?.translated?.name, descriptionLength: (p.translated?.description ?? '').length, hasMetaTitle: !!p.translated?.metaTitle, hasMetaDescription: !!p.translated?.metaDescription, hasImage: !!p.coverId, hasFaq: !!p.customFields?.aicb_blocks?.faq_html, cmsPageId: p.cmsPageId ?? null, ...(a.details ? { description: (p.translated?.description ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500), properties: p.properties?.map((x: SwEntity) => `${x.group?.translated?.name}: ${x.translated?.name}`) } : {}) })) });

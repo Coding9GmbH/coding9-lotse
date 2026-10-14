@@ -1,10 +1,10 @@
 import 'server-only';
-// OpenMage: Seitenentwürfe – Vorschau-Daten, Link-Prüfung, Veröffentlichung als Änderungsset mit exaktem Rückgängig.
-// Ziele: landingpage = neue CMS-Seite (HTML mit begrenztem CSS, Store-View der Einstellungen oder alle), category = neuer CMS-Block +
-// Kategorie-Anzeige „statischer Block (und Produkte)“ + landing_page, product = Produktbeschreibung ersetzen (ein Produkt) oder den
-// Inhalt unter die bisherige Beschreibung hängen (mehrere). Kein CMS-Block für Produkte: der Katalog-Filter von Magento 1 kennt in
-// Produkttexten kein {{block}} (nur skin/media/store), die Direktive stünde als Text auf der Seite. Produkt-Slider werden zu
-// statischen Produktboxen mit den echten Daten zum Zeitpunkt der Veröffentlichung (Magento 1 hat kein SKU-Listen-Widget).
+// OpenMage: page drafts: preview data, link check, publishing as a change set with exact undo.
+// Targets: landingpage = new CMS page (HTML with scoped CSS, configured store view or all), category = new CMS block +
+// category display "statischer Block (und Produkte)" + landing_page, product = replace product description (one product) or append the
+// content below the existing description (several). No CMS block for products: Magento 1's catalog filter doesn't support
+// {{block}} in product texts (only skin/media/store), so the directive would appear as text on the page. Product sliders become
+// static product boxes with the real data at the time of publishing (Magento 1 has no SKU list widget).
 import { z } from 'zod';
 import type { ChangeAsset, ChangeItem, ChatEvent, PublishedInfo, UndoOp } from '@/lib/protocol';
 import { withScript } from '@/lib/script-scan';
@@ -24,12 +24,12 @@ import { cmsIdentifier, DISPLAY_MODE, isActive, isVisible, money, omAttr, omStr,
 import { LIST_FIELDS, type OmReader } from './reader';
 import { getCategory, getProduct, reg, reqOp, undoOpenmage, writeScoped } from './write';
 
-/** Was Seiten in OpenMage können: freie Landingpages (CMS-Seiten), Kategorie-Inhalt (CMS-Block über der Produktliste), Produktbeschreibung */
+/** What pages can do in OpenMage: free landing pages (CMS pages), category content (CMS block above the product list), product description */
 export const OPENMAGE_CAPABILITIES: PlatformCapabilities = { pageTypes: ['landingpage', 'product_list', 'product_detail'], publishTargets: ['landingpage', 'category', 'product'], blocks: GENERIC_BLOCKS, pageFormat: 'html', reuse: false };
 
 const SVG_MAX = 200 * 1024;
 
-// ================= Vorschau =================
+// ================= Preview =================
 export async function previewProducts(ro: OmReader, refs: string[]): Promise<Record<string, PreviewProduct & { url?: string }>> {
   const ids = refs.filter(r => /^\d+$/.test(r)), skus = refs.filter(r => !/^\d+$/.test(r));
   const list = [...await ro.productsByIds(ids, { fields: LIST_FIELDS }), ...await ro.productsBySkus(skus, { fields: LIST_FIELDS })];
@@ -38,12 +38,12 @@ export async function previewProducts(ro: OmReader, refs: string[]): Promise<Rec
   for (const p of list) {
     const s = priceOf(p), path = productPath(p, sf.product);
     const v: PreviewProduct & { url?: string } = { id: String(p.id), sku: p.sku, name: p.name ?? p.sku, price: money(s.selling), ...(s.list != null ? { listPrice: money(s.list) } : {}), img: ro.allowed('media') ? await ro.mediaUrl(omStr(p, 'small_image') ?? p.image) : undefined, description: (omStr(p, 'description') ?? omStr(p, 'short_description')) ?? undefined, active: isActive(p), visible: isVisible(p), url: path && isVisible(p) ? `${base}/${path}` : undefined };
-    out[String(p.id)] = v; out[p.sku] = v; // Blöcke dürfen ID oder SKU nennen
+    out[String(p.id)] = v; out[p.sku] = v; // blocks may reference ID or SKU
   }
   return out;
 }
 
-/** Bild-Verweise eines Entwurfs: mediaId der Blöcke (image/image2) */
+/** Image references of a draft: mediaId of the blocks (image/image2) */
 function mediaRefs(spec: Partial<PageSpec>): string[] {
   const out = new Set<string>();
   for (const s of spec.sections ?? []) for (const b of s.blocks ?? []) for (const k of ['image', 'image2'] as const) { const im = b?.[k]; if (im && typeof im === 'object' && im.mediaId) out.add(im.mediaId); }
@@ -68,18 +68,18 @@ export async function previewData(ro: OmReader, spec: PageSpec): Promise<Preview
   return { products, product: spec.previewProductId ? products[spec.previewProductId] : undefined, imageUrl: (im: ImageRef) => (typeof im === 'string' ? im : im.url ?? urls[im.mediaId ?? '']) };
 }
 
-// ================= Rendern (rein) =================
+// ================= Rendering (pure) =================
 export interface RenderCtx { imageUrl: (im: ImageRef) => string | null | undefined; products: Record<string, PreviewProduct & { url?: string }>; scope: string }
-/** Entwurf → HTML-Inhalt für OpenMage: statisches HTML (ein Wurzel-div mit begrenztem CSS), Direktiven entschärft */
+/** Draft → HTML content for OpenMage: static HTML (one root div with scoped CSS), directives defused */
 export function renderContent(spec: PageSpec, ctx: RenderCtx): string {
   return noDirectives(renderPageHtml(expandSpec(spec), { imageUrl: ctx.imageUrl, products: ctx.products, scope: ctx.scope }));
 }
-/** Neuen Inhalt unter die vorhandene Beschreibung hängen */
+/** Append new content below the existing description */
 export const appendHtml = (existing: string | null | undefined, html: string) => { const cur = String(existing ?? '').trim(); return `${cur}${cur ? '\n' : ''}${html}`; };
-/** Identifier eines Lotse-Blocks (eindeutig je Veröffentlichung) */
+/** Identifier of a Lotse block (unique per publication) */
 export const blockIdentifier = (what: string, id: string) => `lotse-${what}-${id}-${Date.now().toString(36)}`.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
 
-// ================= Veröffentlichen: Änderungsset =================
+// ================= Publishing: change set =================
 export interface PublishArgs {
   target: 'landingpage' | 'category' | 'product';
   url?: string; title?: string; allStoreViews?: boolean;
@@ -96,7 +96,7 @@ export interface PagePayload {
 }
 const cut = (t: unknown, n = 160) => { const s = plain(t); return s ? (s.length > n ? `${s.slice(0, n)}…` : s) : '–'; };
 
-/** Bilder auflösen: Shop-Produktbilder (om-…) und URLs direkt, vorgemerkte SVG eingebettet; andere Uploads gehen nicht (keine Medien-API für CMS) */
+/** Resolve images: shop product images (om-…) and URLs directly, staged SVG inlined; other uploads are not supported (no media API for CMS) */
 async function imageResolver(ro: OmReader, spec: PageSpec): Promise<{ imageUrl: RenderCtx['imageUrl']; assets: ChangeAsset[] }> {
   const urls = new Map<string, string>(), assets: ChangeAsset[] = [], bad: string[] = [];
   const staged = (id: string) => {
@@ -127,7 +127,7 @@ export async function buildPagePublish(ro: OmReader, spec: PageSpec, a: PublishA
   const items: ChangeItem[] = [], warn: string[] = [];
   const info = (label: string, fieldLabel: string, before: string, after: string, w: string[] = [], html?: ChangeItem['html']) => items.push({ id: `i${items.length}`, entity: 'info', label, fieldLabel, before, after, warn: w, ...(html ? { html } : {}) });
   const sfBase = await ro.storefrontBase().catch(() => ro.publicUrl), sf = await ro.suffixes().catch(() => ({ product: '.html', category: '.html' })), store = await ro.store(), view = await ro.storeView(store).catch(() => undefined);
-  // Seitentitel = Meta-Title; das Theme-Suffix („ | Shopname“) hängt OpenMage selbst an
+  // Page title = meta title; OpenMage appends the theme suffix (" | Shopname") itself
   const mt = stripTitleAffixes(a.metaTitle ?? spec.seo?.metaTitle ?? '', view), md = (a.metaDescription ?? spec.seo?.metaDescription ?? '').trim();
 
   const links = await checkOmLinks(ro, collectLinks(expandSpec(spec).sections));
@@ -135,7 +135,7 @@ export async function buildPagePublish(ro: OmReader, spec: PageSpec, a: PublishA
   warn.push(...links.report.findings.filter(f => f.level === 'wichtig').slice(0, 5).map(findingText));
   if (a.target !== 'landingpage') { const d = demoteH1(work); if (d.n) { work = d.spec; warn.push(`${d.n} H1-Überschrift(en) im Inhalt als H2 gesetzt: Die H1 liefert OpenMage (${a.target === 'category' ? 'Kategoriename' : 'Produktname'}).`); } }
 
-  // Produkte der Slider: statische Produktboxen mit echten Daten
+  // Slider products: static product boxes with real data
   const refs = [...new Set(expandSpec(work).sections.flatMap(s => s.blocks.flatMap(b => (b.type === 'product-slider' ? b.productIds ?? [] : []).map(String))))];
   const products = refs.length ? await previewProducts(ro, refs) : {};
   for (const r of refs) { const p = products[r]; if (!p) { warn.push(`Produkt ${r} nicht gefunden: fehlt in der Produktliste`); continue; } if (!p.active || !p.visible) warn.push(`Produkt „${p.name}“ ist ${!p.active ? 'deaktiviert' : 'nicht einzeln sichtbar'} und sollte nicht verlinkt werden`); }

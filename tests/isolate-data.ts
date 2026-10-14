@@ -1,5 +1,5 @@
-// Side-Effect-Import: vor allen Modulen des Tests einbinden. Legt ein leeres Datenverzeichnis an, damit der
-// Test nicht von einer lokalen data/ (Styleguide, Einstellungen, Datenbank) abhängt.
+// Side-effect import: include before all modules of the test. Creates an empty data directory so the
+// test doesn't depend on a local data/ (style guide, settings, database).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

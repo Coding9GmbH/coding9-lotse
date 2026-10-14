@@ -1,5 +1,5 @@
-// Rechtliche Pflichtangaben: reine Prüf-Logik ohne Shop-Zugriff (GPSR, PAngV-Grundpreis, BFSG-Texte/Kontrast, Rechtstexte).
-// Technische Prüfung, keine Rechtsberatung: Befunde nennen die Regel, die Bewertung im Einzelfall bleibt beim Menschen.
+// Mandatory legal information: pure check logic without shop access (GPSR, PAngV base price, BFSG texts/contrast, legal pages).
+// Technical check, not legal advice: findings name the rule, the case-by-case assessment stays with the human.
 
 type Row = Record<string, unknown> & { translated?: Record<string, unknown> | null; customFields?: Record<string, unknown> | null };
 
@@ -7,7 +7,7 @@ export const plain = (t: unknown) => String(t ?? '').replace(/<(script|style)[\s
 const num = (v: number, d = 3) => v.toLocaleString('de-DE', { maximumFractionDigits: d });
 export const eur = (v: number) => `${v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
-// ================= GPSR (Verordnung (EU) 2023/988, seit 13.12.2024) =================
+// ================= GPSR (Regulation (EU) 2023/988, since 2024-12-13) =================
 export const GPSR_SET = 'lotse_gpsr';
 export const MANUFACTURER_FIELDS = {
   lotse_gpsr_company: 'Firmenname (eingetragen)',
@@ -23,7 +23,7 @@ export type ProductField = keyof typeof PRODUCT_FIELDS;
 export const EU_COUNTRIES = new Set(['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE']);
 const EEA_ONLY = new Set(['NO', 'IS', 'LI']);
 
-/** Zusatzfelder eines Datensatzes (Systemsprache + Übersetzung zusammengeführt) */
+/** Custom fields of a record (system language + translation merged) */
 export const cfOf = (e: Row | null | undefined): Record<string, unknown> => ({ ...(e?.customFields ?? {}), ...((e?.translated?.customFields as Record<string, unknown> | undefined) ?? {}) });
 const filled = (v: unknown) => typeof v === 'string' ? plain(v).length > 0 : v != null && v !== false;
 
@@ -46,22 +46,22 @@ export function gpsrManufacturer(m: Row): ManufacturerStatus {
   return { id: String(m.id), name, complete: !missing.length, missing, notes, euResponsibleNeeded, values };
 }
 
-// Produkte mit erhöhtem Sicherheitsbezug (Heuristik; die KI bewertet, ob Hinweise nötig sind)
+// Products with elevated safety relevance (heuristic; the AI judges whether notices are needed)
 const RISKY = /spielzeug|kinder|baby|kleinkind|elektr|akku|batterie|ladeger|netzteil|kabel|lampe|leuchte|led\b|kerze|teelicht|duftöl|ätherisch|feuer|grill|kamin|heiz|kocher|(?<!spül)maschine|(?<!durch)messer|klinge|schere|werkzeug|säge|chemi|reiniger|lösungsmittel|kosmetik|creme|magnet|laser|helm|fahrrad|sport|trampolin|leiter\b|\bglas(?!ur|iert)/i;
-// GPSR gilt nicht für Lebensmittel (Art. 2 Abs. 2) – dort gelten LMIV-Pflichtangaben. Kategorien wie „Kaffee & Zubehör“ enthalten auch Geräte: Name entscheidet mit.
+// GPSR does not apply to food (Art. 2(2)); LMIV mandatory information applies there. Categories like "Kaffee & Zubehör" also contain devices: the name is a deciding factor too.
 const FOOD = /kaffee|espresso|cold brew|bohne|\btee\b|teemischung|schokolade|lebensmittel|gewürz|honig|\bwein\b|\bbier\b|sirup|müsli|nudeln|snack/i;
-// Geräte, Gefäße und Zubehör sind keine Lebensmittel, auch wenn der Name „Kaffee“ oder „Tee“ enthält
+// Devices, containers and accessories are not food, even if the name contains "Kaffee" or "Tee"
 const NON_FOOD = /mühle|kocher|maschine|becher|tasse|kanne|kännchen|karaffe|kerze|filter(?!kaffee)|dose\b|glas\b|gläser|löffel|sieb|presse|halter|zubehör|set aus|geschirr|teller|schale|brett|waage|thermo|automat|bereiter|aufschäumer|tamper|wachs/i;
-// Eindeutige Gefahrenquellen im Namen schließen ein Lebensmittel aus (anders als RISKY ohne „feuer“, „glas“ … , die in Sortennamen vorkommen)
+// Unambiguous hazards in the name rule out food (unlike RISKY, without "feuer", "glas" …, which occur in variety names)
 const HARD_RISK = /elektr|akku|batterie|ladeger|netzteil|kabel|lampe|leuchte|kerze|teelicht|grill|heiz|kocher|(?<!spül)maschine|messer|klinge|werkzeug|spielzeug|\bwatt\b|\d\s*w\b/i;
-/** Lebensmittel? Name klingt danach, oder die Kategorie und der Name ist kein Gerät/Zubehör. byCategory = nur über die Kategorie erkannt (prüfen). */
+/** Food? The name sounds like it, or the category does and the name is not a device/accessory. byCategory = detected via the category only (verify). */
 export function foodOf(name: string, categories = ''): { food: boolean; byCategory: boolean } {
   if (NON_FOOD.test(name) || HARD_RISK.test(name)) return { food: false, byCategory: false };
   if (FOOD.test(name)) return { food: true, byCategory: false };
   return FOOD.test(categories) ? { food: true, byCategory: true } : { food: false, byCategory: false };
 }
 
-/** Kennnummern der Varianten (EAN/Hersteller-Nr. liegen meist an den Varianten) */
+/** Identifiers of the variants (EAN/manufacturer no. usually sit on the variants) */
 export interface VariantIds { ean?: unknown; manufacturerNumber?: unknown }
 export interface ProductStatus { id: string; label: string; manufacturerId: string | null; food: boolean; risky: boolean; missing: string[]; notes: string[] }
 export function gpsrProduct(p: Row, categoryNames: string[] = [], manu?: ManufacturerStatus | null, variants: VariantIds[] = []): ProductStatus {
@@ -81,9 +81,9 @@ export function gpsrProduct(p: Row, categoryNames: string[] = [], manu?: Manufac
   return { id: String(p.id), label: `${name}${p.productNumber ? ` (${String(p.productNumber)})` : ''}`, manufacturerId: (p.manufacturerId as string) ?? null, food, risky, missing: food ? [] : missing, notes };
 }
 
-// Erfundene Beispieldaten erkennen (nie Platzhalter in Pflichtangaben schreiben)
+// Detect made-up sample data (never write placeholders into mandatory information)
 const PLACEHOLDER = /muster(straße|strasse|stadt|mann|frau|firma|hersteller)|example\.(com|org|net)|lorem ipsum|\bxxx\b|\btbd\b|\btodo\b|\b12345\b|beispiel(straße|firma|adresse)/i;
-// Quelle muss eine echte Angabe sein (Nutzer, Dokument, Wissensbasis), keine Annahme der KI
+// Source must be real information (user, document, knowledge base), not an assumption by the AI
 export const WEAK_SOURCE = /schätz|vermut|annahme|angenommen|erfunden|ausgedacht|platzhalter|beispiel|generiert|ki-vorschlag/i;
 
 export function validateGpsrValue(field: ManufacturerField | ProductField, raw: unknown): string | null {
@@ -110,7 +110,7 @@ export function validateGpsrValue(field: ManufacturerField | ProductField, raw: 
   }
 }
 
-/** Hilfe beim Lesen von Herstellerlisten/Datenblättern: Kandidaten für Kontaktdaten, nie automatisch übernommen */
+/** Help when reading manufacturer lists/data sheets: candidates for contact data, never adopted automatically */
 export function contactCandidates(text: string) {
   const uniq = (xs: string[]) => [...new Set(xs)].slice(0, 30);
   return {
@@ -120,7 +120,7 @@ export function contactCandidates(text: string) {
   };
 }
 
-// ================= PAngV-Grundpreis (§§ 4, 5 PAngV) =================
+// ================= PAngV base price (§§ 4, 5 PAngV) =================
 export type BaseUnit = 'kg' | 'l' | 'm' | 'm2';
 export const UNIT_DEFS: Record<BaseUnit, { shortCode: string; name: string; aliases: string[] }> = {
   kg: { shortCode: 'kg', name: 'Kilogramm', aliases: ['kg', 'kilogramm', 'kilogram'] },
@@ -138,13 +138,13 @@ const N = '(\\d+(?:[.,]\\d+)?)', U = '(mg|kg|gr|g|ml|cl|ltr|liter|l|m²|m2|qm|mm
 const toNum = (s: string) => parseFloat(s.replace(',', '.'));
 const METERWARE = /meterware|laufmeter|\blfm\b|je meter|pro meter|von der rolle|rolle\b/i;
 const CONTAINER = /becher|tasse|vase|kanne|karaffe|krug|topf|schüssel|schale|dose\b|eimer|gießkanne|thermos|behälter|box\b|flasche leer|trinkflasche|mühle|glas\b|gläser/i;
-// Geräte, Taschen, Elektronik, Sportgeräte, Teppiche: Mengenangabe ist Fassungsvermögen, Eigengewicht oder Größe, kein Verkauf nach Menge
+// Devices, bags, electronics, sports equipment, rugs: the quantity is capacity, own weight or size, not sale by quantity
 const ITEM = /kocher|maschine|automat|gerät|rucksack|tasche|koffer|laptop|notebook|tablet|monitor|bildschirm|zoll\b|kühlschrank|staubsauger|akku|hantel|kettlebell|gewicht(?:s)?weste|teppich|matte|fahrrad|kinderwagen|zelt|schlafsack/i;
 
 export interface Quantity { amount: number; unit: BaseUnit; raw: string; source: 'name' | 'text' | 'option'; packs?: number }
-// Packungsanzahl hinter der Menge: „250 ml, 3er-Pack“, „250 ml x 3“, „6 Stück à 50 g“
+// Pack count after the quantity: "250 ml, 3er-Pack", "250 ml x 3", "6 Stück à 50 g"
 const PACK = /(\d+)\s*(?:er|-er)[- ]?(?:pack|packung|set|karton|kiste|träger)\b|(\d+)\s*(?:stück|stk\.?|dosen|flaschen|beutel|tüten|packungen)\s*(?:à|a|je|zu)\s/i;
-/** Füllmenge aus Name/Text: „500 g“, „3 × 250 g“, „0,75 l“, „250 ml, 3er-Pack“. Maße wie „130 × 170 cm“ oder „22 cm“ sind KEIN Grundpreis-Fall (nur bei Meterware). */
+/** Fill quantity from name/text: "500 g", "3 × 250 g", "0,75 l", "250 ml, 3er-Pack". Dimensions like "130 × 170 cm" or "22 cm" are NOT a base price case (only for goods sold by the meter). */
 export function parseQuantity(name: string, text = '', source: Quantity['source'] = 'name'): Quantity | null {
   const scan = (s: string, source: Quantity['source']): Quantity | null => {
     const dims = /\d+(?:[.,]\d+)?\s*(?:cm|mm|m)?\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:[x×]\s*\d+(?:[.,]\d+)?\s*)?(?:cm|mm|m)(?![\p{L}\d])/giu;
@@ -154,7 +154,7 @@ export function parseQuantity(name: string, text = '', source: Quantity['source'
     if (!single) return null;
     const [count, val, unit] = multi ? [toNum(multi[1]), toNum(multi[2]), multi[3].toLowerCase()] : [1, toNum(single[1]), single[2].toLowerCase()];
     const f = FACTOR[unit]; if (!f || !(val > 0)) return null;
-    if (f[0] === 'm' && !METERWARE.test(`${name} ${text}`)) return null; // Längenangaben sind sonst Maße
+    if (f[0] === 'm' && !METERWARE.test(`${name} ${text}`)) return null; // otherwise lengths are dimensions
     let packs = 1;
     if (!multi) {
       const after = clean.slice(single.index + single[0].length), pm = PACK.exec(clean), xm = /^\s*[x×]\s*(\d+)(?![\d.,]|\s*(?:cm|mm|m)\b)/i.exec(after);
@@ -168,7 +168,7 @@ export function parseQuantity(name: string, text = '', source: Quantity['source'
 }
 
 export interface BasePriceCandidate { quantity: Quantity; confidence: 'sicher' | 'prüfen'; reasons: string[]; exempt: string | null }
-/** options = Ausprägungen einer Variante (z. B. „250 g“): haben Vorrang vor dem Namen */
+/** options = a variant's options (e.g. "250 g"): take precedence over the name */
 export function basePriceCandidate(name: string, text = '', options: string[] = []): BasePriceCandidate | null {
   const q = (options.length ? parseQuantity(options.join(' · '), '', 'option') : null) ?? parseQuantity(name, text); if (!q) return null;
   const reasons: string[] = [];
@@ -181,14 +181,14 @@ export function basePriceCandidate(name: string, text = '', options: string[] = 
   return { quantity: q, confidence: reasons.some(r => !r.startsWith('Packungsanzahl')) ? 'prüfen' : 'sicher', reasons, exempt };
 }
 
-/** „45,43 € / 1 l“ aus Bruttopreis, Inhalt und Bezugsmenge */
+/** "45,43 € / 1 l" from gross price, content and reference quantity */
 export function basePriceText(gross: number | null | undefined, purchaseUnit: number | null | undefined, referenceUnit: number | null | undefined, shortCode: string | null | undefined): string {
   if (!purchaseUnit || !referenceUnit || !shortCode) return 'fehlt';
   const per = `${num(referenceUnit)} ${shortCode}`;
   return gross == null ? `? € / ${per} (Inhalt ${num(purchaseUnit)} ${shortCode})` : `${eur((gross / purchaseUnit) * referenceUnit)} / ${per} (Inhalt ${num(purchaseUnit)} ${shortCode})`;
 }
 
-// ================= BFSG: Texte (Links, Überschriften, Buttons, Bilder) =================
+// ================= BFSG: texts (links, headings, buttons, images) =================
 const VAGUE = new Set(['hier', 'hier klicken', 'klick hier', 'klicken sie hier', 'hier entlang', 'mehr', 'mehr erfahren', 'mehr lesen', 'mehr infos', 'mehr info', 'mehr dazu', 'weiter', 'weiterlesen', 'link', 'details', 'jetzt', 'los', 'click here', 'here', 'more', 'read more', 'learn more']);
 export type A11yIssueType = 'link-vague' | 'link-empty' | 'heading-skip' | 'heading-h1' | 'no-headings' | 'button-empty' | 'img-alt';
 export interface A11yIssue { type: A11yIssueType; detail: string }
@@ -198,7 +198,7 @@ export const A11Y_LABEL: Record<A11yIssueType, string> = {
 };
 const attr = (tag: string, name: string) => tag.match(new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i'))?.slice(2).find(x => x != null) ?? null;
 
-/** embedded = Text sitzt in einer Seite mit eigener H1 (Produkt-/Kategoriebeschreibung) */
+/** embedded = text sits in a page with its own H1 (product/category description) */
 export function htmlA11y(html: string, { embedded = true } = {}): A11yIssue[] {
   const out: A11yIssue[] = [], h = String(html ?? '');
   for (const m of h.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
@@ -225,7 +225,7 @@ export function htmlA11y(html: string, { embedded = true } = {}): A11yIssue[] {
   return out;
 }
 
-// ================= BFSG: Farbkontrast (WCAG 2.1 AA) =================
+// ================= BFSG: color contrast (WCAG 2.1 AA) =================
 const NAMED: Record<string, string> = { white: '#ffffff', black: '#000000', transparent: '' };
 export function parseColor(c: unknown): [number, number, number] | null {
   let s = String(c ?? '').trim().toLowerCase(); s = NAMED[s] ?? s;
@@ -241,7 +241,7 @@ export function contrastRatio(fg: unknown, bg: unknown): number | null {
   return Math.round(((x + 0.05) / (y + 0.05)) * 100) / 100;
 }
 const hex = (rgb: number[]) => '#' + rgb.map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
-/** Nächstgelegene Vordergrundfarbe mit ausreichendem Kontrast (gleicher Farbton, dunkler bzw. heller) */
+/** Nearest foreground color with sufficient contrast (same hue, darker or lighter) */
 export function suggestColor(fg: unknown, bg: unknown, target = 4.5): string | null {
   const a = parseColor(fg), b = parseColor(bg); if (!a || !b) return null;
   const towards = lum(b) > 0.18 ? [0, 0, 0] : [255, 255, 255];
@@ -260,7 +260,7 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { key: 'success', label: 'Erfolgsmeldungen auf Hintergrund', fg: 'sw-color-success', bg: 'sw-background-color', min: 4.5, rule: 'WCAG 1.4.3' },
   { key: 'border', label: 'Rahmen von Formularfeldern', fg: 'sw-border-color', bg: 'sw-background-color', min: 3, rule: 'WCAG 1.4.11' },
 ];
-/** Theme-Felder auflösen (Werte können auf andere Felder verweisen, z. B. „$sw-color-brand-primary“) */
+/** Resolve theme fields (values can reference other fields, e.g. "$sw-color-brand-primary") */
 export function resolveTheme(fields: Record<string, unknown>): Record<string, string> {
   const out: Record<string, string> = {};
   const get = (k: string, depth = 0): string => { const v = String(fields[k] ?? '').trim(); const ref = v.match(/^\$?(sw-[\w-]+)$/); return ref && depth < 5 && ref[1] !== k ? get(ref[1], depth + 1) : v; };
@@ -276,7 +276,7 @@ export function themeContrast(fields: Record<string, unknown>): ContrastResult[]
   });
 }
 
-// ================= Rechtstexte (Impressum, Datenschutz, AGB, Widerruf, Versand/Zahlung) =================
+// ================= Legal pages (imprint, privacy, terms, withdrawal, shipping/payment) =================
 export interface LegalPageDef { key: string; label: string; rule: string; words: RegExp; severity: 'hoch' | 'mittel' }
 export const LEGAL_PAGES: LegalPageDef[] = [
   { key: 'imprintPage', label: 'Impressum', rule: '§ 5 DDG', words: /impressum|imprint/i, severity: 'hoch' },
@@ -300,7 +300,7 @@ export function evaluateLegalPage(def: LegalPageDef, i: LegalPageInput): LegalPa
   }
   return { key: def.key, label: def.label, rule: def.rule, cmsPageId: i.cmsPageId, problems, severity: def.severity };
 }
-/** Links im Footer (oder ganzer Seite, falls kein Footer): href + Text */
+/** Links in the footer (or whole page if there is no footer): href + text */
 export function footerLinks(html: string): { href: string; text: string }[] {
   const i = html.search(/<footer\b/i), part = i >= 0 ? html.slice(i) : html;
   return [...part.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)].map(m => ({ href: attr(m[1], 'href') ?? '', text: plain(m[2]) || (attr(m[1], 'title') ?? '') }));

@@ -1,5 +1,5 @@
-// Magento searchCriteria als Query-String (REST: GET …?searchCriteria[filter_groups][0][filters][0][field]=…).
-// filters: Gruppen werden UND-verknüpft, Filter innerhalb einer Gruppe ODER-verknüpft (Magento-Semantik).
+// Magento searchCriteria as a query string (REST: GET …?searchCriteria[filter_groups][0][filters][0][field]=…).
+// filters: groups are AND-combined, filters within a group OR-combined (Magento semantics).
 
 export type Condition = 'eq' | 'neq' | 'like' | 'nlike' | 'in' | 'nin' | 'gt' | 'gteq' | 'lt' | 'lteq' | 'null' | 'notnull' | 'finset' | 'from' | 'to';
 export interface Filter { field: string; value?: string | number | boolean | (string | number)[]; condition_type?: Condition }
@@ -18,13 +18,13 @@ export function criteriaQuery(c: Criteria = {}, prefix = 'searchCriteria'): stri
     if (f.condition_type && f.condition_type !== 'eq') out.push(`${enc(`${k}[condition_type]`)}=${f.condition_type}`);
   }));
   (c.sort ?? []).forEach((s, i) => { out.push(`${enc(`${prefix}[sortOrders][${i}][field]`)}=${encodeURIComponent(s.field)}`, `${enc(`${prefix}[sortOrders][${i}][direction]`)}=${s.direction ?? 'ASC'}`); });
-  // Ohne pageSize liefert Magento ALLE Treffer – darum immer begrenzen
+  // without pageSize Magento returns ALL matches, so always limit
   out.push(`${enc(`${prefix}[pageSize]`)}=${Math.max(1, Math.min(c.pageSize ?? 20, 500))}`, `${enc(`${prefix}[currentPage]`)}=${Math.max(1, c.currentPage ?? 1)}`);
   return out.join('&');
 }
 
-/** Alle Feldnamen der Kriterien (Prüfung gegen die Freigabeliste) */
+/** All field names of the criteria (checked against the allowlist) */
 export const criteriaFields = (c: Criteria = {}) => [...(c.filters ?? []).flat().map(f => f.field), ...(c.sort ?? []).map(s => s.field)];
 
-/** Suchbegriff für like-Filter: % und _ maskieren, Wildcards außen */
+/** Search term for like filters: escape % and _, wildcards on the outside */
 export const likeTerm = (t: string) => `%${t.trim().replace(/[\\%_]/g, m => `\\${m}`)}%`;

@@ -2,12 +2,12 @@ import { shopCheckState } from '@/server/shopcheck';
 
 export const dynamic = 'force-dynamic';
 
-// Gespeichertes Ergebnis + läuft-Flag; veraltet (> 6 Std.) → Neuprüfung startet im Hintergrund
+// Stored result + running flag; stale (> 6 h) → a re-check starts in the background
 export function GET() {
   return Response.json(shopCheckState());
 }
 
-// „Neu prüfen“: startet sofort im Hintergrund und antwortet direkt
+// "Neu prüfen" (re-check): starts immediately in the background and responds right away
 export function POST() {
   return Response.json(shopCheckState({ refresh: true }));
 }

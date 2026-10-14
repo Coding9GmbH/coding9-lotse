@@ -1,6 +1,6 @@
 import 'server-only';
-// Magento: Varianten = konfigurierbare Produkte (configurable) mit einfachen Einzelprodukten je Ausprägung.
-// Lesen: Achsen (Attribute) und Kinder. Anlegen: neues Einzelprodukt mit vorhandener Ausprägung + Verknüpfung; Rückgängig löscht es wieder.
+// Magento: variants = configurable products with simple products per option.
+// Read: axes (attributes) and children. Create: new simple product with an existing option + link; undo deletes it again.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { errMsg, newIdSafe, partialTicker, pool, WRITE_CONCURRENCY, type ApplyResult } from './kit';
 import { skuPath, type MagentoClient } from './client';
@@ -10,9 +10,9 @@ import { productLabel, stockSource } from './catalog';
 import { sourceItemDelete } from './images';
 import { reg, reqOp } from './write';
 
-/** Achse: values = von Varianten genutzte Ausprägungen, options = alle Ausprägungen des Attributs (für neue Varianten) */
+/** Axis: values = options used by variants, options = all options of the attribute (for new variants) */
 export interface Axis { attributeId: string; code: string; label: string; values: { id: string; label: string }[]; options: { id: string; label: string }[] }
-/** Achsen eines konfigurierbaren Produkts mit Ausprägungen (Label aus den Attribut-Optionen) */
+/** Axes of a configurable product with options (labels from the attribute options) */
 export async function variantAxes(ro: MagentoReader, sku: string): Promise<Axis[]> {
   const opts = await ro.configurableOptions(sku), out: Axis[] = [];
   for (const o of opts) {

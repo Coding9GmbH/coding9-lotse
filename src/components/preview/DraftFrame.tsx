@@ -6,27 +6,27 @@ import { FRAME_TAG, isFrameMessage, withFrameCsp, type ToFrame } from '@/lib/pre
 
 interface Props { draft: DraftView | null; className?: string; hidden: boolean; title: string }
 
-/** Nachricht an das Vorschau-Dokument (opaker Origin → targetOrigin "*", das Dokument prüft event.source) */
+/** Message to the preview document (opaque origin → targetOrigin "*", the document checks event.source) */
 export const postToFrame = (f: HTMLIFrameElement, m: ToFrame) => f.contentWindow?.postMessage({ lotse: FRAME_TAG, ...m }, '*');
-/** iframe ohne Zugriff auf das eingebettete Dokument (sandbox ohne allow-same-origin) → nur postMessage */
+/** iframe without access to the embedded document (sandbox without allow-same-origin) → postMessage only */
 export const isSandboxed = (f: HTMLIFrameElement) => f.hasAttribute('sandbox') && !f.sandbox.contains('allow-same-origin');
 
-/** Live-Vorschau (Shop-Seite über den Proxy): Skripte und Formulare laufen, aber in einem opaken Origin (kein allow-same-origin), nie in
- *  Lotses Herkunft. Der Proxy setzt zusätzlich `sandbox` per CSP. Markieren und Scroll laufen wie beim Entwurf per postMessage. */
+/** Live preview (shop page via the proxy): scripts and forms run, but in an opaque origin (no allow-same-origin), never in
+ *  Lotse's origin. The proxy additionally sets `sandbox` via CSP. Marking and scroll work via postMessage, as with the draft. */
 export const PREVIEW_SANDBOX = 'allow-scripts allow-forms';
 
 /**
- * Entwurfs-Vorschau (srcdoc) in einem sandboxed iframe: Skripte aus custom-html-Blöcken und Shop-HTML laufen in einem
- * eigenen, opaken Origin ohne Zugriff auf die Oberfläche und die API (Freigaben bleiben beim Menschen).
- * Während des Streamens (draft_partial) wird per postMessage nur der <body> ausgetauscht, Theme-CSS und Scroll-Position bleiben.
- * Der fertige Entwurf lädt das Dokument neu (damit Skripte laufen) und stellt die zuletzt gemeldete Scroll-Position wieder her.
+ * Draft preview (srcdoc) in a sandboxed iframe: scripts from custom-html blocks and shop HTML run in their
+ * own opaque origin without access to the UI and the API (approvals stay with the human).
+ * While streaming (draft_partial) only the <body> is swapped via postMessage, theme CSS and scroll position stay.
+ * The finished draft reloads the document (so scripts run) and restores the last reported scroll position.
  */
 export function DraftFrame({ draft, className, hidden, title }: Props) {
   const ref = useRef<HTMLIFrameElement>(null);
   const ready = useRef(false);
   const scrollY = useRef(0);
 
-  // Scroll-Position meldet das Dokument selbst (lesbar ist es von hier aus nicht)
+  // The document reports its scroll position itself (it is not readable from here)
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const f = ref.current;
@@ -45,7 +45,7 @@ export function DraftFrame({ draft, className, hidden, title }: Props) {
     ready.current = false;
     const onLoad = () => { ready.current = true; if (y) postToFrame(f, { t: 'scroll', top: y }); };
     f.addEventListener('load', onLoad, { once: true });
-    f.srcdoc = withFrameCsp(draft.html); // connect-src/form-action 'none': KI-JS kann aus der Vorschau nichts senden
+    f.srcdoc = withFrameCsp(draft.html); // connect-src/form-action 'none': AI JS cannot send anything from the preview
     return () => f.removeEventListener('load', onLoad);
   }, [draft]);
 

@@ -3,7 +3,7 @@ import { errMsg } from '@/server/http';
 
 export const dynamic = 'force-dynamic';
 
-// ChatGPT-Anmeldung für Codex per Gerätecode: POST startet (liefert Link + Code), GET fragt den Stand ab, DELETE meldet ab.
+// ChatGPT sign-in for Codex via device code: POST starts it (returns link + code), GET polls the status, DELETE signs out.
 export async function POST() {
   try { return Response.json(await startCodexLogin()); } catch (e) { return Response.json({ status: 'error', message: errMsg(e) }); }
 }

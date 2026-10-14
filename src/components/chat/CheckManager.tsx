@@ -10,7 +10,7 @@ import styles from './CheckManager.module.css';
 
 interface Props { open: boolean; onClose: () => void; onChanged: () => void; onNew: () => void }
 
-/** Prüfungen des Shop-Checks verwalten: an/aus, eigene löschen. Neue eigene Prüfungen entstehen im Chat. */
+/** Manage the shop check's checks: on/off, delete custom ones. New custom checks are created in the chat. */
 export function CheckManager({ open, onClose, onChanged, onNew }: Props) {
   const m = useT(), t = m.chat.checks;
   const [list, setList] = useState<CheckListItem[] | null>(null);

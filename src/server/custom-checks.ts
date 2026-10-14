@@ -1,6 +1,6 @@
 import 'server-only';
-// Eigene Prüfungen + An/Aus je Prüfung (lokal im kv-Speicher). Eigene Prüfungen werten die neutralen Produktzeilen der Plattform aus
-// (platform.scanProducts), laufen im selben Durchlauf wie die eingebauten und erscheinen als normale Befunde.
+// Custom checks + on/off per check (stored locally in the kv store). Custom checks evaluate the platform's neutral product rows
+// (platform.scanProducts), run in the same pass as the built-in ones and appear as normal findings.
 import { builtinTitle, conditionsText, CUSTOM_MAX, CUSTOM_PREFIX, evaluate, parseCheckInput, slugify, type CheckListItem, type CustomCheck, type NeutralProduct } from '@/lib/custom-checks';
 import type { PlatformKind } from '@/lib/platforms';
 import type { CheckFinding } from '@/lib/protocol';
@@ -36,7 +36,7 @@ export function removeCustom(id: string): boolean {
   const list = listCustom();
   if (!list.some(c => c.id === id)) return false;
   saveCustom(list.filter(c => c.id !== id));
-  setCheckEnabled(id, true); // Eintrag in der Aus-Liste mit entfernen
+  setCheckEnabled(id, true); // also remove the entry from the off list
   return true;
 }
 export function setCheckEnabled(id: string, enabled: boolean) {
@@ -51,13 +51,13 @@ const asDef = (c: CustomCheck): FindingDef => ({
   fix: n => `Behebe „${c.title}“ (betrifft ${n}). Die Prüfung trifft zu, wenn: ${conditionsText(c)}. Finde die betroffenen Produkte mit den Lese-Werkzeugen (list_products, get_product), zeig sie mir und frag mich, was ich ändern soll, bevor du Änderungen vorschlägst.`,
 });
 
-/** Befund einer eigenen Prüfung aus gelesenen Produkten (rein) */
+/** Finding of a custom check from read products (pure) */
 export function customFinding(c: CustomCheck, scan: { rows: NeutralProduct[]; total: number; capped: boolean }): CheckFinding | null {
   const e = evaluate(scan.rows, c);
   return makeFinding(asDef(c), e.count, scan.total, e.sample, { atLeast: scan.capped });
 }
 
-/** Eigene Prüfungen als ShopCheck; scan liest die Produkte der aktiven Plattform (je Durchlauf einmal, Aufrufer memoisiert) */
+/** Custom checks as ShopCheck; scan reads the products of the active platform (once per pass, the caller memoizes) */
 export function customShopChecks(scan: (reader: unknown) => Promise<{ rows: NeutralProduct[]; total: number; capped: boolean }>): ShopCheck[] {
   return listCustom().map(c => ({
     id: c.id, area: c.area, scopes: ['products'], platforms: 'all',
@@ -65,7 +65,7 @@ export function customShopChecks(scan: (reader: unknown) => Promise<{ rows: Neut
   }));
 }
 
-/** Alle Prüfungen der Plattform für Verwaltung und Durchlauf (eingebaute + eigene, mit Zustand) */
+/** All checks of the platform for management and pass (built-in + custom, with state) */
 export function checkList(platform: PlatformKind): CheckListItem[] {
   const off = disabledChecks();
   const builtin = listChecks(platform).map((c): CheckListItem => ({ id: c.id, title: builtinTitle(c.id), area: c.area, enabled: !off.has(c.id), custom: false }));

@@ -4,12 +4,12 @@ import { auditSpec, findFloskeln } from '../../src/server/audit';
 import { expandSpec } from '../../src/server/patterns';
 import type { PageSpec } from '../../src/server/cms';
 
-test('Floskel-Erkennung: typische KI-Phrasen ja, konkrete Texte nein', () => {
+test('cliché detection: typical AI phrases yes, concrete texts no', () => {
   assert.deepEqual(findFloskeln('Entdecken Sie unsere vielfältige Auswahl – Qualität, die überzeugt!'), ['Entdecken Sie …', 'Qualität, die überzeugt', 'vielfältige Auswahl']);
   assert.deepEqual(findFloskeln('Hält 3 Stunden warm – doppelwandiger Edelstahl, 0,75 l.'), []);
 });
 
-test('Qualitäts-Check meldet Floskeln, Monotonie und zu viele Farbflächen als Gestaltungspunkte', () => {
+test('quality check reports clichés, monotony and too many color areas as design points', () => {
   const card = (t: string) => ({ type: 'pattern', pattern: 'benefits', data: { title: t, items: [{ title: 'a', text: 'b' }] } });
   const spec = expandSpec({
     name: 'Test', type: 'landingpage',
@@ -25,7 +25,7 @@ test('Qualitäts-Check meldet Floskeln, Monotonie und zu viele Farbflächen als 
   assert.match(open, /2 farbige Vollflächen/);
 });
 
-test('Audit: KI-Bild ohne sichtbaren Hinweis ist „wichtig“', async () => {
+test('audit: AI image without a visible notice is "wichtig" (important)', async () => {
   const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
   process.env.AICB_DATA ??= fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-test-'));
   const { stageImage, AI_CREDIT } = await import('../../src/server/media');
@@ -38,7 +38,7 @@ test('Audit: KI-Bild ohne sichtbaren Hinweis ist „wichtig“', async () => {
   assert.equal(check('<h1>Kaffee</h1><img src="/media/foto.jpg" alt="Foto">'), undefined);
 });
 
-test('Audit: Hero ohne Bild trotz Fotos, fehlender Bild-Moment, zu viel Text', () => {
+test('audit: hero without image despite photos, missing image moment, too much text', () => {
   const img = { type: 'pattern', pattern: 'split', data: { title: 'Röstung', text: 'Kurz.', imageUrl: '/media/a.jpg', imageAlt: 'Bohnen' } };
   const long = { type: 'text', html: `<p>${'Kaffee aus Hamburg geröstet. '.repeat(220)}</p>` };
   const spec = (hero: Record<string, unknown>, ...rest: unknown[]) => expandSpec({ name: 'T', type: 'landingpage', sections: [{ blocks: [{ type: 'pattern', pattern: 'hero', data: { title: 'Kaffee', ctaText: 'Los', ctaHref: '/', ...hero } }, ...rest] }] } as unknown as PageSpec);
@@ -53,20 +53,20 @@ test('Audit: Hero ohne Bild trotz Fotos, fehlender Bild-Moment, zu viel Text', (
   assert.equal(msg(good, /textlastig|Bild vor Text/)?.ok, true);
 });
 
-test('HTML-Plattformen: mit theme-main (Shopify) die Theme-Regeln, ohne (Magento) die Abschnitts-Regeln', () => {
+test('HTML platforms: with theme-main (Shopify) the theme rules, without (Magento) the section rules', () => {
   const sections = (main: boolean) => [{ blocks: [{ type: 'text', html: '<h2>Vasen aus Keramik</h2><p>Kurzer Text.</p>' }, ...(main ? [{ type: 'theme-main' }] : [])] }];
   const shopify = auditSpec({ name: 'K', type: 'product_list', sections: sections(true) } as PageSpec, null, { format: 'html' });
   const h1s = shopify.checks.filter(c => c.area === 'SEO' && /H1/.test(c.msg) && c.w === 4);
-  assert.equal(h1s.length, 1); assert.equal(h1s[0].ok, true, 'Theme-H1 zählt, keine eigene H1 nötig');
-  assert.ok(shopify.checks.some(c => c.msg === 'Produkte früh erreichbar' && c.ok), 'theme-main zählt als Produktliste');
+  assert.equal(h1s.length, 1); assert.equal(h1s[0].ok, true, 'theme H1 counts, no own H1 needed');
+  assert.ok(shopify.checks.some(c => c.msg === 'Produkte früh erreichbar' && c.ok), 'theme-main counts as product list');
   const magento = auditSpec({ name: 'K', type: 'product_list', sections: sections(false) } as PageSpec, null, { format: 'html' });
   assert.ok(magento.checks.some(c => /Keine eigene H1/.test(c.msg) && c.ok));
   assert.ok(magento.checks.some(c => /Inhalt über der Produktliste kurz/.test(c.msg) && c.ok));
   const pdp = auditSpec({ name: 'P', type: 'product_detail', sections: [{ blocks: [{ type: 'theme-main' }, { type: 'text', html: '<p>x</p>' }] }] } as PageSpec, null, { format: 'html' });
-  assert.ok(pdp.checks.some(c => c.msg === 'Galerie + Kaufbox im ersten Sichtbereich' && c.ok), 'Shopify-Produktvorlage: theme-main als Galerie/Kaufbox');
+  assert.ok(pdp.checks.some(c => c.msg === 'Galerie + Kaufbox im ersten Sichtbereich' && c.ok), 'Shopify product template: theme-main as gallery/buy box');
 });
 
-test('Audit: sichtbarer Text wird gegen denselben Wert geprüft, den die Meldung nennt; Meldungen ohne lange Striche', async () => {
+test('audit: visible text is checked against the same value the message names; messages without long dashes', async () => {
   const { VISIBLE_MAX, auditSummary } = await import('../../src/server/audit');
   const words = (n: number) => ({ type: 'text', html: `<p>${'Wort '.repeat(n)}</p>` });
   const spec = (n: number) => ({ name: 'T', type: 'landingpage', sections: [{ blocks: [words(n)] }] }) as unknown as PageSpec;
@@ -80,7 +80,7 @@ test('Audit: sichtbarer Text wird gegen denselben Wert geprüft, den die Meldung
   assert.match(auditSummary(a), /\[SEO, wichtig\] 1 Link\(s\) mit kaputtem.*: Link „hier“ \(\/x\): Produkt 1 existiert nicht/);
 });
 
-test('Qualitäts-Check: JavaScript im Entwurf ergibt einen wichtigen Hinweis mit den Zieladressen (alle Seitentypen)', () => {
+test('quality check: JavaScript in the draft yields an important notice with the target addresses (all page types)', () => {
   const blocks = [{ type: 'custom-html', html: '<div>x</div>', js: "fetch('https://evil.example/c')" }, { type: 'text', html: '<h1>Titel</h1><p>Text</p>' }];
   for (const type of ['landingpage', 'product_list', 'product_detail']) {
     const a = auditSpec({ name: 'T', type, sections: [{ blocks }] } as unknown as PageSpec);

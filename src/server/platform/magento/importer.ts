@@ -1,8 +1,8 @@
 import 'server-only';
-// Magento: Import aus Lieferantendaten (CSV/Excel). Datei lesen, Spalten zuordnen und Zuordnung speichern wie bei allen Plattformen
-// (features/import.ts); Abgleich per SKU mit dem Katalog, Planung und Schreiben hier: vorhandene Produkte nur zugeordnete, geänderte
-// Felder (Preise/Bestand nur mit Freigabe-Option), neue als Entwurf (deaktiviert). Karte mit Gruppen + Stichprobe, Schreiben in
-// Blöcken mit Fortschritt, Rückgängig je Produkt exakt (angelegte Produkte samt Lagerbestand löschen, Felder zurücksetzen).
+// Magento: import from supplier data (CSV/Excel). Reading the file, mapping columns and saving the mapping work as on all platforms
+// (features/import.ts); matching by SKU against the catalog, planning and writing here: existing products only get mapped, changed
+// fields (prices/stock only with the opt-in option), new ones as drafts (disabled). Card with groups + sample, writing in
+// chunks with progress, exact undo per product (delete created products including stock, reset fields).
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
@@ -23,18 +23,18 @@ import { reg, reqOp, writeScoped } from './write';
 export const M_IMPORT_KIND = 'supplier-import';
 const CHUNK = 50, SAMPLE = 50;
 
-// ================= Katalog (nur lesend, geschützter Lese-Client) =================
+// ================= Catalog (read-only, guarded read client) =================
 export interface AttrDef { code: string; label: string; input: string; options: { label: string; value: string }[] }
 export interface MCatalog {
   products: MProduct[];
   categories: { id: string; path: string[] }[];
-  /** eigene Attribute für Eigenschaften-Spalten (Code oder Bezeichnung) + Hersteller, EAN, Hersteller-Nr. falls vorhanden */
+  /** custom attributes for property columns (code or label) + manufacturer, EAN, manufacturer no. if present */
   attributes: AttrDef[];
   taxClasses: { label: string; value: string }[];
   attributeSetId: number | null; websiteIds: number[];
-  /** MSI-Quelle für Bestand; reason = warum Bestand nicht geht */
+  /** MSI source for stock; reason = why stock is not possible */
   stock: { source: string } | { reason: string };
-  /** Bestand vorhandener Produkte je SKU (nur mit Quelle) */
+  /** Stock of existing products per SKU (only with a source) */
   stockBySku: Record<string, { quantity: number; status: number }>;
   basis: PriceBasis | null;
   takenUrlKeys: string[];
@@ -64,7 +64,7 @@ export async function loadMagentoCatalog(ro: MagentoReader, recs: Rec[], m: Impo
   const set = sets.items.find(s => s.attribute_set_name === 'Default' && Number(s.entity_type_id) === 4) ?? sets.items.find(s => Number(s.entity_type_id) === 4);
   const stockBySku: MCatalog['stockBySku'] = {};
   if ('source' in stock && products.length) for (const x of await ro.sourceItems(products.map(p => p.sku))) if (x.source_code === stock.source) stockBySku[x.sku] = { quantity: Number(x.quantity ?? 0), status: Number(x.status ?? 0) };
-  // URL-Schlüssel neuer Produkte dürfen nicht schon vergeben sein
+  // URL keys of new products must not already be taken
   const keys = [...new Set(recs.filter(r => r.name && !products.some(p => p.sku === r.number)).map(r => urlKey(r.name!)))];
   const takenUrlKeys: string[] = [];
   for (let i = 0; i < keys.length; i += 100) takenUrlKeys.push(...(await ro.products({ filters: [[{ field: 'url_key', value: keys.slice(i, i + 100), condition_type: 'in' }]], pageSize: 100, fields: 'items[id,sku,custom_attributes],total_count' })).items.map(p => String(attrStr(p, 'url_key'))));
@@ -74,14 +74,14 @@ export async function loadMagentoCatalog(ro: MagentoReader, recs: Rec[], m: Impo
   };
 }
 
-// ================= Planung (rein) =================
+// ================= Planning (pure) =================
 export type Group = 'create' | 'create-warn' | 'update' | 'update-warn';
 export interface MCreatePlan { kind: 'create'; key: string; group: Group; label: string; sku: string; product: NewProductPlan; images: string[] }
 export interface MUpdatePlan {
   kind: 'update'; key: string; group: Group; label: string; sku: string; id: string;
-  /** Texte/Attribute (Store-View bzw. global, je nachdem woher der Wert kommt) und globale Werte (Preise, Gewicht, Einkaufspreis) */
+  /** Texts/attributes (store view or global, depending on where the value comes from) and global values (prices, weight, purchase price) */
   scoped: Record<string, unknown>; global: Record<string, unknown>;
-  /** Preisfelder: Stand beim Vorschlag (Prüfung vor dem Schreiben) */
+  /** Price fields: state at proposal time (checked before writing) */
   expect?: PriceWrite;
   stock?: number; addCategories: string[]; images: string[];
 }
@@ -94,15 +94,15 @@ const short = (v: unknown, n = 40) => { const s = plain(v); return s ? (s.length
 const r4 = (n: number) => Math.round(n * 10000) / 10000;
 const UPDATE_DEFAULT_OFF = new Set(['priceGross', 'priceNet', 'listPrice', 'purchasePrice', 'stock', 'taxRate']);
 
-/** Preis der Datei in der Basis des Shops (brutto/netto); null = keine Angabe */
+/** Price from the file in the shop's basis (gross/net); null = not specified */
 export function shopPrice(r: { gross?: number; net?: number; taxRate?: number }, basis: PriceBasis, defRate = 19, which: 'price' | 'list' = 'price', list?: number): number | null {
   const rate = (r.taxRate ?? defRate) / 100;
-  if (which === 'list') return list == null ? null : basis === 'gross' ? list : r4(list / (1 + rate)); // Streichpreis/UVP in der Datei = brutto
+  if (which === 'list') return list == null ? null : basis === 'gross' ? list : r4(list / (1 + rate)); // list price/RRP in the file = gross
   if (basis === 'gross') return r.gross != null ? r.gross : r.net != null ? Math.round(r.net * (1 + rate) * 100) / 100 : null;
   return r.net != null ? r.net : r.gross != null ? r4(r.gross / (1 + rate)) : null;
 }
 
-/** Eigenschaften und Hersteller → Attributwerte (Auswahlwerte per Bezeichnung); unbekannte Werte als Warnung */
+/** Properties and manufacturer → attribute values (select options by label); unknown values as a warning */
 function attrValues(r: Rec, m: ImportMapping, cat: MCatalog, warn: string[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const set = (code: string, raw: string) => {
@@ -178,7 +178,7 @@ export function planMagentoImport(recs: Rec[], m: ImportMapping, cat: MCatalog, 
         continue;
       }
       if (mode === 'create') { skip(r, 'schon im Shop (mode=create)'); continue; }
-      // ---- vorhandenes Produkt: nur zugeordnete, geänderte Felder ----
+      // ---- existing product: only mapped, changed fields ----
       const scoped: Record<string, unknown> = {}, global: Record<string, unknown> = {}, before: string[] = [], after: string[] = [];
       const change = (code: string, v: unknown, where: Record<string, unknown>) => { const old = attr(cur, code); if (v == null || v === '' || sameValue(old, v)) return; where[code] = v; before.push(`${LABEL[code] ?? code}: ${short(old)}`); after.push(`${LABEL[code] ?? code}: ${short(v)}`); };
       for (const [k, code] of Object.entries(SCOPED_TEXT) as [keyof Rec, string][]) {
@@ -193,15 +193,15 @@ export function planMagentoImport(recs: Rec[], m: ImportMapping, cat: MCatalog, 
         if (!cat.basis) warn.push('Preis nicht übernommen: Preisbasis unbekannt');
         else if (['configurable', 'bundle', 'grouped'].includes(String(cur.type_id))) warn.push('Preis kommt aus den Einzelprodukten: nicht übernommen');
         else {
-          // Ziel wie bei propose_product_changes über planPrice: fehlender Streichpreis (undefined) lässt einen aktiven Sonderpreis als Streichpreis-Paar stehen
+          // Target as in propose_product_changes via planPrice: a missing list price (undefined) keeps an active special price as a list price pair
           const s = priceState(cur), sell = shopPrice(r, cat.basis, opts.defaultTaxRate) ?? s.selling;
           let listPrice: number | null | undefined = r.list != null ? shopPrice(r, cat.basis, opts.defaultTaxRate, 'list', r.list) ?? undefined : undefined;
           if (sell != null && listPrice != null && !(listPrice > sell)) { warn.push(`Streichpreis ${money(listPrice)} nicht über dem Preis: ignoriert`); listPrice = null; }
-          else if (sell != null && listPrice === undefined && s.list != null && !(s.list > sell)) listPrice = null; // Preis erreicht den bisherigen Streichpreis: Sonderpreis entfällt
+          else if (sell != null && listPrice === undefined && s.list != null && !(s.list > sell)) listPrice = null; // price reaches the previous list price: special price is dropped
           const w: PriceWrite = sell != null ? planPrice(s, { price: sell, listPrice }).write : {};
           if (Object.keys(w).length) {
             Object.assign(global, w); expect = priceUndo(cur, Object.keys(w) as (keyof PriceWrite)[]);
-            // Vorher/Nachher aus dem tatsächlich geschriebenen Zustand
+            // before/after from the state actually written
             const nv = (k: keyof PriceWrite, old: unknown) => (k in w ? w[k] : old);
             const next = priceState({ price: nv('price', s.regular), custom_attributes: [{ attribute_code: 'special_price', value: nv('special_price', s.special) }, { attribute_code: 'special_from_date', value: nv('special_from_date', s.from) }, { attribute_code: 'special_to_date', value: nv('special_to_date', s.to) }] });
             before.push(`Preis: ${money(s.selling)}${s.list != null ? ` statt ${money(s.list)}` : ''}`); after.push(`Preis: ${money(next.selling)}${next.list != null ? ` statt ${money(next.list)}` : ''}`);
@@ -246,7 +246,7 @@ export function planMagentoImport(recs: Rec[], m: ImportMapping, cat: MCatalog, 
 async function applyUpdate(c: MagentoClient, store: string, pl: MUpdatePlan): Promise<UndoOp[]> {
   const undo: UndoOp[] = [];
   try {
-    if (pl.expect) await assertPriceUnchanged(c, pl.sku, store, pl.expect); // im Scope des Vorschlags (Website-Preise)
+    if (pl.expect) await assertPriceUnchanged(c, pl.sku, store, pl.expect); // in the proposal's scope (website prices)
     if (Object.keys(pl.scoped).length || Object.keys(pl.global).length) undo.push(...await writeScoped(c, 'product', pl.sku, store, pl.scoped, pl.global));
     if (pl.expect) await assertPriceInView(c, pl.sku, store, pl.global as PriceWrite, undo);
     if (pl.stock !== undefined) {
@@ -267,7 +267,7 @@ async function applyUpdate(c: MagentoClient, store: string, pl: MUpdatePlan): Pr
 }
 async function applyCreate(c: MagentoClient, pl: MCreatePlan): Promise<{ undo: UndoOp[]; imageError?: string }> {
   const undo = await createProduct(c, pl.product);
-  // Bilder nach dem Anlegen: ein kaputtes Bild verhindert das Produkt nicht (Rückgängig löscht das Produkt samt Bildern)
+  // Images after creation: a broken image does not block the product (undo deletes the product including images)
   if (pl.images.length) { try { await applyImages(c, { sku: pl.sku, adds: pl.images.map((ref, i) => ({ ref, label: pl.product.name, position: i + 1 })), entries: [], cover: 'new:0' }); } catch (e) { return { undo, imageError: `${pl.sku}: ${errMsg(e)}` }; } }
   return { undo };
 }
@@ -284,7 +284,7 @@ reg.register(M_IMPORT_KIND, async (c, cs, payload, selected, ctx?: ApplyCtx): Pr
     await pool(list, WRITE_CONCURRENCY, async pl => {
       try {
         if (pl.kind === 'create') { const r = await applyCreate(c, pl); undo.push(...r.undo); rep.created.push(pl.sku); if (r.imageError) rep.imageErrors.push(r.imageError); }
-        else { undo.push(...await applyUpdate(c, store ?? c.storeCode, pl)); rep.updated.push(pl.sku); } // Store-View des Vorschlags (ältere Karten: Einstellung)
+        else { undo.push(...await applyUpdate(c, store ?? c.storeCode, pl)); rep.updated.push(pl.sku); } // store view of the proposal (older cards: setting)
         all.push({ itemId: pl.key, ok: true });
       } catch (e) { undo.push(...((e as { undo?: UndoOp[] }).undo ?? [])); all.push({ itemId: pl.key, ok: false, error: errMsg(e) }); rep.failed.push({ sku: pl.sku, error: errMsg(e) }); }
     });
@@ -301,7 +301,7 @@ reg.register(M_IMPORT_KIND, async (c, cs, payload, selected, ctx?: ApplyCtx): Pr
   return { results, undo, counts: { applied: all.length - bad.size, failed: bad.size } };
 });
 
-// ================= Werkzeuge =================
+// ================= Tools =================
 function tools(session: Session): AnyTool[] {
   const ro = () => { const r = session.reader as MagentoReader; if (!r || (r as { platform?: string }).platform !== 'magento') throw new Error('Dieses Werkzeug gibt es nur für Magento.'); return r; };
   async function prepare(fileId: string, sheet: string | undefined, mapping: ImportMapping, opts: ImportOptions, title: string, reason: string) {
@@ -311,7 +311,7 @@ function tools(session: Session): AnyTool[] {
     if (!recs.length) throw new Error(`Keine Zeilen ab Zeile ${offset + 1} (Datei hat ${all.length} Datenzeilen)`);
     const cat = await loadMagentoCatalog(ro(), recs, mapping);
     const plan = planMagentoImport(recs, mapping, cat, opts, { title, reason, fileName: name, nextOffset: end < all.length ? end : null });
-    return { ...plan, payload: { ...plan.payload, store: ro().storeCode } }; // Store-View des Vorschlags für den Executor
+    return { ...plan, payload: { ...plan.payload, store: ro().storeCode } }; // store view of the proposal for the executor
   }
   return [
     ...supplierFileTools(),

@@ -27,14 +27,14 @@ function fakeReader(children: SwEntity[], taken: string[] = []): ShopReader {
   } as unknown as ShopReader;
 }
 
-test('combinations: kartesisches Produkt, nextSuffix: nächste freie Endung', () => {
+test('combinations: Cartesian product, nextSuffix: next free suffix', () => {
   assert.deepEqual(combinations([['1', '2'], ['a', 'b']]), [['1', 'a'], ['1', 'b'], ['2', 'a'], ['2', 'b']]);
   assert.deepEqual(combinations([]), [[]]);
   assert.equal(nextSuffix('HH-1', ['HH-1.1', 'HH-1.7', 'HH-1.x', 'HH-10.9']), 8);
   assert.equal(nextSuffix('HH-1', []), 1);
 });
 
-test('Varianten anlegen: Kombinationen, vorhandene übersprungen, neue Ausprägung, Nummern, overrides', async () => {
+test('create variants: combinations, existing ones skipped, new option, numbers, overrides', async () => {
   const ro = fakeReader([child(hex(100), 1, [GROUPS[0].options[0], GROUPS[1].options[0]])], ['HH-PLAID-130.3']);
   const { cs, payload } = await buildVariantsChangeSet(ro, { title: 'Varianten', reason: 'r', productId: PARENT, create: {
     axes: [{ group: 'farbe', options: ['Sand', 'Salbei', 'Rost'] }, { group: GROESSE, options: [S, 'm'] }],
@@ -44,7 +44,7 @@ test('Varianten anlegen: Kombinationen, vorhandene übersprungen, neue Ausprägu
   assert.equal(p.parentId, PARENT); assert.equal(p.newGroups.length, 0);
   assert.deepEqual(p.newOptions.map(o => [o.groupId, o.name, o.position]), [[FARBE, 'Rost', 3]]);
   const created = cs.items.filter(i => i.field === 'create');
-  // 6 Kombinationen − 1 vorhanden (Sand/S); Nummer .3 ist shopweit vergeben → weitergezählt
+  // 6 combinations − 1 existing (Sand/S); number .3 is taken shop-wide → counting continues
   assert.equal(created.length, 5);
   assert.deepEqual(cs.skipped.map(s => s.reason), ['Farbe: Sand / Größe: S: Variante existiert bereits']);
   const nv = created.map(i => i.afterRaw as NewVariant);
@@ -57,9 +57,9 @@ test('Varianten anlegen: Kombinationen, vorhandene übersprungen, neue Ausprägu
   assert.equal(cs.kind, 'variants');
 });
 
-test('Varianten ändern: Regel auf geerbten Preis, null = erben, löschen + Updates', async () => {
+test('change variants: rule on inherited price, null = inherit, delete + updates', async () => {
   const a = child(hex(100), 1, [GROUPS[1].options[0]]), b = child(hex(101), 2, [GROUPS[1].options[1]], { price: [{ currencyId: 'eur', gross: 95 }], active: true });
-  const { cs } = await buildVariantsChangeSet(fakeReader([a, b]), { title: 't', reason: 'r', productId: hex(100), // Varianten-id → ganze Familie
+  const { cs } = await buildVariantsChangeSet(fakeReader([a, b]), { title: 't', reason: 'r', productId: hex(100), // variant id → whole family
     updateAll: { price: { percent: -10, round: '.99' } }, update: [{ id: b.id, price: null, stock: 9 }, { id: hex(999), stock: 1 }], remove: [] });
   const byId = Object.fromEntries(cs.items.map(i => [i.id, i]));
   assert.equal(byId[`${a.id}:price`].before, '89,00 € (geerbt)');
@@ -75,33 +75,33 @@ test('Varianten ändern: Regel auf geerbten Preis, null = erben, löschen + Upda
   await assert.rejects(buildVariantsChangeSet(fakeReader([a]), { title: 't', reason: 'r', productId: PARENT, update: [{ id: a.id, price: null }] }), /Keine Änderung nötig/);
 });
 
-test('variantSnapshot: eigene Werte, Zuordnungen und Übersetzungen für exaktes Wiederanlegen', () => {
+test('variantSnapshot: own values, assignments and translations for exact recreation', () => {
   const snap = variantSnapshot({ id: 'v', parentId: 'p', productNumber: 'X.1', stock: 2, active: null, price: null, ean: '123', options: [{ id: 'o1', name: 'S' }], properties: [], media: [{ id: 'pm', mediaId: 'm', position: 0, media: {} }], coverId: 'pm',
     translations: [{ languageId: 'de', name: null, description: null }, { languageId: 'en', name: 'Throw S' }], visibilities: [], prices: [] });
   assert.deepEqual(snap, { parentId: 'p', productNumber: 'X.1', stock: 2, ean: '123', coverId: 'pm', options: [{ id: 'o1' }], properties: [], categories: [], tags: [], media: [{ id: 'pm', mediaId: 'm', position: 0 }], translations: [{ languageId: 'en', name: 'Throw S' }] });
 });
 
-test('variantSnapshot: customFields nur in translations – sonst überschreibt Shopware die eigenen Texte der Systemsprache', () => {
+test('variantSnapshot: customFields only in translations, otherwise Shopware overwrites the own texts of the system language', () => {
   const v = { id: 'v', parentId: 'p', productNumber: 'X.2', stock: 1, customFields: { foo: 1 }, translated: { name: 'Eigener Name' },
     translations: [{ languageId: 'de', name: 'Eigener Name', description: 'Desc', customFields: { foo: 1 } }] };
   const snap = variantSnapshot(v);
   assert.equal('customFields' in snap, false);
   assert.deepEqual(snap.translations, [{ languageId: 'de', name: 'Eigener Name', description: 'Desc', customFields: { foo: 1 } }]);
-  // ohne geladene Übersetzungen bleibt customFields erhalten
+  // without loaded translations, customFields is kept
   assert.deepEqual(variantSnapshot({ ...v, translations: undefined }).customFields, { foo: 1 });
 });
 
-test('loadFamily: offset wird auf ein Vielfaches von limit gerundet und so zurückgegeben', async () => {
+test('loadFamily: offset is rounded to a multiple of limit and returned that way', async () => {
   const kids = Array.from({ length: 7 }, (_, i) => child(hex(200 + i), i + 1, [GROUPS[1].options[0]]));
   const ro = fakeReader(kids), pages: number[] = [], search = ro.search;
   ro.search = async (e, c) => { if (e === 'product') pages.push(Number((c as { page?: number })?.page ?? 1)); return search(e, c); };
   const r = await loadFamily(ro, PARENT, { limit: 2, offset: 3 });
-  assert.equal(r.offset, 2, 'offset 3 bei limit 2 = Seite 2 = Zeilen ab 2');
+  assert.equal(r.offset, 2, 'offset 3 with limit 2 = page 2 = rows from 2');
   assert.deepEqual(pages, [2]);
   assert.equal((await loadFamily(ro, PARENT, { limit: 2, offset: 4 })).offset, 4);
 });
 
-/** Fake-Shop für den Executor: Tabellen je Entität, schreibt wie die Admin-API (create/update/DELETE), auch für undoOps */
+/** Fake shop for the executor: tables per entity, writes like the Admin API (create/update/DELETE), also for undoOps */
 function fakeShop(products: SwEntity[], settings: SwEntity[]) {
   const db: Record<string, Map<string, SwEntity>> = {
     product: new Map(products.map(p => [p.id, { ...p }])), 'property-group': new Map(GROUPS.map(g => [g.id, { ...g }])),
@@ -121,7 +121,7 @@ function fakeShop(products: SwEntity[], settings: SwEntity[]) {
     },
     req: async (m: string, p: string) => { log.push(`${m} ${p}`); const [, e, id] = p.split('/'); if (m === 'DELETE' && !tbl(e).delete(id)) throw Object.assign(new Error('404'), { status: 404 }); return null; },
   } as unknown as Shopware;
-  /** Vergleichbarer Zustand (Varianten-Snapshots lassen null-Felder weg und tragen Ausprägungen nur als ids) */
+  /** Comparable state (variant snapshots omit null fields and carry options only as ids) */
   const state = () => ({
     products: [...db.product.values()].map(p => ({ id: p.id, parentId: p.parentId ?? null, number: p.productNumber, stock: p.stock ?? null, active: p.active ?? null, gross: p.price?.[0]?.gross ?? null, list: p.price?.[0]?.listPrice?.gross ?? null, options: (p.options ?? []).map((o: SwEntity) => o.id).sort() })).sort((x, y) => x.id.localeCompare(y.id)),
     settings: [...db['product-configurator-setting'].values()].map(s => `${s.id}:${s.optionId}`).sort(), groups: [...db['property-group'].keys()].sort(), options: [...db['property-group-option'].keys()].sort(),
@@ -129,10 +129,10 @@ function fakeShop(products: SwEntity[], settings: SwEntity[]) {
   return { db, sw, log, state };
 }
 
-test('applyVariants: anlegen (neue Eigenschaft/Ausprägung, Konfigurator), ändern (fixieren/erben), löschen mit Snapshot; Rückgängig stellt alles her', async () => {
-  const a = child(hex(100), 1, [GROUPS[0].options[0], GROUPS[1].options[0]]); // Sand/S, erbt Preis
-  const b = child(hex(101), 2, [GROUPS[0].options[1], GROUPS[1].options[0]], { price: [{ currencyId: 'eur', gross: 95, net: 79.83, linked: true, apiAlias: 'price' }], active: true }); // Salbei/S, eigener Preis
-  const c = child(hex(102), 3, [GROUPS[0].options[0], GROUPS[1].options[1]], { stock: 0 }); // Sand/M, wird gelöscht
+test('applyVariants: create (new property/option, configurator), change (fix/inherit), delete with snapshot; undo restores everything', async () => {
+  const a = child(hex(100), 1, [GROUPS[0].options[0], GROUPS[1].options[0]]); // Sand/S, inherits price
+  const b = child(hex(101), 2, [GROUPS[0].options[1], GROUPS[1].options[0]], { price: [{ currencyId: 'eur', gross: 95, net: 79.83, linked: true, apiAlias: 'price' }], active: true }); // Salbei/S, own price
+  const c = child(hex(102), 3, [GROUPS[0].options[0], GROUPS[1].options[1]], { stock: 0 }); // Sand/M, gets deleted
   const { cs, payload } = await buildVariantsChangeSet(fakeReader([a, b, c]), { title: 't', reason: 'r', productId: PARENT,
     create: { axes: [{ group: 'Farbe', options: ['Rost'] }, { group: 'Material', options: ['Leinen'] }], defaults: { stock: 2, price: 70, listPrice: 90 } },
     update: [{ id: a.id, listPrice: 99 }, { id: b.id, price: null, stock: 9 }], remove: [c.id] });
@@ -140,21 +140,21 @@ test('applyVariants: anlegen (neue Eigenschaft/Ausprägung, Konfigurator), ände
   const shop = fakeShop([parent, a, b, c], settings), before = shop.state();
   const res = await applyVariants(shop.sw, cs, payload, new Set(cs.items.map(i => i.id)));
   assert.deepEqual(res.results.map(r => r.ok), [true, true, true, true, true]);
-  // Reihenfolge: Eigenschaft → Ausprägungen → Konfigurator (nur fehlende) → Variante
+  // Order: property → options → configurator (only missing ones) → variant
   const creates = shop.log.filter(l => l.startsWith('create'));
   assert.deepEqual(creates, ['create property-group', 'create property-group-option', 'create property-group-option', 'create product-configurator-setting', 'create product-configurator-setting', 'create product']);
   const nv = cs.items.find(i => i.field === 'create')!.afterRaw as NewVariant, created = shop.db.product.get(nv.id)!;
   assert.deepEqual(created.price, [{ currencyId: 'eur', gross: 70, net: 58.8235, linked: true, listPrice: { currencyId: 'eur', gross: 90, net: 75.6303, linked: true } }]);
   assert.deepEqual([created.stock, created.parentId, created.options.length], [2, PARENT, 2]);
-  // Werte: a bekommt einen eigenen Preis (geerbte Basis 89 + Streichpreis), b erbt wieder und hat Bestand 9
+  // Values: a gets its own price (inherited base 89 + list price), b inherits again and has stock 9
   const pa = shop.db.product.get(a.id)!, pb = shop.db.product.get(b.id)!;
   assert.deepEqual([pa.price[0].gross, pa.price[0].listPrice.gross, pa.price[0].net], [89, 99, 74.7899]);
   assert.deepEqual([pb.price, pb.stock], [null, 9]);
-  // c gelöscht, Ausprägung M ohne verbleibende Variante aus der Auswahl genommen
+  // c deleted, option M with no remaining variant removed from the selection
   assert.equal(shop.db.product.has(c.id), false);
   assert.ok(shop.log.includes(`DELETE /product/${c.id}`) && shop.log.includes('DELETE /product-configurator-setting/cs4'));
   assert.equal(shop.db['product-configurator-setting'].size, 5, 'Sand, Salbei, S + Rost, Leinen');
-  // Rückgängig-Daten exakt: Preis null = wieder erben, alter Preis roh, Snapshot der gelöschten Variante, Konfigurator-Eintrag
+  // Undo data exact: price null = inherit again, old price raw, snapshot of the deleted variant, configurator entry
   const ops = res.undo.map(u => `${u.op} ${u.entity}`);
   assert.deepEqual(ops, ['delete property-group', 'delete property-group-option', 'delete property-group-option', 'delete product-configurator-setting', 'delete product-configurator-setting', 'delete product', 'patch product', 'patch product', 'create product', 'create product-configurator-setting']);
   const patches = Object.fromEntries(res.undo.filter(u => u.op === 'patch').map(u => [u.id, u.data]));
@@ -163,13 +163,13 @@ test('applyVariants: anlegen (neue Eigenschaft/Ausprägung, Konfigurator), ände
   const snap = res.undo.find(u => u.op === 'create' && u.entity === 'product')!;
   assert.equal(snap.id, c.id); assert.deepEqual((snap.data as { options: unknown[] }).options, [{ id: SAND }, { id: M }]);
   assert.deepEqual(res.undo.at(-1)!.data, { productId: PARENT, optionId: M, position: 4 });
-  // Round-Trip: Rückgängig stellt den Ausgangszustand des Fakes wieder her
+  // Round trip: undo restores the fake's initial state
   const rb = await undoOps(shop.sw, res.undo);
   assert.ok(rb.every(r => r.ok), JSON.stringify(rb));
   assert.deepEqual(shop.state(), before);
 });
 
-test('applyVariants: Fehler beim Anlegen einer Eigenschaft lässt alle neuen Varianten scheitern, Änderungen laufen weiter', async () => {
+test('applyVariants: an error creating a property fails all new variants, changes continue', async () => {
   const a = child(hex(100), 1, [GROUPS[1].options[0]]);
   const { cs, payload } = await buildVariantsChangeSet(fakeReader([a]), { title: 't', reason: 'r', productId: PARENT, create: { axes: [{ group: 'Material', options: ['Leinen', 'Wolle'] }] }, update: [{ id: a.id, stock: 7 }] });
   const shop = fakeShop([parent, a], []), create = shop.sw.create;
@@ -178,10 +178,10 @@ test('applyVariants: Fehler beim Anlegen einer Eigenschaft lässt alle neuen Var
   const byId = Object.fromEntries(res.results.map(r => [r.itemId, r]));
   assert.ok(cs.items.filter(i => i.field === 'create').every(i => byId[i.id].ok === false && /gesperrt/.test(byId[i.id].error ?? '')));
   assert.equal(byId[`${a.id}:stock`].ok, true); assert.equal(shop.db.product.get(a.id)!.stock, 7);
-  assert.deepEqual(res.undo.map(u => u.op), ['patch'], 'nichts Halbes angelegt');
+  assert.deepEqual(res.undo.map(u => u.op), ['patch'], 'nothing half-created');
 });
 
-test('applyVariants: Preisänderung behält den Grundpreis, eine neue Variante erfindet keinen', async () => {
+test('applyVariants: price change keeps the base price (unit price), a new variant does not invent one', async () => {
   const reg = { currencyId: 'eur', gross: 80, net: 67.2269, linked: false, apiAlias: 'price' };
   const b = child(hex(101), 2, [GROUPS[0].options[1], GROUPS[1].options[0]], { price: [{ currencyId: 'eur', gross: 95, net: 79.83, linked: true, regulationPrice: reg }] });
   const { cs, payload } = await buildVariantsChangeSet(fakeReader([b]), { title: 't', reason: 'r', productId: PARENT, update: [{ id: b.id, price: 90 }], create: { axes: [{ group: 'Farbe', options: ['Rost'] }], defaults: { stock: 1, price: 70 } } });
@@ -194,7 +194,7 @@ test('applyVariants: Preisänderung behält den Grundpreis, eine neue Variante e
   assert.equal(created.price[0].regulationPrice, undefined);
 });
 
-test('Streichpreis einer erbenden Variante: Hinweis, dass der Preis fixiert wird', async () => {
+test('list price of an inheriting variant: note that the price gets fixed', async () => {
   const a = child(hex(100), 1, [GROUPS[1].options[0]]);
   const { cs } = await buildVariantsChangeSet(fakeReader([a]), { title: 't', reason: 'r', productId: PARENT, update: [{ id: a.id, listPrice: 99 }] });
   assert.deepEqual(cs.items.find(i => i.field === 'listPrice')?.warn, ['Preis wird fixiert (bisher geerbt: 89,00 €)']);

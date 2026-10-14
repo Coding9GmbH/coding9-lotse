@@ -1,5 +1,5 @@
-// Hinweis zum Ziel aus der Kontext-Auswahl (Kategorie, Produkt, Landingpage) für die erste Chat-Nachricht.
-// Richtet sich nach den Fähigkeiten der Plattform: Seitentypen, die draft_page/publish_page nicht kennen, werden nie vorgeschlagen.
+// Hint about the target from the context selection (category, product, landing page) for the first chat message.
+// Follows the platform's capabilities: page types unknown to draft_page/publish_page are never suggested.
 import type { Target } from '@/lib/protocol';
 import type { PlatformCapabilities } from './platform/types';
 

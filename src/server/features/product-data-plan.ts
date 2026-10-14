@@ -1,5 +1,5 @@
-// Produkt-Stammdaten: Planung eines Änderungssets (rein, ohne Shop-Zugriff → testbar).
-// Eingabe: aktueller Produktstand + aufgelöster Katalog (Eigenschaften, Hersteller, Tags …) + gewünschte Operationen.
+// Product data: planning a change set (pure, without shop access → testable).
+// Input: current product state + resolved catalog (properties, manufacturers, tags …) + requested operations.
 import type { ChangeItem } from '@/lib/protocol';
 import { HEX32, type SwEntity } from '../shopware';
 
@@ -8,11 +8,11 @@ export const VISIBILITY = { all: 30, search: 20, link: 10 } as const;
 export type VisibilityLevel = keyof typeof VISIBILITY;
 const VIS_LABEL: Record<number, string> = { 30: 'überall', 20: 'nur Suche', 10: 'nur Direktlink' };
 
-// ---- Eingabe (KI) ----
+// ---- Input (AI) ----
 export type PropIn = string | { group: string; option: string };
 export interface CrossIn {
   action: 'create' | 'update' | 'delete';
-  /** bestehendes Cross-Selling: id oder bisheriger Name (match) */
+  /** existing cross-selling: id or current name (match) */
   id?: string; match?: string;
   name?: string; type?: 'productList' | 'productStream';
   productIds?: string[]; addProductIds?: string[]; removeProductIds?: string[];
@@ -39,7 +39,7 @@ export interface ProductFilter {
   missing?: ('manufacturer' | 'deliveryTime' | 'weight' | 'dimensions' | 'properties' | 'categories' | 'tags' | 'visibility' | 'crossSelling')[];
 }
 
-/** Filter der KI → Shopware-Kriterien (DAL) */
+/** AI filter → Shopware criteria (DAL) */
 export function productFilter(f: ProductFilter = {}): { filter: Record<string, unknown>[]; term?: string } {
   const eq = (field: string, value: unknown) => ({ type: 'equals', field, value });
   const filter: Record<string, unknown>[] = [];
@@ -63,15 +63,15 @@ export function productFilter(f: ProductFilter = {}): { filter: Record<string, u
   return { filter, ...(f.term ? { term: f.term } : {}) };
 }
 
-// ---- Aufgelöster Katalog (vom Builder geladen) ----
+// ---- Resolved catalog (loaded by the builder) ----
 export interface Catalog {
-  groups: SwEntity[];                     // referenzierte Eigenschaftsgruppen inkl. options (nur die referenzierten)
-  options: Record<string, SwEntity>;      // optionId → Option inkl. group
+  groups: SwEntity[];                     // referenced property groups incl. options (only the referenced ones)
+  options: Record<string, SwEntity>;      // optionId → option incl. group
   manufacturers: SwEntity[]; tags: SwEntity[]; deliveryTimes: SwEntity[]; taxes: SwEntity[]; channels: SwEntity[];
   categories: Record<string, SwEntity>; products: Record<string, SwEntity>; streams: Record<string, SwEntity>;
 }
 
-/** Neu anzulegende Entität (nur, wenn ein ausgewähltes Item sie nutzt) */
+/** Entity to be created (only if a selected item uses it) */
 export interface NewEntity { id: string; entity: 'property-group' | 'property-group-option' | 'product-manufacturer' | 'tag'; data: Record<string, unknown>; label: string; needs?: string }
 export class NewRegistry {
   list: NewEntity[] = [];
@@ -85,7 +85,7 @@ export class NewRegistry {
   }
 }
 
-// ---- Payload je Item (afterRaw) für den Executor ----
+// ---- Payload per item (afterRaw) for the executor ----
 export type ItemRaw =
   | { kind: 'assoc'; assoc: 'properties' | 'categories' | 'tags'; add: string[]; remove: string[]; uses: string[] }
   | { kind: 'scalar'; data: Record<string, unknown>; uses: string[] }
@@ -95,7 +95,7 @@ export type ItemRaw =
   | { kind: 'cross'; action: 'update'; id: string; set: Record<string, unknown>; productIds: string[] | null; uses: string[] }
   | { kind: 'cross'; action: 'delete'; id: string; uses: string[] };
 
-/** Ausschnitt des Produktstands, den ein Item ändert (Stale-Write-Guard: beim Vorschlag als beforeRaw gemerkt, beim Schreiben frisch verglichen) */
+/** Slice of the product state that an item changes (stale-write guard: remembered as beforeRaw at proposal, compared fresh when writing) */
 export function snapshot(cur: SwEntity, raw: ItemRaw): unknown {
   const ids = (xs: SwEntity[] | undefined) => (xs ?? []).map(x => String(x.id)).sort();
   switch (raw.kind) {
@@ -104,7 +104,7 @@ export function snapshot(cur: SwEntity, raw: ItemRaw): unknown {
     case 'tax': return cur.taxId ?? null;
     case 'visibility': return ((cur.visibilities ?? []) as SwEntity[]).map(v => `${v.salesChannelId}:${v.visibility}`).sort();
     case 'cross': {
-      if (raw.action === 'create') return undefined; // legt neu an, überschreibt nichts
+      if (raw.action === 'create') return undefined; // creates new, overwrites nothing
       const c = ((cur.crossSellings ?? []) as SwEntity[]).find(x => x.id === raw.id); if (!c) return null;
       return { name: c.name ?? c.translated?.name ?? null, type: c.type, active: c.active, position: c.position, limit: c.limit, sortBy: c.sortBy, sortDirection: c.sortDirection, productStreamId: c.productStreamId ?? null,
         products: [...((c.assignedProducts ?? []) as SwEntity[])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map(a => a.productId) };
@@ -112,7 +112,7 @@ export function snapshot(cur: SwEntity, raw: ItemRaw): unknown {
   }
 }
 
-// ---- Anzeige ----
+// ---- Display ----
 const ci = (s: unknown) => String(s ?? '').trim().toLowerCase();
 export const nameOf = (e: SwEntity | null | undefined) => (e ? String(e.translated?.name ?? e.name ?? e.id) : '–');
 export const productLabel = (p: SwEntity) => `${p.translated?.name ?? p.name ?? p.productNumber}${p.productNumber ? ` (${p.productNumber})` : ''}`;
@@ -145,7 +145,7 @@ export const SCALARS: Record<string, ScalarDef> = {
 };
 const sameScalar = (k: string, a: unknown, b: unknown) => (k === 'releaseDate' ? String(a ?? '').slice(0, 10) === String(b ?? '').slice(0, 10) : typeof b === 'boolean' ? !!a === b : (a ?? null) === (b ?? null));
 
-// ---- Planung je Produkt ----
+// ---- Planning per product ----
 export interface PlanResult { items: ChangeItem[]; skipped: { id: string; reason: string }[]; unchanged: number }
 
 export function planProduct(cur: SwEntity, ops: DataOps, cat: Catalog, reg: NewRegistry, genId: () => string): PlanResult {
@@ -155,7 +155,7 @@ export function planProduct(cur: SwEntity, ops: DataOps, cat: Catalog, reg: NewR
     items.push({ id: `${pid}:${field}`, entity: 'product', entityId: pid, label, field, fieldLabel, before, after, afterRaw, beforeRaw: snapshot(cur, afterRaw), warn });
   const step = (field: string, fn: () => void) => { try { fn(); } catch (e) { skipped.push({ id: pid, reason: `${label} · ${field}: ${e instanceof Error ? e.message : String(e)}` }); } };
 
-  // Eigenschaften
+  // Properties
   if (ops.properties) step('Eigenschaften', () => {
     const curOpts: SwEntity[] = cur.properties ?? [];
     type R = { id: string; name: string; groupId: string; groupName: string; isNew: boolean; uses: string[] };
@@ -206,7 +206,7 @@ export function planProduct(cur: SwEntity, ops: DataOps, cat: Catalog, reg: NewR
     push('properties', 'Eigenschaften', before, after, { kind: 'assoc', assoc: 'properties', add: add.map(a => a.id), remove: remove.map(r => r.id), uses: [...new Set(add.flatMap(a => a.uses))] }, warn);
   });
 
-  // Kategorien
+  // Categories
   if (ops.categories) step('Kategorien', () => {
     const curCats: SwEntity[] = cur.categories ?? [];
     const add: SwEntity[] = [], remove: SwEntity[] = [];
@@ -218,7 +218,7 @@ export function planProduct(cur: SwEntity, ops: DataOps, cat: Catalog, reg: NewR
     push('categories', 'Kategorien', list(curCats.map(catName)), list(after.map(catName)), { kind: 'assoc', assoc: 'categories', add: add.map(c => c.id), remove: remove.map(c => c.id), uses: [] }, warn);
   });
 
-  // Hersteller
+  // Manufacturer
   if (ops.manufacturer !== undefined) step('Hersteller', () => {
     const ref = ops.manufacturer; let id: string | null = null, name = '–', uses: string[] = [], warn: string[] = [];
     if (ref !== null) {
@@ -250,7 +250,7 @@ export function planProduct(cur: SwEntity, ops: DataOps, cat: Catalog, reg: NewR
     push('tags', 'Tags', list(curTags.map(t => t.name)), list(after), { kind: 'assoc', assoc: 'tags', add: add.map(a => a.id), remove: remove.map(t => t.id), uses }, add.filter(a => a.isNew).map(a => `legt Tag „${a.name}“ neu an`));
   });
 
-  // Lieferzeit
+  // Delivery time
   if (ops.deliveryTime !== undefined) step('Lieferzeit', () => {
     let d: SwEntity | null = null;
     if (ops.deliveryTime !== null) { const r = String(ops.deliveryTime).trim(); d = cat.deliveryTimes.find(x => x.id === r || ci(nameOf(x)) === ci(r) || ci(x.name) === ci(r)) ?? null; if (!d) throw new Error(`Lieferzeit „${r}“ nicht gefunden (list_delivery_times)`); }
@@ -258,7 +258,7 @@ export function planProduct(cur: SwEntity, ops: DataOps, cat: Catalog, reg: NewR
     push('deliveryTime', 'Lieferzeit', nameOf(cur.deliveryTime), d ? nameOf(d) : '–', { kind: 'scalar', data: { deliveryTimeId: d?.id ?? null }, uses: [] });
   });
 
-  // Einfache Felder (Maße, Versand, Abnahme, Topseller, Erscheinungsdatum)
+  // Simple fields (dimensions, shipping, purchase quantities, top seller, release date)
   for (const [k, def] of Object.entries(SCALARS)) {
     const v = (ops as Record<string, unknown>)[k];
     if (v === undefined) continue;
@@ -273,7 +273,7 @@ export function planProduct(cur: SwEntity, ops: DataOps, cat: Catalog, reg: NewR
     });
   }
 
-  // Steuersatz (Bruttopreise bleiben, Netto wird neu berechnet)
+  // Tax rate (gross prices stay, net is recalculated)
   if (ops.taxRate !== undefined) step('Steuersatz', () => {
     const t = cat.taxes.find(x => Number(x.taxRate) === Number(ops.taxRate));
     if (!t) throw new Error(`Kein Steuersatz ${ops.taxRate} % im Shop (vorhanden: ${cat.taxes.map(x => `${x.taxRate} %`).join(', ')})`);
@@ -283,7 +283,7 @@ export function planProduct(cur: SwEntity, ops: DataOps, cat: Catalog, reg: NewR
     push('tax', 'Steuersatz', oldRate != null ? `${num(oldRate)} % (${nameOf(cur.tax)})` : '–', `${num(t.taxRate)} % (${nameOf(t)})${priceInfo}`, { kind: 'tax', taxId: t.id, taxRate: t.taxRate, uses: [] }, ['Nettopreise werden neu berechnet (auch erweiterte Preise und Varianten mit eigenem Preis)']);
   });
 
-  // Sichtbarkeit in Verkaufskanälen
+  // Visibility in sales channels
   if (ops.visibility) step('Sichtbarkeit', () => {
     const curVis: SwEntity[] = cur.visibilities ?? [];
     const ch = (ref: string) => cat.channels.find(c => c.id === ref || ci(nameOf(c)) === ci(ref) || ci(c.name) === ci(ref));
@@ -350,10 +350,10 @@ export function planProduct(cur: SwEntity, ops: DataOps, cat: Catalog, reg: NewR
   return { items, skipped, unchanged };
 }
 
-// ---- Preise beim Steuerwechsel: Brutto bleibt, Netto neu (rein) ----
+// ---- Prices on tax change: gross stays, net recalculated (pure) ----
 type PriceEntry = { currencyId: string; gross: number; net: number; linked?: boolean; listPrice?: PriceEntry | null; regulationPrice?: PriceEntry | null };
 const cleanOne = (e: PriceEntry | null | undefined, rate?: number): PriceEntry | null => (e ? { currencyId: e.currencyId, gross: e.gross, net: rate == null ? e.net : netOf(e.gross, rate), linked: e.linked ?? true } : null);
-/** Preisliste in schreibbarer Form; mit rate: Netto aus Brutto neu berechnet */
+/** Price list in writable form; with rate: net recalculated from gross */
 export function cleanPrices(arr: PriceEntry[] | null | undefined, rate?: number): PriceEntry[] | null {
   if (!arr) return null;
   return arr.map(e => ({ ...cleanOne(e, rate)!, ...(e.listPrice ? { listPrice: cleanOne(e.listPrice, rate) } : {}), ...(e.regulationPrice ? { regulationPrice: cleanOne(e.regulationPrice, rate) } : {}) }));

@@ -30,7 +30,7 @@ const catalog = (o: Partial<Catalog> = {}): Catalog => ({
   products: { [H('b')]: { id: H('b'), name: 'Becher' }, [H('p')]: { id: H('p'), name: 'Plaid' } }, streams: { [H('x')]: { id: H('x'), name: 'Neuheiten' } }, ...o,
 });
 
-test('productFilter: Filter → DAL-Kriterien, Hauptprodukte standardmäßig', () => {
+test('productFilter: filter → DAL criteria, parent products by default', () => {
   const r = productFilter({ categoryId: 'c1', tagId: 't1', taxRate: 7, productNumbers: ['A'], missing: ['deliveryTime', 'dimensions'], term: 'vase' });
   assert.deepEqual(r.filter[0], { type: 'equals', field: 'parentId', value: null });
   assert.ok(r.filter.some(f => f.field === 'categoriesRo.id' && f.value === 'c1'));
@@ -44,7 +44,7 @@ test('productFilter: Filter → DAL-Kriterien, Hauptprodukte standardmäßig', (
   assert.throws(() => productFilter({ missing: ['foo' as never] }), /Unbekannter Filter/);
 });
 
-test('Eigenschaften: lesbar, Name ohne Groß/klein, neue Werte/Gruppen als „neu“ und nur einmal angelegt', () => {
+test('properties: readable, name case-insensitive, new values/groups as "neu" (new) and created only once', () => {
   const reg = new NewRegistry(seq()), cat = catalog();
   const r = planProduct(prod(), { properties: { add: [{ group: 'farbe', option: 'blau' }, 'Farbe: Taupe', { group: 'Material', option: 'Leinen' }] } }, cat, reg, seq());
   assert.equal(r.items.length, 1);
@@ -55,22 +55,22 @@ test('Eigenschaften: lesbar, Name ohne Groß/klein, neue Werte/Gruppen als „ne
   assert.deepEqual(reg.list.map(e => [e.entity, e.data.name, e.needs]), [['property-group-option', 'Taupe', undefined], ['property-group', 'Material', undefined], ['property-group-option', 'Leinen', 'new2']]);
   const raw = it.afterRaw as Extract<ItemRaw, { kind: 'assoc' }>;
   assert.deepEqual(raw.add, [BLUE.id, 'new1', 'new3']); assert.deepEqual(raw.uses.sort(), ['new1', 'new2', 'new3']);
-  // zweites Produkt nutzt dieselben Neuanlagen
+  // second product uses the same newly created entries
   const r2 = planProduct(prod({ id: H('b'), properties: [] }), { properties: { add: ['Farbe: taupe'] } }, cat, reg, seq());
   assert.deepEqual((r2.items[0].afterRaw as Extract<ItemRaw, { kind: 'assoc' }>).add, ['new1']);
   assert.equal(reg.list.length, 3);
 });
 
-test('Eigenschaften: Entfernen nur Vorhandenes, nichts zu tun = unverändert, Fehler werden übersprungen', () => {
+test('properties: remove only existing ones, nothing to do = unchanged, errors are skipped', () => {
   const reg = new NewRegistry(seq());
   const r = planProduct(prod(), { properties: { remove: [SAND.id], add: [H('9')] } }, catalog(), reg, seq());
   assert.equal(r.items[0].after, 'Farbe: –'); assert.match(r.skipped[0].reason, /nicht gefunden/);
   const u = planProduct(prod(), { properties: { add: ['Farbe: Sand'], remove: ['Farbe: Blau'] } }, catalog(), reg, seq());
   assert.equal(u.items.length, 0); assert.equal(u.unchanged, 1);
-  assert.equal(reg.list.length, 0, 'Entfernen legt nie etwas an');
+  assert.equal(reg.list.length, 0, 'removing never creates anything');
 });
 
-test('Kategorien, Tags, Hersteller, Lieferzeit: lesbare Vorher/Nachher-Werte, Warnungen', () => {
+test('categories, tags, manufacturer, delivery time: readable before/after values, warnings', () => {
   const reg = new NewRegistry(seq());
   const r = planProduct(prod({ tags: [{ id: H('g'), name: 'Sommer' }] }), {
     categories: { add: [H('f'), H('z')], remove: [H('w')] }, tags: { add: ['Neu im Shop', 'sommer'], remove: ['SOMMER'] }, manufacturer: 'Lotse GmbH', deliveryTime: '1-3 tage',
@@ -87,20 +87,20 @@ test('Kategorien, Tags, Hersteller, Lieferzeit: lesbare Vorher/Nachher-Werte, Wa
   assert.equal(r2.unchanged, 1); assert.match(r2.skipped[0].reason, /Lieferzeit „Morgen“ nicht gefunden/);
 });
 
-test('Einfache Felder: Validierung, Einheiten, unverändert', () => {
+test('simple fields: validation, units, unchanged', () => {
   const r = planProduct(prod({ weight: 0.5 }), { weight: 0.8, width: 120, shippingFree: true, minPurchase: 2, maxPurchase: 10, releaseDate: '2026-01-15', markAsTopseller: false }, catalog(), new NewRegistry(seq()), seq());
   const by = Object.fromEntries(r.items.map(i => [i.field, i]));
   assert.equal(by.weight.before, '0,5 kg'); assert.equal(by.weight.after, '0,8 kg'); assert.equal(by.width.after, '120 mm');
   assert.equal(by.shippingFree.after, 'ja'); assert.equal(by.maxPurchase.before, 'unbegrenzt'); assert.equal(by.releaseDate.after, '15.01.2026');
   assert.deepEqual((by.releaseDate.afterRaw as Extract<ItemRaw, { kind: 'scalar' }>).data, { releaseDate: '2026-01-15T00:00:00.000+00:00' });
-  assert.equal(r.unchanged, 1, 'markAsTopseller bleibt false');
+  assert.equal(r.unchanged, 1, 'markAsTopseller stays false');
   const bad = planProduct(prod(), { weight: -1, minPurchase: 0, maxPurchase: 3, releaseDate: '15.01.2026' }, catalog(), new NewRegistry(seq()), seq());
-  assert.equal(bad.items.length, 1, 'nur maxPurchase gültig'); assert.equal(bad.skipped.length, 3);
+  assert.equal(bad.items.length, 1, 'only maxPurchase valid'); assert.equal(bad.skipped.length, 3);
   const low = planProduct(prod(), { minPurchase: 5, maxPurchase: 2 }, catalog(), new NewRegistry(seq()), seq());
   assert.ok(low.skipped.some(s => /Maximalabnahme kleiner/.test(s.reason)));
 });
 
-test('Steuersatz: Brutto bleibt, Netto neu in der Anzeige; unbekannter Satz wird übersprungen', () => {
+test('tax rate: gross stays, net recalculated in the display; unknown rate is skipped', () => {
   const r = planProduct(prod(), { taxRate: 7 }, catalog(), new NewRegistry(seq()), seq());
   assert.equal(r.items[0].before, '19 % (Standard)');
   assert.equal(r.items[0].after, '7 % (Ermäßigt) · brutto bleibt 49,00 €, netto 41,18 € → 45,79 €');
@@ -108,7 +108,7 @@ test('Steuersatz: Brutto bleibt, Netto neu in der Anzeige; unbekannter Satz wird
   assert.match(planProduct(prod(), { taxRate: 10 }, catalog(), new NewRegistry(seq()), seq()).skipped[0].reason, /Kein Steuersatz 10 %/);
 });
 
-test('Sichtbarkeit: hinzufügen/ändern/entfernen, Warnung ohne Kanal', () => {
+test('visibility: add/change/remove, warning without channel', () => {
   const r = planProduct(prod(), { visibility: { add: [{ salesChannel: 'headless', visibility: 'search' }] } }, catalog(), new NewRegistry(seq()), seq());
   assert.equal(r.items[0].before, 'Storefront (überall)'); assert.equal(r.items[0].after, 'Storefront (überall), Headless (nur Suche)');
   assert.deepEqual((r.items[0].afterRaw as Extract<ItemRaw, { kind: 'visibility' }>).add, [{ salesChannelId: H('h'), visibility: 20 }]);
@@ -117,7 +117,7 @@ test('Sichtbarkeit: hinzufügen/ändern/entfernen, Warnung ohne Kanal', () => {
   assert.deepEqual((off.items[0].afterRaw as Extract<ItemRaw, { kind: 'visibility' }>).remove, [H('s')]);
 });
 
-test('Cross-Selling: anlegen ohne eigenes Produkt, ändern per Name, löschen, Fehler', () => {
+test('cross-selling: create without the product itself, change by name, delete, errors', () => {
   const cs = { id: H('k'), name: 'Passend dazu', type: 'productList', active: true, position: 1, assignedProducts: [{ id: 'a1', productId: H('b'), position: 0 }, { id: 'a2', productId: H('p'), position: 1 }] };
   const r = planProduct(prod({ crossSellings: [cs] }), { crossSellings: [
     { action: 'create', name: 'Ähnlich', productIds: [H('a'), H('p')] },
@@ -138,14 +138,14 @@ test('Cross-Selling: anlegen ohne eigenes Produkt, ändern per Name, löschen, F
   assert.equal(d.items[0].after, 'gelöscht'); assert.match(d.skipped[0].reason, /wäre leer/);
 });
 
-test('cleanPrices: Netto aus Brutto neu, Streichpreis mit, Lesefelder weg', () => {
+test('cleanPrices: net recalculated from gross, list price included, read-only fields removed', () => {
   const p = [{ currencyId: 'eur', gross: 107, net: 89.92, linked: true, percentage: { net: 1, gross: 1 }, extensions: [], listPrice: { currencyId: 'eur', gross: 214, net: 179.83, linked: true } }];
   assert.deepEqual(cleanPrices(p as never, 7), [{ currencyId: 'eur', gross: 107, net: 100, linked: true, listPrice: { currencyId: 'eur', gross: 214, net: 200, linked: true } }]);
   assert.deepEqual(cleanPrices(p as never)![0].net, 89.92);
   assert.equal(cleanPrices(null), null);
 });
 
-// ---- Builder mit Fake-Reader ----
+// ---- Builder with fake reader ----
 const fakeReader = (products: Record<string, unknown>[], extra: Record<string, unknown[]> = {}, total?: number): Reader => ({
   base: 'http://shop.test',
   search: async (entity: string, c: { ids?: string[]; filter?: { field?: string; value?: unknown }[] } = {}) => {
@@ -161,7 +161,7 @@ const fakeReader = (products: Record<string, unknown>[], extra: Record<string, u
   get: async () => null, salesChannels: async () => [], req: async () => null,
 } as unknown as Reader);
 
-test('Builder: productIds + Filter, doppelte Felder übersprungen, Neuanlagen nur wenn genutzt', async () => {
+test('builder: productIds + filter, duplicate fields skipped, new entries only when used', async () => {
   const ro = fakeReader([prod(), prod({ id: H('b'), productNumber: 'B-1', name: 'Becher', properties: [] })], { 'property-group': [{ ...COLOUR }], 'property-group-option': [SAND, BLUE], tag: [] });
   const { cs, payload } = await buildProductDataChangeSet(ro, { title: 'T', reason: 'R', changes: [
     { productIds: [H('a')], properties: { add: ['Farbe: Taupe'] }, tags: { add: ['Neu'] } },
@@ -171,19 +171,19 @@ test('Builder: productIds + Filter, doppelte Felder übersprungen, Neuanlagen nu
   assert.deepEqual(cs.items.map(i => i.id), [`${H('a')}:properties`, `${H('a')}:tags`, `${H('b')}:tags`]);
   assert.match(cs.skipped[0].reason, /mehrfach angegeben/);
   assert.deepEqual(payload.creates.map(c => c.data.name), ['Taupe', 'Neu']);
-  // Auswahl ohne Eigenschaften → nur Tag wird angelegt; neue Option zieht ihre neue Gruppe mit
+  // Selection without properties → only the tag is created; a new option pulls in its new group
   assert.deepEqual(neededCreates(cs.items.filter(i => i.field === 'tags'), payload.creates).map(c => c.entity), ['tag']);
   const withGroup = [{ id: 'g', entity: 'property-group' as const, data: {}, label: '' }, { id: 'o', entity: 'property-group-option' as const, data: {}, label: '', needs: 'g' }];
   assert.deepEqual(neededCreates([{ afterRaw: { uses: ['o'] } } as never], withGroup).map(c => c.id), ['g', 'o']);
 });
 
-test('Builder: zu viele Treffer, ohne Ziel und ohne Änderung → Fehler', async () => {
+test('builder: too many matches, no target and no change → error', async () => {
   await assert.rejects(buildProductDataChangeSet(fakeReader([prod()], {}, 999), { title: 'T', reason: 'R', changes: [{ filter: {}, shippingFree: true }] }), /trifft 999 Produkte/);
   await assert.rejects(buildProductDataChangeSet(fakeReader([prod()]), { title: 'T', reason: 'R', changes: [{ shippingFree: true }] }), /productIds oder filter/);
   await assert.rejects(buildProductDataChangeSet(fakeReader([prod()]), { title: 'T', reason: 'R', changes: [{ productIds: [H('a')], shippingFree: false }] }), /Keine Änderung nötig.*\(1 unverändert/);
 });
 
-// ---- Executor mit Fake-Writer: exakte Rückgängig-Schritte ----
+// ---- Executor with fake writer: exact undo steps ----
 const fakeWriter = (kids: Record<string, unknown>[] = []) => {
   const calls: unknown[][] = [], pages: number[] = [];
   const w = { calls, pages, update: async (...a: unknown[]) => { calls.push(['update', ...a]); }, create: async (...a: unknown[]) => { calls.push(['create', ...a]); }, req: async (...a: unknown[]) => { calls.push(['req', ...a]); },
@@ -191,7 +191,7 @@ const fakeWriter = (kids: Record<string, unknown>[] = []) => {
   return w as unknown as Writer & { calls: unknown[][]; pages: number[] };
 };
 
-test('applyItem: Zuordnungen nur Differenz, Undo per DELETE-req bzw. Wieder-Hinzufügen', async () => {
+test('applyItem: assignments only the difference, undo via DELETE req or re-adding', async () => {
   const w = fakeWriter(), undo: UndoOp[] = [];
   await applyItem(w, prod(), { kind: 'assoc', assoc: 'properties', add: [SAND.id, BLUE.id], remove: [SAND.id, H('9')], uses: [] }, undo);
   assert.deepEqual(w.calls, [['update', 'product', H('a'), { properties: [{ id: BLUE.id }] }], ['req', 'DELETE', `/product/${H('a')}/properties/${SAND.id}`]]);
@@ -201,7 +201,7 @@ test('applyItem: Zuordnungen nur Differenz, Undo per DELETE-req bzw. Wieder-Hinz
   ]);
 });
 
-test('applyItem: Felder, Sichtbarkeit und Steuer (inkl. Variante) mit Vorher-Werten', async () => {
+test('applyItem: fields, visibility and tax (incl. variant) with before values', async () => {
   const w = fakeWriter([{ id: 'kid', taxId: null, price: [{ currencyId: 'eur', gross: 10.7, net: 9, linked: true }], prices: [] }]), undo: UndoOp[] = [];
   await applyItem(w, prod({ weight: 0.5 }), { kind: 'scalar', data: { weight: 1, manufacturerId: null }, uses: [] }, undo);
   assert.deepEqual(undo.pop(), { op: 'patch', entity: 'product', id: H('a'), data: { weight: 0.5, manufacturerId: H('m') } });
@@ -217,7 +217,7 @@ test('applyItem: Felder, Sichtbarkeit und Steuer (inkl. Variante) mit Vorher-Wer
   assert.deepEqual(undo[1], { op: 'patch', entity: 'product', id: 'kid', data: { price: [{ currencyId: 'eur', gross: 10.7, net: 9, linked: true }] } });
 });
 
-test('applyItem: Cross-Selling ändern/löschen – Zuordnungen, Positionen, Wiederanlage mit gleichen IDs', async () => {
+test('applyItem: change/delete cross-selling; assignments, positions, re-creation with the same IDs', async () => {
   const cs = { id: 'cs1', name: 'Alt', type: 'productList', active: true, position: 1, limit: 24, sortBy: 'name', sortDirection: 'ASC', productStreamId: null, translations: [{ languageId: 'de', name: 'Alt' }],
     assignedProducts: [{ id: 'a1', productId: 'pB', position: 0 }, { id: 'a2', productId: 'pP', position: 1 }] };
   const w = fakeWriter(), undo: UndoOp[] = [];
@@ -238,7 +238,7 @@ test('applyItem: Cross-Selling ändern/löschen – Zuordnungen, Positionen, Wie
   await assert.rejects(applyItem(w, prod(), { kind: 'cross', action: 'delete', id: 'weg', uses: [] }, undo), /nicht mehr vorhanden/);
 });
 
-test('Datenschutz: Stammdaten-Beziehungen erlaubt, Kunden-/Bestelldaten bleiben gesperrt', async () => {
+test('privacy: product data associations allowed, customer/order data stays blocked', async () => {
   const { createGuard } = await import('../../../src/server/policy');
   const { PRODUCT_ASSOC } = await import('../../../src/server/features/product-data');
   const g = createGuard();
@@ -248,17 +248,17 @@ test('Datenschutz: Stammdaten-Beziehungen erlaubt, Kunden-/Bestelldaten bleiben 
   assert.throws(() => g.checkSearch('product', { associations: { visibilities: { associations: { salesChannel: { associations: { customers: {} } } } } } }), /ZUGRIFF VERWEIGERT/);
 });
 
-test('applyItem: Steuerwechsel rechnet ALLE Varianten mit eigenem Preis um (seitenweise, nicht nur die ersten 500)', async () => {
+test('applyItem: tax change recalculates ALL variants with their own price (paged, not just the first 500)', async () => {
   const kids = Array.from({ length: 501 }, (_, i) => ({ id: `kid${i}`, taxId: null, price: [{ currencyId: 'eur', gross: 10.7, net: 9, linked: true }] }));
   const w = fakeWriter(kids), undo: UndoOp[] = [];
   await applyItem(w, prod(), { kind: 'tax', taxId: H('r'), taxRate: 7, uses: [] }, undo);
   assert.deepEqual(w.pages, [1, 2]);
-  assert.equal(w.calls.filter(c => c[0] === 'update').length, 502, 'Hauptprodukt + 501 Varianten');
+  assert.equal(w.calls.filter(c => c[0] === 'update').length, 502, 'parent product + 501 variants');
   assert.equal(undo.length, 502);
   assert.deepEqual(undo[501], { op: 'patch', entity: 'product', id: 'kid500', data: { price: [{ currencyId: 'eur', gross: 10.7, net: 9, linked: true }] } });
 });
 
-// ---- Listen-Werkzeuge: offset wird auf die Shopware-Seite gerundet und so zurückgemeldet ----
+// ---- List tools: offset is rounded to the Shopware page and reported back that way ----
 const pagedReader = (n: number) => {
   const rows = Array.from({ length: n }, (_, i) => ({ id: `p${i}`, productNumber: `P-${String(i).padStart(3, '0')}`, name: `Produkt ${i}` }));
   const searches: { page?: number; limit?: number }[] = [];
@@ -271,7 +271,7 @@ const run = async (ro: ReturnType<typeof pagedReader>, name: string, args: Recor
   return JSON.parse((r.content[0] as { text: string }).text);
 };
 
-test('find_products_by_data/list_*: offset 50 bei limit 30 → Seite 2, Antwort meldet offset 30 + note + nextOffset', async () => {
+test('find_products_by_data/list_*: offset 50 with limit 30 → page 2, response reports offset 30 + note + nextOffset', async () => {
   const ro = pagedReader(120);
   const r = await run(ro, 'find_products_by_data', { limit: 30, offset: 50 });
   assert.equal(ro.searches[0].page, 2); assert.equal(ro.searches[0].limit, 30);
@@ -279,7 +279,7 @@ test('find_products_by_data/list_*: offset 50 bei limit 30 → Seite 2, Antwort 
   assert.equal(r.products[0].id, 'p30');
   const last = await run(ro, 'find_products_by_data', { limit: 30, offset: 90 });
   assert.equal(last.note, undefined); assert.equal(last.nextOffset, null); assert.equal(last.offset, 90);
-  // Erhöhung des Limits nach der ersten Seite (offset 50, limit 100) → wieder Seite 1, ehrlich gemeldet
+  // Raising the limit after the first page (offset 50, limit 100) → page 1 again, reported honestly
   const m = await run(ro, 'list_manufacturers', { limit: 100, offset: 50 });
   assert.equal(m.offset, 0); assert.match(m.note, /gerundet/); assert.equal(m.nextOffset, 100);
   for (const name of ['list_tags', 'list_property_groups']) { const x = await run(ro, name, { limit: 10, offset: 10 }); assert.equal(x.offset, 10); assert.equal(x.note, undefined); assert.equal(x.nextOffset, 20); }
@@ -287,7 +287,7 @@ test('find_products_by_data/list_*: offset 50 bei limit 30 → Seite 2, Antwort 
   assert.equal(o.offset, 10); assert.equal(o.nextOffset, 20);
 });
 
-// ---- Executor applyProductData: Neuanlagen, Produkt-Gruppen, Teilfehler ----
+// ---- Executor applyProductData: new entries, product groups, partial failures ----
 const applyWriter = (o: { get?: () => Promise<unknown>; failCreate?: (n: number) => boolean; failUpdate?: (data: Record<string, unknown>) => boolean } = {}) => {
   const calls: unknown[][] = []; let creates = 0;
   const w = {
@@ -302,7 +302,7 @@ const applyWriter = (o: { get?: () => Promise<unknown>; failCreate?: (n: number)
 const buildSet = () => buildProductDataChangeSet(fakeReader([prod({ properties: [], tags: [] })], { 'property-group': [{ ...COLOUR }], 'property-group-option': [SAND, BLUE], tag: [] }),
   { title: 'T', reason: 'R', changes: [{ productIds: [H('a')], properties: { add: ['Material: Leinen'] }, tags: { add: ['Neu'] } }] }, seq());
 
-test('applyProductData: Neuanlagen in Reihenfolge Gruppe → Wert → Tag; Fehler bei der Anlage bricht ab, bereits Angelegtes im undo', async () => {
+test('applyProductData: new entries in order group → value → tag; a creation error aborts, already created entries are in undo', async () => {
   const { cs, payload } = await buildSet();
   assert.deepEqual(payload.creates.map(c => [c.entity, c.data.name, c.needs]), [['property-group', 'Material', undefined], ['property-group-option', 'Leinen', 'new1'], ['tag', 'Neu', undefined]]);
   const sel = new Set(cs.items.map(i => i.id));
@@ -310,25 +310,25 @@ test('applyProductData: Neuanlagen in Reihenfolge Gruppe → Wert → Tag; Fehle
   assert.deepEqual(a, { results: [], undo: [], error: 'Eigenschaft „Material“ konnte nicht angelegt werden: boom' });
   const b = await applyProductData(applyWriter({ failCreate: n => n === 2 }), cs, payload, sel);
   assert.deepEqual(b.undo, [{ op: 'delete', entity: 'property-group', id: 'new1' }]); assert.match(b.error!, /Material: Leinen konnte nicht angelegt werden/);
-  // nur Tags ausgewählt → nur der Tag wird angelegt
+  // only tags selected → only the tag is created
   const w = applyWriter(), c = await applyProductData(w, cs, payload, new Set([`${H('a')}:tags`]));
   assert.deepEqual(w.calls.filter(x => x[0] === 'create').map(x => x[1]), ['tag']);
   assert.deepEqual(c.results, [{ itemId: `${H('a')}:tags`, ok: true }]);
   assert.deepEqual(c.undo, [{ op: 'delete', entity: 'tag', id: 'new3' }, { op: 'req', entity: 'product', id: H('a'), method: 'DELETE', path: `/product/${H('a')}/tags/new3` }]);
 });
 
-test('applyProductData: Produkt verschwunden → alle Items des Produkts fehlgeschlagen; Teilfehler lässt die Undo-Schritte der vorigen Items stehen', async () => {
+test('applyProductData: product gone → all items of the product failed; a partial failure keeps the undo steps of the previous items', async () => {
   const { cs, payload } = await buildSet(), sel = new Set(cs.items.map(i => i.id));
   const gone = await applyProductData(applyWriter({ get: async () => null }), cs, payload, sel);
   assert.deepEqual(gone.results, cs.items.map(i => ({ itemId: i.id, ok: false, error: 'Produkt nicht mehr vorhanden' })));
-  assert.deepEqual(gone.undo.map(u => [u.op, u.entity]), [['delete', 'property-group'], ['delete', 'property-group-option'], ['delete', 'tag']], 'Neuanlagen bleiben rückgängig machbar');
+  assert.deepEqual(gone.undo.map(u => [u.op, u.entity]), [['delete', 'property-group'], ['delete', 'property-group-option'], ['delete', 'tag']], 'new entries remain undoable');
   const w = applyWriter({ failUpdate: d => 'tags' in d }), part = await applyProductData(w, cs, payload, sel);
   assert.deepEqual(part.results, [{ itemId: `${H('a')}:properties`, ok: true }, { itemId: `${H('a')}:tags`, ok: false, error: 'kaputt' }]);
   assert.deepEqual(part.undo.slice(3), [{ op: 'req', entity: 'product', id: H('a'), method: 'DELETE', path: `/product/${H('a')}/properties/new2` }]);
   assert.equal(part.error, undefined);
 });
 
-test('applyProductData: mehrere Produkte parallel, je Produkt frischer Stand', async () => {
+test('applyProductData: several products in parallel, fresh state per product', async () => {
   const ro = fakeReader([prod({ tags: [] }), prod({ id: H('b'), productNumber: 'B-1', tags: [] })], { tag: [{ id: H('g'), name: 'Sommer' }] });
   const { cs, payload } = await buildProductDataChangeSet(ro, { title: 'T', reason: 'R', changes: [{ productIds: [H('a'), H('b')], tags: { add: ['Sommer'] } }] }, seq());
   const gets: string[] = [];
@@ -339,27 +339,27 @@ test('applyProductData: mehrere Produkte parallel, je Produkt frischer Stand', a
   assert.deepEqual(r.results.map(x => x.ok), [true, true]); assert.equal(r.undo.length, 2);
 });
 
-test('Stale-Write-Guard: Eigenschaften inzwischen geändert → Item fehlgeschlagen und nicht geschrieben, übrige Items des Produkts laufen weiter; Altbestand ohne beforeRaw schreibt', async () => {
+test('stale write guard: properties changed meanwhile → item failed and not written, remaining items of the product continue; legacy data without beforeRaw writes', async () => {
   const { cs, payload } = await buildSet(), sel = new Set(cs.items.map(i => i.id));
-  assert.deepEqual(cs.items.map(i => [i.field, i.beforeRaw]), [['properties', []], ['tags', []]], 'Builder merkt die Zuordnungen beim Vorschlag');
-  // Admin hat dem Produkt inzwischen „Sand“ zugeordnet
+  assert.deepEqual(cs.items.map(i => [i.field, i.beforeRaw]), [['properties', []], ['tags', []]], 'builder records the assignments when proposing');
+  // Admin has meanwhile assigned "Sand" to the product
   const w = applyWriter({ get: async () => prod({ properties: [SAND], tags: [] }) });
   const r = await applyProductData(w, cs, payload, sel);
   assert.deepEqual(r.results, [{ itemId: `${H('a')}:properties`, ok: false, error: 'Eigenschaften: inzwischen geändert, bitte neu vorschlagen' }, { itemId: `${H('a')}:tags`, ok: true }]);
-  assert.ok(!w.calls.some(c => c[0] === 'update' && 'properties' in (c[3] as object)), 'Eigenschaften nicht geschrieben');
-  assert.ok(w.calls.some(c => c[0] === 'update' && 'tags' in (c[3] as object)), 'Tags geschrieben');
-  // Altbestand (ohne beforeRaw): keine Prüfung, Verhalten wie bisher
+  assert.ok(!w.calls.some(c => c[0] === 'update' && 'properties' in (c[3] as object)), 'properties not written');
+  assert.ok(w.calls.some(c => c[0] === 'update' && 'tags' in (c[3] as object)), 'tags written');
+  // Legacy data (without beforeRaw): no check, behavior as before
   const old = { ...cs, items: cs.items.map(i => ({ ...i, beforeRaw: undefined })) };
   assert.deepEqual((await applyProductData(applyWriter({ get: async () => prod({ properties: [SAND], tags: [] }) }), old, payload, sel)).results.map(x => x.ok), [true, true]);
 });
 
-test('snapshot: Ausschnitt je Item-Art (Zuordnungen sortiert, Felder, Steuer, Sichtbarkeit, Cross-Selling), Anlegen ohne Snapshot', () => {
+test('snapshot: excerpt per item kind (assignments sorted, fields, tax, visibility, cross-selling), create without snapshot', () => {
   const p = prod({ crossSellings: [{ id: H('x'), name: 'Zubehör', type: 'productList', active: true, position: 1, limit: 24, sortBy: 'name', sortDirection: 'ASC', assignedProducts: [{ id: 'a2', productId: H('p'), position: 1 }, { id: 'a1', productId: H('b'), position: 0 }] }] });
   assert.deepEqual(snapshot(p, { kind: 'assoc', assoc: 'properties', add: [], remove: [], uses: [] }), [SAND.id]);
   assert.deepEqual(snapshot(p, { kind: 'scalar', data: { weight: 2, manufacturerId: null }, uses: [] }), { weight: null, manufacturerId: H('m') });
   assert.equal(snapshot(p, { kind: 'tax', taxId: H('r'), taxRate: 7, uses: [] }), H('t'));
   assert.deepEqual(snapshot(p, { kind: 'visibility', add: [], remove: [], uses: [] }), [`${H('s')}:30`]);
   assert.deepEqual(snapshot(p, { kind: 'cross', action: 'update', id: H('x'), set: {}, productIds: null, uses: [] }), { name: 'Zubehör', type: 'productList', active: true, position: 1, limit: 24, sortBy: 'name', sortDirection: 'ASC', productStreamId: null, products: [H('b'), H('p')] });
-  assert.equal(snapshot(p, { kind: 'cross', action: 'delete', id: H('y'), uses: [] }), null, 'nicht mehr vorhanden');
+  assert.equal(snapshot(p, { kind: 'cross', action: 'delete', id: H('y'), uses: [] }), null, 'no longer exists');
   assert.equal(snapshot(p, { kind: 'cross', action: 'create', id: H('n'), data: {}, productIds: [], uses: [] }), undefined);
 });

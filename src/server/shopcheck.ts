@@ -1,6 +1,6 @@
 import 'server-only';
-// Shop-Check (Startseite): führt alle registrierten Prüfungen mit einem geschützten Lese-Client aus und hält das Ergebnis im kv-Speicher.
-// Veraltet nach 6 Std. → beim Besuch im Hintergrund neu; „Neu prüfen“ startet sofort. Es läuft immer höchstens ein Durchlauf.
+// Shop check (home page): runs all registered checks with a protected read client and keeps the result in the kv store.
+// Stale after 6 h → rerun in the background on visit; "Neu prüfen" (check again) starts immediately. At most one run at a time.
 import type { CheckRun, ShopCheckState } from '@/lib/protocol';
 import { errMsg } from './changes';
 import { listChecks } from './checks';
@@ -18,22 +18,22 @@ const KEY = 'shopcheck_run';
 interface Cached { sig: string; run: CheckRun }
 const st = () => singleton('shopcheck', () => ({ running: null as Promise<CheckRun> | null, error: null as string | null, again: false }));
 
-// Ergebnis gilt nur für denselben Shop und dieselben freigegebenen Bereiche (sonst könnte ein gesperrter Bereich sichtbar bleiben)
+// Result only applies to the same shop and the same enabled areas (otherwise a locked area could stay visible)
 const signature = () => { const g = getSettings(); return JSON.stringify(g.platform === 'shopware' ? [g.shopware.url, g.scopes] : [g.platform, g[g.platform].url || g[g.platform].storeDomain, g.scopes]); };
 
-/** Lese-Client wie im Chat (über den Adapter der aktiven Plattform): Freigabeliste, Bereiche aus den Einstellungen, Zugriffsprotokoll unter „shop-check“. */
+/** Read client as in the chat (via the active platform's adapter): allowlist, areas from the settings, access log under "shop-check". */
 export const checkReader = (): ShopReader => activePlatform().openSession('shop-check').reader as ShopReader;
 
 export function cachedRun(): CheckRun | null {
   const c = kvGet<Cached>(KEY);
   return c && c.sig === signature() ? c.run : null;
 }
-// Unvollständiger Durchlauf (mind. die Hälfte gescheitert, z. B. Shop nicht erreichbar): nach 5 Min. erneut versuchen
+// Incomplete run (at least half failed, e.g. shop unreachable): retry after 5 min
 export const isStale = (r: CheckRun | null) => !r || Date.now() - new Date(r.checkedAt).getTime() > (runHealth(r) === 'unvollstaendig' ? 5 * 60_000 : STALE_MS);
-/** Fehlermeldungen ohne Zugangsdaten (gehen an Oberfläche und KI) */
+/** Error messages without credentials (go to the UI and the AI) */
 export const redactRun = (r: CheckRun): CheckRun => (r.errors.length ? { ...r, errors: r.errors.map(e => ({ check: e.check, error: redact(e.error) })) } : r);
 
-/** Startet einen Durchlauf (oder liefert den laufenden). Feature-Module werden vorher geladen, damit alle Prüfungen registriert sind. */
+/** Starts a run (or returns the running one). Feature modules are loaded first so all checks are registered. */
 export function startShopCheck(reader?: ShopReader): Promise<CheckRun> {
   const s = st();
   if (s.running) return s.running;
@@ -41,8 +41,8 @@ export function startShopCheck(reader?: ShopReader): Promise<CheckRun> {
   s.running = (async () => {
     const p = activePlatform();
     await import('./features'); await p.loadChecks();
-    // Lese-Client je Durchlauf frisch vom Adapter; Shopware hüllt ihn zusätzlich ein (perRun), damit Zwischenspeicher nur für diesen Durchlauf gelten
-    // An/Aus je Prüfung und eigene Prüfungen (Plattform liefert die neutralen Produktzeilen)
+    // Read client fresh from the adapter per run; Shopware additionally wraps it (perRun) so caches only apply to this run
+    // On/off per check and custom checks (the platform provides the neutral product rows)
     const off = disabledChecks(), checks = [...listChecks(p.kind), ...customShopChecks(r => p.scanProducts(r))].filter(c => !off.has(c.id));
     const run = await runChecks(reader ?? checkReader(), checks, { scopes: getSettings().scopes, concurrency: 3, timeoutMs: 90_000, ctx: r => ({ platform: p.kind, reader: r, lookup: p.lookup(r) }), perRun: p.kind === 'shopware' });
     if (sig === signature()) kvSet(KEY, { sig, run } satisfies Cached);
@@ -53,15 +53,15 @@ export function startShopCheck(reader?: ShopReader): Promise<CheckRun> {
 }
 
 /**
- * Nach angewendeten Änderungen neu prüfen: Behobene Punkte verschwinden, ohne dass jemand „Neu prüfen“ klickt.
- * Läuft gerade ein Durchlauf, hat er womöglich noch den alten Stand gelesen → direkt danach noch einmal.
+ * Recheck after applied changes: fixed items disappear without anyone clicking "Neu prüfen" (check again).
+ * If a run is in progress, it may have read the old state → run once more right after.
  */
 export async function recheckShopCheck(reader?: ShopReader): Promise<void> {
   const p = activePlatform(), s = st();
-  // Ohne bisheriges Ergebnis nichts anstoßen: die Startseite prüft dann ohnehin beim nächsten Besuch
+  // Without a previous result, trigger nothing: the home page checks on the next visit anyway
   if (!p.configured() || !p.settings.available || (!s.running && !cachedRun())) return;
   if (s.running) {
-    if (s.again) return; // ein Nachlauf ist schon vorgemerkt
+    if (s.again) return; // a follow-up run is already queued
     s.again = true;
     await s.running.catch(() => {});
     s.again = false;
@@ -70,18 +70,18 @@ export async function recheckShopCheck(reader?: ShopReader): Promise<void> {
   await startShopCheck(reader).catch(() => {});
 }
 
-/** Stand für die Startseite; veraltet/fehlend → Hintergrundlauf anstoßen. */
+/** State for the home page; stale/missing → trigger a background run. */
 export function shopCheckState({ refresh = false }: { refresh?: boolean } = {}): ShopCheckState {
   const p = activePlatform(), enabled = p.configured() && p.settings.available;
   if (!enabled) return { enabled, running: false, stale: false, run: null };
   const run = cachedRun(), stale = isStale(run);
-  if (refresh || stale) startShopCheck().catch(() => {}); // Fehler je Prüfung stehen im Ergebnis; Totalausfall (Shop weg) → beim nächsten Besuch erneut
+  if (refresh || stale) startShopCheck().catch(() => {}); // errors per check are in the result; total failure (shop gone) → retry on the next visit
   const error = st().error;
   return { enabled, running: !!st().running, stale, run: run && redactRun(run), ...(error ? { error: redact(error) } : {}) };
 }
 
-/** Für das KI-Werkzeug: frisches Ergebnis aus dem Speicher oder jetzt prüfen. Immer mit eigenem Lese-Client wie die Startseite
- *  (nicht dem langlebigen des Chats), damit das gespeicherte Ergebnis für beide gleich entsteht und unter „shop-check“ protokolliert wird. */
+/** For the AI tool: fresh result from storage or check now. Always with its own read client like the home page
+ *  (not the chat's long-lived one), so the stored result is produced the same way for both and logged under "shop-check". */
 export async function latestShopCheck(refresh = false): Promise<CheckRun> {
   const run = cachedRun();
   if (!refresh && run && !isStale(run)) return redactRun(run);

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 
 const read = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 
-test('Satoshi liegt im Repo und --display nutzt die lokale Variable zuerst', () => {
+test('Satoshi is in the repo and --display uses the local variable first', () => {
   const layout = read('src/app/layout.tsx');
   assert.doesNotMatch(layout, /fontshare/i);
   assert.doesNotMatch(layout, /preconnect/);
@@ -15,11 +15,11 @@ test('Satoshi liegt im Repo und --display nutzt die lokale Variable zuerst', () 
   assert.match(layout, /weight:\s*'700'/);
   const css = read('src/app/globals.css');
   const display = css.match(/--display:\s*([^;]+);/);
-  assert.ok(display, '--display fehlt');
+  assert.ok(display, '--display missing');
   assert.match(display[1], /^\s*var\(--font-satoshi\)/);
   for (const file of ['src/app/fonts/satoshi-500.woff2', 'src/app/fonts/satoshi-700.woff2']) {
     const buf = readFileSync(new URL(`../../${file}`, import.meta.url));
-    assert.ok(buf.length > 1000, `${file} ist zu klein`);
+    assert.ok(buf.length > 1000, `${file} is too small`);
     assert.equal(buf.subarray(0, 4).toString('ascii'), 'wOF2', file);
   }
 });

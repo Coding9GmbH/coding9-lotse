@@ -1,5 +1,5 @@
 import 'server-only';
-// Feature „Varianten & Stapelverarbeitung“: Varianten lesen/anlegen/ändern/löschen und Regeländerungen für beliebig viele Produkte.
+// Feature "Varianten & Stapelverarbeitung" (variants & bulk edit): read/create/update/delete variants and rule-based changes for any number of products.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { MAX_ITEMS, registerApplier } from '../changes';
@@ -24,7 +24,7 @@ const filterShape = {
   includeVariants: z.boolean().optional().describe('true = Varianten der passenden Hauptprodukte mit einbeziehen'),
   variantOptions: z.array(z.string()).optional().describe('Nur Varianten mit einer dieser Ausprägungen (ids, z. B. Größe XL) – Hauptprodukte selbst dann nicht'),
 };
-/** Ergebnis für die KI kompakt halten (bei Tausenden Produkten keine Fehlerliste mit Tausenden Zeilen) */
+/** Keep the result compact for the AI (no error list with thousands of lines for thousands of products) */
 const compact = (o: ChangeOutcome) => (o.failed && o.failed.length > 20 ? { ...o, failed: o.failed.slice(0, 20), failedTotal: o.failedTotal ?? o.failed.length } : o);
 
 async function deliveryTimes(session: Session) {

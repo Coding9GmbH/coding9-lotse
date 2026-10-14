@@ -1,5 +1,5 @@
 import 'server-only';
-// Shopware: aktive Hauptprodukte in neutraler Form (eigene Shop-Prüfungen). Je Lese-Client einmal gelesen, höchstens SCAN_MAX.
+// Shopware: active parent products in neutral form (custom shop checks). Read once per read client, at most SCAN_MAX.
 import type { NeutralProduct, NeutralScan } from '@/lib/custom-checks';
 import { DEFAULT_CURRENCY } from '../../changes';
 import type { ShopReader, SwEntity } from '../../shopware';

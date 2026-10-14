@@ -1,6 +1,6 @@
 import 'server-only';
-// Register aller Feature-Module. Jedes Modul registriert seine Applier (registerApplier) und Shop-Prüfungen (registerCheck) beim Import.
-// Feature.platforms wählt die Plattform: ['shopware'] (liest über session.sw) oder 'all' (Kern, nur session.lookup). Reihenfolge = Werkzeug-Reihenfolge.
+// Registry of all feature modules. Each module registers its appliers (registerApplier) and shop checks (registerCheck) on import.
+// Feature.platforms selects the platform: ['shopware'] (reads via session.sw) or 'all' (core, only session.lookup). Order = tool order.
 import type { Feature } from './types';
 import { productImages } from './product-images';
 import { seo } from './seo';
