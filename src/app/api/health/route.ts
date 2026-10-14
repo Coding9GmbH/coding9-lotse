@@ -1,6 +1,8 @@
 import type { Health } from '@/lib/protocol';
 import { activePlatform } from '@/server/platform';
 import { aiConfigured, getSettings } from '@/server/settings';
+import { gscConnected } from '@/server/features/gsc-google';
+import { sistrixConnected } from '@/server/features/sistrix-api';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,6 +13,7 @@ export async function GET() {
     shopware: { url: sh.url, ok: sh.ok, configured: p.configured(), ...(sh.error ? { error: sh.error } : {}) },
     ai: { configured: aiConfigured(), provider: getSettings().ai.provider },
     platform: { kind: p.kind, label: p.label, available: p.settings.available },
+    integrations: { gsc: gscConnected(), sistrix: sistrixConnected() },
   };
   return Response.json(out);
 }

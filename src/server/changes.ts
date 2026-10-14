@@ -260,6 +260,15 @@ export function landingSlug(url: unknown): string {
   return s;
 }
 const metaLen = (label: string, v: string | undefined) => { if (v && v.length > 255) throw new Error(`${label}: max. 255 Zeichen (${v.length})`); };
+/** Shopware-Kategorietypen: nur „page“ (Listing) zeigt ein CMS-Layout. „folder“ (Strukturelement) hat keine eigene Seite, „link“ leitet weiter. */
+const CATEGORY_TYPE_LABEL: Record<string, string> = { folder: 'Strukturelement (ohne eigene Seite)', link: 'Link (leitet weiter)' };
+/** Wirft, wenn eine Kategorie kein Layout anzeigen kann; der Typ fehlt = Listing (ältere Daten) */
+export function assertLayoutCategory(c: SwEntity) {
+  const type = c.type as string | null | undefined;
+  if (!type || type === 'page') return;
+  throw new Error(`Kategorie „${String(c.translated?.name ?? c.name ?? c.id)}“ ist vom Typ ${CATEGORY_TYPE_LABEL[type] ?? type} und zeigt kein Layout. Ein Layout lässt sich nur einer Listing-Kategorie zuweisen; Landingpage oder Kategorie vom Typ „Listing“ wählen.`);
+}
+
 export async function buildPublishChangeSet(ro: ShopReader, spec: PageSpec, a: PublishArgs): Promise<ChangeSet> {
   const blocks = spec.sections.reduce((n, s) => n + s.blocks.length, 0), items: ChangeItem[] = [], assets: ChangeAsset[] = [];
   metaLen('metaTitle', a.metaTitle ?? spec.seo?.metaTitle); metaLen('metaDescription', a.metaDescription ?? spec.seo?.metaDescription);
@@ -285,9 +294,11 @@ export async function buildPublishChangeSet(ro: ShopReader, spec: PageSpec, a: P
   const fetchAll = async (entity: string, ids: string[]) => { const out: SwEntity[] = []; for (let i = 0; i < ids.length; i += 100) out.push(...(await ro.search(entity, { ids: ids.slice(i, i + 100), limit: 100 })).data); return out; };
   if (a.target === 'category') {
     const ids = publishCategoryIds(a);
+    if (spec.type === 'landingpage' && a.allCategories) throw new Error('Ein Landingpage-Layout gilt nur für gezielt gewählte Kategorien (z. B. die Startseite), nicht für alle Kategorien.');
     if (ids.length > 1 && (a.metaTitle ?? spec.seo?.metaTitle ?? a.metaDescription ?? spec.seo?.metaDescription)) throw new Error('Meta-Title/-Description gelten nur für eine einzelne Kategorie. Bei mehreren Kategorien weglassen (danach je Kategorie mit propose_category_changes).');
     const cats = await fetchAll('category', ids), missing = ids.filter(id => !cats.some(c => c.id === id));
     if (missing.length) throw new Error(missing.length === 1 ? `Kategorie ${missing[0]} nicht gefunden` : `Kategorien nicht gefunden: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ' …' : ''}`);
+    for (const c of cats) assertLayoutCategory(c); // Strukturelement/Link zeigen kein Layout: vor der Freigabe ablehnen, nicht erst beim Schreiben
     const nameOf = (c: SwEntity) => c.translated?.name ?? c.name;
     await rows('Kategorie', 'Kategorien', cats.map(c => ({ name: nameOf(c), cmsPageId: c.cmsPageId })));
     if (cats.length === 1) {
@@ -389,6 +400,7 @@ async function applyPublish(swW: Shopware, cs: ChangeSet, payload: PublishPayloa
       await eachAtomic(ids, async categoryId => {
         const cur = await swW.get('category', categoryId);
         if (!cur) throw new Error(single ? 'Kategorie nicht mehr vorhanden' : `Kategorie ${categoryId} nicht mehr vorhanden`);
+        assertLayoutCategory(cur); // Typ kann sich seit der Freigabe geändert haben
         const withMeta = single;
         await swW.update('category', categoryId, { cmsPageId: page.id, ...(withMeta && mt ? { metaTitle: mt } : {}), ...(withMeta && md ? { metaDescription: md } : {}) });
         undo.push({ op: 'patch', entity: 'category', id: categoryId, data: { cmsPageId: cur.cmsPageId ?? null, ...(withMeta && mt ? { metaTitle: cur.metaTitle ?? null } : {}), ...(withMeta && md ? { metaDescription: cur.metaDescription ?? null } : {}) } });

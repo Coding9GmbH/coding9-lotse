@@ -146,6 +146,9 @@ export const savedConfigured = (saved: PublicSettings, kind: PlatformKind): bool
 /** Anbindung fertig (sonst Vorschau) */
 export const platformAvailable = (saved: PublicSettings, kind: PlatformKind): boolean => saved.platforms?.[kind]?.available ?? PLATFORM_SETTINGS[kind].available;
 
+/** Sistrix-API-Schlüssel plausibel (Länge/Zeichen)? Erst dann automatisch speichern. */
+export const sistrixKeyComplete = (key: string): boolean => /^[A-Za-z0-9_-]{16,128}$/.test(key.trim());
+
 /** Search-Console-Schlüssel vollständig (Service-Konto-JSON mit E-Mail und privatem Schlüssel)? Erst dann automatisch speichern –
  *  sonst landet ein halb eingefügtes JSON im Speicher. */
 export function gscKeyComplete(key: string): boolean {

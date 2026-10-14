@@ -438,3 +438,16 @@ test('Layout-Bereichswahl: Bereich wird in feste IDs aufgelöst, große Mengen a
   assert.match(bad.error!, /Kategorie weg nicht mehr vorhanden/);
   assert.equal(f.db.category.filter(c => c.cmsPageId).length, 0, 'nichts geändert');
 });
+
+test('Kategorie mit Landingpage-Layout (Startseite): Zuweisung über category, nie für alle Kategorien, Strukturelement abgelehnt', async () => {
+  const { applyChangeSet, undoOps, buildPublishChangeSet } = await import('../../src/server/changes');
+  const home = { ...SPEC, type: 'landingpage' } as PageSpec;
+  const f = fakeShopware({ category: [{ id: 'start', type: 'page', translated: { name: 'Startseite' }, cmsPageId: 'alt' }, { id: 'ord', type: 'folder', translated: { name: 'Sortiment' } }], 'sales-channel': [{ id: 'sc', domains: [{ url: 'https://shop.test' }] }] });
+  const cs = await buildPublishChangeSet(f.sw, home, { target: 'category', categoryId: 'start' });
+  assert.equal(cs.items[1].label, 'Kategorie „Startseite“');
+  const r = await applyChangeSet(f.sw, pageCs(['i0', 'i1']), { spec: home, args: { target: 'category', categoryId: 'start' } }, new Set(['i0', 'i1']));
+  assert.equal(r.error, undefined); assert.equal(f.db.category[0].cmsPageId, r.published?.cmsPageId);
+  await undoOps(f.sw, r.undo); assert.equal(f.db.category[0].cmsPageId, 'alt');
+  await assert.rejects(buildPublishChangeSet(f.sw, home, { target: 'category', allCategories: true, categoryIds: ['start'] }), /nur für gezielt gewählte Kategorien/);
+  await assert.rejects(buildPublishChangeSet(f.sw, home, { target: 'category', categoryId: 'ord' }), /„Sortiment“.*Strukturelement.*zeigt kein Layout/);
+});

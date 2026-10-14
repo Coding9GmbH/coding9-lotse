@@ -124,7 +124,9 @@ export interface ChatDetail { id: string; title: string; target: Target | null; 
 
 export type AiProvider = 'claude' | 'codex';
 /** shopware = Verbindung zum aktiven Shop (Name aus Altbestand, gilt für jede Plattform); platform = welche Plattform verbunden ist */
-export interface Health { shopware: { url: string; ok: boolean; configured: boolean; error?: string }; ai: { configured: boolean; provider?: AiProvider }; platform?: { kind: PlatformKind; label: string; available: boolean } }
+/** Optionale Anbindungen: nur wenn verbunden, zeigt die Oberfläche passende Beispiele */
+export interface Integrations { gsc: boolean; sistrix: boolean }
+export interface Health { shopware: { url: string; ok: boolean; configured: boolean; error?: string }; ai: { configured: boolean; provider?: AiProvider }; platform?: { kind: PlatformKind; label: string; available: boolean }; integrations?: Integrations }
 /** Pfad-Vorlagen der Plattform ({id} wird ersetzt): Admin-Links und Storefront-Pfade für Kategorie/Produkt */
 export interface PlatformPaths { adminCategory: string; adminProduct: string; adminCms: string; category: string; product: string }
 export interface AppConfig { admin: string; storefront: string; imageGen: boolean; docker: boolean; version: string; platform?: PlatformKind; paths?: PlatformPaths }
@@ -203,3 +205,11 @@ export interface ShopCheckState { enabled: boolean; running: boolean; stale: boo
 // ---- Google Search Console (Einstellungen): Schlüssel nur als „vorhanden“, nie im Browser ----
 export interface GscPublic { hasKey: boolean; clientEmail: string; projectId: string; property: string; connected: boolean; updatedAt: string | null }
 export interface GscTestResult extends TestResult { sites: string[] }
+// ---- Sistrix (Einstellungen): API-Schlüssel nur als „vorhanden“, nie im Browser ----
+export interface SistrixPublic { hasKey: boolean; domain: string; country: string; connected: boolean; updatedAt: string | null }
+export interface SistrixTestResult extends TestResult { credits: number | null }
+/** SEO-Übersicht: Hebel aus Search Console und Sistrix als fertige Aufträge (prompt) für einen neuen Chat */
+export interface SeoItem { id: string; source: 'gsc' | 'sistrix'; kind: 'meta' | 'gap' | 'keyword' | 'onpage'; title: string; detail: string; metrics: { label: string; value: string }[]; /** Sortierwert (geschätzte Wirkung) */ impact: number; prompt: string }
+export interface SeoOverview { gsc: boolean; sistrix: boolean; items: SeoItem[]; errors: { source: 'gsc' | 'sistrix'; error: string }[]; generatedAt: string }
+/** Startseiten-Karte: Sichtbarkeitsverlauf (älteste Woche zuerst) */
+export interface SistrixOverview { connected: boolean; domain?: string; country?: string; weeks?: number; series?: { date: string; value: number }[]; latest?: { date: string; value: number } | null; changePct?: number | null; creditsUsed?: number | null; error?: string }

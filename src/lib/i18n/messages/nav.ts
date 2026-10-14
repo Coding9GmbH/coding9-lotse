@@ -27,6 +27,7 @@ export const de = {
   styleguideSetup: 'Styleguide einrichten',
   styleguideCreate: 'anlegen',
   knowledge: 'Wissen',
+  seo: 'SEO',
   history: 'Verlauf',
   showHistory: 'Verlauf anzeigen',
   railTip: (total: number, live: number, done: number) =>
@@ -89,6 +90,7 @@ export const en: typeof de = {
   styleguideSetup: 'Set up style guide',
   styleguideCreate: 'create',
   knowledge: 'Knowledge',
+  seo: 'SEO',
   history: 'History',
   showHistory: 'Show history',
   railTip: (total: number, live: number, done: number) =>

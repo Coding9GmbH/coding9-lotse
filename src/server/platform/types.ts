@@ -30,6 +30,8 @@ export const PUBLISH_PAGE_TYPE: Record<PublishTarget, PageType> = { category: 'p
 export interface PlatformCapabilities {
   pageTypes: readonly PageType[];
   publishTargets: readonly PublishTarget[];
+  /** Entwurfstypen, die einer Kategorie zugewiesen werden dürfen (Standard: nur product_list); Shopware: auch landingpage (Startseite, Shopseiten) */
+  categoryPageTypes?: readonly PageType[];
   blocks: 'all' | readonly string[];
   pageFormat: 'cms' | 'html';
   /** reuse-Blöcke (bestehende Blöcke 1:1 übernehmen) */

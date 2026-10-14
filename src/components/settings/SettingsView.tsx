@@ -13,6 +13,7 @@ import { LanguageSwitch } from '@/components/i18n/LanguageSwitch';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { CodexLogin } from './CodexLogin';
 import { GscSettings } from './GscSettings';
+import { SistrixSettings } from './SistrixSettings';
 import { LogsPanel } from './LogsPanel';
 import { SecretField } from './SecretField';
 import { rich as markup } from './Rich';
@@ -108,6 +109,7 @@ export function SettingsView() {
           { id: 'image', label: ts.toc.image, note: ts.optional },
           { id: 'scopes', label: ts.toc.scopes },
           { id: 'gsc', label: ts.toc.gsc, note: ts.optional },
+          { id: 'sistrix', label: ts.toc.sistrix, note: ts.optional },
           { id: 'protokolle', label: ts.toc.logs },
         ]} loaded={!!form && !!saved} />
 
@@ -208,6 +210,7 @@ export function SettingsView() {
           )}
 
           {form && saved && <GscSettings />}
+          {form && saved && <SistrixSettings />}
 
           <section id="protokolle" className={styles.card} aria-labelledby="logs-h">
             <div className={styles.cardHead}><h2 id="logs-h">{ts.logs.heading}</h2></div>

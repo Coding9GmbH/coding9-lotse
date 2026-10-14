@@ -130,7 +130,7 @@ Other platforms publish via their own paths (Shopify: theme templates, Magento/O
 | `/api/shopcheck`, `/api/shopcheck/checks[/{id}]` | Shop check, checks |
 | `GET /api/categories`, `GET /api/products` | Context selection |
 | `GET /api/audit`, `GET /api/access-log` | Logs |
-| `/api/gsc`, `/api/codex/login` | Search Console, Codex sign-in |
+| `/api/gsc`, `/api/sistrix`, `/api/codex/login` | Search Console, Sistrix, Codex sign-in |
 | `/api/mcp/{chat}` | MCP endpoint for Codex (token per chat) |
 | `GET /shop/**` | Storefront proxy (GET only) |
 

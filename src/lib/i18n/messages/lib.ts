@@ -14,7 +14,7 @@ export const de = {
     list_products: 'Produkte analysieren',
     get_product_images: 'Produktbilder lesen', find_image_gaps: 'Bildlücken finden', propose_product_images: 'Bildänderungen vorschlagen', propose_alt_texts: 'Alt-Texte vorschlagen',
     get_seo_urls: 'SEO-URLs lesen', suggest_internal_links: 'Interne Links finden', propose_seo_urls: 'SEO-URLs vorschlagen', seo_audit: 'SEO-Check',
-    list_property_groups: 'Eigenschaften lesen', list_manufacturers: 'Hersteller lesen', list_tags: 'Tags lesen', list_delivery_times: 'Lieferzeiten lesen', list_taxes: 'Steuersätze lesen',
+    list_property_groups: 'Eigenschaften lesen', list_manufacturers: 'Hersteller lesen', get_manufacturer: 'Hersteller lesen', propose_manufacturer_changes: 'Hersteller vorschlagen', list_tags: 'Tags lesen', list_delivery_times: 'Lieferzeiten lesen', list_taxes: 'Steuersätze lesen',
     get_product_details: 'Produkt-Stammdaten lesen', find_products_by_data: 'Produkte nach Stammdaten finden', propose_product_data: 'Stammdaten-Änderungen vorschlagen',
     list_languages: 'Sprachen & Domains lesen', get_translations: 'Übersetzungen lesen', propose_translations: 'Übersetzungen vorschlagen',
     get_page_texts: 'Seitentexte lesen', propose_page_translation: 'Seitenübersetzung vorschlagen',
@@ -24,6 +24,7 @@ export const de = {
     propose_product_stream: 'Produktstream vorschlagen', propose_stream_assignment: 'Stream-Zuordnung vorschlagen',
     read_supplier_file: 'Lieferantendatei lesen', save_import_mapping: 'Zuordnung speichern', preview_import: 'Import prüfen', propose_import: 'Import vorschlagen',
     gsc_performance: 'Search-Console-Daten lesen', gsc_opportunities: 'Search-Console-Chancen finden', gsc_content_gaps: 'Inhaltslücken finden', gsc_measure_effect: 'Erfolg messen',
+    sistrix_visibility: 'Sichtbarkeitsindex lesen', sistrix_top_pages: 'Top-Seiten lesen', sistrix_opportunities: 'Sistrix-Chancen finden', sistrix_competitors: 'Wettbewerber lesen', sistrix_keyword_metrics: 'Keyword-Kennzahlen lesen', sistrix_onpage: 'OnPage-Crawl lesen',
     add_knowledge: 'Wissen aufnehmen', search_knowledge: 'Wissensbasis durchsuchen', get_product_knowledge: 'Produktwissen lesen', list_knowledge: 'Wissensbasis lesen',
     add_rule: 'Regel speichern', list_rules: 'Regeln lesen', remove_rule: 'Regel löschen',
     list_promotions: 'Promotionen lesen', get_promotion: 'Promotion lesen', propose_promotion: 'Promotion vorschlagen', propose_promotion_status: 'Promotion-Status vorschlagen',
@@ -47,6 +48,9 @@ export const de = {
     { title: 'Bestand & Status', text: 'Deaktiviere alle Produkte, die keinen Bestand mehr haben' },
     { title: 'Kategorie als Landingpage', text: `Baue die Kategorie „${c}“ zu einer SEO- und conversion-optimierten Landingpage um` },
     { title: 'Produktseite neu gestalten', text: `Ändere das Layout der Produktseite von „${p}“: modern, mit USPs und FAQ` },
+    { title: 'Sichtbarkeit & Wettbewerb', text: 'Wie hat sich die Sistrix-Sichtbarkeit in den letzten 12 Wochen entwickelt, und wer sind unsere wichtigsten Wettbewerber?' },
+    { title: 'Sistrix-Chancen nutzen', text: 'Wo haben wir laut Sistrix mit wenig Aufwand Potenzial? Schlage für die wichtigsten Seiten bessere Meta-Daten vor.' },
+    { title: 'Hersteller anlegen', text: 'Lege den Hersteller „3M Peltor“ mit Beschreibung und Webseite neu an. Prüfe vorher, ob es ihn schon gibt.' },
   ],
   /** Vorschlags-Chips je Kontext */
   suggestions: {
@@ -109,6 +113,7 @@ export const de = {
   privacy: {
     egress: 'Chat, Produkttexte, CMS-HTML, GPSR und Bild-Prompt verlassen diesen Rechner und gehen an Anthropic oder OpenAI. Löschen in Lotse löscht die Kopie dort nicht.',
     gscQuery: 'Die Suchbegriffe gehen an die KI.',
+    sistrixData: 'Die abgefragten Sistrix-Daten (Rankings, Keywords, Wettbewerber) gehen an die KI.',
     chatDelete: (title: string) => `„${title}“ löschen? Nur dieser Chat wird entfernt. Audit, Dateien und die Kopie bei Anthropic oder OpenAI bleiben.`,
   },
   /** Shop-Check */
@@ -145,6 +150,7 @@ export const de = {
       'recht.gpsr': 'GPSR-Pflichtangaben', 'recht.grundpreis': 'Grundpreisangaben', 'recht.rechtstexte': 'Rechtstexte',
       'bfsg.texte': 'Barrierefreiheit: Texte', 'bfsg.kontrast': 'Barrierefreiheit: Kontraste',
       'gsc.low-ctr': 'Search Console: niedrige Klickrate', 'gsc.measure-due': 'Search Console: Messung fällig',
+      'sistrix.visibility-drop': 'Sistrix: Sichtbarkeit gesunken', 'sistrix.onpage-errors': 'Sistrix: OnPage-Fehler',
     },
   },
   /** Einstellungen */
@@ -242,7 +248,7 @@ export const en: typeof de = {
     list_products: 'Analyze products',
     get_product_images: 'Read product images', find_image_gaps: 'Find image gaps', propose_product_images: 'Propose image changes', propose_alt_texts: 'Propose alt texts',
     get_seo_urls: 'Read SEO URLs', suggest_internal_links: 'Find internal links', propose_seo_urls: 'Propose SEO URLs', seo_audit: 'SEO check',
-    list_property_groups: 'Read properties', list_manufacturers: 'Read manufacturers', list_tags: 'Read tags', list_delivery_times: 'Read delivery times', list_taxes: 'Read tax rates',
+    list_property_groups: 'Read properties', list_manufacturers: 'Read manufacturers', get_manufacturer: 'Read manufacturer', propose_manufacturer_changes: 'Propose manufacturers', list_tags: 'Read tags', list_delivery_times: 'Read delivery times', list_taxes: 'Read tax rates',
     get_product_details: 'Read product master data', find_products_by_data: 'Find products by master data', propose_product_data: 'Propose master data changes',
     list_languages: 'Read languages & domains', get_translations: 'Read translations', propose_translations: 'Propose translations',
     get_page_texts: 'Read page texts', propose_page_translation: 'Propose page translation',
@@ -252,6 +258,7 @@ export const en: typeof de = {
     propose_product_stream: 'Propose product stream', propose_stream_assignment: 'Propose stream assignment',
     read_supplier_file: 'Read supplier file', save_import_mapping: 'Save mapping', preview_import: 'Check import', propose_import: 'Propose import',
     gsc_performance: 'Read Search Console data', gsc_opportunities: 'Find Search Console opportunities', gsc_content_gaps: 'Find content gaps', gsc_measure_effect: 'Measure impact',
+    sistrix_visibility: 'Read visibility index', sistrix_top_pages: 'Read top pages', sistrix_opportunities: 'Find Sistrix opportunities', sistrix_competitors: 'Read competitors', sistrix_keyword_metrics: 'Read keyword metrics', sistrix_onpage: 'Read OnPage crawl',
     add_knowledge: 'Add knowledge', search_knowledge: 'Search knowledge base', get_product_knowledge: 'Read product knowledge', list_knowledge: 'Read knowledge base',
     add_rule: 'Save rule', list_rules: 'Read rules', remove_rule: 'Delete rule',
     list_promotions: 'Read promotions', get_promotion: 'Read promotion', propose_promotion: 'Propose promotion', propose_promotion_status: 'Propose promotion status',
@@ -273,6 +280,9 @@ export const en: typeof de = {
     { title: 'Stock & status', text: 'Deactivate all products that are out of stock' },
     { title: 'Category as landing page', text: `Turn the category “${c}” into an SEO- and conversion-optimized landing page` },
     { title: 'Redesign product page', text: `Change the layout of the product page for “${p}”: modern, with USPs and FAQ` },
+    { title: 'Visibility & competitors', text: 'How has the Sistrix visibility developed over the last 12 weeks, and who are our main competitors?' },
+    { title: 'Use Sistrix opportunities', text: 'Where do we have low-effort potential according to Sistrix? Suggest better meta data for the most important pages.' },
+    { title: 'Create a manufacturer', text: 'Create the manufacturer “3M Peltor” with description and website. Check first whether it already exists.' },
   ],
   suggestions: {
     category: ['Hero, 3 USPs, product slider and guide text', 'Keep existing content and give it a modern structure', 'Page with FAQ accordion (custom HTML)'],
@@ -330,6 +340,7 @@ export const en: typeof de = {
   privacy: {
     egress: 'Chat, product copy, CMS HTML, GPSR and image prompts leave this computer and go to Anthropic or OpenAI. Deleting in Lotse does not delete the copy there.',
     gscQuery: 'The search queries are sent to the AI.',
+    sistrixData: 'The Sistrix data you query (rankings, keywords, competitors) is sent to the AI.',
     chatDelete: (title: string) => `Delete “${title}”? Only this chat is removed. The audit log, files and the copy at Anthropic or OpenAI remain.`,
   },
   shopcheck: {
@@ -364,6 +375,7 @@ export const en: typeof de = {
       'recht.gpsr': 'GPSR mandatory details', 'recht.grundpreis': 'Unit price details', 'recht.rechtstexte': 'Legal pages',
       'bfsg.texte': 'Accessibility: text', 'bfsg.kontrast': 'Accessibility: contrast',
       'gsc.low-ctr': 'Search Console: low click-through rate', 'gsc.measure-due': 'Search Console: measurement due',
+      'sistrix.visibility-drop': 'Sistrix: visibility dropped', 'sistrix.onpage-errors': 'Sistrix: OnPage errors',
     },
   },
   settings: {

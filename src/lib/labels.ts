@@ -14,9 +14,13 @@ export interface Example { tag: ExampleTag; title: string; text: string }
 export const exampleTagLabel = (tag: ExampleTag, locale: Locale = DEFAULT_LOCALE): string => messages(locale).lib.exampleTag[tag];
 
 // KI-first: Produkte, Inhalte und SEO zuerst – Seiten und Layouts kommen obendrauf
-const EXAMPLE_TAGS: ExampleTag[] = ['Produkte', 'Produkte', 'SEO', 'SEO', 'Preise', 'Inhalt', 'Daten', 'Layout', 'Layout'];
-export const examples = (p: string, c: string, locale: Locale = DEFAULT_LOCALE): Example[] =>
-  messages(locale).lib.examples(p, c).map((e, i) => ({ tag: EXAMPLE_TAGS[i], ...e }));
+const EXAMPLE_TAGS: ExampleTag[] = ['Produkte', 'Produkte', 'SEO', 'SEO', 'Preise', 'Inhalt', 'Daten', 'Layout', 'Layout', 'Analyse', 'SEO', 'Daten'];
+/** Beispiele, die eine Anbindung brauchen (gleiche Reihenfolge wie EXAMPLE_TAGS): erscheinen nur, wenn sie verbunden ist */
+export type ExampleNeeds = 'gsc' | 'sistrix' | 'shopware';
+const EXAMPLE_NEEDS: (ExampleNeeds | undefined)[] = [undefined, undefined, undefined, 'gsc', undefined, undefined, undefined, undefined, undefined, 'sistrix', 'sistrix', 'shopware'];
+export type ExampleAvailability = { gsc?: boolean; sistrix?: boolean; shopware?: boolean };
+export const examples = (p: string, c: string, locale: Locale = DEFAULT_LOCALE, available: ExampleAvailability = {}): Example[] =>
+  messages(locale).lib.examples(p, c).map((e, i) => ({ tag: EXAMPLE_TAGS[i], need: EXAMPLE_NEEDS[i], ...e })).filter(e => !e.need || available[e.need]).map(({ need: _need, ...e }) => e); // eslint-disable-line @typescript-eslint/no-unused-vars
 
 /** Vorschlags-Chips je Kontext (deutsch); je Sprache: suggestions(kind, locale). */
 export const SUGGESTIONS: Record<TargetKind, string[]> = messages(DEFAULT_LOCALE).lib.suggestions;

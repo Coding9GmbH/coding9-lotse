@@ -130,7 +130,7 @@ Andere Plattformen veröffentlichen über ihre eigenen Pfade (Shopify: Theme-Vor
 | `/api/shopcheck`, `/api/shopcheck/checks[/{id}]` | Shop-Check, Prüfungen |
 | `GET /api/categories`, `GET /api/products` | Kontext-Auswahl |
 | `GET /api/audit`, `GET /api/access-log` | Protokolle |
-| `/api/gsc`, `/api/codex/login` | Search Console, Codex-Anmeldung |
+| `/api/gsc`, `/api/sistrix`, `/api/codex/login` | Search Console, Sistrix, Codex-Anmeldung |
 | `/api/mcp/{chat}` | MCP-Endpunkt für Codex (Token je Chat) |
 | `GET /shop/**` | Storefront-Proxy (nur GET) |
 

@@ -61,7 +61,7 @@ test('Werkzeuge je Plattform: Kern + Plattform + Features, ohne Doppelte; Shopwa
     const names = toolNamesFor(k);
     assert.deepEqual(names.filter((n, i) => names.indexOf(n) !== i), [], k);
     for (const n of CORE_TOOL_NAMES) assert.ok(names.includes(n), `${k}: ${n}`);
-    for (const n of ['run_shop_check', 'gsc_performance', 'search_knowledge']) assert.ok(names.includes(n), `${k}: Kern-Feature ${n}`);
+    for (const n of ['run_shop_check', 'gsc_performance', 'sistrix_visibility', 'search_knowledge']) assert.ok(names.includes(n), `${k}: Kern-Feature ${n}`);
   }
   assert.ok(toolNamesFor('shopware').includes('propose_promotion'));
   for (const n of ['list_sales_channels', 'get_cms_page', 'propose_product_data']) assert.ok(!toolNamesFor('shopify').includes(n), `Shopware-Werkzeug ${n} nicht bei Shopify`);
@@ -74,7 +74,7 @@ test('Werkzeuge je Plattform: Kern + Plattform + Features, ohne Doppelte; Shopwa
   assert.deepEqual(getPlatform('shopify').features?.map(f => f.key), ['shopify-import']);
   for (const n of ['search_products', 'get_product', 'list_products', 'search_categories', 'get_category', 'search_media', 'propose_product_changes', 'propose_new_products', 'propose_category_changes', 'propose_product_images', 'propose_alt_texts', 'propose_translations', 'propose_promotion', 'seo_audit', 'find_image_gaps'])
     assert.ok(toolNamesFor('shopify').includes(n), `Shopify: gemeinsamer Name ${n}`);
-  assert.deepEqual(featuresFor(getPlatform('shopify')).map(f => f.key).sort(), ['gsc', 'shopcheck', 'shopify-import', 'wissen']);
+  assert.deepEqual(featuresFor(getPlatform('shopify')).map(f => f.key).sort(), ['gsc', 'shopcheck', 'shopify-import', 'sistrix', 'wissen']);
   // keine doppelten Werkzeugnamen je Plattform (Kern + Adapter + Features)
   for (const k of PLATFORM_KINDS) { const names = toolNamesFor(k); assert.equal(new Set(names).size, names.length, `${k}: doppelte Werkzeugnamen ${names.filter((n, i) => names.indexOf(n) !== i).join(', ')}`); }
   // jedes Werkzeug hat eine Anzeige im Chat (TOOL_LABELS)

@@ -5,6 +5,23 @@ Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die V
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
 Jede Änderung bekommt einen eigenen Abschnitt mit neuer Versionsnummer (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
+## [0.6.0] – 2026-10-14
+
+### Hinzugefügt
+- Sistrix-Anbindung (optional, nur lesend): Unter Einstellungen → Sistrix API-Schlüssel und Domain eintragen, danach liest die KI Sichtbarkeitsindex, Top-Seiten, Chancen, Wettbewerber, Keyword-Kennzahlen und den OnPage-Crawl des Optimizers; Seiten werden Produkten, Kategorien und Landingpages des Shops zugeordnet. Anfragen sind gedeckelt und werden zwischengespeichert, damit Credits nicht unnötig verbraucht werden.
+- Neuer Menüpunkt „SEO“ (nur sichtbar, wenn Search Console oder Sistrix verbunden ist): bündelt die wirksamsten Hebel (schwache Klickraten, Inhaltslücken, Keyword-Potenzial, OnPage-Fehler) mit Kennzahlen. „Optimieren“ legt den fertigen Auftrag in einen neuen Chat; gesendet wird erst nach deiner Bestätigung, geschrieben erst nach deiner Freigabe.
+- Startseite: Karte „Sistrix-Sichtbarkeit“ mit Wert, Veränderung und Verlauf der letzten Wochen; neue Beispiel-Aufträge für Sistrix und Hersteller. Beispiele, Karte und Prüfungen zu Search Console und Sistrix erscheinen nur, wenn die jeweilige Anbindung verbunden ist.
+- Zwei neue Shop-Prüfungen: gesunkene Sistrix-Sichtbarkeit und OnPage-Fehler aus dem letzten Crawl (nur, wenn Sistrix verbunden ist).
+- Shopware: Hersteller lassen sich per Chat anlegen, bearbeiten (Name, Beschreibung, Webseite, Logo) und einzeln lesen, mit Alt-Neu-Vergleich, Freigabe und Rückgängig. Vorhandene Namen werden nicht doppelt angelegt, zwischenzeitliche Änderungen im Shop nicht überschrieben.
+- Shopware: Ein Landingpage-Layout lässt sich einer Kategorie zuweisen (`publish_page` mit `target=category`), insbesondere der Startseite eines Verkaufskanals (dessen Einstiegskategorie). Für „alle Kategorien“ gilt das bewusst nicht.
+
+### Geändert
+- Shopware: Nach dem Anwenden oder Rückgängigmachen einer Änderung, auch beim Veröffentlichen einer Seite, leert Lotse den Shop-Cache, damit sie sofort sichtbar ist. Schlägt das fehl (etwa wegen fehlender Berechtigung), bleibt die Änderung gültig und es steht ein Hinweis im Log; abschaltbar mit `LOTSE_CLEAR_CACHE=0`.
+- Shopware: Beim Veröffentlichen eines Layouts auf Kategorien wird der Kategorietyp beachtet. Strukturelemente und Links zeigen kein Layout und werden schon vor der Freigabe mit verständlicher Begründung abgelehnt.
+
+### Behoben
+- Shopware: Ein Landingpage-Entwurf wurde für die Startseite bzw. Kategorien abgelehnt („erwartet product_list“), obwohl Shopware es erlaubt; die Zuordnung musste im Shopware-Admin erfolgen.
+
 ## [0.5.0] – 2026-10-14
 
 ### Sicherheit
@@ -110,6 +127,7 @@ Jede Änderung bekommt einen eigenen Abschnitt mit neuer Versionsnummer (siehe [
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
+[0.6.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.3.2...v0.3.3

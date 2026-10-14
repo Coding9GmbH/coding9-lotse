@@ -5,6 +5,7 @@ import type { Feature } from './types';
 import { bilder } from './bilder';
 import { seo } from './seo';
 import { stammdaten } from './stammdaten';
+import { hersteller } from './hersteller';
 import { sprachen } from './sprachen';
 import { varianten } from './varianten';
 import { streams } from './streams';
@@ -13,12 +14,14 @@ import { shopcheck } from './shopcheck';
 import { recht } from './recht';
 import { importFeature } from './import';
 import { gsc } from './gsc';
+import { sistrix } from './sistrix';
 import { wissen } from './wissen';
 
 export const FEATURES: Feature[] = [
   bilder,
   seo,
   stammdaten,
+  hersteller,
   sprachen,
   varianten,
   streams,
@@ -27,5 +30,6 @@ export const FEATURES: Feature[] = [
   recht,
   importFeature,
   gsc,
+  sistrix,
   wissen,
 ];

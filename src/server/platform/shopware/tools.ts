@@ -39,9 +39,9 @@ export const SHOPWARE_TOOL_NAMES = ['list_sales_channels', 'search_categories', 
 export function shopwareTools(session: Session): AnyTool[] {
   const { sw } = session;
   return [
-    tool('list_sales_channels', 'Verkaufskanäle samt Domains (für Landingpage-URLs und Storefront-Links).', {}, guard(async () => {
+    tool('list_sales_channels', 'Verkaufskanäle samt Domains (für Landingpage-URLs und Storefront-Links) und Einstiegskategorie (navigationCategoryId = Startseite des Verkaufskanals).', {}, guard(async () => {
       const sc = await sw.salesChannels();
-      return ok(sc.map(s => ({ id: s.id, name: s.translated?.name ?? s.name, domains: s.domains?.map((d: SwEntity) => d.url) })));
+      return ok(sc.map(s => ({ id: s.id, name: s.translated?.name ?? s.name, domains: s.domains?.map((d: SwEntity) => d.url), navigationCategoryId: s.navigationCategoryId ?? null })));
     })),
 
     tool('search_categories', 'Kategorien suchen (Name) oder – ohne term – die obersten Kategorien listen. Liefert id, Name, Breadcrumb, Typ, aktuelle CMS-Seite, Kurzbeschreibung (max. 100 je Aufruf).',

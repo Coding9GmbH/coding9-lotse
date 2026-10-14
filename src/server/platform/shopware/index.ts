@@ -9,6 +9,7 @@ import { applyRuntime, shop, storefrontBase, storefrontFetch, themeCss } from '.
 import { getSettings, shopConfigured } from '../../settings';
 import { ReadOnlyShopware, type ShopReader } from '../../shopware';
 import type { PlatformAdapter } from '../types';
+import { clearShopCache } from './cache';
 import { shopwareLookup } from './lookup';
 import { shopwarePages } from './pages';
 import { SHOPWARE_TOOL_NAMES, shopwareTools } from './tools';
@@ -20,7 +21,7 @@ export const shopware: PlatformAdapter = {
   kind: 'shopware',
   label: 'Shopware',
   settings: PLATFORM_SETTINGS.shopware,
-  capabilities: { pageTypes: ['landingpage', 'product_list', 'product_detail'], publishTargets: ['category', 'product', 'landingpage'], blocks: 'all', pageFormat: 'cms', reuse: true },
+  capabilities: { pageTypes: ['landingpage', 'product_list', 'product_detail'], publishTargets: ['category', 'product', 'landingpage'], categoryPageTypes: ['product_list', 'landingpage'], blocks: 'all', pageFormat: 'cms', reuse: true },
   promptVars: { shop: 'Shopware-6-Shop', platform: 'Shopware', htmlElement: 'Shopware-HTML-Element', shopcheckTools: ' (seo_audit, find_image_gaps, get_product_details …)' },
   configured: () => shopConfigured('shopware'),
   reconfigure: applyRuntime,
@@ -52,8 +53,17 @@ export const shopware: PlatformAdapter = {
   loadChecks: async () => { await import('../../features'); },
   scanProducts: async r => (await import('./scan')).scanNeutral(r as ShopReader),
 
-  apply: (cs, payload, selected, ctx) => applyChangeSet(shop(), cs, payload, selected, ctx),
-  undo: ops => undoOps(shop(), ops),
+  // Nach erfolgreichem Schreiben (auch Rückgängig) den Shopware-Cache leeren, damit Veröffentlichungen und Änderungen sofort sichtbar sind
+  async apply(cs, payload, selected, ctx) {
+    const res = await applyChangeSet(shop(), cs, payload, selected, ctx);
+    if ((res.counts?.applied ?? res.results.filter(r => r.ok).length) > 0) await clearShopCache(shop(), `apply:${cs.kind}`);
+    return res;
+  },
+  async undo(ops) {
+    const res = await undoOps(shop(), ops);
+    if (res.some(r => r.ok)) await clearShopCache(shop(), 'undo');
+    return res;
+  },
   pages: shopwarePages,
 
   context: {

@@ -152,8 +152,8 @@ function coreTools(session: Session, p: PlatformAdapter): AnyTool[] {
       if (!spec) return fail('Kein Entwurf vorhanden: zuerst draft_page aufrufen.');
       const target = a.target as PublishTarget;
       if (!caps.publishTargets.includes(target)) return fail(`target=${String(a.target)} geht in ${p.label} nicht (möglich: ${caps.publishTargets.join(', ')}).`);
-      const need = PUBLISH_PAGE_TYPE[target];
-      if (spec.type !== need) return fail(`Entwurfstyp ${spec.type} passt nicht zu target=${a.target} (erwartet ${need}).`);
+      const need = PUBLISH_PAGE_TYPE[target], allowed = target === 'category' ? (caps.categoryPageTypes ?? [need]) : [need];
+      if (!allowed.includes(spec.type)) return fail(`Entwurfstyp ${spec.type} passt nicht zu target=${a.target} (erwartet ${allowed.join(' oder ')}).`);
       const { cs, payload } = await pages.buildPublish(session, spec, a);
       return ok(await session.requestChange(cs, payload));
     })),

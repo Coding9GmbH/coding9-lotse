@@ -22,7 +22,7 @@ type Cfg = { key: ServiceKey; property: string };
 const NOT_CONNECTED = 'Google Search Console ist nicht verbunden. Der Nutzer kann sie unter Einstellungen → Google Search Console einrichten (Service-Konto + Property).';
 const need = (): Cfg => { const c = getGscConfig(); if (!c) throw new Error(NOT_CONNECTED); return c; };
 const LAG_NOTE = `Search-Console-Daten sind ca. ${LAG_DAYS} Tage alt; der Zeitraum endet deshalb vor heute.`;
-const propose = (label: string): Record<string, string> => ({ product: 'propose_product_changes', category: 'propose_category_changes', landing: `Landingpage-Metas: im ${label}-Admin bzw. beim Neuveröffentlichen der Seite (publish_page)`, home: `Startseite: Metas des Verkaufskanals im ${label}-Admin` });
+export const propose = (label: string): Record<string, string> => ({ product: 'propose_product_changes', category: 'propose_category_changes', landing: `Landingpage-Metas: im ${label}-Admin bzw. beim Neuveröffentlichen der Seite (publish_page)`, home: `Startseite: Metas des Verkaufskanals im ${label}-Admin` });
 /** Lese-Seite: plattform-neutral (ShopLookup); ein Shopware-Lese-Client wird wie bisher akzeptiert */
 type Shop = ShopReader | ShopLookup;
 const KIND_OF: Record<string, LinkKind> = { product: 'product', category: 'category', 'landing-page': 'landing' };
@@ -95,7 +95,7 @@ export async function findOpportunities(cfg: Cfg, ro: Shop, a: { days?: number; 
   if (a.queries !== false) await pool(top, 3, async o => { queries.set(o.page, (await searchAnalyticsCached(cfg, { startDate: r.startDate, endDate: r.endDate, dimensions: ['query'], filters: [{ dimension: 'page', operator: 'equals', expression: o.page }], maxRows: 5 })).slice(0, 5)); });
   return { period: r, pagesChecked: rows.length, total: all.length, mapped: !!map, items: top.map(o => ({ o, ref: map?.get(o.page) ?? null, queries: queries.get(o.page) ?? [] })) };
 }
-const refView = (ref: PageRef | null) => (ref ? { kind: ref.kind, ...(ref.id ? { id: ref.id } : {}), name: ref.name, ...(ref.number ? { number: ref.number } : {}), ...(ref.active === false ? { active: false } : {}) } : null);
+export const refView = (ref: PageRef | null) => (ref ? { kind: ref.kind, ...(ref.id ? { id: ref.id } : {}), name: ref.name, ...(ref.number ? { number: ref.number } : {}), ...(ref.active === false ? { active: false } : {}) } : null);
 
 // ---- Shop-Check (nur, wenn verbunden) ----
 registerCheck({ id: 'gsc.low-ctr', area: 'Search Console', platforms: 'all', run: async (sw, ctx) => {

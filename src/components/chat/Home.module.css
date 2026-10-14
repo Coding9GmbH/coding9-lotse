@@ -35,3 +35,15 @@
 .recent button:hover { background: var(--panel); }
 .recent small { color: var(--mute); white-space: nowrap; }
 .tgProdukte { background: var(--ink); color: #fff; }
+
+/* Sistrix-Karte */
+.sx p { margin: 4px 0 0; }
+.sxHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.sxBody { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
+.sxValue { font: 600 26px var(--display); color: var(--ink); }
+.sxChange { font-weight: 600; }
+.sxChange small { font-weight: 400; color: var(--mute); }
+.sxUp { color: var(--green-d, #1c7a4d); }
+.sxDown { color: #b3261e; }
+.spark { align-self: center; color: var(--mute); }
+.sxDate { color: var(--mute); }

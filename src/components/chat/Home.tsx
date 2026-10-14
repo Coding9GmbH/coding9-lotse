@@ -6,6 +6,7 @@ import type { FixMap } from '@/lib/fixes';
 import type { ChatSummary, CheckFinding, Health } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
 import { ShopCheck } from './ShopCheck';
+import { SistrixCard } from './SistrixCard';
 import styles from './Home.module.css';
 
 export function HomeHead() {
@@ -72,9 +73,10 @@ export function HomeContent({ health, loadFailed = false, hasStyleguide, product
         </div>
       )}
       {ready && <ShopCheck onFix={onFix} fixes={fixes} onOpenChat={onOpenChat} onNewCheck={onExample} />}
+      {ready && health?.integrations?.sistrix && <SistrixCard onAsk={onExample} />}
       <h3 className={styles.exH}>{t.tryIt}</h3>
       <div className={styles.ex}>
-        {examples(product, category, locale).map(e => (
+        {examples(product, category, locale, { gsc: health?.integrations?.gsc, sistrix: health?.integrations?.sistrix, shopware: health?.platform?.kind === 'shopware' }).map(e => (
           <button key={e.title} type="button" onClick={() => onExample(e.text)}>
             <span className={`${styles.tg} ${styles[`tg${e.tag}`]}`}>{exampleTagLabel(e.tag, locale)}</span>
             <b>{e.title}</b>

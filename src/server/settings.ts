@@ -169,6 +169,7 @@ export function aiEnv(): Record<string, string> {
 export function redact(text: unknown): string {
   let t = String(text ?? ''); const g = getSettings();
   const shopSecrets = (['shopify', 'magento', 'openmage'] as const).flatMap(k => secretKeys(k).map(f => g[k][f]));
-  for (const v of [g.shopware.password, g.shopware.clientSecret, ...shopSecrets, g.ai.apiKey, g.image.openaiKey]) if (v && v.length > 3) t = t.split(v).join('•••');
+  const sistrixKey = unseal(kvGet<{ key?: string }>('sistrix')?.key);
+  for (const v of [g.shopware.password, g.shopware.clientSecret, ...shopSecrets, g.ai.apiKey, g.image.openaiKey, sistrixKey]) if (v && v.length > 3) t = t.split(v).join('•••');
   return t.replace(/Bearer\s+[A-Za-z0-9._~+/=-]{12,}/g, 'Bearer •••').replace(/sk-[A-Za-z0-9_-]{16,}/g, 'sk-•••');
 }

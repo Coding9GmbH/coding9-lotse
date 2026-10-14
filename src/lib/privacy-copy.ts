@@ -9,6 +9,7 @@ export const egressNotice = (locale: Locale = DEFAULT_LOCALE): string => message
 /** Suchbegriffe aus der Search Console gehen mit an die KI. Kein Zugangsdatum. */
 export const GSC_QUERY_NOTICE = messages(DEFAULT_LOCALE).lib.privacy.gscQuery;
 export const gscQueryNotice = (locale: Locale = DEFAULT_LOCALE): string => messages(locale).lib.privacy.gscQuery;
+export const sistrixDataNotice = (locale: Locale = DEFAULT_LOCALE): string => messages(locale).lib.privacy.sistrixData;
 
 /** Kurzfrage vor dem Entfernen eines Chats. Audit, Dateien und die Anbieter-Kopie bleiben. */
 export function chatDeleteQuestion(title: string, locale: Locale = DEFAULT_LOCALE): string {

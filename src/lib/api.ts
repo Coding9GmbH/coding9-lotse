@@ -2,7 +2,7 @@
 import type { FileAttachment } from './attachments';
 import type { CheckListItem } from './custom-checks';
 import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget } from './knowledge';
-import type { CodexLoginState, GscPublic, GscTestResult,
+import type { CodexLoginState, GscPublic, GscTestResult, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
   PublicSettings, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome,
 } from './protocol';
@@ -62,6 +62,12 @@ export const api = {
   saveGsc: (patch: { key?: string; property?: string }) => request<GscPublic>('/api/gsc', json('PUT', patch)),
   disconnectGsc: () => request<GscPublic>('/api/gsc', { method: 'DELETE' }),
   testGsc: () => request<GscTestResult>('/api/gsc/test', { method: 'POST' }),
+  sistrix: () => request<SistrixPublic>('/api/sistrix'),
+  saveSistrix: (patch: { key?: string; domain?: string; country?: string }) => request<SistrixPublic>('/api/sistrix', json('PUT', patch)),
+  disconnectSistrix: () => request<SistrixPublic>('/api/sistrix', { method: 'DELETE' }),
+  testSistrix: () => request<SistrixTestResult>('/api/sistrix/test', { method: 'POST' }),
+  sistrixOverview: () => request<SistrixOverview>('/api/sistrix/overview'),
+  seoOverview: () => request<SeoOverview>('/api/seo'),
   accessLog: () => request<AccessLogRow[]>('/api/access-log'),
   audit: () => request<AuditRow[]>('/api/audit'),
   shopCheck: () => request<ShopCheckState>('/api/shopcheck'),
