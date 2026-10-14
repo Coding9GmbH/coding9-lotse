@@ -5,7 +5,9 @@ import type { ChatEvent, ChatRequest } from '@/lib/protocol';
 import type { PageSpec } from './cms';
 import { parsePartial } from './partial-json';
 import { buildSystem } from './prompt';
-import { getSession, persist } from './sessions';
+import { getSession, noteUiLocale, persist, persistSoon } from './sessions';
+import { messages } from '@/lib/i18n';
+import { log } from './log';
 import { aiEnv, getSettings, redact } from './settings';
 import { allToolsFor, buildToolServer } from './tools';
 import { getPlatform } from './platform';
@@ -14,7 +16,9 @@ import { pingCodex, runCodex } from './agent-codex';
 import type { Session } from './sessions';
 import { errMsg } from './util';
 
+// Sofort speichern (Freigaben, Rückfragen, Entwürfe); alle übrigen Ereignisse des Verlaufs gebündelt (persistSoon), nur-live-Ereignisse gar nicht
 const PERSIST_ON = new Set(['draft', 'styleguide', 'approval', 'changeset', 'changeset_result', 'question']);
+const LIVE_ONLY = new Set(['draft_partial', 'start', 'changeset_progress']);
 
 /** Vorschau eines Werkzeugergebnisses: dieselbe Schwärzung wie bei Codex, höchstens 300 Zeichen. */
 export function previewToolResult(content: unknown): string {
@@ -25,7 +29,7 @@ export function previewToolResult(content: unknown): string {
 /** Ereignis in den Verlauf aufnehmen: nur-live-Ereignisse weglassen, Text zusammenfassen, von Entwürfen nur die letzte Vorschau (HTML) behalten. */
 export function recordEvent(events: ChatEvent[], ev: ChatEvent) {
   const last = events.at(-1);
-  if (ev.t === 'draft_partial' || ev.t === 'start' || ev.t === 'changeset_progress') return; // nur live
+  if (LIVE_ONLY.has(ev.t)) return; // nur live
   if (ev.t === 'text' && last?.t === 'text') { last.text += ev.text; return; }
   if (ev.t === 'draft') for (const e of events) if (e.t === 'draft') e.html = undefined; // Oberfläche nutzt ohnehin nur die aktuelle Vorschau
   events.push({ ...ev });
@@ -41,40 +45,54 @@ export function startChat({ chatId, message, target, onboarding, locale }: ChatR
   if (s.running) return { started: false, done: Promise.resolve() };
   const emit = (ev: ChatEvent) => {
     recordEvent(s.events, ev);
-    if (PERSIST_ON.has(ev.t)) persist(s);
+    if (PERSIST_ON.has(ev.t)) persist(s); else if (!LIVE_ONLY.has(ev.t)) persistSoon(s);
     for (const l of s.listeners) { try { l(ev); } catch { s.listeners.delete(l); } }
   };
   s.emit = emit;
   s.running = true;
-  if (locale) s.locale = locale;
+  if (locale) { s.locale = locale; noteUiLocale(locale); }
   const ac = new AbortController();
   s.abort = ac;
   if (target && !onboarding) s.target = target;
-  s.title ??= (onboarding ? 'Styleguide-Onboarding' : message).slice(0, 70);
+  s.title ??= (onboarding ? messages(s.locale).server.onboardingTitle : message).slice(0, 70);
   s.events.push({ t: 'user', text: message }); persist(s);
   emit({ t: 'start' });
 
   const hint = onboarding ? '[ONBOARDING] Erstelle jetzt den Styleguide dieses Shops: 1) get_brand_signals (sieht sich Startseite, Kategorie- und Produktseiten an: Farben, Schriften, Buttons, Blockfolgen, Komponenten), 2) bei Bedarf read_page für eine typische Landingpage/Magazinseite sowie get_category/get_product/search_media für Tonalität und Bildstil, 3) Rollen der Farben ableiten (primary = Buttons/Links; Kontrast prüfen), Ansprache (Du/Sie) aus echten Texten bestimmen, 4) save_styleguide mit vollständigem Ergebnis – inklusive components (wie Buttons, Überschriften, Karten, Abschnitte im Shop wirklich aussehen) und existingBlocks (welche Blöcke/Elemente der Shop auf seinen Seiten verwendet und wofür, damit neue Seiten dieselben übernehmen), 5) in 3–4 Sätzen zusammenfassen und nach Korrekturen fragen, 6) danach EINMAL per ask_user nach festen Vorgaben für Texte fragen (z. B. Mindestlänge von SEO-Texten, Wörter die nie vorkommen, Schreibweisen, Besonderheiten einzelner Kategorien); jede genannte Vorgabe mit add_rule speichern (Bereich passend, bei Kategorie-Bezug mit categoryId). Ohne Vorgaben nichts speichern.' : targetHint(target, getPlatform(s.platform).capabilities);
 
   const prompt = hint ? `${hint}\n${message}` : message;
+  const provider = getSettings().ai.provider, t0 = Date.now();
+  log.info('Chat-Runde gestartet', { chatId, provider, platform: s.platform, ...(onboarding ? { onboarding: true } : {}) });
   const done = (async () => {
     let end: RunEnd = { error: null };
     try {
-      end = getSettings().ai.provider === 'codex' ? await runCodex(s, prompt, ac.signal, emit) : await runClaude(s, prompt, ac, emit);
+      end = provider === 'codex' ? await runCodex(s, prompt, ac.signal, emit) : await runClaude(s, prompt, ac, emit);
     } catch (e) {
       end = { error: errMsg(e) };
     } finally {
       // `done` erst, wenn die Runde wirklich vorbei ist: Wer danach den Verlauf abruft, sieht den Chat nicht mehr als laufend
       s.running = false; s.abort = null;
-      emit({ t: 'done', error: end.error ?? (ac.signal.aborted ? 'Abgebrochen.' : null), ...(end.cost !== undefined ? { cost: end.cost } : {}) });
+      const error = end.error ?? (ac.signal.aborted ? messages(s.locale).server.runCancelled : null);
+      emit({ t: 'done', error, ...(end.cost !== undefined ? { cost: end.cost } : {}) });
       persist(s);
+      log[error ? 'warn' : 'info']('Chat-Runde beendet', { chatId, provider, ms: Date.now() - t0, ...(end.model ? { model: end.model } : {}), ...(end.usage ? { usage: end.usage } : {}),
+        ...(end.cost !== undefined ? { costUsd: end.cost } : {}), ...(ac.signal.aborted ? { aborted: true } : {}), ...(error ? { error } : {}) });
     }
   })();
   return { started: true, done };
 }
 
 /** Ergebnis einer Runde; das `done`-Ereignis sendet startChat nach dem Ende. */
-export interface RunEnd { error: string | null; cost?: number }
+export interface RunEnd { error: string | null; cost?: number; model?: string; usage?: RunUsage }
+/** Token-Verbrauch einer Runde (nur fürs Log) */
+export interface RunUsage { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; turns?: number }
+
+/** Modell(e) und Token-Summen aus modelUsage des SDK-Ergebnisses (alle Modellaufrufe der Runde, inkl. interner) */
+export function usageOf(modelUsage: Record<string, { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number }> | undefined, turns?: number): Pick<RunEnd, 'model' | 'usage'> {
+  const all = Object.entries(modelUsage ?? {}); if (!all.length) return turns ? { usage: { turns } } : {};
+  const sum = (k: 'inputTokens' | 'outputTokens' | 'cacheReadInputTokens' | 'cacheCreationInputTokens') => all.reduce((n, [, u]) => n + (u[k] || 0), 0);
+  return { model: all.map(([m]) => m).join(','), usage: { input: sum('inputTokens'), output: sum('outputTokens'), cacheRead: sum('cacheReadInputTokens'), cacheWrite: sum('cacheCreationInputTokens'), ...(turns ? { turns } : {}) } };
+}
 
 /** Claude Agent SDK: In-Process-MCP-Server „shop“, Teil-Entwürfe live aus dem Tool-Input-Stream. */
 async function runClaude(s: Session, prompt: string, ac: AbortController, emit: (ev: ChatEvent) => void): Promise<RunEnd> {
@@ -124,7 +142,7 @@ async function runClaude(s: Session, prompt: string, ac: AbortController, emit: 
           emit({ t: 'tool_result', id: b.tool_use_id, error: !!b.is_error, preview: previewToolResult(b.content) });
         }
       } else if (m.type === 'result') {
-        end = { error: m.is_error ? (('result' in m ? m.result : '') || m.subtype) : null, cost: m.total_cost_usd }; persist(s);
+        end = { error: m.is_error ? (('result' in m ? m.result : '') || m.subtype) : null, cost: m.total_cost_usd, ...usageOf(m.modelUsage, m.num_turns) }; persist(s);
       }
     }
   } catch (e) {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, errorText } from '@/lib/api';
 import { categoryPath, categoryRows, initialCollapsed, MAX_ROWS } from '@/lib/categories';
 import { catalogState } from '@/lib/load-state';
 import type { CategoryRow, ProductRow, Target, TargetKind } from '@/lib/protocol';
@@ -30,7 +30,7 @@ export function ContextPicker({ id, categories, categoryError = null, target, on
     const my = ++reqNo.current;
     const query = q;
     const t = setTimeout(() => {
-      api.products(query.trim()).then(l => { if (my === reqNo.current) setLoaded({ q: query, products: l, error: null }); }).catch(() => { if (my === reqNo.current) setLoaded({ q: query, products: [], error: 'nicht geladen' }); });
+      api.products(query.trim()).then(l => { if (my === reqNo.current) setLoaded({ q: query, products: l, error: null }); }).catch(e => { if (my === reqNo.current) setLoaded({ q: query, products: [], error: errorText(e) || 'error' }); }); // Kennzeichen + Ursache; angezeigt wird t.notLoaded
     }, query ? 250 : 0);
     return () => clearTimeout(t);
   }, [kind, q]);

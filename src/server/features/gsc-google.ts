@@ -74,7 +74,7 @@ export function signJwt(key: ServiceKey, aud: string, now = Math.floor(Date.now(
 const tokens = () => singleton('gsc-tokens', () => new Map<string, { token: string; exp: number }>());
 async function gfetch(url: string, init: RequestInit): Promise<Response> {
   // 429/5xx begrenzt wiederholen (max. 3 Versuche, Retry-After beachtet); alle Aufrufe sind lesend, der Body ist ein String
-  return fetchWithRetry(() => fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) })).catch((e: Error & { cause?: { code?: string } }) => {
+  return fetchWithRetry(() => fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) }), { label: 'gsc' }).catch((e: Error & { cause?: { code?: string } }) => {
     throw new Error(e.name === 'TimeoutError' ? 'Google antwortet nicht (Timeout)' : `Google nicht erreichbar: ${e.cause?.code || e.message}`);
   });
 }

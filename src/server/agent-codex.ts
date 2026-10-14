@@ -7,7 +7,8 @@ import type { PlatformKind } from '@/lib/platforms';
 import { buildSystem } from './prompt';
 import type { Locale } from '@/lib/i18n/locales';
 import { persist, type Session } from './sessions';
-import type { RunEnd } from './agent';
+import { messages } from '@/lib/i18n';
+import type { RunEnd, RunUsage } from './agent';
 import { getSettings, redact } from './settings';
 import { errMsg } from './util';
 
@@ -36,7 +37,7 @@ export function codexThreadOptions(workingDirectory: string, model?: string): Th
 const resultText = (item: Extract<ThreadItem, { type: 'mcp_tool_call' }>) =>
   item.error?.message ?? (item.result?.content ?? []).map(c => ('text' in c ? c.text : '')).join('');
 
-const CODEX_ABORT = 'Codex wollte ein gesperrtes Werkzeug verwenden (Befehl/Datei/Websuche). Die Runde wurde abgebrochen.';
+
 
 /** Ein Ereignis der Codex-Runde. Befehl, Dateiänderung und Websuche beenden die Runde. Neue SDK-Typen müssen hier eingeordnet werden. */
 export function onCodexItem(
@@ -44,6 +45,7 @@ export function onCodexItem(
   evType: 'item.started' | 'item.updated' | 'item.completed',
   state: { texts: Map<string, number>; tools: Set<string> },
   emit: (ev: ChatEvent) => void,
+  locale?: Locale,
 ): { abort?: string } {
   switch (item.type) {
     case 'agent_message': {
@@ -60,7 +62,7 @@ export function onCodexItem(
       return {};
     }
     case 'command_execution': case 'file_change': case 'web_search':
-      return { abort: CODEX_ABORT };
+      return { abort: messages(locale).server.codexBlockedTool };
     case 'reasoning': case 'todo_list': case 'error':
       return {};
     default: {
@@ -73,12 +75,14 @@ export function onCodexItem(
 /** Eine Chat-Runde mit Codex. Abbruch über `signal` (Client weg). Das MCP-Token gilt bis zum Ende, auch während einer Freigabe. */
 export async function runCodex(s: Session, prompt: string, signal: AbortSignal, emit: (ev: ChatEvent) => void): Promise<RunEnd> {
   return bindRoundToken(s.id, async () => {
-    if (!codexLoggedIn()) return { error: 'Codex ist nicht mit ChatGPT angemeldet (Einstellungen → KI verbinden).' };
+    const t = messages(s.locale).server;
+    if (!codexLoggedIn()) return { error: t.codexNotLoggedIn };
     const ac = new AbortController();
     if (signal.aborted) ac.abort(); else signal.addEventListener('abort', () => ac.abort(), { once: true });
     const texts = new Map<string, number>(); // agent_message-ID → bereits gesendete Zeichen
     const tools = new Set<string>();
-    let failed: string | null = null;
+    let failed: string | null = null, usage: RunUsage | undefined;
+    const model = getSettings().ai.codexModel || undefined;
     try {
       const { codex, opts } = client(s.id, s.platform, s.locale);
       const thread = s.codexThreadId ? codex.resumeThread(s.codexThreadId, opts) : codex.startThread(opts);
@@ -87,16 +91,16 @@ export async function runCodex(s: Session, prompt: string, signal: AbortSignal, 
         if (ev.type === 'thread.started') { s.codexThreadId = ev.thread_id; persist(s); continue; }
         if (ev.type === 'turn.failed') { failed = ev.error.message; continue; }
         if (ev.type === 'error') { failed = ev.message; continue; }
-        if (ev.type === 'turn.completed') continue;
+        if (ev.type === 'turn.completed') { const u = ev.usage; usage = { input: u.input_tokens, output: u.output_tokens, cacheRead: u.cached_input_tokens, cacheWrite: u.cache_write_input_tokens }; continue; }
         if (ev.type !== 'item.started' && ev.type !== 'item.updated' && ev.type !== 'item.completed') continue;
-        const stop = onCodexItem(ev.item, ev.type, { texts, tools }, emit);
+        const stop = onCodexItem(ev.item, ev.type, { texts, tools }, emit, s.locale);
         if (stop.abort) { failed = stop.abort; ac.abort(); }
       }
       persist(s);
-      return { error: failed };
+      return { error: failed, ...(model ? { model } : {}), ...(usage ? { usage } : {}) };
     } catch (e) {
       persist(s);
-      return { error: failed ?? (ac.signal.aborted ? 'Abgebrochen.' : redact(errMsg(e))) };
+      return { error: failed ?? (ac.signal.aborted ? t.runCancelled : redact(errMsg(e))) };
     }
   });
 }

@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import { Readable } from 'node:stream';
+import { log, urlForLog } from './log';
 import { createGuard, type Criteria, type Guard } from './policy';
 
 /** Shopware-JSON ist je Entität dynamisch – bewusst lose typisiert. */
@@ -22,12 +23,14 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function shopFetch(url: string, init: RequestInit = {}): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
     const r = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) }).catch((e: Error & { cause?: { code?: string } }) => {
+      log.warn('Shop nicht erreichbar', { shop: 'shopware', url: urlForLog(url), error: e.name === 'TimeoutError' ? 'timeout' : e.cause?.code || e.message });
       throw new Error(e.name === 'TimeoutError' ? `Shop antwortet nicht (Timeout nach ${TIMEOUT_MS / 1000}s)` : `Shop nicht erreichbar: ${e.cause?.code || e.message}`);
     });
     const retry = r.status === 429 || (r.status === 503 && (init.method ?? 'GET') === 'GET'); // Schreibzugriffe nur bei 429 (sicher nicht verarbeitet)
-    if (!retry || attempt >= 2) return r;
-    const ra = parseInt(r.headers.get('retry-after') ?? '', 10);
-    await sleep(Math.min(Number.isFinite(ra) ? ra * 1000 : 1000 * 2 ** attempt, 10_000));
+    if (!retry || attempt >= 2) { if (r.status >= 500 || r.status === 429) log.warn('Shop-Anfrage fehlgeschlagen', { shop: 'shopware', method: init.method ?? 'GET', url: urlForLog(url), status: r.status, attempts: attempt + 1 }); return r; }
+    const ra = parseInt(r.headers.get('retry-after') ?? '', 10), wait = Math.min(Number.isFinite(ra) ? ra * 1000 : 1000 * 2 ** attempt, 10_000);
+    log.info('Shop-Anfrage wird wiederholt', { shop: 'shopware', url: urlForLog(url), status: r.status, attempt: attempt + 1, waitMs: wait });
+    await sleep(wait);
   }
 }
 
