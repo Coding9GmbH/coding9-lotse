@@ -10,13 +10,15 @@ Lotse läuft standardmäßig nur auf deinem Rechner (`127.0.0.1`). Du kannst es 
 
 | Funktion | Verhalten |
 |---|---|
-| **Login** | `LOTSE_PASSWORD` gesetzt → jede Seite und jeder API-Aufruf verlangt HTTP Basic Auth. Der **Passwortwert** zählt, der Benutzername ist beliebig (z. B. `lotse`). Das Passwort wird zeitkonstant verglichen. |
-| **Hostname-Freigabe** | Nur `localhost`, `127.0.0.1` und `[::1]` (und nur von dort) sowie die Namen aus `ALLOWED_HOSTS` werden bedient. Alles andere antwortet `403 Host nicht erlaubt` (Schutz gegen DNS-Rebinding). |
+| **Login** | `LOTSE_PASSWORD` gesetzt → jede Seite und jeder API-Aufruf verlangt HTTP Basic Auth. Der **Passwortwert** zählt, der Benutzername ist beliebig (z. B. `lotse`). Das Passwort wird zeitkonstant verglichen (UTF-8, Umlaute gehen). |
+| **Login-Bremse** | Nach 10 falschen Passwörtern in 15 Minuten antwortet Lotse der Absender-Adresse 5 Minuten lang `429` (im Arbeitsspeicher, nach Neustart zurückgesetzt). Hinter einem lokalen Reverse-Proxy zählt der letzte Eintrag in `X-Forwarded-For`. |
+| **Hostname-Freigabe** | Nur `localhost`, `127.0.0.1` und `[::1]` (und nur von dort) sowie die Namen aus `ALLOWED_HOSTS` werden bedient. Alles andere antwortet `403 Host nicht erlaubt` (Schutz gegen DNS-Rebinding). „Von dort“ prüft Lotse an der echten Socket-Adresse, nicht nur an `X-Forwarded-For` (das kann ein Client selbst setzen). |
 | **Schutz vor fremden Seiten** | Schreibende Aufrufe brauchen die Kennung der Oberfläche (`x-lotse: 1`), und ein `Origin` muss zum `Host` passen (CSRF). |
 | **Gesundheitsabfrage** | `GET /api/ping` ist ohne Login erreichbar (liefert nur `{"ok":true,"version":…}`), z. B. für Docker-Healthcheck oder Monitoring. |
-| **Startwarnung** | Außerhalb von Docker meldet Lotse beim Start, wenn es auf einer offenen Adresse ohne `LOTSE_PASSWORD` lauscht. |
+| **Startwarnung** | Außerhalb von Docker meldet Lotse beim Start, wenn es auf einer offenen Adresse ohne `LOTSE_PASSWORD` lauscht. `ALLOWED_HOSTS` ohne `LOTSE_PASSWORD` meldet es immer, beim Start und als Hinweis in den Einstellungen. |
+| **Sicherheits-Header** | Oberfläche und API: `X-Frame-Options: DENY`, CSP `frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'`, `nosniff`, `Referrer-Policy: same-origin`. Die Shop-Vorschau (`/shop`) setzt ihre eigene Sandbox-CSP. |
 
-Was es **nicht** gibt: eigene Benutzerkonten oder Rollen (ein gemeinsames Passwort), eigenes TLS (dafür der Reverse-Proxy) und eine Sperre nach Fehlversuchen (Begrenzung am Proxy, siehe unten).
+Was es **nicht** gibt: eigene Benutzerkonten oder Rollen (ein gemeinsames Passwort), eigenes TLS (dafür der Reverse-Proxy) und eine dauerhafte Kontosperre (die Login-Bremse oben ist bewusst einfach; weitere Begrenzung am Proxy, siehe unten).
 
 ## Konfiguration
 
