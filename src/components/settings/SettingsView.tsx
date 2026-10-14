@@ -5,7 +5,7 @@ import { api, errorText } from '@/lib/api';
 import type { PublicSettings, ScopeKey, TestResult } from '@/lib/protocol';
 import { PLATFORM_KINDS, platformSettings, scopeDisplay, type PlatformField, type PlatformKind } from '@/lib/platforms';
 import { egressNotice } from '@/lib/privacy-copy';
-import { aiModels, authOf, autosaveDirty, autosavePatch, connectionTestBlock, fieldValue, formFromSettings, hasSecret, platformAvailable, platformPending, savedConfigured, secretState, withAuth, withFieldValue, withSecret, type SecretKey, type SettingsForm } from '@/lib/settings-form';
+import { aiModels, authOf, autosaveDirty, autosavePatch, connectionTestBlock, fieldValue, formFromSettings, hasSecret, platformAvailable, platformPending, savedConfigured, secretsDropped, secretState, withAuth, withFieldValue, withSecret, type SecretKey, type SettingsForm } from '@/lib/settings-form';
 import { useShell } from '@/components/shell/ShellProvider';
 import { Button } from '@/components/ui/Button';
 import { Segmented } from '@/components/ui/Segmented';
@@ -34,6 +34,7 @@ export function SettingsView() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [tests, setTests] = useState<Record<TestTarget, TestState>>({ shop: { running: false, result: null }, ai: { running: false, result: null } });
+  const [secretsReset, setSecretsReset] = useState<PlatformKind | null>(null); // Shop-Adresse auf anderen Server: Zugangsdaten verworfen
 
 
   useEffect(() => {
@@ -58,6 +59,7 @@ export function SettingsView() {
     try {
       const s = await api.saveSettings(autosavePatch(sent, base));
       setSaved(s);
+      if (secretsDropped(base, s, sent, sent.platform)) setSecretsReset(sent.platform);
       // Nur zurücksetzen, wenn seither nichts mehr eingegeben wurde; gewählte Plattform und KI bleiben (auch wenn sie noch nicht aktiv sind)
       setForm(cur => { if (cur !== sent) return cur; const next = formFromSettings(s); return { ...next, platform: sent.platform, ai: { ...next.ai, provider: sent.ai.provider } }; });
       setNotice({ ok: true, text: ts.saved });
@@ -123,13 +125,14 @@ export function SettingsView() {
             <LanguageSwitch className={styles.langSeg} />
           </section>
 
+          {saved?.openWithoutPassword && <div className={styles.alert} role="alert">{ts.openWithoutPassword}</div>}
           {loadError && <div className={styles.alert} role="alert">{ts.loadFailed(loadError)}</div>}
           {!form && !loadError && <p className={styles.lead}>{ts.loading}</p>}
 
           {form && saved && (
             <form ref={formRef} onSubmit={e => e.preventDefault()} onBlur={() => setKick(k => k + 1)} noValidate>
               {/* ---- Shop ---- */}
-              <ShopSection form={form} saved={saved} set={set} test={tests.shop} onTest={() => void test('shop')} saving={saving} dirty={dirty} pending={pending} />
+              <ShopSection form={form} saved={saved} set={set} test={tests.shop} onTest={() => void test('shop')} saving={saving} dirty={dirty} pending={pending} secretsReset={secretsReset === form.platform} />
 
               {/* ---- KI ---- */}
               <section id="ai" className={styles.card} aria-labelledby="ai-h">
@@ -217,7 +220,7 @@ export function SettingsView() {
 }
 
 /** Shop verbinden: Plattform wählen (Shopware / Shopify / Magento / OpenMage), dann deren Felder laut lib/platforms.ts. */
-function ShopSection({ form, saved, set, test, onTest, saving, dirty, pending }: { form: SettingsForm; saved: PublicSettings; set: (fn: (f: SettingsForm) => SettingsForm) => void; test: TestState; onTest: () => void; saving: boolean; dirty: boolean; pending: boolean }) {
+function ShopSection({ form, saved, set, test, onTest, saving, dirty, pending, secretsReset }: { form: SettingsForm; saved: PublicSettings; set: (fn: (f: SettingsForm) => SettingsForm) => void; test: TestState; onTest: () => void; saving: boolean; dirty: boolean; pending: boolean; secretsReset: boolean }) {
   const { t, locale } = useI18n();
   const ts = t.settings.shop;
   const kind = form.platform, d = platformSettings(kind, locale), available = platformAvailable(saved, kind);
@@ -243,6 +246,7 @@ function ShopSection({ form, saved, set, test, onTest, saving, dirty, pending }:
         options={PLATFORM_KINDS.map(k => { const p = platformSettings(k, locale); return { value: k, label: p.label, title: p.product }; })} />
       {pending && <p className={styles.info}>{ts.pending(d.label, platformSettings(saved.platform ?? 'shopware', locale).label)}</p>}
       {!available && <p className={styles.info}>{ts.coming(d.label)}</p>}
+      {secretsReset && !savedConfigured(saved, kind) && <p className={styles.info} role="status">{ts.secretsReset}</p>}
       <div className={styles.grid}>{d.fields.map(input)}</div>
 
       {d.auth.length > 1 && (

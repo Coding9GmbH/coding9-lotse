@@ -104,7 +104,7 @@ test('recheckShopCheck: Shop nicht eingerichtet → nichts', async () => {
   updateSettings({ shopware: { url: '' } });
   await recheckShopCheck(reader);
   assert.equal(calls, 0);
-  updateSettings({ shopware: { url: 'http://127.0.0.1:9' } });
+  updateSettings({ shopware: { url: 'http://127.0.0.1:9', password: PASSWORD } }); // URL leer → andere Herkunft: das Passwort ist verworfen
 });
 
 test('freigegebene Änderung angewendet → Shop-Check prüft über den onApplied-Hook neu (echte Verdrahtung)', async () => {

@@ -6,6 +6,7 @@ export const de = {
   lead: 'Änderungen werden automatisch gespeichert. Zugangsdaten werden verschlüsselt lokal gespeichert und nie an die KI weitergegeben. Gespeicherte Schlüssel werden hier nicht angezeigt.',
   loadFailed: (e: string) => `Einstellungen konnten nicht geladen werden: ${e}`,
   loading: 'Lade …',
+  openWithoutPassword: 'Achtung: Lotse ist über ALLOWED_HOSTS von außen erreichbar, aber LOTSE_PASSWORD ist nicht gesetzt. Jeder, der diese Adresse erreicht, kann Änderungen am Shop freigeben. Setze LOTSE_PASSWORD und starte Lotse neu.',
   saved: 'Gespeichert',
   notSaved: (e: string) => `Nicht gespeichert: ${e}`,
   saving: 'Speichert …',
@@ -36,6 +37,7 @@ export const de = {
     access: 'Zugang',
     accessKind: 'Art des Zugangs',
     incomplete: 'Erst die Zugangsdaten vollständig eingeben.',
+    secretsReset: 'Die Shop-Adresse zeigt auf einen anderen Server. Die gespeicherten Zugangsdaten wurden deshalb verworfen – bitte neu eingeben.',
   },
   ai: {
     heading: 'KI verbinden',
@@ -140,6 +142,7 @@ export const en: typeof de = {
   lead: 'Changes are saved automatically. Credentials are stored encrypted on this machine and never passed to the AI. Saved keys are not shown here.',
   loadFailed: (e: string) => `Settings could not be loaded: ${e}`,
   loading: 'Loading…',
+  openWithoutPassword: 'Warning: Lotse is reachable from outside via ALLOWED_HOSTS, but LOTSE_PASSWORD is not set. Anyone who can reach this address can approve changes to the shop. Set LOTSE_PASSWORD and restart Lotse.',
   saved: 'Saved',
   notSaved: (e: string) => `Not saved: ${e}`,
   saving: 'Saving…',
@@ -170,6 +173,7 @@ export const en: typeof de = {
     access: 'Access',
     accessKind: 'Type of access',
     incomplete: 'Enter the complete credentials first.',
+    secretsReset: 'The shop address points to a different server, so the stored credentials were discarded. Please enter them again.',
   },
   ai: {
     heading: 'Connect AI',

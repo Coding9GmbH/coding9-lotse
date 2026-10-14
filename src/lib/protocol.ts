@@ -147,6 +147,8 @@ export interface PublicSettings {
   image: { hasKey: boolean; model: string };
   scopes: Record<ScopeKey, boolean>;
   scopeInfo: Record<ScopeKey, ScopeInfo>;
+  /** ALLOWED_HOSTS gesetzt, LOTSE_PASSWORD nicht: von außen erreichbar ohne Login */
+  openWithoutPassword?: boolean;
 }
 /** Änderungen an den Einstellungen. Geheimnis: undefined/'' = unverändert, null = löschen. */
 /** Felder einer Plattform laut Beschreibung (lib/platforms.ts); Geheimnis: undefined/'' = unverändert, null = löschen */

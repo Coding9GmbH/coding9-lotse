@@ -10,13 +10,15 @@ By default, Lotse only runs on your own machine (`127.0.0.1`). You can also run 
 
 | Feature | Behavior |
 |---|---|
-| **Login** | `LOTSE_PASSWORD` set → every page and every API call requires HTTP Basic Auth. Only the **password value** counts; the user name is arbitrary (e.g. `lotse`). The password is compared in constant time. |
-| **Host name allowlist** | Only `localhost`, `127.0.0.1` and `[::1]` (and only from there) plus the names from `ALLOWED_HOSTS` are served. Everything else responds with `403 Host nicht erlaubt` (“host not allowed”; protection against DNS rebinding). |
+| **Login** | `LOTSE_PASSWORD` set → every page and every API call requires HTTP Basic Auth. Only the **password value** counts; the user name is arbitrary (e.g. `lotse`). The password is compared in constant time (UTF-8, non-ASCII characters work). |
+| **Login throttle** | After 10 wrong passwords within 15 minutes Lotse answers that source address with `429` for 5 minutes (in memory, reset on restart). Behind a local reverse proxy the last entry in `X-Forwarded-For` counts. |
+| **Host name allowlist** | Only `localhost`, `127.0.0.1` and `[::1]` (and only from there) plus the names from `ALLOWED_HOSTS` are served. Everything else responds with `403 Host nicht erlaubt` (“host not allowed”; protection against DNS rebinding). “From there” is checked against the real socket address, not only `X-Forwarded-For` (a client can set that itself). |
 | **Protection against foreign sites** | Write calls require the interface marker (`x-lotse: 1`), and an `Origin` must match the `Host` (CSRF). |
 | **Health check** | `GET /api/ping` is reachable without login (returns only `{"ok":true,"version":…}`), e.g. for a Docker health check or monitoring. |
-| **Startup warning** | Outside Docker, Lotse warns at startup if it listens on an open address without `LOTSE_PASSWORD`. |
+| **Startup warning** | Outside Docker, Lotse warns at startup if it listens on an open address without `LOTSE_PASSWORD`. `ALLOWED_HOSTS` without `LOTSE_PASSWORD` is always reported, at startup and as a notice in the settings. |
+| **Security headers** | UI and API: `X-Frame-Options: DENY`, CSP `frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'`, `nosniff`, `Referrer-Policy: same-origin`. The shop preview (`/shop`) sets its own sandbox CSP. |
 
-What it does **not** have: individual user accounts or roles (one shared password), its own TLS (use the reverse proxy for that) and a lockout after failed attempts (rate-limit at the proxy, see below).
+What it does **not** have: individual user accounts or roles (one shared password), its own TLS (use the reverse proxy for that) and a permanent account lockout (the login throttle above is deliberately simple; further limits at the proxy, see below).
 
 ## Configuration
 

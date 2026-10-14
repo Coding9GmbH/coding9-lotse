@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { PublicSettings } from '../../src/lib/protocol';
-import { buildPatch, connectionTestBlock, formFromSettings, gscKeyComplete, isDirty } from '../../src/lib/settings-form';
+import { buildPatch, connectionTestBlock, formFromSettings, gscKeyComplete, isDirty, secretsDropped } from '../../src/lib/settings-form';
 
 const saved: PublicSettings = {
   shopware: { url: 'https://shop.test', publicUrl: '', user: '', clientId: 'SWIA1', hasPassword: false, hasClientSecret: true, configured: true },
@@ -58,4 +58,14 @@ test('Search-Console-Schlüssel: automatisch gespeichert wird erst ein vollstän
   assert.equal(gscKeyComplete(JSON.stringify({ client_email: 'x@y' })), false, 'ohne privaten Schlüssel');
   assert.equal(gscKeyComplete(JSON.stringify({ private_key: 'k', client_email: '' })), false, 'leere E-Mail');
   assert.equal(gscKeyComplete(JSON.stringify({ private_key: 1, client_email: 'x@y' })), false);
+});
+
+test('secretsDropped: Hinweis nur, wenn der Server Geheimnisse verworfen hat, die das Formular nicht entfernen wollte', () => {
+  const f = formFromSettings(saved);
+  const after: PublicSettings = { ...saved, shopware: { ...saved.shopware, url: 'https://anderer.test', hasClientSecret: false, configured: false } };
+  assert.equal(secretsDropped(saved, after, f, 'shopware'), true, 'Adresse auf anderen Server');
+  assert.equal(secretsDropped(saved, saved, f, 'shopware'), false);
+  const removed = { ...f, secrets: { ...f.secrets, clientSecret: { value: '', remove: true } } };
+  assert.equal(secretsDropped(saved, after, removed, 'shopware'), false, 'selbst entfernt: kein Hinweis');
+  assert.equal(secretsDropped(saved, after, f, 'magento'), false, 'andere Plattform');
 });
