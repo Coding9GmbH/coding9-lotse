@@ -27,17 +27,17 @@ The UI is available in German and English.
 ## Pull requests
 - Small, focused changes; one topic per PR.
 - Add or update tests; `npm run check` must be green.
-- Every PR adds its changes under `## [Unreleased]` in [`CHANGELOG.md`](CHANGELOG.md); the version is only bumped on release, see [Versions & changelog](#versions--changelog). CI checks this (`release-check`).
+- Code comments and identifiers (functions, variables, types, files) in English; UI texts stay German and English via i18n, see "Translations".
+- Reuse the shared building blocks (see [architecture, section 11](docs/en/architecture.md#11-extending)) instead of writing new helpers.
+- Regular PRs leave `CHANGELOG.md` and the version untouched; both are only written on release, see [Versions & changelog](#versions--changelog). CI checks release PRs (`release-check`).
 - The security boundaries stay in place: the AI only reads (`ReadOnly…` clients), and writing happens exclusively in the executor after approval. Changes that weaken this need a thorough justification.
 - By contributing, you agree that your contribution is published under the [MIT license](LICENSE).
 
 ## Versions & changelog
-Changes collect under `## [Unreleased]` until an actual release.
-- **Every PR**: add the matching headings (`### Sicherheit`, `### Hinzugefügt`, `### Geändert`, `### Behoben`, `### Entfernt`) with one sentence per change from the user's point of view under `## [Unreleased]` at the top of [`CHANGELOG.md`](CHANGELOG.md) (the changelog is kept in German). The compare link at the bottom is `[Unreleased]: https://github.com/Coding9GmbH/coding9-lotse/compare/v<current>...HEAD`. The version in `package.json` stays unchanged.
-- **Release**: follow the steps below, turning `[Unreleased]` into the new version section.
+`CHANGELOG.md` and the version in `package.json` are only touched when a new tagged version is published. Regular PRs change neither; on release, the changes are collected from the Git history since the last tag.
 
 1. **Bump the version** following [SemVer](https://semver.org/): `npm version patch --no-git-tag-version` for fixes, `minor` for new features or behaviour changes, `major` for breaking changes (e.g. configuration that must be changed by hand). This updates `package.json` and `package-lock.json`.
-2. **Write the changelog**: rename `## [Unreleased]` to (or add) `## [x.y.z] – YYYY-MM-DD` at the top of [`CHANGELOG.md`](CHANGELOG.md), with the matching headings (`### Sicherheit`, `### Hinzugefügt`, `### Geändert`, `### Behoben`, `### Entfernt`) and one sentence per change from the user's point of view – what is different and what they may need to do (new environment variable, migration, changed behaviour). Add the compare link `[x.y.z]: https://github.com/Coding9GmbH/coding9-lotse/compare/v<previous>...v<x.y.z>` at the bottom.
-3. Check: `node .github/scripts/check-release.mjs origin/main`.
+2. **Write the changelog** (kept in German): add `## [x.y.z] – YYYY-MM-DD` at the top of [`CHANGELOG.md`](CHANGELOG.md) (rename a remaining `## [Unreleased]` section), with the matching headings (`### Sicherheit`, `### Hinzugefügt`, `### Geändert`, `### Behoben`, `### Entfernt`) and one sentence per change from the user's point of view: what is different and what they may need to do (new environment variable, migration, changed behaviour). Add the compare link `[x.y.z]: https://github.com/Coding9GmbH/coding9-lotse/compare/v<previous>...v<x.y.z>` at the bottom.
+3. Check: `node .github/scripts/check-release.mjs origin/main`. After merging, set the tag `vx.y.z`; the Docker workflow then publishes the image automatically.
 
-On a release: if `main` has moved on and already used the same version, take the next number after merging. Dependency-only updates from Dependabot are exempt; they go into the changelog with the next version.
+On a release: if `main` has moved on and already used the same version, take the next number after merging. Dependency-only updates from Dependabot go into the changelog with the next version.
