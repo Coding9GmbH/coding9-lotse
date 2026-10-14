@@ -103,6 +103,11 @@ The proxy then points to `http://lotse:3333`. The same notes as above apply (`Ho
 
 - **Data** lives in the Docker volume `lotse-data` (`/data`): database (chats, audit log), knowledge base, style guide, rules, custom checks, encrypted credentials **and `secret.key`**. Without `secret.key`, stored credentials are useless: always back up the whole volume.
   `make backup` writes an archive to `./backups`, `make restore FILE=backups/lotse-….tgz` restores it (briefly stopping Lotse).
+  The database runs in WAL mode; simply copying its files while Lotse runs can capture a half-written state. So while Lotse is running, `make backup` first creates a consistent snapshot with `VACUUM INTO` (`docker/db-snapshot.mjs`, inside the container at `/data/.backup/`, removed afterwards) and archives it as `aicb.db` together with all other files (`secret.key`, knowledge, Claude sessions …). If Lotse is stopped, the database is backed up directly. Older archives can still be restored.
+  Your own backup without `make`: `docker compose exec -T lotse node --input-type=module - < docker/db-snapshot.mjs`, then back up `/data` without `aicb.db`, `aicb.db-wal` and `aicb.db-shm` and add `/data/.backup/aicb.db` as `aicb.db`.
+- **Log retention:** the access log is pruned after `LOTSE_LOG_RETENTION_DAYS` days (default 180), the change log after `LOTSE_AUDIT_RETENTION_DAYS` days (default 365, at least 30). `0` = never prune. Pruning runs at startup and then at most once a day. "Undo" is not affected: the previous values are stored in the chat, not in the log.
+- **Who approved?** With `LOTSE_PASSWORD`, the change log records the user name entered at login (apply and undo). For teams: give each person their own user name (the password stays the same).
+- **File permissions:** the database (incl. `-wal`/`-shm`) and `secret.key` are created with mode `600`, also outside Docker.
 - **Update:** `git pull && make up` (from source) or `make update` (official image `ghcr.io/coding9gmbh/lotse`).
 - **Several people** share one instance and therefore the same chats, rules and style guide. For separate shops, run one instance per shop (own volume, own host name).
 

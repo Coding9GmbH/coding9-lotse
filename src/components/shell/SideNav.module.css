@@ -184,3 +184,8 @@
 @keyframes navSpin { to { transform: rotate(360deg); } }
 @keyframes navPulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .state.running, .pipLive { animation: none; } }
+
+/* Ältere Chats nachladen (Verlauf kommt seitenweise) */
+.more { display: block; width: 100%; margin: 6px 0 10px; padding: 6px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--fg-3); font: inherit; font-size: 12.5px; cursor: pointer; transition: background .12s, color .12s; }
+.more:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
+.more:disabled { cursor: progress; }

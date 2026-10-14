@@ -93,6 +93,7 @@ Language (German/English) is not a variable: it is chosen in Settings or the sid
 | `LOTSE_PASSWORD`, `ALLOWED_HOSTS` | Access protection for server operation ([self-hosting](docs/self-hosting.md)) |
 | `LOTSE_BIND`, `LOTSE_PORT` | Published address and port of the container (default `127.0.0.1`, `3333`) |
 | `LOTSE_WRITE_CONCURRENCY`, `LOTSE_SHOP_TIMEOUT_MS` | Sparing the shop |
+| `LOTSE_LOG_RETENTION_DAYS`, `LOTSE_AUDIT_RETENTION_DAYS` | Retention of the access log (default 180 days) and change log (365 days); `0` = never prune |
 | `OPENAI_API_KEY`, `IMAGE_MODEL` | optional image AI |
 
 ## Releases & image
