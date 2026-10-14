@@ -24,6 +24,7 @@
 .cardHead h2 { font-size: 18px; margin: 0; display: inline-flex; align-items: baseline; gap: 8px; }
 .count { font: 600 12px var(--body); color: var(--mute); background: var(--sand); border-radius: 99px; padding: 1px 8px; font-variant-numeric: tabular-nums; }
 .hint { color: var(--mute); font-size: 13px; }
+.checked { color: var(--mute); font-size: 12.5px; margin: 0 0 4px; }
 
 /* OnPage-Status */
 .crawl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; background: var(--bg); border-radius: 8px; padding: 8px 12px; margin: 6px 0 4px; font-size: 13px; }

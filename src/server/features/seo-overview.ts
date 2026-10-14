@@ -8,6 +8,8 @@ import { clearGscCache, getGscConfig, searchAnalyticsCached } from './gsc-google
 import { findOpportunities, rankingInsights } from './gsc';
 import { addressParam, clearSistrixCache, getSistrixConfig, rowsOf, sistrixCached, type Row, type SistrixConfig } from './sistrix-api';
 import { pickProject } from './sistrix';
+import { siteAudit, type SiteAudit } from './site-audit';
+import type { Fetcher } from '../styleguide';
 import { getSettings } from '../settings';
 import { kvGet, kvSet } from '../db';
 import { singleton } from '../state';
@@ -155,6 +157,15 @@ async function onpageItems(cfg: SistrixConfig, ttl: number): Promise<{ items: Se
   return { items, onpage: { status: 'ok', project: pr, projects, lastCrawl } };
 }
 
+/** Technik-Check der Live-Seiten als Hebel (Gruppe Technik); Gewichtung wie OnPage: hoch vor mittel vor niedrig */
+export function siteItems(a: SiteAudit): SeoItem[] {
+  const W = { hoch: 20_000, mittel: 5_000, niedrig: 0 } as const, SEV = { hoch: 'Fehler', mittel: 'Warnung', niedrig: 'Hinweis' } as const;
+  return a.findings.map(f => ({
+    id: `site:${f.id.replace(/^site:/, '')}`, source: 'site' as const, kind: 'site' as const, impact: W[f.severity] + f.urls.length,
+    title: f.title, detail: f.detail, metrics: [{ label: SEV[f.severity], value: f.urls.length === 1 ? '1 Adresse' : `${f.urls.length} Adressen` }], prompt: f.fix,
+  }));
+}
+
 // ---- Zwischenspeicher und Markierungen ----
 // Das Ergebnis liegt dauerhaft in der DB: Aufrufe des SEO-Bereichs kosten keine Credits. Neu geholt wird per „Aktualisieren“,
 // nach einem Tag oder wenn sich die Anbindung ändert. Markierungen (erledigt/ignoriert) überleben das Neuholen.
@@ -176,7 +187,7 @@ export function reconcileMarks(o: SeoOverview, marks: Marks, now = Date.now()): 
   const failed = new Set(o.errors.map(e => e.source)), present = new Map(o.items.map(i => [i.id, i]));
   const out: Marks = {};
   for (const [id, m] of Object.entries(marks)) {
-    const src = id.split(':')[0] as 'gsc' | 'sistrix', item = present.get(id);
+    const src = id.split(':')[0] as 'gsc' | 'sistrix' | 'site', item = present.get(id);
     if (!item) { if (failed.has(src) || !o[src]) out[id] = m; continue; } // Quelle fehlte: Markierung behalten
     if (m.state === 'done' && now - Date.parse(m.at) >= SEO_DONE_RECHECK_DAYS * DAY) continue;
     out[id] = m;
@@ -199,14 +210,15 @@ export function seoOverviewStored(): SeoOverview | null {
 }
 
 /** Gespeicherten Stand liefern oder neu holen (refresh = an allen Zwischenspeichern vorbei). Gleichzeitige Abrufe teilen sich eine Abholung. */
-export async function seoOverviewCached(lookup: ShopLookup, refresh = false): Promise<SeoOverview> {
+export type SiteSource = { storefront: { base(): Promise<string>; fetch: Fetcher }; label: string };
+export async function seoOverviewCached(lookup: ShopLookup, refresh = false, site?: SiteSource): Promise<SeoOverview> {
   const fp = fingerprint(), st = kvGet<Stored>(STORE);
   if (!refresh && st?.fp === fp && Date.now() - Date.parse(st.overview.generatedAt) < MAX_AGE) return { ...withMarks(st.overview, getMarks()), cached: true };
   const inflight = singleton('seo-inflight', () => ({ p: null as Promise<SeoOverview> | null }));
   inflight.p ??= (async () => {
     try {
       if (refresh) { clearSistrixCache(); clearGscCache(); }
-      const o = await seoOverview(lookup, refresh);
+      const o = await seoOverview(lookup, refresh, site);
       if (!o.errors.length) kvSet(STORE, { fp, overview: o } satisfies Stored); // mit Fehlern nicht speichern: der nächste Aufruf versucht es erneut
       const m = reconcileMarks(o, getMarks()); kvSet(MARKS, m);
       return withMarks(o, m);
@@ -216,16 +228,19 @@ export async function seoOverviewCached(lookup: ShopLookup, refresh = false): Pr
 }
 
 /** Alle Hebel, je Quelle nach Wirkung sortiert; ein Ausfall einer Quelle blockiert die andere nicht */
-export async function seoOverview(lookup: ShopLookup, fresh = false): Promise<SeoOverview> {
+export async function seoOverview(lookup: ShopLookup, fresh = false, site?: SiteSource): Promise<SeoOverview> {
   const sc = getSettings().scopes; // KI-Zugriff aus = Lotse zeigt und sendet nichts aus dieser Quelle
   const gsc = !!getGscConfig() && sc.gsc !== false, sistrix = !!getSistrixConfig()?.domain && sc.sistrix !== false;
   const errors: SeoOverview['errors'] = [];
   const ttl = fresh ? 0 : HOURS6;
   let onpage: SeoOnpage | undefined;
-  const [g, s] = await Promise.all([
-    gsc ? gscItems(lookup).catch(e => { errors.push({ source: 'gsc', error: e instanceof Error ? e.message : String(e) }); return [] as SeoItem[]; }) : [],
-    sistrix ? sistrixItems(lookup, ttl).then(r => { onpage = r.onpage; return r.items; }).catch(e => { errors.push({ source: 'sistrix', error: e instanceof Error ? e.message : String(e) }); return [] as SeoItem[]; }) : [],
+  let checked: SeoOverview['siteChecked'];
+  const fail = (source: SeoOverview['errors'][number]['source']) => (e: unknown) => { errors.push({ source, error: e instanceof Error ? e.message : String(e) }); return [] as SeoItem[]; };
+  const [g, s, w] = await Promise.all([
+    gsc ? gscItems(lookup).catch(fail('gsc')) : [],
+    sistrix ? sistrixItems(lookup, ttl).then(r => { onpage = r.onpage; return r.items; }).catch(fail('sistrix')) : [],
+    site ? siteAudit(site.storefront, lookup, site.label).then(a => { checked = { base: a.base, pages: a.pages.map(p => ({ kind: p.kind, url: p.url })) }; return siteItems(a); }).catch(fail('site')) : [],
   ]);
   const byImpact = (a: SeoItem, b: SeoItem) => b.impact - a.impact;
-  return { gsc, sistrix, items: [...g.sort(byImpact), ...s.sort(byImpact)], errors, generatedAt: new Date().toISOString(), ...(onpage ? { onpage } : {}) };
+  return { gsc, sistrix, ...(site ? { site: true } : {}), items: [...w.sort(byImpact), ...g.sort(byImpact), ...s.sort(byImpact)], errors, generatedAt: new Date().toISOString(), ...(onpage ? { onpage } : {}), ...(checked ? { siteChecked: checked } : {}) };
 }

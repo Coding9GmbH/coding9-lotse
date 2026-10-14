@@ -12,7 +12,7 @@ import own from './SeoCard.module.css';
 
 const TOP = 3;
 /** Dringlichkeit: echte Verluste, dann technische Fehler, eigene Seiten im Wettbewerb, kurz vor Seite 1, übrige Hebel, zuletzt Warnungen */
-const rank = (i: SeoItem) => (i.kind === 'decline' ? 0 : i.kind === 'onpage' ? (i.impact >= 10_000 ? 1 : 5) : i.kind === 'cannibal' ? 2 : i.kind === 'striking' ? 3 : 4);
+const rank = (i: SeoItem) => (i.kind === 'decline' ? 0 : i.kind === 'site' ? (i.impact >= 20_000 ? 1 : i.impact >= 5_000 ? 4 : 5) : i.kind === 'onpage' ? (i.impact >= 10_000 ? 1 : 5) : i.kind === 'cannibal' ? 2 : i.kind === 'striking' ? 3 : 4);
 
 export interface FixTask { id: string; title: string; prompt: string }
 
@@ -32,7 +32,7 @@ export function SeoCard({ onTask, fixes, onOpenChat }: { onTask: (t: FixTask) =>
     const fix = fixes[i.id];
     return (
       <div key={i.id} className={`${styles.row} ${own.row}`}>
-        <span className={`${styles.sev} ${styles[(i.kind === 'onpage' && i.impact >= 10_000) || i.kind === 'decline' ? 'hoch' : i.kind === 'onpage' ? 'mittel' : 'niedrig']}`}>{t.kinds[i.kind]}</span>
+        <span className={`${styles.sev} ${styles[rank(i) <= 1 ? 'hoch' : i.kind === 'onpage' || (i.kind === 'site' && rank(i) === 4) ? 'mittel' : 'niedrig']}`}>{t.kinds[i.kind]}</span>
         <div className={styles.body}>
           <div className={styles.line}><b>{i.title}</b></div>
           <p className={styles.hint}>{i.detail}</p>

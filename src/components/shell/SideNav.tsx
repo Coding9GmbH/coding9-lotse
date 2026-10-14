@@ -119,7 +119,7 @@ export function SideNav() {
             ) : s.styleguide === null && <span className={styles.hint}>{t.styleguideCreate}</span>)}
           </button>
         </li>
-        {ready && (s.health?.integrations?.gsc || s.health?.integrations?.sistrix) && (
+        {ready && ( // immer: der Technik-Check der Shop-Seiten braucht keine Anbindung
           <li>
             <Link href="/seo" className={styles.item} aria-current={path === '/seo' ? 'page' : undefined} onClick={close} aria-label={tip(t.seo)} data-tip={tip(t.seo)}>
               <IconTarget size={18} /><span className={styles.label}>{t.seo}</span>

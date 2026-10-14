@@ -76,7 +76,7 @@ export function HomeContent({ health, loadFailed = false, hasStyleguide, product
         </div>
       )}
       {ready && <ShopCheck onFix={onFix} fixes={fixes} onOpenChat={onOpenChat} onNewCheck={onExample} />}
-      {ready && (health?.integrations?.gsc || health?.integrations?.sistrix) && <SeoCard onTask={onTask} fixes={fixes} onOpenChat={onOpenChat} />}
+      {ready && <SeoCard onTask={onTask} fixes={fixes} onOpenChat={onOpenChat} />}
       {ready && health?.integrations?.sistrix && <SistrixCard onAsk={onExample} />}
       <h3 className={styles.exH}>{t.tryIt}</h3>
       <div className={styles.ex}>

@@ -12,6 +12,6 @@ export async function GET(req: Request) {
     if (q.get('stored') === '1') return Response.json(seoOverviewStored());
     const p = activePlatform();
     if (!p.configured()) return Response.json({ gsc: false, sistrix: false, items: [], errors: [], generatedAt: new Date().toISOString() });
-    return Response.json(await seoOverviewCached(p.openSession('seo').lookup, q.get('refresh') === '1'));
+    return Response.json(await seoOverviewCached(p.openSession('seo').lookup, q.get('refresh') === '1', { storefront: p.storefront, label: p.label }));
   } catch (e) { return jsonError(500, errMsg(e)); }
 }

@@ -21,7 +21,7 @@ interface Row { id: string; kind: string; title: string; detail: string; metrics
 
 const fromItem = (i: SeoItem, kinds: Record<SeoItem['kind'], string>): Row => ({
   id: i.id, kind: kinds[i.kind], title: i.title, detail: i.detail, metrics: i.metrics, prompt: i.prompt, mark: i.mark, markable: true,
-  sev: i.kind === 'onpage' ? (i.impact >= 10_000 ? 'hoch' : 'mittel') : i.kind === 'decline' ? 'hoch' : undefined,
+  sev: i.kind === 'site' ? (i.impact >= 20_000 ? 'hoch' : i.impact >= 5_000 ? 'mittel' : 'niedrig') : i.kind === 'onpage' ? (i.impact >= 10_000 ? 'hoch' : 'mittel') : i.kind === 'decline' ? 'hoch' : undefined,
 });
 const fromFinding = (f: CheckFinding, locale: Locale): Row => ({
   id: f.id, kind: f.area, title: f.title, detail: [countText(f, locale), f.hint].filter(Boolean).join(' · '), metrics: [], prompt: f.fixPrompt, sev: f.severity, markable: false,
@@ -65,14 +65,17 @@ export function SeoView() {
   };
 
   const day = (iso: string) => new Date(iso).toLocaleDateString(INTL_LOCALE[locale]);
-  const none = data && !data.gsc && !data.sistrix;
+  const none = data && !data.gsc && !data.sistrix && !data.site, noIntegration = data && !data.gsc && !data.sistrix;
   const rows: Record<SeoGroup, Row[]> = { tech: [], ranking: [], keyword: [], content: [], check: checks.map(f => fromFinding(f, locale)) };
   for (const i of data?.items ?? []) rows[seoGroup(i)].push(fromItem(i, t.kinds));
+  // Technik mischt Live-Check und Sistrix-Crawl: nach Wichtigkeit statt nach Quelle
+  const impact = new Map((data?.items ?? []).map(i => [i.id, i.impact]));
+  rows.tech.sort((a, b) => (impact.get(b.id) ?? 0) - (impact.get(a.id) ?? 0));
   const visible = (g: SeoGroup) => rows[g].filter(r => showHidden || !r.mark);
   const openCount = (g: SeoGroup) => rows[g].filter(r => !r.mark).length;
   const hiddenCount = GROUPS.reduce((n, g) => n + rows[g].filter(r => r.mark).length, 0);
   const techErrors = rows.tech.some(r => !r.mark && r.sev === 'hoch');
-  const active = (g: SeoGroup) => (g === 'tech' || g === 'keyword' ? !!data?.sistrix : g === 'content' || g === 'ranking' ? !!data?.gsc : checks.length > 0);
+  const active = (g: SeoGroup) => (g === 'tech' ? !!(data?.sistrix || data?.site) : g === 'keyword' ? !!data?.sistrix : g === 'content' || g === 'ranking' ? !!data?.gsc : checks.length > 0);
   const shown = GROUPS.filter(g => active(g) && (!filter || filter === g));
 
   const row = (r: Row) => {
@@ -128,13 +131,13 @@ export function SeoView() {
         <p className={styles.lead}>{t.lead}</p>
         {error && <p className={styles.bad} role="alert">{t.failed(error)}</p>}
         {!data && !error && <p className={styles.muted}>{t.loading}</p>}
-        {none && <div className={styles.card}><p>{t.noSource}</p><Link href="/settings" className={styles.link}>{t.toSettings}</Link></div>}
+        {noIntegration && <div className={styles.card}><p>{t.noSource}</p><Link href="/settings/integrationen" className={styles.link}>{t.toSettings}</Link></div>}
         {data?.errors.map(e => <p key={e.source} className={styles.bad} role="alert">{t.sourceFailed(t.sources[e.source], e.error)}</p>)}
 
         {data && !none && (
           <div className={styles.tiles} role="group" aria-label={t.filters.all}>
             {tile(null, t.tiles.open, GROUPS.filter(active).reduce((n, g) => n + openCount(g), 0))}
-            {data.sistrix && tile('tech', t.tiles.tech, openCount('tech'), techErrors)}
+            {(data.sistrix || data.site) && tile('tech', t.tiles.tech, openCount('tech'), techErrors)}
             {data.gsc && tile('ranking', t.tiles.ranking, openCount('ranking'), rows.ranking.some(r => !r.mark && r.sev === 'hoch'))}
             {data.sistrix && tile('keyword', t.tiles.keyword, openCount('keyword'))}
             {data.gsc && tile('content', t.filters.content, openCount('content'))}
@@ -150,7 +153,8 @@ export function SeoView() {
                 <h2 id={`seo-${g}`}>{t.groups[g].title} <span className={styles.count}>{openCount(g)}</span></h2>
                 <span className={styles.hint}>{t.groups[g].hint}</span>
               </div>
-              {g === 'tech' && data.onpage && <Onpage o={data.onpage} busy={busy} onPick={h => void pickProject(h)} />}
+              {g === 'tech' && data.siteChecked && <p className={styles.checked}>{t.checkedPages(data.siteChecked.pages.map(p => t.pageKinds[p.kind] ?? p.kind).join(', '))}</p>}
+              {g === 'tech' && data.sistrix && data.onpage && <Onpage o={data.onpage} busy={busy} onPick={h => void pickProject(h)} />}
               {cut.length ? <ul className={styles.list}>{cut.map(row)}</ul>
                 : (g !== 'tech' || !data.onpage || data.onpage.status === 'ok') && <p className={styles.muted}>{t.empty}</p>}
               {more && <button type="button" className={styles.more} onClick={() => setOpen(o => ({ ...o, [g]: !o[g] }))}>{open[g] ? t.showLess : t.showAll(list.length)}</button>}

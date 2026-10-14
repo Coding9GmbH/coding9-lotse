@@ -15,8 +15,10 @@ Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags reko
 - SEO-Bereich zeigt die SEO-Befunde aus dem Shop-Check, die Arbeitsfläche eine Karte mit den wichtigsten offenen SEO-Hebeln; „In Bearbeitung“ gilt in beiden Richtungen.
 - SEO-Bereich und KI: neue Search-Console-Auswertungen „Kurz vor Seite 1“ (Suchanfragen auf Position 4 bis 15 mit geschätztem Gewinn), „Kannibalisierung“ (eigene Seiten konkurrieren um dieselbe Suchanfrage) und „Klickverlust“ (deutlich weniger Klicks als in den 28 Tagen davor, bereinigt um den Trend des ganzen Shops), jeweils mit fertigem Auftrag nach SEO-Best-Practice.
 - Shop-Check: neue Prüfungen für Kannibalisierung und Klickverluste aus der Search Console.
+- Technik-Check der Shop-Seiten (alle Plattformen, ohne Sistrix): Lotse liest Startseite, eine Kategorie- und eine Produktseite sowie robots.txt und Sitemap und meldet im SEO-Bereich gesperrte Seiten (noindex, robots.txt), fehlende oder fremde Canonicals, fehlende Title/Descriptions, falsche H1-Anzahl, fehlende strukturierte Produkt- und Breadcrumb-Daten, Viewport und Sprache; die KI kann den Check als Werkzeug nutzen.
 
 ### Geändert
+- Der Menüpunkt „SEO“ ist jetzt immer sichtbar, weil der Technik-Check keine Anbindung braucht.
 - Ist die Internetrecherche aus (Standard), sagt die KI das offen und verweist auf den Schalter, statt Angaben zu erfinden.
 - SEO-Bereich übersichtlicher: Kennzahlen als Filter, Gruppen für Technik, Keywords, Meta-Daten und Shop-Check, je fünf Einträge mit „Alle anzeigen“.
 - SEO-Daten werden gespeichert und erst per „Neu abholen“, nach einem Tag oder bei geänderter Anbindung neu geholt; ein Seitenaufruf kostet so keine Sistrix-Credits mehr.
