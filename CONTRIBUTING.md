@@ -31,14 +31,17 @@ Die Oberfläche gibt es auf Deutsch und Englisch.
 ## Pull Requests
 - Kleine, fokussierte Änderungen; ein Thema je PR.
 - Tests ergänzen oder anpassen; `npm run check` muss grün sein.
-- Jeder PR erhöht die Version und bekommt einen eigenen Abschnitt in [`CHANGELOG.md`](CHANGELOG.md), siehe [Versionen & Changelog](#versionen--changelog). Die CI prüft das (`release-check`).
+- Jeder PR trägt seine Änderungen unter `## [Unreleased]` in [`CHANGELOG.md`](CHANGELOG.md) ein; die Version wird erst beim Release erhöht, siehe [Versionen & Changelog](#versionen--changelog). Die CI prüft das (`release-check`).
 - Die Sicherheitsgrenzen bleiben bestehen: Die KI liest nur (`ReadOnly…`-Clients), geschrieben wird ausschließlich im Executor nach Freigabe. Änderungen, die das aufweichen, brauchen eine ausführliche Begründung.
 - Mit deinem Beitrag stimmst du zu, dass er unter der [MIT-Lizenz](LICENSE) veröffentlicht wird.
 
 ## Versionen & Changelog
-Jede Änderung (jeder PR) bekommt eine neue Version – so ist jederzeit klar, welcher Stand was enthält.
+Änderungen sammeln sich unter `## [Unreleased]`, bis wirklich veröffentlicht wird.
+- **Jeder PR**: oben in [`CHANGELOG.md`](CHANGELOG.md) unter `## [Unreleased]` die passenden Rubriken (`### Sicherheit`, `### Hinzugefügt`, `### Geändert`, `### Behoben`, `### Entfernt`) mit je einem Satz pro Änderung aus Sicht der Nutzer ergänzen. Unten steht der Vergleichslink `[Unreleased]: https://github.com/Coding9GmbH/coding9-lotse/compare/v<aktuell>...HEAD`. Die Version in `package.json` bleibt unverändert.
+- **Release**: die folgenden Schritte ausführen und dabei `[Unreleased]` zum neuen Versionsabschnitt machen.
+
 1. **Version erhöhen** nach [SemVer](https://semver.org/lang/de/): `npm version patch --no-git-tag-version` für Fehlerbehebungen, `minor` für neue Funktionen oder Verhaltensänderungen, `major` für Brüche (z. B. Konfiguration, die von Hand angepasst werden muss). Das aktualisiert `package.json` und `package-lock.json`.
-2. **CHANGELOG schreiben**: oben in [`CHANGELOG.md`](CHANGELOG.md) einen Abschnitt `## [x.y.z] – JJJJ-MM-TT` anlegen, darunter die passenden Rubriken (`### Sicherheit`, `### Hinzugefügt`, `### Geändert`, `### Behoben`, `### Entfernt`) mit je einem Satz pro Änderung aus Sicht der Nutzer – was ist anders, was müssen sie ggf. tun (neue Umgebungsvariable, Migration, Verhaltensänderung). Unten den Vergleichslink `[x.y.z]: https://github.com/Coding9GmbH/coding9-lotse/compare/v<vorher>...v<x.y.z>` ergänzen.
+2. **CHANGELOG schreiben**: `## [Unreleased]` in `## [x.y.z] – JJJJ-MM-TT` umbenennen (bzw. anlegen), darunter die passenden Rubriken (`### Sicherheit`, `### Hinzugefügt`, `### Geändert`, `### Behoben`, `### Entfernt`) mit je einem Satz pro Änderung aus Sicht der Nutzer – was ist anders, was müssen sie ggf. tun (neue Umgebungsvariable, Migration, Verhaltensänderung). Unten den Vergleichslink `[x.y.z]: https://github.com/Coding9GmbH/coding9-lotse/compare/v<vorher>...v<x.y.z>` ergänzen.
 3. Prüfen: `node .github/scripts/check-release.mjs origin/main`.
 
-Hat sich `main` inzwischen weiterbewegt und dieselbe Version vergeben, nach dem Merge die nächste Nummer nehmen. Reine Abhängigkeits-Updates von Dependabot sind ausgenommen; sie landen mit der nächsten Version im Changelog.
+Bei einem Release: Hat sich `main` inzwischen weiterbewegt und dieselbe Version vergeben, nach dem Merge die nächste Nummer nehmen. Reine Abhängigkeits-Updates von Dependabot sind ausgenommen; sie landen mit der nächsten Version im Changelog.
