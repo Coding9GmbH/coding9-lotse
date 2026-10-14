@@ -2,6 +2,7 @@
 // Wird von src/server (Erzeuger) und src/components (Verbraucher) gemeinsam genutzt – nur Typen, kein Laufzeitcode.
 import type { PlatformKind } from './platforms';
 import type { Locale } from './i18n/locales';
+import type { ScriptRisk } from './script-scan';
 export type { PlatformKind } from './platforms';
 
 export type TargetKind = 'category' | 'product' | 'landing';
@@ -45,6 +46,8 @@ export interface ChangeSet {
   sample?: ChangeItem[];
   /** Shop-Plattform, für die das Set gebaut wurde (setzt die Session; fehlt bei Altbestand = shopware) */
   platform?: PlatformKind;
+  /** Enthält JavaScript (Skript, Event-Handler, javascript:-URL, js-Feld): Karte zeigt eine deutliche Warnung mit den Ladeadressen */
+  script?: ScriptRisk;
 }
 export type ChangeStatus = 'applied' | 'partial' | 'failed' | 'rejected';
 /** Rückgängig-Schritt: patch/delete/create auf eine Entität oder ein roher Admin-API-Aufruf (req, z. B. Zuordnung löschen) */

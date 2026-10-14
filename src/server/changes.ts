@@ -1,6 +1,7 @@
 import 'server-only';
 // Änderungs-Schicht: Die KI SCHLÄGT NUR VOR (Diff) – geschrieben wird ausschließlich hier, nach menschlicher Freigabe.
 import type { ChangeAsset, ChangeItem, ChangeSet, PublishedInfo, UndoOp } from '@/lib/protocol';
+import { withScript } from '@/lib/script-scan';
 import { auditAdd } from './db';
 import { newId, type Shopware, type ShopReader, type SwEntity } from './shopware';
 import { compile, type ImageObj, type PageSpec } from './cms';
@@ -306,7 +307,7 @@ export async function buildPublishChangeSet(ro: ShopReader, spec: PageSpec, a: P
     a.url = slug;
     info('Neue Landingpage', 'URL', '–', `/${slug}`);
   }
-  return { id: newId(), kind: 'page', title: `Seite veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true };
+  return { id: newId(), kind: 'page', title: `Seite veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec) };
 }
 
 // ================= EXECUTOR (einziger schreibender Code) =================
