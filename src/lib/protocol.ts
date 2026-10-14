@@ -1,5 +1,5 @@
-// Vertrag zwischen Server und Oberfläche: Datentypen der REST-Endpunkte und der Chat-Ereignisse (NDJSON-Stream).
-// Wird von src/server (Erzeuger) und src/components (Verbraucher) gemeinsam genutzt – nur Typen, kein Laufzeitcode.
+// Contract between server and UI: data types of the REST endpoints and the chat events (NDJSON stream).
+// Shared by src/server (producer) and src/components (consumer); types only, no runtime code.
 import type { PlatformKind } from './platforms';
 import type { Locale } from './i18n/locales';
 import type { ScriptRisk } from './script-scan';
@@ -8,10 +8,10 @@ export type { PlatformKind } from './platforms';
 export type TargetKind = 'category' | 'product' | 'landing';
 export interface Target { kind: TargetKind; id?: string; name?: string; path?: string | null; cmsPage?: string | null }
 
-// ---- Änderungssets (Vorschlag der KI → Freigabe durch den Menschen) ----
+// ---- Change sets (AI proposal → approval by the human) ----
 export interface ChangeItem {
   id: string;
-  /** 'info' = nur Hinweis (nicht auswählbar); sonst die betroffene Entität, z. B. product, category, promotion */
+  /** 'info' = note only (not selectable); otherwise the affected entity, e.g. product, category, promotion */
   entity: string;
   entityId?: string;
   label: string;
@@ -20,7 +20,7 @@ export interface ChangeItem {
   before: string;
   after: string;
   afterRaw?: unknown;
-  /** Rohwert des Feldes beim Vorschlag (Stale-Write-Guard: der Executor schreibt nicht, wenn der Shop inzwischen etwas anderes hat) */
+  /** Raw field value at proposal time (stale-write guard: the executor doesn't write if the shop has something else by now) */
   beforeRaw?: unknown;
   html?: { before: string; after: string };
   warn: string[];
@@ -28,10 +28,10 @@ export interface ChangeItem {
 export interface ChangeAsset { name?: string; url: string; alt?: string; note: string }
 export interface ChangeSet {
   id: string;
-  /** Kernarten + Feature-Arten (z. B. 'product-media', 'promotions'); Feature-Arten haben einen Applier in changes.ts */
+  /** Core kinds + feature kinds (e.g. 'product-media', 'promotions'); feature kinds have an applier in changes.ts */
   kind: 'products' | 'categories' | 'page' | 'new-products' | (string & {});
   entity?: string;
-  /** Anzeige im Kopf der Karte, z. B. { one: 'Promotion', many: 'Promotionen' } und Text des Freigabe-Buttons */
+  /** Display in the card header, e.g. { one: 'Promotion', many: 'Promotionen' }, and text of the approve button */
   noun?: { one: string; many: string };
   applyLabel?: string;
   title: string;
@@ -41,27 +41,27 @@ export interface ChangeSet {
   skipped: { id: string; reason: string }[];
   unchanged?: number;
   atomic: boolean;
-  /** Stapelverarbeitung: Anzahl aller betroffenen Datensätze – items sind dann Gruppen, sample eine Stichprobe (Karte bleibt schnell) */
+  /** Bulk edit: number of all affected records; items are then groups, sample a sample (card stays fast) */
   total?: number;
   sample?: ChangeItem[];
-  /** Shop-Plattform, für die das Set gebaut wurde (setzt die Session; fehlt bei Altbestand = shopware) */
+  /** Shop platform the set was built for (set by the session; missing in legacy data = shopware) */
   platform?: PlatformKind;
-  /** Enthält JavaScript (Skript, Event-Handler, javascript:-URL, js-Feld): Karte zeigt eine deutliche Warnung mit den Ladeadressen */
+  /** Contains JavaScript (script, event handler, javascript: URL, js field): the card shows a clear warning with the load URLs */
   script?: ScriptRisk;
 }
 export type ChangeStatus = 'applied' | 'partial' | 'failed' | 'rejected';
-/** Rückgängig-Schritt: patch/delete/create auf eine Entität oder ein roher Admin-API-Aufruf (req, z. B. Zuordnung löschen) */
+/** Undo step: patch/delete/create on an entity or a raw Admin API call (req, e.g. delete an assignment) */
 export interface UndoOp {
   op: 'patch' | 'delete' | 'create' | 'req'; entity: string; id: string; data?: Record<string, unknown>; method?: string; path?: string; body?: unknown;
-  /** Plattform, deren Adapter den Schritt ausführt (fehlt bei Altbestand = shopware) */
+  /** Platform whose adapter executes the step (missing in legacy data = shopware) */
   platform?: PlatformKind;
-  /** Werte, die Lotse geschrieben hat. Fehlt der Eintrag, stellt Rückgängig den Vorher-Wert ohne erneuten Vergleich her. */
+  /** Values Lotse wrote. If the entry is missing, undo restores the previous value without re-comparing. */
   wrote?: Record<string, unknown>;
 }
 export interface UndoOutcome { ok: boolean; error?: string }
 export interface PublishedInfo { url?: string; cmsPageId?: string; adminUrl?: string; [k: string]: unknown }
 
-// ---- Qualitäts-Check eines Seitenentwurfs ----
+// ---- Quality check of a page draft ----
 export interface AuditCheck { id?: string; label: string; ok: boolean; weight?: number; level?: 'wichtig' | 'empfohlen' | string; hint?: string; area?: 'SEO' | 'CRO' | 'UX'; [k: string]: unknown }
 export interface DraftAudit { score: number; checks: AuditCheck[]; warnings: string[]; stats: { words: number; h1: number; internalLinks: number } }
 
@@ -76,17 +76,17 @@ export interface Styleguide {
   imagery: string;
   tone: { formality: 'Du' | 'Sie'; voice: string; dos: string[]; donts: string[]; examples: string[] };
   layoutNotes?: string;
-  /** Wie der Shop seine Seiten tatsächlich baut – damit neue Seiten wie bestehende wirken */
+  /** How the shop actually builds its pages, so new pages look like existing ones */
   components?: { buttons?: string; headings?: string; cards?: string; sections?: string; notes?: string };
-  /** Im Shop übliche Blöcke/Elemente mit Verwendung, z.B. "acme-trust-bar: Vertrauensleiste unter dem Einstieg (Produkt- und Kategorieseiten)" */
+  /** Blocks/elements common in the shop with their usage, e.g. "acme-trust-bar: Vertrauensleiste unter dem Einstieg (Produkt- und Kategorieseiten)" */
   existingBlocks?: string[];
   updatedAt?: string;
 }
 
-// ---- Vorgemerkte Bilder (liegen bis zur Freigabe nur lokal) ----
+// ---- Staged images (kept locally only until approval) ----
 export interface StagedImage { mediaId: string; url: string; name?: string; alt?: string; width?: number; height?: number; [k: string]: unknown }
 
-// ---- Chat-Ereignisse (eine JSON-Zeile je Ereignis) ----
+// ---- Chat events (one JSON line per event) ----
 export type ChatEvent =
   | { t: 'start' }
   | { t: 'user'; text: string }
@@ -96,65 +96,65 @@ export type ChatEvent =
   | { t: 'tool_result'; id: string; error: boolean; preview: string }
   | { t: 'question'; approvalId: string; question: string; options: string[]; optionHints?: string[]; answer?: string }
   | { t: 'changeset'; approvalId: string; cs: ChangeSet; decision?: boolean }
-  /** Fortschritt beim Anwenden großer Änderungssets (nur live, wird nicht gespeichert) */
+  /** Progress while applying large change sets (live only, not saved) */
   | { t: 'changeset_progress'; csId: string; done: number; total: number }
-  /** counts: Gesamtzahlen bei gekürzten results (Stapelverarbeitung); undoResults: Ausgang je Rückgängig-Schritt (gleiche Reihenfolge wie undo), undone = alle ok */
+  /** counts: totals for truncated results (bulk edit); undoResults: outcome per undo step (same order as undo), undone = all ok */
   | { t: 'changeset_result'; csId: string; status: ChangeStatus; results?: { itemId: string; ok: boolean; error?: string }[]; counts?: { applied: number; failed: number }; undo?: UndoOp[]; error?: string; published?: PublishedInfo; undone?: boolean; undoResults?: UndoOutcome[] }
   | { t: 'draft_partial'; html: string; name?: string; pageType?: string }
-  /** rv: Version des Vorschau-Renderers – ältere Entwürfe werden beim Öffnen neu gezeichnet */
+  /** rv: version of the preview renderer; older drafts are re-rendered when opened */
   | { t: 'draft'; html?: string; spec: unknown; name: string; pageType: string; audit: DraftAudit; rv?: number }
   | { t: 'focus'; kind: 'product' | 'category'; id: string; name?: string; path?: string | null; cmsPage: string | null }
   | ({ t: 'image' } & StagedImage)
   | { t: 'styleguide'; sg: Styleguide }
   | { t: 'done'; error: string | null; cost?: number }
-  /** Erste Zeile beim Wieder-Verbinden mit einem Chat: bisheriger Verlauf + ob er noch läuft */
+  /** First line when reconnecting to a chat: history so far + whether it's still running */
   | { t: 'snapshot'; chat: ChatDetail; running: boolean };
 
 export type ChatEventType = ChatEvent['t'];
 
 // ---- REST ----
-/** locale: Sprache der KI-Antworten (vom Server aus Cookie/Accept-Language gesetzt) */
+/** locale: language of the AI responses (set by the server from cookie/Accept-Language) */
 export interface ChatRequest { chatId: string; message: string; target?: Target | null; onboarding?: boolean; locale?: Locale }
-/** status: läuft gerade („running“) oder wartet auf Antwort/Freigabe des Menschen („waiting“); fehlt = ruht */
+/** status: currently running ("running") or waiting for the human's reply/approval ("waiting"); missing = idle */
 export type ChatStatus = 'running' | 'waiting';
-/** Seitengröße der Chatliste (/api/chats): eine volle Seite heißt „vielleicht gibt es mehr“. */
+/** Page size of the chat list (/api/chats): a full page means "there may be more". */
 export const CHAT_PAGE = 200;
 export interface ChatSummary { id: string; title: string; target: Target | null; updatedAt: string; published: number; status?: ChatStatus }
-export interface ChatDetail { id: string; title: string; target: Target | null; events: ChatEvent[]; /** Runde läuft gerade (dann live verbinden) */ running?: boolean }
+export interface ChatDetail { id: string; title: string; target: Target | null; events: ChatEvent[]; /** turn is currently running (then connect live) */ running?: boolean }
 
 export type AiProvider = 'claude' | 'codex';
-/** shopware = Verbindung zum aktiven Shop (Name aus Altbestand, gilt für jede Plattform); platform = welche Plattform verbunden ist */
-/** Optionale Anbindungen: nur wenn verbunden, zeigt die Oberfläche passende Beispiele */
+/** shopware = connection to the active shop (legacy name, applies to every platform); platform = which platform is connected */
+/** Optional integrations: only when connected does the UI show matching examples */
 export interface Integrations { gsc: boolean; sistrix: boolean }
 export interface Health { shopware: { url: string; ok: boolean; configured: boolean; error?: string }; ai: { configured: boolean; provider?: AiProvider }; platform?: { kind: PlatformKind; label: string; available: boolean }; integrations?: Integrations }
-/** Pfad-Vorlagen der Plattform ({id} wird ersetzt): Admin-Links und Storefront-Pfade für Kategorie/Produkt */
+/** The platform's path templates ({id} is replaced): admin links and storefront paths for category/product */
 export interface PlatformPaths { adminCategory: string; adminProduct: string; adminCms: string; category: string; product: string }
 export interface AppConfig { admin: string; storefront: string; imageGen: boolean; docker: boolean; version: string; platform?: PlatformKind; paths?: PlatformPaths }
 
 export interface CategoryRow { id: string; name: string; parentId: string | null; active: boolean; type: string; cmsPage: string | null }
 export interface ProductRow { id: string; name: string; number: string; img?: string; cmsPage: string | null }
 
-/** Zugriffsbereiche der KI: Shop-Daten (Entitäten), Integrationen (gsc, sistrix: nur Daten, keine Shop-Entitäten) und Internetrecherche (web) */
+/** The AI's access scopes: shop data (entities), integrations (gsc, sistrix: data only, no shop entities) and web research (web) */
 export type ScopeKey = 'products' | 'manufacturers' | 'categories' | 'cms' | 'media' | 'shop' | 'marketing' | 'gsc' | 'sistrix' | 'web';
 export interface ScopeInfo { label: string; hint: string }
 
-/** Einstellungen, wie die Oberfläche sie sieht: Geheimnisse nur als „vorhanden ja/nein“. */
-/** Zugangsdaten einer Plattform für die Oberfläche: Klartextfelder als Wert, Geheimnisse nur als „vorhanden“. */
-export interface PlatformPublic { label: string; values: Record<string, string>; has: Record<string, boolean>; configured: boolean; /** Adapter fertig (sonst Vorschau: speicherbar, aber noch keine Werkzeuge) */ available: boolean }
+/** Settings as the UI sees them: secrets only as "present yes/no". */
+/** A platform's credentials for the UI: plain-text fields as values, secrets only as "present". */
+export interface PlatformPublic { label: string; values: Record<string, string>; has: Record<string, boolean>; configured: boolean; /** adapter ready (otherwise preview: can be saved, but no tools yet) */ available: boolean }
 export interface PublicSettings {
   shopware: { url: string; publicUrl: string; user: string; clientId: string; hasPassword: boolean; hasClientSecret: boolean; configured: boolean };
-  /** aktive Shop-Plattform (genau ein Shop ist verbunden) */
+  /** active shop platform (exactly one shop is connected) */
   platform?: PlatformKind;
   platforms?: Partial<Record<PlatformKind, PlatformPublic>>;
   ai: { provider: AiProvider; hasApiKey: boolean; model: string; viaEnv: boolean; docker: boolean; codexModel: string; codexLoggedIn: boolean };
   image: { hasKey: boolean; model: string };
   scopes: Record<ScopeKey, boolean>;
   scopeInfo: Record<ScopeKey, ScopeInfo>;
-  /** ALLOWED_HOSTS gesetzt, LOTSE_PASSWORD nicht: von außen erreichbar ohne Login */
+  /** ALLOWED_HOSTS set, LOTSE_PASSWORD not: reachable from outside without login */
   openWithoutPassword?: boolean;
 }
-/** Änderungen an den Einstellungen. Geheimnis: undefined/'' = unverändert, null = löschen. */
-/** Felder einer Plattform laut Beschreibung (lib/platforms.ts); Geheimnis: undefined/'' = unverändert, null = löschen */
+/** Changes to the settings. Secret: undefined/'' = unchanged, null = delete. */
+/** A platform's fields per its description (lib/platforms.ts); secret: undefined/'' = unchanged, null = delete */
 export type PlatformPatch = Record<string, string | null | undefined>;
 export interface SettingsPatch {
   platform?: PlatformKind;
@@ -169,53 +169,53 @@ export interface SettingsPatch {
 export interface TestResult { ok: boolean; message: string }
 
 export interface AccessLogRow { ts: string; chat: string | null; op: string; entity: string; n: number; scrubbed: number; denied: string | null }
-/** status 'started': Zeile vor dem ersten Schreibzugriff (Absturzsicherheit); das Ergebnis folgt als eigene Zeile. decision 'changed': Wechsel der Shop-Verbindung (Einstellungen) */
-export interface AuditRow { ts: string; chatId?: string; changeSet?: string; kind?: string; title?: string; decision: 'approved' | 'rejected' | 'undo' | 'changed'; status?: ChangeStatus | 'started'; applied?: number; failed?: number; /** Benutzername des Logins (LOTSE_PASSWORD), wenn vorhanden */ actor?: string; [k: string]: unknown }
+/** status 'started': line before the first write (crash safety); the result follows as its own line. decision 'changed': shop connection switched (settings) */
+export interface AuditRow { ts: string; chatId?: string; changeSet?: string; kind?: string; title?: string; decision: 'approved' | 'rejected' | 'undo' | 'changed'; status?: ChangeStatus | 'started'; applied?: number; failed?: number; /** login username (LOTSE_PASSWORD), if present */ actor?: string; [k: string]: unknown }
 
-/** ChatGPT-Anmeldung für Codex (Gerätecode): Link öffnen, Code eingeben. */
+/** ChatGPT sign-in for Codex (device code): open the link, enter the code. */
 export interface CodexLoginState { status: 'idle' | 'pending' | 'done' | 'error'; url?: string; code?: string; message?: string }
 
-// ---- Shop-Check (Startseite): Befunde aus registrierten Prüfungen ----
+// ---- Shop check (home page): findings from registered checks ----
 export type CheckSeverity = 'hoch' | 'mittel' | 'niedrig';
 export interface CheckFinding {
-  /** stabil, z. B. 'seo.meta-description-missing' */
+  /** stable, e.g. 'seo.meta-description-missing' */
   id: string;
-  /** Bereich für Gruppierung/Filter, z. B. 'SEO', 'Recht', 'Bilder', 'Daten', 'Preise', 'Links', 'Search Console' */
+  /** Area for grouping/filtering, e.g. 'SEO', 'Recht', 'Bilder', 'Daten', 'Preise', 'Links', 'Search Console' */
   area: string;
   title: string;
   severity: CheckSeverity;
-  /** betroffene Einträge (0 = alles in Ordnung) */
+  /** affected entries (0 = all fine) */
   count: number;
-  /** geprüfte Einträge insgesamt, falls bekannt */
+  /** total checked entries, if known */
   total?: number;
-  /** Bezugsgröße im Dativ Plural für „34 von 120 Produkten“ */
+  /** reference noun in German dative plural for "34 von 120 Produkten" */
   unit?: string;
-  /** Prüfung wurde gedeckelt: count ist eine Untergrenze („mindestens“) */
+  /** check was capped: count is a lower bound ("mindestens", at least) */
   atLeast?: boolean;
-  /** Beispiele (max. ~5) zur Anzeige */
+  /** examples (max. ~5) for display */
   sample?: { id: string; label: string }[];
-  /** kurze Erklärung, warum das wichtig ist */
+  /** short explanation why this matters */
   hint?: string;
-  /** Auftrag an Lotse, der die Lücke behebt (startet einen Chat) */
+  /** task for Lotse that fixes the gap (starts a chat) */
   fixPrompt: string;
 }
-export interface CheckRun { checkedAt: string; findings: CheckFinding[]; errors: { check: string; error: string }[]; durationMs: number; /** ausgeführte Prüfungen */ checks?: number; /** übersprungen (Bereich gesperrt) */ skipped?: string[] }
+export interface CheckRun { checkedAt: string; findings: CheckFinding[]; errors: { check: string; error: string }[]; durationMs: number; /** checks run */ checks?: number; /** skipped (area locked) */ skipped?: string[] }
 /** GET /api/shopcheck */
-export interface ShopCheckState { enabled: boolean; running: boolean; stale: boolean; run: CheckRun | null; /** letzter Durchlauf ganz fehlgeschlagen */ error?: string }
+export interface ShopCheckState { enabled: boolean; running: boolean; stale: boolean; run: CheckRun | null; /** last run failed entirely */ error?: string }
 
-// ---- Google Search Console (Einstellungen): Schlüssel nur als „vorhanden“, nie im Browser ----
+// ---- Google Search Console (settings): key only as "present", never in the browser ----
 export interface GscPublic { hasKey: boolean; clientEmail: string; projectId: string; property: string; connected: boolean; updatedAt: string | null }
 export interface GscTestResult extends TestResult { sites: string[] }
-// ---- Sistrix (Einstellungen): API-Schlüssel nur als „vorhanden“, nie im Browser ----
-export interface SistrixPublic { hasKey: boolean; domain: string; country: string; /** Optimizer-Projekt (Hash), leer = automatisch */ project: string; connected: boolean; updatedAt: string | null }
+// ---- Sistrix (settings): API key only as "present", never in the browser ----
+export interface SistrixPublic { hasKey: boolean; domain: string; country: string; /** Optimizer project (hash), empty = automatic */ project: string; connected: boolean; updatedAt: string | null }
 export interface SistrixTestResult extends TestResult { credits: number | null }
-/** SEO-Übersicht: Hebel aus Search Console und Sistrix als fertige Aufträge (prompt) für einen neuen Chat */
-export interface SeoItem { id: string; source: 'gsc' | 'sistrix' | 'site'; kind: 'meta' | 'gap' | 'striking' | 'cannibal' | 'decline' | 'keyword' | 'onpage' | 'site'; title: string; detail: string; metrics: { label: string; value: string }[]; /** Sortierwert (geschätzte Wirkung) */ impact: number; prompt: string; /** vom Nutzer erledigt/ignoriert: ausgeblendet */ mark?: SeoMark }
-/** Erledigt = ausgeblendet, bis eine Abholung mindestens SEO_DONE_RECHECK_DAYS später den Hebel noch meldet; Ignoriert = dauerhaft ausgeblendet */
+/** SEO overview: levers from Search Console and Sistrix as ready-made tasks (prompt) for a new chat */
+export interface SeoItem { id: string; source: 'gsc' | 'sistrix' | 'site'; kind: 'meta' | 'gap' | 'striking' | 'cannibal' | 'decline' | 'keyword' | 'onpage' | 'site'; title: string; detail: string; metrics: { label: string; value: string }[]; /** sort value (estimated impact) */ impact: number; prompt: string; /** done/ignored by the user: hidden */ mark?: SeoMark }
+/** Done = hidden until a fetch at least SEO_DONE_RECHECK_DAYS later still reports the lever; ignored = hidden permanently */
 export interface SeoMark { state: 'done' | 'ignored'; at: string }
 export const SEO_DONE_RECHECK_DAYS = 7;
-/** OnPage-Crawl (Sistrix-Optimizer): ok, kein Projekt, mehrere Projekte ohne Zuordnung (Auswahl nötig) oder noch kein Crawl */
+/** OnPage crawl (Sistrix Optimizer): ok, no project, several projects without assignment (selection needed) or no crawl yet */
 export interface SeoOnpage { status: 'ok' | 'none' | 'choose' | 'empty'; project?: { hash: string; name: string }; projects?: { hash: string; name: string }[]; lastCrawl?: { date: string; pages: number | null; errors: number | null; warnings: number | null; notices: number | null } | null }
-export interface SeoOverview { gsc: boolean; sistrix: boolean; /** Technik-Check der Live-Seiten lief */ site?: boolean; items: SeoItem[]; errors: { source: 'gsc' | 'sistrix' | 'site'; error: string }[]; generatedAt: string; onpage?: SeoOnpage; /** Live-Seiten: geprüfte Seiten und Zeitpunkt */ siteChecked?: { base: string; pages: { kind: string; url: string }[] }; /** aus dem Zwischenspeicher (kostet keine Credits); „Aktualisieren“ holt neu */ cached?: boolean }
-/** Startseiten-Karte: Sichtbarkeitsverlauf (älteste Woche zuerst) */
+export interface SeoOverview { gsc: boolean; sistrix: boolean; /** technical check of the live pages ran */ site?: boolean; items: SeoItem[]; errors: { source: 'gsc' | 'sistrix' | 'site'; error: string }[]; generatedAt: string; onpage?: SeoOnpage; /** live pages: checked pages and time */ siteChecked?: { base: string; pages: { kind: string; url: string }[] }; /** from the cache (costs no credits); "Aktualisieren" (refresh) refetches */ cached?: boolean }
+/** Home page card: visibility history (oldest week first) */
 export interface SistrixOverview { connected: boolean; domain?: string; country?: string; weeks?: number; series?: { date: string; value: number }[]; latest?: { date: string; value: number } | null; changePct?: number | null; creditsUsed?: number | null; error?: string }

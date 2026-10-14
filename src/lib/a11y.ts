@@ -1,18 +1,18 @@
 import { DEFAULT_LOCALE, messages, type Locale } from './i18n';
 
-/** Ansage, wenn eine Antwort fertig ist. Während des Schreibens bleibt es still. */
+/** Announcement when a reply is finished. Stays silent while it is being written. */
 export function announceAnswer(done: boolean, locale: Locale = DEFAULT_LOCALE): string | null {
   return done ? messages(locale).lib.chat.answered : null;
 }
 
-/** Enter und Leertaste wählen das fokussierte Ziel im Markier-Modus. */
+/** Enter and Space select the focused target in mark mode. */
 export function markKeySelects(key: string): boolean {
   return key === 'Enter' || key === ' ';
 }
 
 /**
- * Geschwister außerhalb von `keep` unbedienbar machen. `keep` und seine Vorfahren bleiben.
- * `data-dismiss` (Scrim, Backdrop) bleibt klickbar. Aufräumen hebt nur die selbst gesetzten Marken auf.
+ * Make siblings outside `keep` inert. `keep` and its ancestors stay usable.
+ * `data-dismiss` (scrim, backdrop) stays clickable. Cleanup only removes the marks it set itself.
  */
 export function inertExcept(keep: HTMLElement): () => void {
   const touched: HTMLElement[] = [];

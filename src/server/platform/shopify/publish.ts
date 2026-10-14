@@ -1,11 +1,11 @@
 import 'server-only';
-// Shopify: Seitenentwurf veröffentlichen (Änderungsset „page“, atomar, exakt rückgängig).
-//   landingpage → Online-Store-Seite (pageCreate, Inhalt = gerendertes HTML) + Vollbreiten-Vorlage templates/page.lotse-<handle>.json
-//   category    → Kollektion bekommt templates/collection.lotse-<handle>.json (Theme-Vorlage + Lotse-Abschnitte) als templateSuffix;
-//                 mode "description": stattdessen Inhalt als Kollektionsbeschreibung (ohne Theme-Schreibzugriff)
-//   product     → Produkte bekommen templates/product.lotse-<slug>.json (Produktvorlage + Lotse-Abschnitte) als templateSuffix
-// Inhalte von Kollektionen/Produkten stehen in Shop-Metafeldern lotse.<key> (multi_line_text_field), der Abschnitt
-// sections/lotse-content.liquid gibt sie aus. Schlägt ein Schritt fehl, nimmt der Executor alle bisherigen Schritte sofort zurück.
+// Shopify: publish a page draft (change set "page", atomic, exactly undoable).
+//   landingpage → Online Store page (pageCreate, content = rendered HTML) + full-width template templates/page.lotse-<handle>.json
+//   category    → collection gets templates/collection.lotse-<handle>.json (theme template + Lotse sections) as templateSuffix;
+//                 mode "description": content as collection description instead (without theme write access)
+//   product     → products get templates/product.lotse-<slug>.json (product template + Lotse sections) as templateSuffix
+// Content of collections/products lives in shop metafields lotse.<key> (multi_line_text_field), the section
+// sections/lotse-content.liquid renders it. If a step fails, the executor immediately reverts all previous steps.
 import type { ChangeAsset, ChangeItem, ChangeSet, PublishedInfo, UndoOp } from '@/lib/protocol';
 import { withScript } from '@/lib/script-scan';
 import { cut, errMsg, trackedUndo, type ApplyCtx, type ApplyResult } from '../../changes';
@@ -31,24 +31,24 @@ export interface ShopifyPublishArgs {
 }
 export interface ShopifyPublishPayload {
   spec: PageSpec; target: PublishTargetShopify; mode: 'theme' | 'description';
-  /** Vorlagen-Slug (Suffix lotse-<slug>) bzw. Handle der Landingpage */
+  /** Template slug (suffix lotse-<slug>) or handle of the landing page */
   slug: string; title: string; published: boolean;
   collectionId?: string; productIds?: string[]; metaTitle?: string; metaDescription?: string;
 }
 
 const MAX_PRODUCTS = 50;
 const tooBig = (k: string, n: number) => new Error(`${k} ist zu groß (${n} Zeichen, Shopify-Grenze ${MAX_HTML}). Bitte kürzen oder Blöcke aufteilen.`);
-/** Basis einer Zuordnung zur Build-Zeit: Nicht-Lotse-Vorlage = ihre Datei, Lotse-Vorlage = erst beim Übernehmen bekannt (null) */
+/** Base of an assignment at build time: non-Lotse template = its file, Lotse template = known only on apply (null) */
 const baseKey = (kind: Exclude<TemplateKind, 'page'>, s: string | null | undefined) => (isLotseSuffix(s) ? null : templateFile(kind, s));
 
-/** Bilder des Entwurfs (für die Karte: was wird hochgeladen/importiert) */
+/** Images of the draft (for the card: what gets uploaded/imported) */
 function specImages(spec: PageSpec): ImageObj[] {
   const out: ImageObj[] = [];
   for (const s of expandSpec(spec).sections ?? []) for (const b of s.blocks ?? []) for (const k of ['image', 'image2'] as const) { const im = b[k]; if (im) out.push(typeof im === 'string' ? { url: im } : im); }
   return out;
 }
 
-// ======================= Änderungsset (liest über den geschützten Reader) =======================
+// ======================= Change set (reads via the protected reader) =======================
 export async function buildShopifyPublish(q: Q, spec: PageSpec, a: ShopifyPublishArgs, ctx: { primaryUrl: string; render: (spec: PageSpec) => { before: string; after: string; full: string } }): Promise<{ cs: ChangeSet; payload: ShopifyPublishPayload }> {
   const items: ChangeItem[] = [], assets: ChangeAsset[] = [], base = ctx.primaryUrl.replace(/\/+$/, '');
   const info = (label: string, fieldLabel: string, before: string, after: string, warn: string[] = []) => items.push({ id: `i${items.length}`, entity: 'info', label, fieldLabel, before, after, warn });
@@ -56,7 +56,7 @@ export async function buildShopifyPublish(q: Q, spec: PageSpec, a: ShopifyPublis
     if (o.mediaId?.startsWith('staged:')) { const m = stagedMeta(o.mediaId.slice(7)); assets.push({ name: m?.name, url: `/staged/${m?.file}`, alt: o.alt ?? m?.alt ?? undefined, note: 'wird unter Inhalte → Dateien hochgeladen' }); }
     else if (!o.mediaId && o.url && !/(^|\.)cdn\.shopify\.com$|\.myshopify\.com$/i.test(safeHost(o.url))) assets.push({ name: o.url.split('/').pop(), url: o.url, alt: o.alt, note: 'wird unter Inhalte → Dateien importiert' });
   }
-  const mode = a.target === 'category' && a.mode === 'description' ? 'description' : 'theme'; // Entwurfstyp je Ziel prüft publish_page (tools.ts)
+  const mode = a.target === 'category' && a.mode === 'description' ? 'description' : 'theme'; // publish_page (tools.ts) checks the draft type per target
   const mt = a.metaTitle ?? spec.seo?.metaTitle, md = a.metaDescription ?? spec.seo?.metaDescription;
   const parts = ctx.render(spec), blocks = expandSpec(spec).sections.reduce((n, s) => n + s.blocks.length, 0);
   for (const [k, v] of Object.entries({ 'Inhalt über dem Theme-Inhalt': parts.before, 'Inhalt unter dem Theme-Inhalt': parts.after })) if (v.length > MAX_HTML) throw tooBig(k, v.length);
@@ -97,7 +97,7 @@ export async function buildShopifyPublish(q: Q, spec: PageSpec, a: ShopifyPublis
     const missing = ids.filter(i => !rows.some(r => shortId(r.id) === shortId(toGid('Product', i)))); if (missing.length) throw new Error(`Produkt(e) nicht gefunden: ${missing.join(', ')}`);
     const slug = templateSlug(a.layout ?? spec.name); if (!slug) throw new Error('layout fehlt: Name der Produktvorlage, z. B. "keramik"');
     payload = { spec, target: 'product', mode, slug, title: spec.name, published, productIds: rows.map(r => shortId(r.id)) };
-    // alle Produkte brauchen dieselbe Basisvorlage (sonst bekämen Produkte eine fremde Vorlage); die Basis von Lotse-Vorlagen prüft der Executor
+    // all products need the same base template (otherwise products would get a foreign template); the executor checks the base of Lotse templates
     const groups = new Map<string, string[]>();
     for (const p of rows) { const k = baseKey('product', p.templateSuffix); if (k) groups.set(k, [...(groups.get(k) ?? []), p.title]); }
     if (groups.size > 1) throw new Error(`Die Produkte nutzen unterschiedliche Produktvorlagen (${[...groups].map(([f, ts]) => `${f}: ${ts.slice(0, 5).join(', ')}${ts.length > 5 ? ' …' : ''}`).join('; ')}). Bitte je Vorlage getrennt veröffentlichen, mit eigenem layout-Namen.`);
@@ -112,9 +112,9 @@ export async function buildShopifyPublish(q: Q, spec: PageSpec, a: ShopifyPublis
 }
 const safeHost = (u: string) => { try { return new URL(u).host; } catch { return ''; } };
 
-// ======================= Executor (privilegierter Client) =======================
+// ======================= Executor (privileged client) =======================
 const fileNameOf = (source: string) => { try { return decodeURIComponent(new URL(source).pathname.split('/').pop() || ''); } catch { return ''; } };
-/** Datei anlegen. Geht die Antwort verloren, wird die neue Datei per Dateiname nachgelesen und zum Löschen vorgemerkt. */
+/** Create a file. If the response is lost, the new file is looked up by file name and marked for deletion. */
 export async function createShopFile(client: ShopifyClient, source: string, alt: string, undo: UndoOp[]): Promise<Json> {
   const q: Q = (d, v) => client.gql(d, v), name = fileNameOf(source);
   const ids = () => (name ? idsWhere(q, 'files', qField('filename', name)) : Promise.resolve([] as string[]));
@@ -124,7 +124,7 @@ export async function createShopFile(client: ShopifyClient, source: string, alt:
   if (!undo.some(o => o.op === 'delete' && o.entity === 'file' && o.id === id)) undo.push(deleteOp('file', id));
   return r.files[0];
 }
-/** Bilder auflösen: vorgemerkte hochladen, fremde URLs importieren (Dateien), vorhandene Medien → URL. Angelegte Dateien → Rückgängig */
+/** Resolve images: upload staged ones, import foreign URLs (files), existing media → URL. Created files → undo */
 async function resolveImages(client: ShopifyClient, spec: PageSpec, undo: UndoOp[], sleep: (ms: number) => Promise<void>): Promise<(im: ImageRef) => string | null> {
   const q: Q = (d, v) => client.gql(d, v), urls = new Map<string, string | null>();
   const key = (o: ImageObj) => o.mediaId ?? o.url ?? '';
@@ -141,7 +141,7 @@ async function resolveImages(client: ShopifyClient, spec: PageSpec, undo: UndoOp
   }
   return im => { const o = typeof im === 'string' ? { url: im } : im; return urls.get(key(o)) ?? (o.url && !o.mediaId ? o.url : null); };
 }
-/** Dateien werden asynchron verarbeitet: auf READY warten (sonst fehlt die CDN-URL) */
+/** Files are processed asynchronously: wait for READY (otherwise the CDN URL is missing) */
 async function fileUrl(client: ShopifyClient, id: string, now: string | undefined, sleep: (ms: number) => Promise<void>): Promise<string> {
   if (now) return now;
   for (let i = 0; i < 12; i++) {
@@ -159,13 +159,13 @@ async function productsFor(client: ShopifyClient, spec: PageSpec, primaryUrl: st
   const valid = [...ids].filter(i => /^\d+$|^gid:\/\/shopify\/Product\//.test(i)), out: Record<string, PreviewProduct & { url?: string }> = {};
   if (!valid.length) return out;
   for (const p of await productsByIds((d, v) => client.gql(d, v), valid, PREVIEW_SEL, 25)) {
-    if (p.status !== 'ACTIVE') continue; // Entwürfe/Archiv nicht verlinken (im Shop nicht sichtbar)
+    if (p.status !== 'ACTIVE') continue; // don't link drafts/archived (not visible in the shop)
     const pp = previewProduct(p, currency, primaryUrl); out[pp.id!] = pp; out[p.id] = pp;
   }
   return out;
 }
 
-/** Shop-Metafelder lotse.<key> setzen; Rückgängig: alter Wert bzw. löschen */
+/** Set shop metafields lotse.<key>; undo: old value or delete */
 async function setShopHtml(client: ShopifyClient, shopId: string, values: Record<string, string>, undo: UndoOp[]) {
   const keys = Object.keys(values); if (!keys.length) return;
   const cur = (await client.gql<Json>('query LotseMeta($keys: [String!]) { shop { metafields(namespace: "lotse", keys: $keys, first: 25) { nodes { key type value } } } }', { keys: keys.map(k => `lotse.${k}`) })).shop.metafields.nodes as Json[];
@@ -175,18 +175,18 @@ async function setShopHtml(client: ShopifyClient, shopId: string, values: Record
   await runRecording(client, M.metafieldsSet, { metafields: keys.map(k => ({ ownerId: shopId, namespace: 'lotse', key: k, type: 'multi_line_text_field', value: values[k] })) }, undo, back);
 }
 
-/** Lotse-Abschnitt anlegen/aktualisieren (Rückgängig: löschen, sobald ungenutzt, bzw. alter Inhalt) */
+/** Create/update the Lotse section (undo: delete once unused, or old content) */
 async function ensureSection(client: ShopifyClient, themeId: string, undo: UndoOp[]) {
   const prior = (await readThemeFiles(client, themeId, [SECTION_FILE])).get(SECTION_FILE);
   await upsertThemeFile(client, themeId, SECTION_FILE, SECTION_LIQUID, prior, undo);
 }
 
-export interface BaseTemplate { /** Basisdatei (Nicht-Lotse-Vorlage), bei unbekannter Basis die Lotse-Vorlage selbst */ file: string; known: boolean; tpl: Json }
+export interface BaseTemplate { /** Base file (non-Lotse template); if the base is unknown, the Lotse template itself */ file: string; known: boolean; tpl: Json }
 const isLotseFile = (f: string) => /\.lotse-[a-z0-9-]+\.json$/.test(f);
 /**
- * Basisvorlage einer Zuordnung (templateSuffix). Nicht-Lotse-Vorlage: die Datei selbst (fehlt sie, zeigt Shopify die Standardvorlage).
- * Lotse-Vorlage: gespeicherte Basis (Einstellung base der Lotse-Abschnitte), sonst eine inhaltsgleiche Theme-Vorlage, sonst die
- * Lotse-Vorlage ohne Lotse-Abschnitte (Basis unbekannt). files: alle JSON-Vorlagen dieser Art (templates/<kind>.json, templates/<kind>.*.json).
+ * Base template of an assignment (templateSuffix). Non-Lotse template: the file itself (if missing, Shopify shows the default template).
+ * Lotse template: stored base (setting base of the Lotse sections), otherwise a theme template with identical content, otherwise the
+ * Lotse template without Lotse sections (base unknown). files: all JSON templates of this kind (templates/<kind>.json, templates/<kind>.*.json).
  */
 export function resolveBase(files: Map<string, string>, kind: Exclude<TemplateKind, 'page'>, suffix: string | null | undefined): BaseTemplate {
   const own = templateFile(kind, suffix), std = templateFile(kind, null);
@@ -197,17 +197,17 @@ export function resolveBase(files: Map<string, string>, kind: Exclude<TemplateKi
   };
   if (!isLotseSuffix(suffix) || !files.has(own)) return plain(own);
   const tpl = parseTemplate(files.get(own)!), stored = storedBase(tpl, kind), stripped = stripLotse(tpl);
-  if (stored) return files.has(stored) ? plain(stored) : { file: stored, known: true, tpl: stripped }; // Basis inzwischen gelöscht: Kopie aus der Lotse-Vorlage
+  if (stored) return files.has(stored) ? plain(stored) : { file: stored, known: true, tpl: stripped }; // base deleted in the meantime: copy from the Lotse template
   const same = JSON.stringify(stripped);
   for (const [f, text] of files) {
     if (isLotseFile(f)) continue;
-    try { if (JSON.stringify(parseTemplate(text)) === same) return { file: f, known: true, tpl: parseTemplate(text) }; } catch { /* keine JSON-Vorlage */ }
+    try { if (JSON.stringify(parseTemplate(text)) === same) return { file: f, known: true, tpl: parseTemplate(text) }; } catch { /* not a JSON template */ }
   }
   return { file: own, known: false, tpl: stripped };
 }
 /**
- * Gemeinsame Basis aller Zuordnungen, sonst Fehler (bevor etwas geschrieben wird). Gibt es die Ziel-Vorlage schon (andere Seiten nutzen sie
- * vielleicht) und ist ihre Basis bekannt, muss sie gleich sein.
+ * Common base of all assignments, otherwise an error (before anything is written). If the target template already exists (other pages may
+ * use it) and its base is known, it must be the same.
  */
 export function commonBase(files: Map<string, string>, kind: Exclude<TemplateKind, 'page'>, owners: { title: string; templateSuffix?: string | null }[], suffix: string): BaseTemplate {
   const groups = new Map<string, { base: BaseTemplate; titles: string[] }>();
@@ -226,7 +226,7 @@ export async function applyShopifyPublish(client: ShopifyClient, cs: ChangeSet, 
   const undo = trackedUndo(o.ctx, cs.items.length), sleep = o.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms))), notes: string[] = [];
   try {
     const shop = await shopInfo((d, v) => client.gql(d, v)), base = shop.primaryUrl.replace(/\/+$/, '');
-    // Vorlagen-Ziele: Theme, Zuordnungen und gemeinsame Basisvorlage prüfen, bevor etwas geschrieben (oder ein Bild hochgeladen) wird
+    // Template targets: check theme, assignments and common base template before anything is written (or an image uploaded)
     const tkind: 'collection' | 'product' | null = p.target === 'product' ? 'product' : p.target === 'category' && p.mode !== 'description' ? 'collection' : null;
     let prep: { theme: { id: string; name: string }; owners: Json[]; baseTpl: BaseTemplate } | null = null;
     if (tkind) {
@@ -256,11 +256,11 @@ export async function applyShopifyPublish(client: ShopifyClient, cs: ChangeSet, 
         notes.push(`Vorlage ${tpl} im Theme „${t.name}“`);
       } catch (e) { if (!(e instanceof ThemeAccessError)) throw e; templated = false; notes.push(`${e.message} Die Seite nutzt deshalb die Standardvorlage.`); }
       const metafields = [p.metaTitle && { namespace: 'global', key: 'title_tag', type: 'single_line_text_field', value: p.metaTitle }, p.metaDescription && { namespace: 'global', key: 'description_tag', type: 'multi_line_text_field', value: p.metaDescription }].filter(Boolean);
-      const pageIds = () => idsWhere((d, v) => client.gql(d, v), 'pages', qField('handle', p.slug)); // geht die Antwort verloren, wird die Seite per Handle gefunden und zurückgenommen
+      const pageIds = () => idsWhere((d, v) => client.gql(d, v), 'pages', qField('handle', p.slug)); // if the response is lost, the page is found by handle and reverted
       const r = await runCreating<Json>(client, M.pageCreate, { page: { title: p.title, handle: p.slug, body, isPublished: p.published, ...(templated ? { templateSuffix: suffix } : {}), ...(metafields.length ? { metafields } : {}) } }, undo, 'page', pageIds);
       const id = r.page?.id; if (!id) throw new Error('Shopify lieferte keine Seiten-ID');
       undo.push(deleteOp('page', id));
-      // Prüfen: Seite mit Handle, Vorlage und Inhalt vorhanden
+      // Check: page with handle, template and content exists
       const chk = (await client.gql<Json>('query PageCheck($id: ID!) { page(id: $id) { id handle templateSuffix isPublished body } }', { id })).page;
       if (chk && chk.handle !== p.slug) throw new Error(`Shopify hat den Handle zu ${chk.handle} geändert: /pages/${p.slug} ist offenbar schon vergeben. Bitte eine andere url wählen.`);
       if (!chk || (templated && chk.templateSuffix !== suffix) || !String(chk.body ?? '').includes(scope)) throw new Error('Prüfung fehlgeschlagen: Seite nicht wie geschrieben gespeichert');
@@ -277,10 +277,10 @@ export async function applyShopifyPublish(client: ShopifyClient, cs: ChangeSet, 
       const kind = tkind!, { theme, owners, baseTpl } = prep!, suffix = suffixOf(p.slug), tpl = templateFile(kind, suffix);
       const parts = renderPageParts(p.spec, { imageUrl, products, scope });
       if (!parts.before && !parts.after) throw new Error('Der Entwurf hat außer theme-main keinen Inhalt');
-      // erst hier stehen die echten Bild-URLs fest: Grenze erneut prüfen (klare Meldung statt Fehler von metafieldsSet)
+      // only now are the real image URLs known: check the limit again (clear message instead of an error from metafieldsSet)
       for (const [k, v] of Object.entries({ 'Inhalt über dem Theme-Inhalt': parts.before, 'Inhalt unter dem Theme-Inhalt': parts.after })) if (v.length > MAX_HTML) throw tooBig(k, v.length);
       const keys = { before: parts.before ? metaKey(kind, p.slug, 'before') : null, after: parts.after ? metaKey(kind, p.slug, 'after') : null };
-      // Basis wird in den Lotse-Abschnitten vermerkt, damit spätere Veröffentlichungen sie kennen
+      // the base is recorded in the Lotse sections so later publications know it
       const text = templateText(withLotseSections(baseTpl.tpl, kind, keys, baseTpl.known && !isLotseFile(baseTpl.file) ? baseTpl.file : undefined));
       notes.push(`Basisvorlage: ${baseTpl.file}${baseTpl.known ? '' : ' (ohne Lotse-Abschnitte)'}`);
       await ensureSection(client, theme.id, undo);
@@ -300,7 +300,7 @@ export async function applyShopifyPublish(client: ShopifyClient, cs: ChangeSet, 
           await runRecording(client, M.productUpdate, { product: { id: x.id, templateSuffix: suffix } }, undo, reqOp('product', x.id, M.productUpdate, { product: { id: x.id, templateSuffix: x.templateSuffix ?? null } }));
         }
       }
-      // Prüfen: Zuordnung gesetzt
+      // Check: assignment set
       const after: Json[] = kind === 'collection' ? await collectionsByIds((d, v) => client.gql(d, v), [p.collectionId!], 'id templateSuffix') : await productsByIds((d, v) => client.gql(d, v), p.productIds!, 'id templateSuffix', 25);
       if (after.some(x => x.templateSuffix !== suffix)) throw new Error('Prüfung fehlgeschlagen: Vorlage ist nicht zugeordnet');
       notes.push(`Vorlage ${tpl} im Theme „${theme.name}“`);
@@ -310,7 +310,7 @@ export async function applyShopifyPublish(client: ShopifyClient, cs: ChangeSet, 
     }
     return { results: cs.items.map(i => ({ itemId: i.id, ok: true })), undo, published: out };
   } catch (e) {
-    // atomar: bisherige Schritte sofort zurücknehmen
+    // atomic: revert previous steps immediately
     if (e instanceof ThemeAccessError && p.target === 'category') e.message += ' Alternative ohne Theme: publish_page mit mode "description" (Inhalt als Kollektionsbeschreibung).';
     const r = undo.length ? await undoShopify(client, undo) : [];
     const failed = r.filter(x => !x.ok);

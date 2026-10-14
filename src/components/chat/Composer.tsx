@@ -11,9 +11,9 @@ interface Props {
   value: string;
   onChange: (v: string) => void;
   onSubmit: () => void;
-  /** Laufende Runde abbrechen */
+  /** Cancel the running turn */
   onStop?: () => void;
-  /** Freigabe ist raus: der Shop-Schreibvorgang läuft und lässt sich nicht abbrechen */
+  /** Approval is sent: the shop write is running and cannot be cancelled */
   writing?: boolean;
   busy: boolean;
   placeholder: string;
@@ -22,15 +22,15 @@ interface Props {
   onFiles: (files: File[]) => void;
   onRemoveAtt: (key: string) => void;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
-  /** Gesperrt (z. B. solange Shop oder KI fehlen) */
+  /** Disabled (e.g. while shop or AI are missing) */
   disabled?: boolean;
-  /** Zeile unter dem Textfeld, bündig mit ihm (z. B. der Kontext) */
+  /** Row below the text field, aligned with it (e.g. the context) */
   extra?: React.ReactNode;
 }
 
 const MAX_H = 140;
 
-/** Eingabe: wachsendes Textfeld, Enter sendet (Umschalt+Enter = Zeilenumbruch), Bilder per Knopf/Einfügen. */
+/** Input: growing text field, Enter sends (Shift+Enter = line break), images via button/paste. */
 export function Composer({ value, onChange, onSubmit, onStop, writing, busy, placeholder, home, atts, onFiles, onRemoveAtt, inputRef, extra, disabled = false }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const { locale, t: m } = useI18n(), t = m.chat.composer;
@@ -39,7 +39,7 @@ export function Composer({ value, onChange, onSubmit, onStop, writing, busy, pla
   useLayoutEffect(() => {
     const t = inputRef.current;
     if (!t) return;
-    // Leer: Höhe aus dem CSS (wie im Server-HTML) – sonst wächst das Feld nach dem Laden auf die Platzhalter-Länge und die Seite springt
+    // Empty: height from the CSS (as in the server HTML); otherwise the field grows to the placeholder length after load and the page jumps
     if (!value) { t.style.height = ''; return; }
     t.style.height = 'auto';
     t.style.height = `${Math.min(t.scrollHeight + 2, MAX_H)}px`;

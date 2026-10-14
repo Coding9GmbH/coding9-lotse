@@ -1,5 +1,5 @@
 import 'server-only';
-// Sprache im Server-Rendering (Layouts, Seiten, Metadaten): Cookie, sonst Accept-Language.
+// Language in server rendering (layouts, pages, metadata): cookie, otherwise Accept-Language.
 import { cookies, headers } from 'next/headers';
 import { LOCALE_COOKIE, resolveLocale, type Locale } from './locales';
 import { messages, type Messages } from './index';

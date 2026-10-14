@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { PLAID, connectShop, resetShop, seoTitle } from './support/helpers';
 
-// Das Test-Modell (tests/support/anthropic-fake) ruft bei „[e2e:propose <id> <feld>=<wert>]“ propose_product_changes auf.
+// The test model (tests/support/anthropic-fake) calls propose_product_changes on "[e2e:propose <id> <field>=<value>]".
 const propose = (title: string) => `Bitte setz den Meta-Title. [e2e:propose ${PLAID.id} metaTitle=${title}]`;
 
 async function send(page: Page, text: string) {
@@ -15,7 +15,7 @@ test.beforeEach(async ({ request }) => {
   await connectShop(request);
 });
 
-test('Änderungsset: Vorschlag → Anwenden → Shop geändert → Rückgängig', async ({ page, request }) => {
+test('change set: proposal → apply → shop changed → undo', async ({ page, request }) => {
   const title = 'Plaid Düne aus Wolle | Haus Holm';
   expect(await seoTitle(request, PLAID.gid)).toBeFalsy();
 
@@ -27,28 +27,28 @@ test('Änderungsset: Vorschlag → Anwenden → Shop geändert → Rückgängig'
   await expect(card.getByText(title)).toBeVisible();
   await expect(card.getByRole('checkbox', { name: /^Plaid „Düne“.*: Meta-Title \(SEO\) übernehmen$/ })).toBeChecked();
 
-  // Vor der Freigabe ist nichts geschrieben
+  // Nothing is written before approval
   expect(await seoTitle(request, PLAID.gid)).toBeFalsy();
 
   await card.getByRole('button', { name: '1 Änderung anwenden' }).click();
   await expect(card.getByRole('status').filter({ hasText: '✓ 1 angewendet' })).toBeVisible();
   await expect.poll(() => seoTitle(request, PLAID.gid)).toBe(title);
-  // Das Modell bekommt das Ergebnis des Werkzeugs zurück und antwortet
+  // The model gets the tool's result back and replies
   await expect(page.getByText('Erledigt: applied')).toBeVisible();
 
-  // Nach dem Neuladen ist das Ergebnis noch da (aus der Datenbank) und Rückgängig weiterhin möglich
+  // After reloading, the result is still there (from the database) and undo is still possible
   await page.reload();
   const saved = page.getByRole('region', { name: /^Änderungsset: / });
   await expect(saved.getByRole('status').filter({ hasText: '✓ 1 angewendet' })).toBeVisible();
 
-  // Rückgängig fragt vorher nach (window.confirm)
+  // Undo asks for confirmation first (window.confirm)
   page.once('dialog', d => void d.accept());
   await saved.getByRole('button', { name: 'Rückgängig machen' }).click();
   await expect(saved.getByRole('button', { name: 'Rückgängig gemacht ✓' })).toBeDisabled();
   await expect.poll(() => seoTitle(request, PLAID.gid)).toBeFalsy();
 });
 
-test('Änderungsset ablehnen: nichts wird geschrieben', async ({ page, request }) => {
+test('reject change set: nothing is written', async ({ page, request }) => {
   await page.goto('/');
   await send(page, propose('Abgelehnter Titel'));
 
@@ -60,7 +60,7 @@ test('Änderungsset ablehnen: nichts wird geschrieben', async ({ page, request }
   expect(await seoTitle(request, PLAID.gid)).toBeFalsy();
 });
 
-test('Chatliste: neue Chats erscheinen und lassen sich wieder öffnen', async ({ page }) => {
+test('chat list: new chats appear and can be reopened', async ({ page }) => {
   await page.goto('/');
   await send(page, 'Hallo Lotse, kurzer Test der Chatliste');
   await expect(page.getByText('Hallo aus dem Test-Modell.')).toBeVisible({ timeout: 45_000 });

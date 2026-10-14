@@ -1,5 +1,5 @@
 import 'server-only';
-// KI-Lauf je Chat-Nachricht: Claude Agent SDK oder Codex (ChatGPT-Abo) mit ausschließlich unseren Shop-Tools (optional Websuche), Ereignisse als NDJSON an die Oberfläche.
+// AI run per chat message: Claude Agent SDK or Codex (ChatGPT subscription) with only our shop tools (optionally web search), events as NDJSON to the UI.
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatEvent, ChatRequest } from '@/lib/protocol';
 import type { PageSpec } from './cms';
@@ -16,31 +16,31 @@ import { pingCodex, runCodex } from './agent-codex';
 import type { Session } from './sessions';
 import { errMsg } from './util';
 
-// Sofort speichern (Freigaben, Rückfragen, Entwürfe); alle übrigen Ereignisse des Verlaufs gebündelt (persistSoon), nur-live-Ereignisse gar nicht
+// Save immediately (approvals, questions, drafts); all other history events batched (persistSoon), live-only events not at all
 const PERSIST_ON = new Set(['draft', 'styleguide', 'approval', 'changeset', 'changeset_result', 'question']);
 const LIVE_ONLY = new Set(['draft_partial', 'start', 'changeset_progress']);
-/** Eingebaute Web-Werkzeuge des Agent SDK, nur bei eingeschalteter Internetrecherche (nur lesend) */
+/** Built-in web tools of the Agent SDK, only when web research is enabled (read-only) */
 export const WEB_TOOLS = ['WebSearch', 'WebFetch'];
 
-/** Vorschau eines Werkzeugergebnisses: dieselbe Schwärzung wie bei Codex, höchstens 300 Zeichen. */
+/** Preview of a tool result: same redaction as for Codex, at most 300 characters. */
 export function previewToolResult(content: unknown): string {
   const txt = Array.isArray(content) ? content.map(c => (c && typeof c === 'object' && 'text' in c ? String((c as { text: unknown }).text) : '')).join('') : String(content);
   return redact(txt).slice(0, 300);
 }
 
-/** Ereignis in den Verlauf aufnehmen: nur-live-Ereignisse weglassen, Text zusammenfassen, von Entwürfen nur die letzte Vorschau (HTML) behalten. */
+/** Add an event to the history: drop live-only events, merge text, keep only the latest preview (HTML) of drafts. */
 export function recordEvent(events: ChatEvent[], ev: ChatEvent) {
   const last = events.at(-1);
-  if (LIVE_ONLY.has(ev.t)) return; // nur live
+  if (LIVE_ONLY.has(ev.t)) return; // live only
   if (ev.t === 'text' && last?.t === 'text') { last.text += ev.text; return; }
-  if (ev.t === 'draft') for (const e of events) if (e.t === 'draft') e.html = undefined; // Oberfläche nutzt ohnehin nur die aktuelle Vorschau
+  if (ev.t === 'draft') for (const e of events) if (e.t === 'draft') e.html = undefined; // the UI only uses the current preview anyway
   events.push({ ...ev });
 }
 
 /**
- * Startet eine Chat-Runde im Hintergrund. Sie hängt NICHT an der Verbindung: Wer den Chat wechselt oder neu lädt,
- * meldet nur seinen Listener ab; die Runde läuft weiter (Abbruch nur über stopChat). Ereignisse gehen an alle Listener.
- * Liefert false, wenn in diesem Chat schon eine Runde läuft.
+ * Starts a chat turn in the background. It is NOT tied to the connection: switching chats or reloading
+ * only unsubscribes that listener; the turn keeps running (abort only via stopChat). Events go to all listeners.
+ * Returns false if a turn is already running in this chat.
  */
 export function startChat({ chatId, message, target, onboarding, locale }: ChatRequest): { started: boolean; done: Promise<void> } {
   const s = getSession(chatId);
@@ -72,7 +72,7 @@ export function startChat({ chatId, message, target, onboarding, locale }: ChatR
     } catch (e) {
       end = { error: errMsg(e) };
     } finally {
-      // `done` erst, wenn die Runde wirklich vorbei ist: Wer danach den Verlauf abruft, sieht den Chat nicht mehr als laufend
+      // `done` only once the turn is really over: whoever fetches the history afterwards no longer sees the chat as running
       s.running = false; s.abort = null;
       const error = end.error ?? (ac.signal.aborted ? messages(s.locale).server.runCancelled : null);
       emit({ t: 'done', error, ...(end.cost !== undefined ? { cost: end.cost } : {}) });
@@ -84,36 +84,36 @@ export function startChat({ chatId, message, target, onboarding, locale }: ChatR
   return { started: true, done };
 }
 
-/** Ergebnis einer Runde; das `done`-Ereignis sendet startChat nach dem Ende. */
+/** Result of a turn; startChat sends the `done` event after the end. */
 export interface RunEnd { error: string | null; cost?: number; model?: string; usage?: RunUsage }
-/** Token-Verbrauch einer Runde (nur fürs Log) */
+/** Token usage of a turn (for the log only) */
 export interface RunUsage { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; turns?: number }
 
-/** Modell(e) und Token-Summen aus modelUsage des SDK-Ergebnisses (alle Modellaufrufe der Runde, inkl. interner) */
+/** Model(s) and token totals from modelUsage of the SDK result (all model calls of the turn, including internal ones) */
 export function usageOf(modelUsage: Record<string, { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number }> | undefined, turns?: number): Pick<RunEnd, 'model' | 'usage'> {
   const all = Object.entries(modelUsage ?? {}); if (!all.length) return turns ? { usage: { turns } } : {};
   const sum = (k: 'inputTokens' | 'outputTokens' | 'cacheReadInputTokens' | 'cacheCreationInputTokens') => all.reduce((n, [, u]) => n + (u[k] || 0), 0);
   return { model: all.map(([m]) => m).join(','), usage: { input: sum('inputTokens'), output: sum('outputTokens'), cacheRead: sum('cacheReadInputTokens'), cacheWrite: sum('cacheCreationInputTokens'), ...(turns ? { turns } : {}) } };
 }
 
-/** Claude Agent SDK: In-Process-MCP-Server „shop“, Teil-Entwürfe live aus dem Tool-Input-Stream. */
+/** Claude Agent SDK: in-process MCP server "shop", partial drafts live from the tool input stream. */
 async function runClaude(s: Session, prompt: string, ac: AbortController, emit: (ev: ChatEvent) => void): Promise<RunEnd> {
   let end: RunEnd = { error: null };
   try {
-    const web = getSettings().scopes.web; // Internetrecherche (Einstellungen → KI-Zugriff)
-    const allowed = [...allToolsFor(s.platform), ...(web ? WEB_TOOLS : [])]; // Werkzeuge der Plattform dieser Session
+    const web = getSettings().scopes.web; // web research (Einstellungen → KI-Zugriff)
+    const allowed = [...allToolsFor(s.platform), ...(web ? WEB_TOOLS : [])]; // tools of this session's platform
     const q = query({
       prompt,
       options: {
         systemPrompt: buildSystem(s.platform, s.locale, web),
         model: getSettings().ai.model || undefined,
-        env: aiEnv(), // KI-Prozess ohne SHOPWARE_*/OPENAI_*-Zugangsdaten
+        env: aiEnv(), // AI process without SHOPWARE_*/OPENAI_* credentials
         resume: s.sdkSessionId ?? undefined,
-        tools: web ? WEB_TOOLS : [],     // keine Datei-/Shell-Tools: nur die Shop-Tools, Websuche/Webseiten nur bei eingeschalteter Internetrecherche
-        settingSources: [],              // keine CLAUDE.md / User-Settings laden
+        tools: web ? WEB_TOOLS : [],     // no file/shell tools: only the shop tools, web search/pages only when web research is enabled
+        settingSources: [],              // do not load CLAUDE.md / user settings
         mcpServers: { shop: buildToolServer(s) },
         allowedTools: allowed,
-        // Nur unsere Shop-Tools (+ ggf. Web); das Schreiben passiert nie hier, sondern im Executor nach Freigabe im UI
+        // Only our shop tools (+ web if enabled); writing never happens here but in the executor after approval in the UI
         canUseTool: async (tool, input) => (allowed.includes(tool) ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: 'Nicht erlaubt.' }),
         includePartialMessages: true,
         maxTurns: 40,
@@ -121,7 +121,7 @@ async function runClaude(s: Session, prompt: string, ac: AbortController, emit: 
       },
     });
 
-    const live: Record<number, { json: string; last: number; busy?: boolean }> = {}; // content-block index -> Teil-JSON von draft_page
+    const live: Record<number, { json: string; last: number; busy?: boolean }> = {}; // content-block index -> partial JSON of draft_page
     const pushPartial = async (blk: { json: string; busy?: boolean }) => {
       if (blk.busy) return; blk.busy = true;
       try { const spec = parsePartial(blk.json) as Partial<PageSpec> | null; if (spec?.sections?.length && s.renderDraft) emit({ t: 'draft_partial', html: await s.renderDraft(spec as PageSpec, true), name: spec.name, pageType: spec.type }); } catch {}
@@ -154,7 +154,7 @@ async function runClaude(s: Session, prompt: string, ac: AbortController, emit: 
   return end;
 }
 
-/** Verbindungstest der KI (Einstellungen → Testen). */
+/** AI connection test (Einstellungen → Testen). */
 export async function pingAi(): Promise<string> {
   if (getSettings().ai.provider === 'codex') return pingCodex();
   const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 60_000); let text = '';

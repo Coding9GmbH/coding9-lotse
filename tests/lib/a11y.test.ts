@@ -6,7 +6,7 @@ import { announceAnswer, markKeySelects } from '../../src/lib/a11y';
 const read = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 const rule = (css: string, selector: string) => {
   const hit = css.match(new RegExp(`${selector}\\s*\\{[^}]*\\}`));
-  assert.ok(hit, `Regel fehlt: ${selector}`);
+  assert.ok(hit, `rule missing: ${selector}`);
   return hit[0];
 };
 
@@ -17,7 +17,7 @@ function channel(c: number): number {
 function lum(r: number, g: number, b: number): number {
   return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 }
-/** Weiß mit Alpha auf einer Fläche, dann Kontrast zur Fläche. */
+/** White with alpha on a surface, then contrast against the surface. */
 function contrastOn(hex: string, alpha: number, bg: [number, number, number]): number {
   const n = parseInt(hex.slice(1), 16);
   const fg: [number, number, number] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
@@ -30,19 +30,19 @@ function contrast(fgHex: string, bgHex: string): number {
   return contrastOn(fgHex, 1, [parseInt(bgHex.slice(1, 3), 16), parseInt(bgHex.slice(3, 5), 16), parseInt(bgHex.slice(5, 7), 16)]);
 }
 
-test('announceAnswer nur bei fertiger Antwort', () => {
+test('announceAnswer only for a finished answer', () => {
   assert.equal(announceAnswer(false), null);
   assert.equal(announceAnswer(true), 'Lotse hat geantwortet');
 });
 
-test('markKeySelects wählt mit Enter oder Leertaste', () => {
+test('markKeySelects selects with Enter or Space', () => {
   assert.equal(markKeySelects('Enter'), true);
   assert.equal(markKeySelects(' '), true);
   assert.equal(markKeySelects('Tab'), false);
   assert.equal(markKeySelects('Escape'), false);
 });
 
-test('eingeklappte Navigation trägt denselben Namen wie das Label', () => {
+test('collapsed navigation has the same name as the label', () => {
   const nav = read('src/components/shell/SideNav.tsx');
   for (const key of ['newChat', 'workspace', 'knowledge']) {
     assert.match(nav, new RegExp(`aria-label=\\{tip\\(t\\.${key}\\)\\}[^>]*>\\s*<Icon\\w+ size=\\{\\d+\\} /><span className=\\{styles\\.label\\}>\\{t\\.${key}\\}`));
@@ -55,7 +55,7 @@ test('eingeklappte Navigation trägt denselben Namen wie das Label', () => {
   assert.match(msgs, /settingsLabel: \(shop: string, ai: string\) => `Einstellungen\. \$\{shop\}/);
 });
 
-test('Anmerken benennt das Feld und lässt Ziele per Tastatur wählen', () => {
+test('annotate names the field and lets targets be selected by keyboard', () => {
   const pane = read('src/components/preview/PreviewPane.tsx');
   assert.match(pane, /aria-label=\{t\.whatDifferent\}/);
   assert.match(pane, /aria-label=\{t\.targets\}/);
@@ -70,13 +70,13 @@ test('Anmerken benennt das Feld und lässt Ziele per Tastatur wählen', () => {
   assert.match(read('src/components/preview/annotator.ts'), /markKeySelects/);
 });
 
-test('Startfeld behält bei Fokus einen sichtbaren Rand', () => {
+test('home input keeps a visible border on focus', () => {
   const focus = rule(read('src/components/chat/Composer.module.css'), '\\.home textarea:focus');
   assert.doesNotMatch(focus, /border:\s*0/);
   assert.match(focus, /var\(--green\)/);
 });
 
-test('Kontrast: Koralle, Zeile, Fehler, Nebenfarbe, Schalter, Links', () => {
+test('contrast: coral, row, error, secondary color, switch, links', () => {
   const dark: [number, number, number] = [0x2e, 0x2e, 0x38];
   assert.ok(contrastOn('#ffffff', 0x80 / 255, dark) >= 4.5);
   assert.ok(contrastOn('#ffffff', 0x7a / 255, dark) < 4.5);
@@ -111,7 +111,7 @@ test('Kontrast: Koralle, Zeile, Fehler, Nebenfarbe, Schalter, Links', () => {
   assert.doesNotMatch(link, /text-decoration:\s*none/);
 });
 
-test('Nachrichten, fertige Antwort, Fokusfalle und Vergleichsspalten', () => {
+test('messages, finished answer, focus trap and comparison columns', () => {
   const msg = read('src/components/chat/Message.tsx');
   assert.match(msg, /visually-hidden">\{t\.chat\.message\.you\}</);
   assert.match(read('src/lib/i18n/messages/chat.ts'), /message: \{ you: 'Du' \}/);

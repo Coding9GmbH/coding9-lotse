@@ -1,21 +1,22 @@
-// Eigene Shop-Prüfungen (deklarativ, plattform-neutral): Bedingungen über neutrale Produktfelder, ohne Code.
-// Rein (Server, Oberfläche, Tests). Gespeichert wird lokal (server/custom-checks.ts), ausgewertet je Plattform über scanProducts.
+// Custom shop checks (declarative, platform-neutral): conditions over neutral product fields, without code.
+// Pure (server, UI, tests). Stored locally (server/custom-checks.ts), evaluated per platform via scanProducts.
 import { DEFAULT_LOCALE, INTL_LOCALE, messages, type Locale } from './i18n';
 import type { CheckSeverity } from './protocol';
+import { htmlToText } from './text';
 
-/** Neutrale Sicht auf ein aktives Produkt, gleich für Shopware, Shopify, Magento und OpenMage. null = auf dieser Plattform nicht lesbar. */
+/** Neutral view of an active product, the same for Shopware, Shopify, Magento and OpenMage. null = not readable on this platform. */
 export interface NeutralProduct {
   id: string; label: string;
   name: string; description: string; metaTitle: string; metaDescription: string;
   price: number | null; listPrice: number | null; stock: number | null; hasImage: boolean | null;
 }
 
-/** Ergebnis von platform.scanProducts: aktive Produkte (höchstens ein Deckel), total = alle aktiven, capped = Katalog größer als gelesen */
+/** Result of platform.scanProducts: active products (up to a cap), total = all active, capped = catalog larger than what was read */
 export interface NeutralScan { rows: NeutralProduct[]; total: number; capped: boolean }
 
 export type FieldKind = 'number' | 'bool';
 const FIELD_LABEL = messages(DEFAULT_LOCALE).lib.checks.fields;
-/** Felder für Bedingungen; label = deutsch (KI, Server), je Sprache: checkFieldLabel(field, locale) */
+/** Fields for conditions; label = German (AI, server), per language: checkFieldLabel(field, locale) */
 export const CHECK_FIELDS = {
   descriptionWords: { label: FIELD_LABEL.descriptionWords, kind: 'number' },
   descriptionChars: { label: FIELD_LABEL.descriptionChars, kind: 'number' },
@@ -36,7 +37,7 @@ export type CheckOp = keyof typeof CHECK_OPS;
 export interface CheckCondition { field: CheckField; op: CheckOp; value: number | boolean }
 export interface CustomCheck {
   id: string; title: string; severity: CheckSeverity; area: string; hint?: string;
-  /** all = jede Bedingung muss zutreffen (und), any = mindestens eine (oder) */
+  /** all = every condition must match (and), any = at least one (or) */
   match: 'all' | 'any'; conditions: CheckCondition[]; createdAt: string;
 }
 
@@ -44,10 +45,10 @@ export const CUSTOM_MAX = 20, CONDITIONS_MAX = 5, TITLE_MAX = 80, HINT_MAX = 300
 export const CUSTOM_PREFIX = 'custom.';
 const SEVERITIES: CheckSeverity[] = ['hoch', 'mittel', 'niedrig'];
 
-const text = (html: string) => html.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+const text = (html: string) => htmlToText(html);
 export const slugify = (t: string) => t.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 
-/** Feldwert eines Produkts; null = unbekannt (Bedingung trifft dann nie zu, es wird nichts geraten) */
+/** Field value of a product; null = unknown (the condition then never matches, nothing is guessed) */
 export function fieldValue(p: NeutralProduct, f: CheckField): number | boolean | null {
   switch (f) {
     case 'descriptionWords': { const t = text(p.description); return t ? t.split(' ').length : 0; }
@@ -81,7 +82,7 @@ export const conditionsText = (chk: Pick<CustomCheck, 'match' | 'conditions'>, l
   return chk.conditions.map(c => conditionText(c, locale)).join(chk.match === 'any' ? t.or : t.and);
 };
 
-/** Auswertung: Anzahl + Beispiele mit dem auslösenden Wert, damit der Befund nachvollziehbar ist */
+/** Evaluation: count + examples with the triggering value, so the finding is traceable */
 export function evaluate(rows: NeutralProduct[], chk: Pick<CustomCheck, 'match' | 'conditions'>, locale: Locale = DEFAULT_LOCALE) {
   const hits = rows.filter(p => matches(p, chk));
   const detail = (p: NeutralProduct) => {
@@ -91,7 +92,7 @@ export function evaluate(rows: NeutralProduct[], chk: Pick<CustomCheck, 'match' 
   return { count: hits.length, sample: hits.slice(0, 5).map(p => ({ id: p.id, label: detail(p) })) };
 }
 
-/** Eingabe (KI/Oberfläche) prüfen und bereinigen; wirft mit verständlicher Meldung */
+/** Validate and sanitize input (AI/UI); throws with an understandable message */
 export function parseCheckInput(raw: unknown): Omit<CustomCheck, 'id' | 'createdAt'> {
   const r = (raw ?? {}) as Record<string, unknown>;
   const title = String(r.title ?? '').replace(/\s+/g, ' ').trim();
@@ -120,7 +121,7 @@ export function parseCheckInput(raw: unknown): Omit<CustomCheck, 'id' | 'created
   return { title, severity, area, ...(hint ? { hint } : {}), match, conditions };
 }
 
-// ---- Titel der eingebauten Prüfungen (Verwaltungsliste) ----
+// ---- Titles of the built-in checks (management list) ----
 export function builtinTitle(id: string, locale: Locale = DEFAULT_LOCALE): string {
   const t = messages(locale).lib.checks, byId = t.byId as Record<string, string>;
   if (byId[id]) return byId[id];
@@ -128,5 +129,5 @@ export function builtinTitle(id: string, locale: Locale = DEFAULT_LOCALE): strin
   return (t.bySuffix as Record<string, string>)[suffix] ?? id;
 }
 
-/** Eintrag der Verwaltungsliste (GET /api/shopcheck/checks) */
+/** Entry of the management list (GET /api/shopcheck/checks) */
 export interface CheckListItem { id: string; title: string; area: string; enabled: boolean; custom: boolean; severity?: CheckSeverity; rule?: string }

@@ -1,22 +1,22 @@
 import 'server-only';
-// Schreib-Bausteine (nur Executor, nach Freigabe): Store-View-genaues Schreiben über PATCH {attributes} mit exakten Rückgängig-Schritten.
-// OpenMage speichert Attribute global (Store 0) oder je Store-View. store_overrides der API nennt die Attribute mit eigenem Wert in der
-// View: Hat die View einen eigenen Wert, schreibt Lotse dort, sonst global (gilt dann für alle Views ohne eigenen Wert). In anderen
-// Store-Views als der Haupt-View wird nur dort geschrieben. Rückgängig schreibt die Vorher-Werte der Ebene; null = „Standardwert verwenden“.
+// Write building blocks (executor only, after approval): store-view-exact writing via PATCH {attributes} with exact undo steps.
+// OpenMage stores attributes globally (store 0) or per store view. The API's store_overrides names the attributes with their own value in the
+// view: if the view has its own value, Lotse writes there, otherwise globally (then applies to all views without their own value). In store
+// views other than the main view, writing happens only there. Undo writes the level's previous values; null = "Use Default Value".
 import type { UndoOp } from '@/lib/protocol';
 import { applierRegistry } from '../appliers';
-import { idPath, isGlobal, OmClient, OmError, skuPath } from './client';
+import { isGlobal, OmClient, OmError, skuPath } from './client';
 import { globalEmpty, hasOverride, omAttr, same, type OmCategory, type OmProduct, type OmRecord } from './map';
 
 export const reg = applierRegistry<OmClient>('openmage');
 export type Ent = 'product' | 'category';
 
-/** API-Pfad einer Entität (Produkte per SKU, Kategorien per ID) */
+/** API path of an entity (products by SKU, categories by ID) */
 export const entPath = (e: Ent, ref: string) => (e === 'product' ? `/v1/products/${skuPath(ref)}` : `/v1/categories/${Number(ref)}`);
-/** Pfad mit Store-Query für gespeicherte Rückgängig-Schritte ('admin' = global, ohne Query) */
+/** Path with store query for stored undo steps ('admin' = global, without query) */
 export const storePath = (path: string, store: string) => (isGlobal(store) ? path : `${path}${path.includes('?') ? '&' : '?'}store=${encodeURIComponent(store)}`);
 export const reqOp = (entity: string, id: string, method: string, path: string, body?: unknown): UndoOp => ({ op: 'req', entity, id, method, path, ...(body !== undefined ? { body } : {}) });
-/** Fehler weiterreichen und schon erfolgreiche Schritte dranhängen (ein späterer PATCH darf sie nicht verschlucken). */
+/** Pass the error on and attach the already successful steps (a later PATCH must not swallow them). */
 const failWithUndo = (e: unknown, undo: UndoOp[]): never => {
   const prev = (e as { undo?: UndoOp[] }).undo;
   const merged = !prev?.length || prev === undo ? undo : [...undo, ...prev];
@@ -25,23 +25,22 @@ const failWithUndo = (e: unknown, undo: UndoOp[]): never => {
 
 export const getEnt = (c: OmClient, e: Ent, ref: string, store: string): Promise<OmRecord | null> => c.req('GET', entPath(e, ref), undefined, { store, nullOn404: true });
 export const getProduct = (c: OmClient, sku: string, store = 'admin'): Promise<OmProduct | null> => getEnt(c, 'product', sku, store) as Promise<OmProduct | null>;
-export const getProductById = (c: OmClient, id: string | number, store = 'admin'): Promise<OmProduct | null> => c.req('GET', `/v1/products/${idPath(id)}`, undefined, { store, nullOn404: true });
 export const getCategory = (c: OmClient, id: string, store = 'admin'): Promise<OmCategory | null> => getEnt(c, 'category', id, store) as Promise<OmCategory | null>;
 
-/** PATCH {attributes} einer Ebene; im globalen Scope ist null nicht erlaubt (leeren = ""). Liefert den neuen Stand. */
+/** PATCH {attributes} of one level; null is not allowed in the global scope (clear = ""). Returns the new state. */
 export async function patchAttrs(c: OmClient, e: Ent, ref: string, store: string, values: Record<string, unknown>): Promise<OmRecord> {
   const attributes = isGlobal(store) ? Object.fromEntries(Object.entries(values).map(([k, v]) => [k, globalEmpty(v)])) : values;
   return c.req('PATCH', entPath(e, ref), { attributes }, { store });
 }
 const undoPatch = (e: Ent, ref: string, store: string, before: Record<string, unknown>, wrote: Record<string, unknown> = {}): UndoOp =>
   ({ ...reqOp(e, ref, 'PATCH', storePath(entPath(e, ref), store), { attributes: isGlobal(store) ? Object.fromEntries(Object.entries(before).map(([k, v]) => [k, globalEmpty(v)])) : before }), ...(Object.keys(wrote).length ? { wrote } : {}) });
-/** Nach einem url_key-Schreiben angelegte 301-Rewrites („Save Rewrites History“): beim Rückgängig löschen */
+/** 301 rewrites created after a url_key write ("Save Rewrites History"): delete on undo */
 export const rewriteUndo = (res: OmRecord | null | undefined): UndoOp[] => ((res?._write?.rewrites_added ?? []) as number[]).map(id => reqOp('url-rewrite', String(id), 'DELETE', `/v1/urlrewrites/${Number(id)}`));
 
 /**
- * Werte in der Store-View `store` schreiben (scoped: eigener Wert der View → View, sonst global) plus globale Werte (global).
- * In einer anderen Store-View als der Haupt-View werden scoped-Werte nur dort geschrieben (Rückgängig: wieder erben).
- * Prüft nach einem globalen Schreiben, ob die View den neuen Wert zeigt, und zieht ihn dort sonst nach.
+ * Write values in store view `store` (scoped: view's own value → view, otherwise global) plus global values (global).
+ * In a store view other than the main view, scoped values are written only there (undo: inherit again).
+ * After a global write, checks whether the view shows the new value and otherwise applies it there as well.
  */
 export async function writeScoped(c: OmClient, e: Ent, ref: string, store: string, scoped: Record<string, unknown>, global: Record<string, unknown> = {}): Promise<UndoOp[]> {
   const main = await c.mainStore();
@@ -62,7 +61,7 @@ export async function writeScoped(c: OmClient, e: Ent, ref: string, store: strin
   try {
     if (Object.keys(allW).length) { const r = await patchAttrs(c, e, ref, 'admin', allW); undo.push(undoPatch(e, ref, 'admin', allU, allW), ...rewriteUndo(r)); }
     if (Object.keys(stW).length) { const r = await patchAttrs(c, e, ref, store, stW); undo.push(undoPatch(e, ref, store, stU, stW), ...rewriteUndo(r)); }
-    // Global geschrieben, aber in der Store-View durch einen eigenen Wert verdeckt (z. B. alter Sonderpreis)? Dann auch dort setzen
+    // Written globally, but hidden in the store view by its own value (e.g. old special price)? Then set it there too
     const check = Object.keys(allW);
     if (cur && check.length) {
       const after = await getEnt(c, e, ref, store), fix: Record<string, unknown> = {}, fixU: Record<string, unknown> = {};
@@ -73,7 +72,7 @@ export async function writeScoped(c: OmClient, e: Ent, ref: string, store: strin
   } catch (e2) { return failWithUndo(e2, undo); }
 }
 
-/** Werte gezielt in einer Store-View schreiben (Übersetzungen). Rückgängig: vorheriger eigener Wert bzw. null (= wieder „Standardwert verwenden“) */
+/** Write values specifically in one store view (translations). Undo: previous own value or null (= "Use Default Value" again) */
 export async function writeStore(c: OmClient, e: Ent, ref: string, store: string, values: Record<string, unknown>): Promise<UndoOp[]> {
   const cur = await getEnt(c, e, ref, store);
   if (!cur) throw new OmError(`${e === 'product' ? 'Produkt' : 'Kategorie'} ${ref} nicht mehr vorhanden`, 404);
@@ -91,7 +90,7 @@ function valueMoved(c: OmClient, op: UndoOp): Promise<boolean> {
   const before = (op.body as { attributes?: Record<string, unknown> } | undefined)?.attributes ?? {};
   return getEnt(c, op.entity, op.id, store).then(cur => !!cur && Object.keys(op.wrote!).some(k => !same(omAttr(cur, k), op.wrote![k]) && !same(omAttr(cur, k), before[k])));
 }
-/** Rückgängig-Schritte in umgekehrter Reihenfolge; Löschen von schon Gelöschtem (404) gilt als erledigt */
+/** Undo steps in reverse order; deleting something already deleted (404) counts as done */
 export async function undoOpenmage(c: OmClient, ops: UndoOp[]): Promise<{ ok: boolean; error?: string }[]> {
   const out: { ok: boolean; error?: string }[] = [];
   for (const op of [...ops].reverse()) {
@@ -100,7 +99,7 @@ export async function undoOpenmage(c: OmClient, ops: UndoOp[]): Promise<{ ok: bo
       if (op.op === 'req' || op.op === 'delete') {
         if (!op.path) throw new Error('Rückgängig-Schritt ohne Pfad');
         const r = await c.req(op.op === 'delete' ? 'DELETE' : op.method ?? 'DELETE', op.path, op.body) as OmRecord | null;
-        // Ein zurückgesetzter url_key legt mit „Save Rewrites History“ selbst eine Weiterleitung an: Rückgängig lässt nichts Neues zurück
+        // A reverted url_key creates a redirect itself with "Save Rewrites History": undo leaves nothing new behind
         for (const id of (r?._write?.rewrites_added ?? []) as number[]) await c.req('DELETE', `/v1/urlrewrites/${Number(id)}`).catch(() => {});
       } else throw new Error(`Rückgängig-Art ${op.op} wird für OpenMage nicht unterstützt`);
       out.push({ ok: true });

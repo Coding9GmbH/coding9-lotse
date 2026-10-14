@@ -1,6 +1,6 @@
 import 'server-only';
-// Shopify: plattform-neutrale Lesefunktionen (ShopLookup) über den geschützten Lese-Client.
-// Storefront-URLs: /products/<handle>, /collections/<handle>[/products/<handle>], /pages/<handle>, optional mit Sprachpräfix (/en/…).
+// Shopify: platform-neutral read functions (ShopLookup) via the guarded read client.
+// Storefront URLs: /products/<handle>, /collections/<handle>[/products/<handle>], /pages/<handle>, optionally with a language prefix (/en/…).
 import type { PageRef } from '../../features/gsc-map';
 import type { LinkKind } from '../../seo-links';
 import type { ShopLookup } from '../types';
@@ -12,7 +12,7 @@ const dec = (s: string) => { try { return decodeURIComponent(s); } catch { retur
 const LOCALE = /^[a-z]{2}(-[a-z]{2,4})?$/i;
 const RESERVED = new Set(['products', 'collections', 'pages', 'blogs', 'cart', 'search', 'account', 'cdn']);
 
-/** Seiten-URL → { kind, handle } (Sprachpräfix wird übersprungen); null = keine Shop-Entität */
+/** Page URL → { kind, handle } (language prefix is skipped); null = not a shop entity */
 export function parseShopPath(url: string): { kind: LinkKind | 'home'; handle?: string } | null {
   let segs: string[];
   try { segs = new URL(url).pathname.split('/').filter(Boolean).map(dec); } catch { return null; }
@@ -31,7 +31,7 @@ const SEL: Record<LinkKind, string> = {
   category: 'id title handle seo { title description }',
   landing: 'id title handle isPublished metaTitle: metafield(namespace: "global", key: "title_tag") { value } metaDescription: metafield(namespace: "global", key: "description_tag") { value }',
 };
-/** Datensätze per Handle (bis 50 je Abfrage) */
+/** Records by handle (up to 50 per query) */
 async function byHandles(q: Q, kind: LinkKind, handles: string[]): Promise<Map<string, Json>> {
   const out = new Map<string, Json>();
   for (let i = 0; i < handles.length; i += 50) {

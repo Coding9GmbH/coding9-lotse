@@ -1,7 +1,7 @@
 import 'server-only';
-// Sistrix: Sichtbarkeit, Wettbewerber, Chancen, Keyword-Daten und OnPage-Probleme (Optimizer) zum Shop. Ergänzt die Search Console
-// (eigene Daten) um Marktdaten (Konkurrenz, Suchvolumen, Sichtbarkeitsindex). Nur lesen; Änderungen am Shop laufen weiter über propose_*.
-// Sistrix rechnet in Credits ab: jede Anfrage ist gedeckelt, Antworten nennen die verbrauchten Credits, wiederholte Anfragen kommen aus dem Cache.
+// Sistrix: visibility, competitors, opportunities, keyword data and on-page issues (Optimizer) for the shop. Complements Search Console
+// (own data) with market data (competition, search volume, visibility index). Read-only; changes to the shop still go through propose_*.
+// Sistrix bills in credits: every request is capped, responses state the credits used, repeated requests come from the cache.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { CheckFinding } from '@/lib/protocol';
@@ -20,7 +20,7 @@ const need = (): SistrixConfig => { if (getSettings().scopes.sistrix === false) 
 const CREDIT_NOTE = 'Sistrix rechnet pro gelieferter Zeile in Credits ab; Anfragen sind gedeckelt und werden 10 Minuten zwischengespeichert.';
 const clamp = (n: number | undefined, def: number, max: number) => Math.min(Math.max(Math.round(n ?? def), 1), max);
 
-/** Ziel der Anfrage: angegebene Domain/Pfad oder die des Shops */
+/** Target of the request: the given domain/path or the shop's */
 function target(cfg: SistrixConfig, d?: string): string {
   const t = d ? normDomain(d) : cfg.domain;
   if (!t) throw new Error('Keine Domain: bitte unter Einstellungen → Sistrix die Domain des Shops eintragen oder eine Domain angeben.');
@@ -31,7 +31,7 @@ const dateOf = (r: Row): string => String(r.date ?? r.time ?? '');
 const valueOf = (r: Row): number | null => { const v = r.value ?? r.sichtbarkeitsindex ?? r.visibilityindex; return typeof v === 'number' ? v : null; };
 const round = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
 
-/** Sichtbarkeitsindex als Reihe (älteste zuerst) mit Veränderung zum ersten Wert */
+/** Visibility index as a series (oldest first) with the change relative to the first value */
 export function visibilitySeries(rows: Row[]) {
   const pts = rows.map(r => ({ date: dateOf(r), value: valueOf(r) })).filter((p): p is { date: string; value: number } => p.value !== null).sort((a, b) => a.date.localeCompare(b.date));
   if (!pts.length) return null;
@@ -39,7 +39,7 @@ export function visibilitySeries(rows: Row[]) {
   return { series: pts, latest: last, first, change: round(last.value - first.value, 4), changePct: first.value ? round(((last.value - first.value) / first.value) * 100, 1) : null };
 }
 
-/** Optimizer-Projekt zur Domain: gewünschtes (Name/Hash), sonst Name enthält die Domain, sonst das einzige Projekt, sonst Auswahl nötig */
+/** Optimizer project for the domain: the requested one (name/hash), else one whose name contains the domain, else the only project, else a choice is needed */
 export function pickProject(projects: Row[], domain: string, wanted?: string): { hash: string; name: string } | { choose: { hash: string; name: string }[] } | null {
   const list = projects.map(p => ({ hash: String(p.hash ?? ''), name: String(p.name ?? p.domain ?? '') })).filter(p => p.hash);
   if (!list.length) return null;
@@ -51,13 +51,13 @@ export function pickProject(projects: Row[], domain: string, wanted?: string): {
   return { choose: byDomain.length ? byDomain : list };
 }
 
-/** Ohne Angabe gilt das in den Einstellungen bzw. im SEO-Bereich gewählte Projekt */
+/** If not specified, the project selected in the settings or the SEO section applies */
 export async function findProject(cfg: SistrixConfig, wanted?: string, ttlMs?: number) {
   const r = await sistrixCached(cfg, 'project.overview', {}, ttlMs);
   return pickProject(rowsOf(r.answer, 'project', 'projects'), cfg.domain, wanted ?? cfg.project);
 }
 
-/** URLs einer Fehlerart: Sistrix verschachtelt sie ({count, "optimizer.onpage.issue": [...]}) */
+/** URLs of an issue type: Sistrix nests them ({count, "optimizer.onpage.issue": [...]}) */
 export function issueRows(answer: Record<string, unknown>): Row[] {
   const outer = Object.values(answer).find(Array.isArray) as unknown[] | undefined;
   const first = outer?.[0];
@@ -68,28 +68,28 @@ export function issueRows(answer: Record<string, unknown>): Row[] {
 const isIssueError = (r: Row) => String(r.type ?? '').toLowerCase() === 'error';
 const NO_PROJECT = 'In Sistrix gibt es kein Optimizer-Projekt für diese Domain. Der Nutzer legt eines im Sistrix-Optimizer an (OnPage-Crawl), dann stehen die Daten hier bereit.';
 
-/** Seiten der Antwort dem Shop zuordnen (Produkt/Kategorie/Landingpage); nicht zuordenbar = null */
+/** Map the response's pages to the shop (product/category/landing page); unmappable = null */
 async function mapped(lookup: ShopLookup, rows: Row[]) {
   const urls = [...new Set(rows.map(urlOf).filter((u): u is string => !!u))];
   const map = urls.length ? await lookup.mapUrls(urls, { metas: true }).catch(() => null) : null;
   return (r: Row) => { const u = urlOf(r); return map && u ? refView(map.get(u) ?? null) : null; };
 }
 
-/** Kompakte Sichtbarkeit für die Startseite (8 Wochen = 8 Credits, 6 Stunden zwischengespeichert, damit ein Seitenaufruf nicht jedes Mal Credits kostet) */
+/** Compact visibility for the home page (8 weeks = 8 credits, cached for 6 hours so a page view does not cost credits every time) */
 export async function visibilityOverview(cfg: SistrixConfig, weeks = 8) {
   const r = await sistrixCached(cfg, 'domain.visibilityindex', { ...addressParam(cfg.domain), history: true, limit: weeks }, 6 * 60 * 60_000);
   const s = visibilitySeries(rowsOf(r.answer, 'sichtbarkeitsindex', 'visibilityindex'));
   return { domain: cfg.domain, country: cfg.country, weeks, series: s?.series ?? [], latest: s?.latest ?? null, changePct: s?.changePct ?? null, creditsUsed: r.creditsUsed };
 }
 
-// ---- Shop-Check (nur, wenn verbunden) ----
+// ---- Shop check (only when connected) ----
 const DROP_PCT = 10, DROP_HIGH_PCT = 25, DROP_WEEKS = 5;
 registerCheck({ id: 'sistrix.visibility-drop', area: 'Sistrix', scopes: ['sistrix'], platforms: 'all', run: async () => {
   const cfg = getSistrixConfig(); if (!cfg?.domain) return null;
   const r = await sistrixCached(cfg, 'domain.visibilityindex', { ...addressParam(cfg.domain), history: true, limit: DROP_WEEKS });
   const s = visibilitySeries(rowsOf(r.answer, 'sichtbarkeitsindex', 'visibilityindex'));
   if (!s || s.series.length < 2 || s.first.value <= 0) {
-    // Keine Reihe oder Ausgangswert 0: nichts zu vergleichen. Das ist kein Fehler, soll aber sichtbar sein statt still zu fehlen.
+    // No series or initial value 0: nothing to compare. That is not an error, but it should be visible rather than silently missing.
     return { id: 'sistrix.visibility-drop', area: 'Sistrix', severity: 'niedrig', count: 0, title: 'Noch keine vergleichbare Sistrix-Sichtbarkeit',
       sample: [{ id: cfg.domain, label: s ? `${cfg.domain}: Index ${String(round(s.latest.value)).replace('.', ',')} (${s.latest.date})` : `${cfg.domain}: keine Daten` }],
       hint: 'Sistrix hat für die Domain noch keine Wochenreihe mit Wert über 0 (kleine oder neue Domains haben oft keinen Index). Sobald Daten da sind, vergleicht Lotse die letzten Wochen.',
@@ -119,7 +119,7 @@ registerCheck({ id: 'sistrix.onpage-errors', area: 'Sistrix', scopes: ['sistrix'
   return f;
 } });
 
-// ---- Werkzeuge ----
+// ---- Tools ----
 export const sistrix: Feature = {
   key: 'sistrix',
   platforms: 'all',

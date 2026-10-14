@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-// KI-Zugriff: Hersteller haben einen eigenen Schalter, Search Console und Sistrix sind Daten-Schalter (Werkzeuge, Prüfungen, SEO-Übersicht)
+// AI access: manufacturers have their own switch, Search Console and Sistrix are data switches (tools, checks, SEO overview)
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-scopes-'));
 const KEY = 'sx_0123456789abcdef0123456789abcdef';
 const { startFakeSistrix } = await import('../support/sistrix-fake');
@@ -19,17 +19,17 @@ const S = await import('../../src/server/features/sistrix');
 const { seoOverview } = await import('../../src/server/features/seo-overview');
 const { listChecks } = await import('../../src/server/checks');
 
-test('Hersteller sind ein eigener Bereich, nicht mehr bei den Produkten; Integrationen haben keine Shop-Entitäten', () => {
+test('manufacturers are a separate area, no longer under products; integrations have no shop entities', () => {
   assert.deepEqual(SCOPES.manufacturers.entities, ['product-manufacturer']);
   assert.ok(!SCOPES.products.entities.includes('product-manufacturer'));
   assert.deepEqual([SCOPES.gsc.entities, SCOPES.sistrix.entities], [[], []]);
   assert.ok(['manufacturers', 'gsc', 'sistrix'].every(k => DEFAULT_SCOPES[k as keyof typeof DEFAULT_SCOPES] === true && SCOPE_KEYS.includes(k as never)));
 });
 
-test('Internetrecherche ist ein eigener Schalter ohne Shop-Entitäten und standardmäßig aus; einschalten bleibt gespeichert', () => {
+test('web research is a separate switch without shop entities and off by default; enabling it is persisted', () => {
   assert.deepEqual(SCOPES.web.entities, []);
   assert.equal(DEFAULT_SCOPES.web, false);
-  assert.ok(SCOPE_KEYS.filter(k => k !== 'web').every(k => DEFAULT_SCOPES[k]), 'alle übrigen Bereiche bleiben an');
+  assert.ok(SCOPE_KEYS.filter(k => k !== 'web').every(k => DEFAULT_SCOPES[k]), 'all other areas stay on');
   assert.equal(getSettings().scopes.web, false);
   updateSettings({ scopes: { web: true } });
   assert.equal(getSettings().scopes.web, true);
@@ -37,7 +37,7 @@ test('Internetrecherche ist ein eigener Schalter ohne Shop-Entitäten und standa
   assert.equal(getSettings().scopes.web, false);
 });
 
-test('Bereich „Hersteller“ aus: Lesen von Herstellern wird abgewiesen, Produkte bleiben lesbar', async () => {
+test('area "Hersteller" (manufacturers) off: reading manufacturers is rejected, products stay readable', async () => {
   const events: { op: string; entity: string; denied?: string }[] = [];
   const g = createGuard({ getScopes: () => ({ ...DEFAULT_SCOPES, manufacturers: false }), onAccess: a => events.push(a) });
   assert.throws(() => g.checkSearch('product-manufacturer', {}), /Hersteller/);
@@ -45,11 +45,11 @@ test('Bereich „Hersteller“ aus: Lesen von Herstellern wird abgewiesen, Produ
   assert.equal(events.at(-1)?.denied !== undefined, true);
 });
 
-test('Sistrix-Schalter aus: Werkzeug meldet gesperrt, Shop-Prüfungen sind an den Bereich gebunden, SEO-Übersicht blendet die Quelle aus', async () => {
+test('Sistrix switch off: tool reports locked, shop checks are bound to the area, SEO overview hides the source', async () => {
   A.saveSistrix({ key: KEY, domain: 'shop.de', country: 'de' });
   const session = { platform: 'shopware', lookup: { mapUrls: async () => new Map() } } as never;
   const run = async () => { const t = S.sistrix.tools(session).find(x => x.name === 'sistrix_visibility')!; return (await t.handler({}, {}) as { content: { text: string }[]; isError?: boolean }); };
-  assert.equal((await run()).isError, undefined, 'an: Werkzeug liefert');
+  assert.equal((await run()).isError, undefined, 'on: tool returns data');
   assert.equal((await seoOverview({ mapUrls: async () => new Map() } as never)).sistrix, true);
 
   updateSettings({ scopes: { sistrix: false } });

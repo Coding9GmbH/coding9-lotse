@@ -10,7 +10,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { rich } from './Rich';
 import styles from './Settings.module.css';
 
-/** Sistrix: API-Schlüssel (nur hinein, nie zurück) + Domain + Land. Eigene Speicherung, unabhängig vom übrigen Formular. */
+/** Sistrix: API key (write-only, never returned) + domain + country. Saved separately, independent of the rest of the form. */
 export function SistrixSettings() {
   const { t: all, locale } = useI18n();
   const ts = all.settings, t = ts.sistrix;
@@ -31,14 +31,14 @@ export function SistrixSettings() {
     return () => { off = true; };
   }, []);
 
-  // Automatisch speichern: Domain/Land kurz nach der Eingabe, Schlüssel sobald er plausibel ist
+  // Auto-save: domain/country shortly after input, key as soon as it looks plausible
   const keyReady = keyComplete(key);
   const dirtyFields = !!pub && (domain.trim() !== pub.domain || country.trim() !== pub.country);
   useEffect(() => {
     if (!pub || (!keyReady && !dirtyFields) || notice?.ok === false) return;
     const timer = setTimeout(() => { if (!saving.current) void save(); }, keyReady ? 0 : 800);
     return () => clearTimeout(timer);
-  }, [pub, keyReady, dirtyFields, domain, country, notice]); // eslint-disable-line react-hooks/exhaustive-deps -- save liest den aktuellen Stand
+  }, [pub, keyReady, dirtyFields, domain, country, notice]); // eslint-disable-line react-hooks/exhaustive-deps -- save reads the current state
 
   if (!pub) return <Card connected={null}><p className={styles.hint}>{notice?.text ?? ts.loading}</p></Card>;
   const showKey = !pub.hasKey || replace;

@@ -1,7 +1,7 @@
 import 'server-only';
-// Technik-Check der Live-Seiten: liest Startseite, eine Kategorie- und eine Produktseite des eigenen Shops sowie robots.txt und
-// Sitemap und prüft, was Suchmaschinen sehen (noindex, Canonical, Title/Description, H1, strukturierte Daten, Mobil, Sprache).
-// Plattform-neutral über storefront.base/fetch des Adapters, nur lesend. Ergänzt den Sistrix-Crawl und funktioniert auch ohne Sistrix.
+// Technical check of the live pages: reads the home page, one category and one product page of the own shop plus robots.txt and
+// sitemap, and checks what search engines see (noindex, canonical, title/description, H1, structured data, mobile, language).
+// Platform-neutral via the adapter's storefront.base/fetch, read-only. Complements the Sistrix crawl and also works without Sistrix.
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { CheckSeverity } from '@/lib/protocol';
 import type { ShopLookup } from '../platform/types';
@@ -9,6 +9,7 @@ import { getPlatform } from '../platform';
 import { ok, guard, type AnyTool } from '../tool-kit';
 import type { Fetcher } from '../styleguide';
 import type { Feature } from './types';
+import { attr as attrOf, closed, decodeEntities, stripBlocks } from '@/lib/text';
 
 const TIMEOUT_MS = 15_000, MAX_BYTES = 3_000_000, MAX_HOPS = 3;
 export type PageKind = 'home' | 'category' | 'product';
@@ -19,21 +20,21 @@ export interface PageAudit {
   h1: number; schema: string[]; viewport: boolean; lang: string | null;
 }
 
-// ---- Auswertung (rein) ----
-const decode = (s: string) => s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
-const attr = (tag: string, name: string) => tag.match(new RegExp(`\\s${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i'))?.slice(2).find(v => v !== undefined) ?? null;
-/** <meta name|property="…" content="…"> in beliebiger Attribut-Reihenfolge */
+// ---- Evaluation (pure) ----
+const decode = (s: string) => decodeEntities(s).replace(/\s+/g, ' ').trim();
+const attr = (tag: string, name: string) => attrOf(tag, name) ?? null;
+/** <meta name|property="…" content="…"> in any attribute order */
 function meta(html: string, key: string): string | null {
-  for (const m of html.matchAll(/<meta\b[^>]*>/gi)) if ((attr(m[0], 'name') ?? attr(m[0], 'property'))?.toLowerCase() === key) return attr(m[0], 'content');
+  for (const m of html.matchAll(/<meta\b[^<>]*>/gi)) if ((attr(m[0], 'name') ?? attr(m[0], 'property'))?.toLowerCase() === key) return attr(m[0], 'content');
   return null;
 }
-/** Seiten-URL ohne Parameter, Anker, www. und Schrägstrich am Ende: so vergleichen Suchmaschinen Canonical und Seite */
+/** Page URL without parameters, anchor, www. and trailing slash: this is how search engines compare canonical and page */
 export const sameUrl = (a: string, b: string) => {
   const n = (u: string) => { try { const x = new URL(u); return `${x.host.replace(/^www\./, '').toLowerCase()}${decodeURI(x.pathname).replace(/\/+$/, '')}`; } catch { return u; } };
   return n(a) === n(b);
 };
 
-/** Typen strukturierter Daten: JSON-LD (auch @graph, Listen) und Microdata (itemtype) */
+/** Structured data types: JSON-LD (incl. @graph, lists) and microdata (itemtype) */
 export function schemaTypes(html: string): string[] {
   const out = new Set<string>();
   const walk = (v: unknown) => {
@@ -43,28 +44,29 @@ export function schemaTypes(html: string): string[] {
     for (const x of Array.isArray(t) ? t : [t]) if (typeof x === 'string') out.add(x.replace(/^.*[/#]/, ''));
     for (const [k, x] of Object.entries(o)) if (k !== '@context' && typeof x === 'object') walk(x);
   };
-  for (const m of html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) { try { walk(JSON.parse(m[1].trim())); } catch { /* defektes JSON-LD zählt nicht */ } }
+  for (const m of html.matchAll(/<script\b[^<>]*type\s*=\s*["']application\/ld\+json["'][^<>]*>([\s\S]*?)(?:<\/script>|$)/gi)) { if (closed(m[0], 'script')) try { walk(JSON.parse(m[1].trim())); } catch { /* broken JSON-LD does not count */ } }
   for (const m of html.matchAll(/\sitemtype\s*=\s*["']([^"']+)["']/gi)) for (const t of m[1].split(/\s+/)) out.add(t.replace(/^.*[/#]/, ''));
   return [...out];
 }
 
 export function auditPage(p: Fetched, kind: PageKind): PageAudit {
-  const html = p.body, head = html.match(/<head[\s\S]*?<\/head>/i)?.[0] ?? html;
+  const html = p.body, head = closed(html.match(/<head[\s\S]*?(?:<\/head>|$)/i)?.[0], 'head') ?? html;
   const robots = `${meta(head, 'robots') ?? ''} ${meta(head, 'googlebot') ?? ''} ${p.headers['x-robots-tag'] ?? ''}`.toLowerCase();
-  const canonTag = [...head.matchAll(/<link\b[^>]*>/gi)].map(m => m[0]).find(t => (attr(t, 'rel') ?? '').toLowerCase().split(/\s+/).includes('canonical'));
+  const canonTag = [...head.matchAll(/<link\b[^<>]*>/gi)].map(m => m[0]).find(t => (attr(t, 'rel') ?? '').toLowerCase().split(/\s+/).includes('canonical'));
   const canonRaw = canonTag ? attr(canonTag, 'href') : null;
   let canonical: string | null = null; try { canonical = canonRaw ? new URL(decode(canonRaw), p.url).href : null; } catch { canonical = canonRaw; }
-  const body = html.replace(/<(script|style|noscript|template)[\s\S]*?<\/\1>/gi, ' ');
+  const title = head.match(/<title[^<>]*>([\s\S]*?)(?:<\/title>|$)/i);
+  const body = stripBlocks(html, ['script', 'style', 'noscript', 'template']);
   return {
     kind, url: p.url, status: p.status, noindex: /\bnoindex\b|\bnone\b/.test(robots),
-    title: decode(head.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? ''), description: decode(meta(head, 'description') ?? ''),
+    title: decode(closed(title?.[0], 'title') ? title![1] : ''), description: decode(meta(head, 'description') ?? ''),
     canonical, canonicalSelf: canonical ? sameUrl(canonical, p.url) : null,
     h1: (body.match(/<h1\b/gi) ?? []).length, schema: schemaTypes(html),
-    viewport: !!meta(head, 'viewport'), lang: attr(html.match(/<html\b[^>]*>/i)?.[0] ?? '', 'lang'),
+    viewport: !!meta(head, 'viewport'), lang: attr(html.match(/<html\b[^<>]*>/i)?.[0] ?? '', 'lang'),
   };
 }
 
-/** robots.txt: sperrt „User-agent: *“ die ganze Seite? Welche Sitemaps sind eingetragen? */
+/** robots.txt: does "User-agent: *" block the whole site? Which sitemaps are listed? */
 export function parseRobots(text: string): { blocksAll: boolean; sitemaps: string[] } {
   const sitemaps: string[] = []; let agents: string[] = [], inRules = false, blocksAll = false, allowAll = false;
   for (const raw of text.split(/\r?\n/)) {
@@ -85,7 +87,7 @@ export interface SiteInput { base: string; platform: string; pages: PageAudit[];
 const KIND: Record<PageKind, string> = { home: 'Startseite', category: 'Kategorie', product: 'Produktseite' };
 const list = (ps: PageAudit[]) => ps.map(p => `${KIND[p.kind]} ${p.url}`).join(', ');
 
-/** Befunde mit Auftrag; Lotse ändert Theme, robots.txt und Shop-Einstellungen nicht selbst, der Auftrag fragt nach konkreten Schritten */
+/** Findings with a task; Lotse does not change the theme, robots.txt or shop settings itself, the task asks for concrete steps */
 export function siteFindings(s: SiteInput): SiteFinding[] {
   const out: SiteFinding[] = [], ok = s.pages.filter(p => p.status === 200);
   const where = (topic: string) => `Erkläre kurz, warum das für Google wichtig ist, und nenne die konkreten Schritte, wo man es in ${s.platform} behebt (${topic}). Lotse kann Theme, Vorlagen und Shop-Einstellungen nicht selbst ändern: nichts behaupten zu beheben, keine Änderungssets dafür.`;
@@ -138,9 +140,9 @@ export function siteFindings(s: SiteInput): SiteFinding[] {
   return out;
 }
 
-// ---- Abruf ----
+// ---- Fetching ----
 const site = (u: URL) => u.host.replace(/^www\./, '').toLowerCase();
-/** Seite des eigenen Shops laden; Weiterleitungen nur innerhalb derselben Domain (mit/ohne www), Antwort gedeckelt */
+/** Load a page of the own shop; redirects only within the same domain (with/without www), response capped */
 export async function fetchSite(fetchImpl: Fetcher, url: string, base: string): Promise<Fetched> {
   const home = new URL(base); let cur = new URL(url, base);
   for (let hop = 0; ; hop++) {
@@ -154,11 +156,11 @@ export async function fetchSite(fetchImpl: Fetcher, url: string, base: string): 
 }
 const safe = (f: Fetcher, url: string, base: string): Promise<Fetched> => fetchSite(f, url, base).catch(() => ({ url: new URL(url, base).href, status: 0, body: '', headers: {} }));
 
-/** Interne Links der Startseite (gleiche Domain, keine Dateien), um je eine Kategorie- und Produktseite zu finden */
+/** Internal links of the home page (same domain, no files) to find one category and one product page */
 export function internalLinks(html: string, url: string): string[] {
   const out = new Set<string>(), home = new URL(url);
-  for (const m of html.matchAll(/<a\b[^>]*\shref\s*=\s*["']([^"'#]+)["']/gi)) {
-    try { const u = new URL(m[1], url); if (site(u) === site(home) && /^https?:$/.test(u.protocol) && !/\.(jpe?g|png|webp|gif|svg|pdf|xml|txt)$/i.test(u.pathname) && u.pathname !== '/') out.add(u.origin + u.pathname); } catch { /* ungültiger Link */ }
+  for (const m of html.matchAll(/<a\b[^<>]*\shref\s*=\s*["']([^"'#]+)["']/gi)) {
+    try { const u = new URL(m[1], url); if (site(u) === site(home) && /^https?:$/.test(u.protocol) && !/\.(jpe?g|png|webp|gif|svg|pdf|xml|txt)$/i.test(u.pathname) && u.pathname !== '/') out.add(u.origin + u.pathname); } catch { /* invalid link */ }
     if (out.size >= 150) break;
   }
   return [...out];
@@ -166,7 +168,7 @@ export function internalLinks(html: string, url: string): string[] {
 
 export interface SiteAudit { base: string; checkedAt: string; pages: PageAudit[]; robots: { url: string; status: number; sitemaps: string[]; blocksAll: boolean } | null; sitemap: { url: string; status: number } | null; findings: SiteFinding[] }
 
-/** Ganzer Check: Startseite, je eine Kategorie- und Produktseite (über die Links der Startseite und mapUrls gefunden), robots.txt, Sitemap */
+/** Full check: home page, one category and one product page each (found via the home page links and mapUrls), robots.txt, sitemap */
 export async function siteAudit(sf: { base(): Promise<string>; fetch: Fetcher }, lookup: ShopLookup, platform: string): Promise<SiteAudit> {
   const base = (await sf.base()).replace(/\/+$/, '');
   const home = await safe(sf.fetch, base + '/', base);
@@ -187,7 +189,7 @@ export async function siteAudit(sf: { base(): Promise<string>; fetch: Fetcher },
   return { base, checkedAt: new Date().toISOString(), pages, robots: { url: robots.url, status: robots.status, ...parsed }, sitemap, findings };
 }
 
-// ---- Werkzeug ----
+// ---- Tool ----
 export const siteCheck: Feature = {
   key: 'site-check',
   platforms: 'all',

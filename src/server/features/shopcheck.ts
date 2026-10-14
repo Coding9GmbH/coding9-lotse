@@ -1,6 +1,6 @@
 import 'server-only';
-// Shop-Check: Kernprüfungen (SEO, Bilder, Bestand, Preise, Links, Sprachen) registrieren + Werkzeug run_shop_check für die KI.
-// Große Kataloge: Zählungen über total-count (DAL-Filter, exakt); Prüfungen, die Texte/Preise brauchen, lesen höchstens SCAN_MAX Produkte („mindestens“).
+// Shop check: register core checks (SEO, images, stock, prices, links, languages) + tool run_shop_check for the AI.
+// Large catalogs: counts via total-count (DAL filter, exact); checks that need texts/prices read at most SCAN_MAX products ("at least").
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { CheckFinding } from '@/lib/protocol';
@@ -16,18 +16,18 @@ import { CHECK_FIELDS, CHECK_OPS, conditionsText, CUSTOM_PREFIX, parseCheckInput
 import { addCustom, checkList, customFinding, listCustom, removeCustom, setCheckEnabled, updateCustom } from '../custom-checks';
 import type { ShopReader, SwEntity } from '../shopware';
 import { fail, guard, ok, type AnyTool } from '../tool-kit';
-import { GAP_FILTER } from './bilder';
+import { GAP_FILTER } from './product-images';
 import { auditPages } from './seo';
 import { DEFS, makeFinding, productLabel, scanHits, SCAN_INCLUDES, toScanRow, type Hit, type ScanRow } from './shopcheck-rules';
-import { loadLanguages, SYSTEM_LANGUAGE } from './sprachen';
+import { loadLanguages, SYSTEM_LANGUAGE } from './translations';
 import type { Feature } from './types';
 
 export const SCAN_MAX = 2500, SCAN_PAGE = 250, PAGES_MAX = 200;
 
-// Freigegebene Änderung angewendet (z. B. ein Befund über „Als Auftrag ins Feld“ behoben) → Shop-Check im Hintergrund neu
+// Approved change applied (e.g. a finding fixed via "Als Auftrag ins Feld") → rerun shop check in the background
 onApplied('shopcheck', () => { void recheckShopCheck(); });
 
-// Pro Durchlauf nur einmal lesen (runChecks gibt jedem Durchlauf ein eigenes Lese-Client-Objekt, siehe perRun), auch wenn mehrere Prüfungen dieselben Daten brauchen
+// Read only once per run (runChecks gives each run its own read client object, see perRun), even if several checks need the same data
 const memos = new WeakMap<ShopReader, Map<string, Promise<unknown>>>();
 function memo<T>(sw: ShopReader, key: string, fn: () => Promise<T>): Promise<T> {
   let m = memos.get(sw); if (!m) memos.set(sw, (m = new Map()));
@@ -40,16 +40,16 @@ const empty = (field: string) => ({ type: 'multi', operator: 'or', queries: [eq(
 const ACTIVE_MAIN = [eq('active', true), eq('parentId', null)];
 const PRODUCT_LIST = { product: ['id', 'productNumber', 'name', 'translated'] };
 
-/** Anzahl + bis zu 5 Beispiele in einer Abfrage */
+/** Count + up to 5 examples in one query */
 async function countProducts(sw: ShopReader, filter: unknown[], opts?: { languageId?: string }) {
   const r = await sw.search('product', { limit: 5, filter, 'total-count-mode': 1, sort: [{ field: 'productNumber', order: 'ASC' }], includes: PRODUCT_LIST }, opts);
   return { count: r.total ?? r.data.length, sample: r.data.map(p => ({ id: p.id, label: productLabel(p) })) };
 }
 const activeTotal = (sw: ShopReader) => memo(sw, 'activeTotal', async () => (await sw.search('product', { limit: 1, filter: ACTIVE_MAIN, 'total-count-mode': 1, includes: { product: ['id'] } })).total ?? 0);
-// null = kein Verkaufskanal mit Domain; Lesefehler werden weitergereicht (Prüfung gilt dann als gescheitert, nicht als „ohne Befund“)
+// null = no sales channel with a domain; read errors are passed on (the check then counts as failed, not as "no findings")
 const ctxOf = (sw: ShopReader) => memo(sw, 'ctx', () => linkContext(sw));
 
-/** Aktive Hauptprodukte seitenweise lesen (nur benötigte Felder), höchstens SCAN_MAX */
+/** Read active parent products page by page (only required fields), at most SCAN_MAX */
 export async function scanProducts(sw: ShopReader): Promise<{ rows: ScanRow[]; total: number; capped: boolean }> {
   return memo(sw, 'scan', async () => {
     const rows: ScanRow[] = []; let total = 0;
@@ -65,14 +65,14 @@ export async function scanProducts(sw: ShopReader): Promise<{ rows: ScanRow[]; t
 
 type Def = (typeof DEFS)[keyof typeof DEFS];
 const fromCount = (d: Def) => async (sw: ShopReader, filter: unknown[]) => { const [c, total] = await Promise.all([countProducts(sw, [...ACTIVE_MAIN, ...filter]), activeTotal(sw)]); return makeFinding(d, c.count, total, c.sample); };
-// Symbol der Standardwährung für Preis-Beispiele (Bereich „Shop-Grunddaten“ aus → ohne Symbol)
+// Symbol of the default currency for price examples (area "Shop-Grunddaten" off → no symbol)
 const currencySymbol = (sw: ShopReader) => memo(sw, 'currency', () => sw.get('currency', DEFAULT_CURRENCY).then(c => String(c?.symbol ?? c?.isoCode ?? ''), () => ''));
 const fromScan = (d: Def, pick: (h: ReturnType<typeof scanHits>) => Hit[] | { count: number; sample: Hit[] }) => async (sw: ShopReader) => {
   const [s, cur] = await Promise.all([scanProducts(sw), currencySymbol(sw)]), h = pick(scanHits(s.rows, cur)), list = Array.isArray(h) ? { count: h.length, sample: h } : h;
   return makeFinding(d, list.count, s.total, list.sample, { atLeast: s.capped });
 };
 
-// ---- Produkte: SEO, Bilder, Bestand, Preise ----
+// ---- Products: SEO, images, stock, prices ----
 registerCheck({ id: 'shopcheck.meta-description', area: 'SEO', scopes: ['products'], run: sw => fromCount(DEFS.metaDescMissing)(sw, [empty('metaDescription')]) });
 registerCheck({ id: 'shopcheck.meta-title', area: 'SEO', scopes: ['products'], run: sw => fromCount(DEFS.metaTitleMissing)(sw, [empty('metaTitle')]) });
 registerCheck({ id: 'shopcheck.meta-title-long', area: 'SEO', scopes: ['products'], run: fromScan(DEFS.metaTitleLong, h => h.metaTitleLong) });
@@ -80,13 +80,13 @@ registerCheck({ id: 'shopcheck.meta-title-duplicate', area: 'SEO', scopes: ['pro
 registerCheck({ id: 'shopcheck.description-thin', area: 'SEO', scopes: ['products'], run: fromScan(DEFS.thin, h => h.thin) });
 registerCheck({ id: 'shopcheck.no-image', area: 'Bilder', scopes: ['products'], run: sw => fromCount(DEFS.noImage)(sw, GAP_FILTER.images) });
 registerCheck({ id: 'shopcheck.alt-missing', area: 'Bilder', scopes: ['products', 'media'], run: sw => fromCount(DEFS.altMissing)(sw, GAP_FILTER.alt) });
-// Bestand: nur Produkte ohne Varianten (bei Variantenprodukten zählt der Bestand der Varianten); Abverkauf aus = trotzdem bestellbar
+// Stock: only products without variants (for variant products the variants' stock counts); clearance sale off = still orderable
 registerCheck({ id: 'shopcheck.stock-zero', area: 'Daten', scopes: ['products'], run: sw => fromCount(DEFS.stockZero)(sw, [{ type: 'range', field: 'stock', parameters: { lte: 0 } }, eq('isCloseout', false), { type: 'multi', operator: 'or', queries: [eq('childCount', 0), eq('childCount', null)] }]) });
 registerCheck({ id: 'shopcheck.price-zero', area: 'Preise', scopes: ['products'], run: fromScan(DEFS.priceZero, h => h.priceZero) });
 registerCheck({ id: 'shopcheck.below-purchase', area: 'Preise', scopes: ['products'], run: fromScan(DEFS.belowPurchase, h => h.belowPurchase) });
 registerCheck({ id: 'shopcheck.list-price', area: 'Preise', scopes: ['products'], run: fromScan(DEFS.listBelow, h => h.listBelow) });
 
-// ---- Links in Produktbeschreibungen (Ziele gegen den Shop prüfen) ----
+// ---- Links in product descriptions (check targets against the shop) ----
 registerCheck({ id: 'shopcheck.description-links', area: 'Links', scopes: ['products', 'shop'], run: async sw => {
   const [s, ctx] = await Promise.all([scanProducts(sw), ctxOf(sw)]);
   if (!ctx) return null;
@@ -98,7 +98,7 @@ registerCheck({ id: 'shopcheck.description-links', area: 'Links', scopes: ['prod
   return makeFinding(DEFS.descLinks, hits.length, s.total, hits, { atLeast: s.capped });
 } });
 
-// ---- Kategorien mit eigener Seite im Verkaufskanal ----
+// ---- Categories with their own page in the sales channel ----
 async function categoryCounts(sw: ShopReader) {
   return memo(sw, 'categories', async () => {
     const ctx = await ctxOf(sw);
@@ -111,7 +111,7 @@ async function categoryCounts(sw: ShopReader) {
 registerCheck({ id: 'shopcheck.category-meta', area: 'SEO', scopes: ['categories'], run: async sw => { const c = await categoryCounts(sw); return makeFinding(DEFS.catMeta, c.meta.count, c.total, c.meta.sample); } });
 registerCheck({ id: 'shopcheck.category-description', area: 'SEO', scopes: ['categories'], run: async sw => { const c = await categoryCounts(sw); return makeFinding(DEFS.catDesc, c.desc.count, c.total, c.desc.sample); } });
 
-// ---- Einkaufswelten: Links und feste Produkte (seo_audit entity=pages) ----
+// ---- Shopping Experiences: links and fixed products (seo_audit entity=pages) ----
 registerCheck({ id: 'shopcheck.cms-links', area: 'Links', scopes: ['cms', 'shop'], run: async sw => {
   const ctx = await ctxOf(sw);
   if (!ctx) return null;
@@ -130,7 +130,7 @@ registerCheck({ id: 'shopcheck.cms-links', area: 'Links', scopes: ['cms', 'shop'
   return [makeFinding(DEFS.cmsBroken, broken.length, total, broken, { atLeast }), makeFinding(DEFS.cmsTechnical, technical.length, total, technical, { atLeast, fixExtra: techLinks ? ` Insgesamt ${techLinks} technische Links.` : '' })].filter((x): x is CheckFinding => !!x);
 } });
 
-/** Einkaufswelten dieses Abschnitts (ab offset), deren technische Links (/detail/…) eine SEO-URL hätten */
+/** Shopping Experiences of this section (from offset) whose technical links (/detail/…) would have an SEO URL */
 async function technicalPages(sw: ShopReader, ctx: LinkCtx, offset: number): Promise<Hit[]> {
   const out: Hit[] = [];
   const r = await sw.search('cms-page', { limit: 50, page: offset / 50 + 1, sort: [{ field: 'name', order: 'ASC' }], associations: { sections: { associations: { blocks: { associations: { slots: {} } } } } } });
@@ -143,12 +143,12 @@ async function technicalPages(sw: ShopReader, ctx: LinkCtx, offset: number): Pro
   return out;
 }
 
-// ---- Übersetzungen: nur wenn der Shop mehrere Sprachen in Storefront-Domains nutzt ----
+// ---- Translations: only if the shop uses several languages in storefront domains ----
 registerCheck({ id: 'shopcheck.translations', area: 'Sprachen', scopes: ['products', 'shop'], run: async sw => {
   const [langs, channels, ctx] = await Promise.all([loadLanguages(sw), sw.salesChannels(), ctxOf(sw)]);
   const used = [...new Set(channels.flatMap(s => (s.domains ?? []).filter((d: SwEntity) => /^https?:\/\//.test(String(d.url))).map((d: SwEntity) => String(d.languageId))))];
   if (used.length < 2) return null;
-  // Hauptsprache (Standard-Domain) und Systemsprache tragen die Texte; geprüft werden die übrigen Sprachen
+  // Main language (default domain) and system language carry the texts; the remaining languages are checked
   const check = langs.filter(l => used.includes(l.id) && l.id !== SYSTEM_LANGUAGE && l.id !== ctx?.languageId);
   const total = await activeTotal(sw), out: CheckFinding[] = [];
   for (const l of check) {
@@ -159,7 +159,7 @@ registerCheck({ id: 'shopcheck.translations', area: 'Sprachen', scopes: ['produc
   return out;
 } });
 
-// ---- Werkzeug ----
+// ---- Tool ----
 const view = (f: CheckFinding) => ({ id: f.id, area: f.area, severity: SEVERITY_LABEL[f.severity], title: f.title, betroffen: countText(f), hint: f.hint, beispiele: f.sample?.map(s => s.label), fixPrompt: f.fixPrompt });
 
 export const shopcheck: Feature = {
@@ -259,7 +259,7 @@ export const shopcheck: Feature = {
   ] as AnyTool[],
 };
 
-/** Probelauf gegen die echten Produkte, damit der Nutzer vor dem Speichern die Trefferzahl sieht */
+/** Dry run against the real products so the user sees the match count before saving */
 async function dryRun(session: { platform: PlatformKind; reader: unknown }, c: CustomCheck): Promise<string> {
   try {
     const { getPlatform } = await import('../platform');

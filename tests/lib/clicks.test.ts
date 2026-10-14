@@ -8,7 +8,7 @@ import { isShopLoginFailure, shopLoginMessage } from '../../src/lib/shop-login';
 
 const read = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 
-test('applyHint sagt bei jedem offenen Set, dass der Klick in den Shop schreibt', () => {
+test('applyHint says for every open set that the click writes to the shop', () => {
   const rows = applyHint({ selectable: true, undoPlanned: true });
   const bare = applyHint({ selectable: false, undoPlanned: false });
   assert.match(rows, /Der Klick schreibt die ausgewählten Zeilen in den verbundenen Shop/);
@@ -19,20 +19,20 @@ test('applyHint sagt bei jedem offenen Set, dass der Klick in den Shop schreibt'
   assert.doesNotMatch(rows + bare, /steht nach dem Schreiben an der Karte/);
 });
 
-test('undoPlanned: Zeilen, die keine reinen Hinweise sind, lassen sich auf vorherige Werte stellen', () => {
+test('undoPlanned: rows that are not mere notes can be reset to previous values', () => {
   assert.equal(undoPlannedFor({ items: [{ entity: 'product' }] }), true);
   assert.equal(undoPlannedFor({ items: [{ entity: 'info' }] }), false);
   assert.equal(undoPlannedFor({ items: [] }), false);
 });
 
-test('approveError: 404 nach schon angenommener Freigabe ist kein Fehler', () => {
+test('approveError: 404 after an already accepted approval is not an error', () => {
   assert.equal(approveError(404, true), null);
   assert.equal(approveError(404, false), 'Diese Freigabe gibt es nicht mehr.');
   assert.match(approveError(500, true) ?? '', /Freigabe konnte nicht gesendet werden/);
   assert.match(approveError(400, false) ?? '', /Freigabe konnte nicht gesendet werden/);
 });
 
-test('shopLoginMessage ist ein fester deutscher Satz ohne Rohbody', () => {
+test('shopLoginMessage is a fixed German sentence without the raw body', () => {
   const body = '{"error":"invalid_grant","raw":"Shop-Geheimnis-XYZ"}';
   const msg = shopLoginMessage(401, body);
   assert.equal(msg, shopLoginMessage(500, 'andere antwort'));
@@ -42,7 +42,7 @@ test('shopLoginMessage ist ein fester deutscher Satz ohne Rohbody', () => {
   assert.equal(isShopLoginFailure('Shop nicht erreichbar'), false);
 });
 
-test('Shopify- und OpenMage-Hilfe: ein Satz, keine Shell, keine Scope-Liste', () => {
+test('Shopify and OpenMage help: one sentence, no shell, no scope list', () => {
   const shopify = PLATFORM_SETTINGS.shopify.auth.map(a => a.hint ?? '').join('\n');
   const openmage = PLATFORM_SETTINGS.openmage.auth.map(a => a.hint ?? '').join('\n');
   for (const hint of [shopify, openmage]) {
@@ -53,7 +53,7 @@ test('Shopify- und OpenMage-Hilfe: ein Satz, keine Shell, keine Scope-Liste', ()
   assert.doesNotMatch(shopify, /Client-Secret aus den Einstellungen[\s\S]*und[\s\S]*Berechtigungen/);
 });
 
-test('Bereichsnamen hängen an der Plattform, nicht an Einkaufswelten für jeden Shop', () => {
+test('area names depend on the platform, not Shopping Experiences for every shop', () => {
   const sw = scopeDisplay('shopware', 'cms', { label: 'Einkaufswelten-Layouts', hint: 'Seiten' });
   const sy = scopeDisplay('shopify', 'cms', { label: 'Einkaufswelten-Layouts', hint: 'Produktstreams' });
   const mg = scopeDisplay('magento', 'cms', { label: 'Einkaufswelten-Layouts', hint: 'Verkaufskanäle' });
@@ -65,7 +65,7 @@ test('Bereichsnamen hängen an der Plattform, nicht an Einkaufswelten für jeden
   assert.match(sy.label, /Seiten/);
 });
 
-test('Oberfläche: Klick-Texte und keine Roh-JSON-Ansicht', () => {
+test('UI: click texts and no raw JSON view', () => {
   const card = read('src/components/chat/ChangeSetCard.tsx');
   assert.match(card, /applyHint\(/);
   assert.doesNotMatch(card, /Es wird erst nach deiner Freigabe geschrieben/);

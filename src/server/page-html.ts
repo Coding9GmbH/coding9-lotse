@@ -1,46 +1,46 @@
 import 'server-only';
-// Seiten-Entwurf → statisches HTML für Plattformen ohne Einkaufswelten (Shopify-Seiten, Magento-CMS-Seiten, Kategorie-/Kollektionstexte).
-// Nur die generischen Blöcke (GENERIC_BLOCKS + Patterns). Bilder müssen vorher in endgültige URLs aufgelöst sein (Upload nach Freigabe),
-// Produkte kommen als Vorschau-Daten (Name, Preis formatiert, Bild, url) von der Plattform.
+// Page draft → static HTML for platforms without Shopping Experiences (Shopify pages, Magento CMS pages, category/collection texts).
+// Only the generic blocks (GENERIC_BLOCKS + patterns). Images must be resolved to final URLs beforehand (upload after approval),
+// products come as preview data (name, formatted price, image, url) from the platform.
+import { esc } from '@/lib/format';
 import { GENERIC_BLOCKS, wrapCustom, type BlockSpec, type ImageRef, type PageSpec, type PreviewProduct, type SectionSpec } from './cms';
 import { expandSpec } from './patterns';
 import { cssVars } from './styleguide';
 
 export interface HtmlCtx {
-  /** ImageRef → endgültige, öffentliche URL (null = Bild weglassen) */
+  /** ImageRef → final, public URL (null = omit image) */
   imageUrl: (im: ImageRef) => string | null | undefined;
-  /** Produkte nach ID; url = Produktseite im Shop */
+  /** Products by ID; url = product page in the shop */
   products?: Record<string, PreviewProduct & { url?: string }>;
-  /** Wurzel-Klasse (eindeutig je Seite), Standard lotse-page */
+  /** Root class (unique per page), default lotse-page */
   scope?: string;
 }
 
-const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c as '&' | '<' | '>' | '"']));
 const alt = (im: ImageRef | undefined) => (im && typeof im === 'object' ? im.alt ?? '' : '');
 
-/** Blocktypen eines bereits expandierten Entwurfs, die nicht erlaubt sind */
+/** Block types of an already expanded draft that are not allowed */
 function unsupportedIn(ex: Partial<PageSpec>, allowed: readonly string[]): string[] {
   const bad = new Set<string>();
   for (const s of ex.sections ?? []) for (const b of s.blocks ?? []) if (b?.type && !allowed.includes(b.type)) bad.add(b.type);
   return [...bad];
 }
-/** Blocktypen eines Entwurfs, die NICHT als statisches HTML gehen (nach Pattern-Auflösung) */
+/** Block types of a draft that do NOT work as static HTML (after pattern resolution) */
 export const unsupportedBlocks = (spec: Partial<PageSpec>, allowed: readonly string[] = GENERIC_BLOCKS): string[] => unsupportedIn(expandSpec(spec), allowed);
 
 /**
- * Rendert den Entwurf als eigenständiges HTML-Fragment (ein Wurzel-<div> mit begrenztem <style>, ohne <html>/<body>).
- * Wirft, wenn Blöcke enthalten sind, die nur Shopware-Einkaufswelten können (pdp-*, product-listing, sidebar-filter, reuse).
+ * Renders the draft as a standalone HTML fragment (one root <div> with a scoped <style>, without <html>/<body>).
+ * Throws if it contains blocks that only Shopware Shopping Experiences support (pdp-*, product-listing, sidebar-filter, reuse).
  */
 export function renderPageHtml(spec: PageSpec, ctx: HtmlCtx): string {
-  const ex = expandSpec(spec), bad = unsupportedIn(ex, GENERIC_BLOCKS); // einmal expandieren (Muster bauen HTML/CSS und Scope-IDs)
+  const ex = expandSpec(spec), bad = unsupportedIn(ex, GENERIC_BLOCKS); // expand once (patterns build HTML/CSS and scope IDs)
   if (bad.length) throw new Error(`Blocktyp(en) ${bad.join(', ')} gibt es nur in Shopware-Einkaufswelten. Erlaubt: ${GENERIC_BLOCKS.join(', ')} und pattern.`);
   const root = ctx.scope ?? 'lotse-page';
   return wrapRoot(root, renderBlocks(ex.sections ?? [], ctx));
 }
 
 /**
- * Wie renderPageHtml, aber geteilt am theme-main-Block (Plattformen mit Theme-Vorlagen): before = Inhalt über dem Theme-Inhalt
- * (Produktliste bzw. Produktbereich), after = darunter. Ohne theme-main steht alles in before. Leere Teile sind ''.
+ * Like renderPageHtml, but split at the theme-main block (platforms with theme templates): before = content above the theme content
+ * (product list or product area), after = below it. Without theme-main everything is in before. Empty parts are ''.
  */
 export function renderPageParts(spec: PageSpec, ctx: HtmlCtx): { before: string; after: string; themeMain: boolean } {
   const ex = expandSpec(spec), bad = unsupportedIn(ex, [...GENERIC_BLOCKS, 'theme-main']);

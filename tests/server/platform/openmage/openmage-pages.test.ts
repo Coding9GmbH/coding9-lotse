@@ -1,4 +1,4 @@
-// OpenMage: Seiten (HTML, Veröffentlichen mit exaktem Rückgängig), CMS-Seiten ändern, Link-Prüfung, Shop-Check, Import.
+// OpenMage: pages (HTML, publishing with exact undo), changing CMS pages, link check, shop check, import.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -54,8 +54,8 @@ const { parseTable } = await import('../../../../src/server/features/import-pars
 
 test.after(() => fake.close());
 
-// ================= reine Logik =================
-test('Rendern: statisches HTML mit Produktboxen, Direktiven entschärft, Block anhängen, Direktiven-Schutz, Links einordnen', () => {
+// ================= pure logic =================
+test('rendering: static HTML with product boxes, directives neutralized, appending a block, directive protection, classifying links', () => {
   const spec = { name: 'S', type: 'landingpage' as const, sections: [{ blocks: [{ type: 'text-hero', html: '<h1>Herbst {{config path="x"}}</h1>' }, { type: 'product-slider', title: 'Favoriten', productIds: ['1'] }] }] };
   const html = renderContent(spec, { imageUrl: () => null, products: { 1: { id: '1', name: 'Vase', price: '49,00 €', url: 'https://shop.test/vase.html' } }, scope: 'lotse-t' });
   assert.match(html, /^<div class="lotse-t"><style>/); assert.match(html, /Vase/); assert.match(html, /49,00 €/); assert.match(html, /\{ \{config/); assert.doesNotMatch(html, /\{\{/);
@@ -68,12 +68,12 @@ test('Rendern: statisches HTML mit Produktboxen, Direktiven entschärft, Block a
   assert.equal(classifyHref('https://fremd.test/x', bases).type, 'external'); assert.equal(classifyHref('javascript:alert(1)', bases).type, 'invalid'); assert.equal(classifyHref('{{store url="x"}}', bases).type, 'other');
   assert.deepEqual([...OPENMAGE_CAPABILITIES.publishTargets].sort(), ['category', 'landingpage', 'product']);
   assert.equal(shopPrice({ gross: 49 }, 'gross'), 49); assert.equal(shopPrice({ gross: 49 }, 'net'), 41.1765); assert.equal(shopPrice({}, 'net', 19, 'list', 119), 100);
-  // Qualitäts-Check: Kategorie-Inhalt ohne H1 ist auf HTML-Plattformen richtig
+  // quality check: category content without H1 is correct on HTML platforms
   const a = auditSpec({ name: 'K', type: 'product_list', seo: { keyword: 'vasen' }, sections: [{ blocks: [{ type: 'text', html: `<h2>Vasen</h2><p>${words(120)}</p>` }] }] }, null, { format: 'html' });
   assert.ok(a.checks.find(c => /Keine eigene H1/.test(c.label))?.ok);
 });
 
-// ================= Werkzeuge gegen den Fake =================
+// ================= tools against the fake =================
 type Res = { isError?: boolean; content: { text: string }[] };
 const s = getSession('chat-openmage-pages');
 const allow = true;
@@ -86,15 +86,15 @@ async function roundtrip(label: string, run: () => Promise<{ status?: string }>,
   const before = fake.snapshot();
   const r = await run();
   assert.equal(r.status, 'applied', `${label}: ${JSON.stringify(r)}`);
-  assert.notEqual(fake.snapshot(), before, `${label}: geändert`);
+  assert.notEqual(fake.snapshot(), before, `${label}: changed`);
   await check?.();
   const u = await undoChangeSet('chat-openmage-pages', lastResult().csId);
-  assert.ok(u?.ok, `${label}: Rückgängig ${JSON.stringify(u)}`);
-  assert.deepEqual(JSON.parse(fake.snapshot()), JSON.parse(before), `${label}: exakt wiederhergestellt`);
+  assert.ok(u?.ok, `${label}: undo ${JSON.stringify(u)}`);
+  assert.deepEqual(JSON.parse(fake.snapshot()), JSON.parse(before), `${label}: restored exactly`);
 }
 const draft = (spec: Record<string, unknown>) => call('draft_page', spec);
 
-test('Entwurf: Blöcke laut Fähigkeiten, product_detail erlaubt, Link-Prüfung im Qualitäts-Check, Fokus', async () => {
+test('draft: blocks per capabilities, product_detail allowed, link check in quality check, focus', async () => {
   const bad = await draft({ name: 'X', type: 'product_detail', sections: [{ blocks: [{ type: 'pdp-gallery-buybox' }] }] });
   assert.match(bad.error, /pdp-gallery-buybox gibt es in OpenMage nicht/);
   const ok = await draft({ name: 'Vase', type: 'product_detail', previewProductId: '1', sections: [{ blocks: [{ type: 'text', html: '<h2>Details</h2><p><a href="/gibts-nicht.html">kaputt</a></p>' }] }] });
@@ -103,7 +103,7 @@ test('Entwurf: Blöcke laut Fähigkeiten, product_detail erlaubt, Link-Prüfung 
   assert.equal(focus?.id, '1');
 });
 
-test('Landingpage veröffentlichen: CMS-Seite als HTML, Theme-Überschrift leer bei eigener H1, Produktboxen; Rückgängig löscht sie', async () => {
+test('publishing a landing page: CMS page as HTML, theme heading empty with own H1, product boxes; undo deletes it', async () => {
   const svg = stageImage(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>'), 'image/svg+xml', { name: 'muster', alt: 'Muster' });
   await draft({ name: 'Herbst', type: 'landingpage', seo: { keyword: 'herbst', metaTitle: 'Herbst bei Holm | Haus Holm', metaDescription: 'z'.repeat(130) }, sections: [{ blocks: [{ type: 'text-hero', html: '<h1>Herbst</h1>' }, { type: 'image-two-column', image: { mediaId: 'om-1-1', alt: 'Vase' }, image2: { mediaId: svg.mediaId, alt: 'Muster' } }, { type: 'product-slider', title: 'Favoriten', productIds: ['1', 'BECHER', '5'] }] }] });
   const photo = stageImage(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64'), 'image/png', { name: 'foto', alt: 'Foto' });
@@ -115,16 +115,16 @@ test('Landingpage veröffentlichen: CMS-Seite als HTML, Theme-Überschrift leer 
   assert.match((await call('publish_page', { target: 'category' })).error, /Entwurfstyp landingpage passt nicht/);
   await roundtrip('Landingpage', () => call('publish_page', { target: 'landingpage', url: 'Ratgeber/Herbst' }), () => {
     const pg = fake.cmsPages.find(p => p.identifier === 'ratgeber/herbst')!;
-    assert.ok(pg, 'angelegt'); assert.deepEqual(pg.store_ids, [1], 'Store-View aus den Einstellungen');
-    assert.equal(pg.title, 'Herbst bei Holm', 'Meta-Title = Seitentitel, ohne das Theme-Suffix „ | Haus Holm“ (OpenMage hängt es selbst an)'); assert.equal(pg.content_heading, '', 'eigene H1 → Theme-Überschrift leer'); assert.equal(pg.is_active, true); assert.equal(pg.root_template, 'one_column');
+    assert.ok(pg, 'created'); assert.deepEqual(pg.store_ids, [1], 'store view from settings');
+    assert.equal(pg.title, 'Herbst bei Holm', 'meta title = page title, without the theme suffix " | Haus Holm" (OpenMage appends it itself)'); assert.equal(pg.content_heading, '', 'own H1 → theme heading empty'); assert.equal(pg.is_active, true); assert.equal(pg.root_template, 'one_column');
     const html = String(pg.content);
     assert.match(html, /\/media\/catalog\/product\/v\/a\/vase\.jpg/); assert.match(html, /data:image\/svg\+xml;base64,/); assert.match(html, /49,00 €/); assert.match(html, /Becher/);
     const cs = lastCs().cs;
-    assert.ok(cs.items[0].warn.some(w => /Ausgelaufen.*deaktiviert/.test(w)), 'deaktiviertes Produkt gewarnt');
-    assert.ok(cs.items[0].warn.some(w => /statisch/.test(w)), 'Hinweis auf statische Produktboxen');
+    assert.ok(cs.items[0].warn.some(w => /Ausgelaufen.*deaktiviert/.test(w)), 'deactivated product warned');
+    assert.ok(cs.items[0].warn.some(w => /statisch/.test(w)), 'note about static product boxes');
     assert.equal(lastResult().published?.storefront, `${fake.base}/ratgeber/herbst`);
   });
-  // ohne H1: Theme-Überschrift = Seitentitel, alle Store-Views
+  // without H1: theme heading = page title, all store views
   await draft({ name: 'Service', type: 'landingpage', sections: [{ blocks: [{ type: 'text', html: '<h2>Service</h2><p>x</p>' }] }] });
   await roundtrip('Landingpage ohne H1', () => call('publish_page', { target: 'landingpage', url: 'service', allStoreViews: true, title: 'Unser Service' }), () => {
     const pg = fake.cmsPages.find(p => p.identifier === 'service')!;
@@ -132,11 +132,11 @@ test('Landingpage veröffentlichen: CMS-Seite als HTML, Theme-Überschrift leer 
   });
 });
 
-test('Kategorie-Inhalt veröffentlichen: CMS-Block + Anzeigemodus + Metas, Rückgängig stellt Kategorie exakt her und löscht den Block', async () => {
+test('publishing category content: CMS block + display mode + metas, undo restores the category exactly and deletes the block', async () => {
   await draft({ name: 'Wohnen Intro', type: 'product_list', previewCategoryId: '3', seo: { keyword: 'wohnen', metaTitle: 'Wohnaccessoires | Holm', metaDescription: 'm'.repeat(130) }, sections: [{ blocks: [{ type: 'text', html: '<h1>Wohnen</h1><p>Ruhige Dinge.</p>' }] }] });
   await roundtrip('Kategorie', () => call('publish_page', { target: 'category', categoryId: '3' }), () => {
     const cat = fake.categories.find(c => c.id === 3)!.vals[0], blk = fake.cmsBlocks.find(b => String(b.identifier).startsWith('lotse-kategorie-3-'))!;
-    assert.ok(blk, 'Block angelegt'); assert.deepEqual(blk.store_ids, [0]);
+    assert.ok(blk, 'block created'); assert.deepEqual(blk.store_ids, [0]);
     assert.equal(cat.display_mode, 'PRODUCTS_AND_PAGE'); assert.equal(cat.landing_page, blk.id); assert.equal(cat.meta_title, 'Wohnaccessoires | Holm');
     assert.doesNotMatch(String(blk.content), /<h1/, 'H1 → H2');
     assert.ok(lastCs().cs.items[0].warn.some(w => /H1-Überschrift/.test(w)));
@@ -144,7 +144,7 @@ test('Kategorie-Inhalt veröffentlichen: CMS-Block + Anzeigemodus + Metas, Rück
   assert.match((await call('publish_page', { target: 'category', categoryId: '2' })).error, /Wurzelkategorie/);
 });
 
-test('Produktinhalt: ein Produkt ersetzt die Beschreibung, mehrere bekommen den Inhalt darunter (kein {{block}}); Rückgängig exakt', async () => {
+test('product content: one product replaces the description, several get the content below it (no {{block}}); exact undo', async () => {
   await draft({ name: 'Vase Details', type: 'product_detail', previewProductId: '1', sections: [{ blocks: [{ type: 'text', html: '<h2>Pflege</h2><p>Feucht abwischen.</p>' }] }] });
   await roundtrip('Beschreibung', () => call('publish_page', { target: 'product', productIds: ['1'] }), () => {
     const d = String(fake.products.find(p => p.sku === 'VASE')!.vals[0].description);
@@ -153,12 +153,12 @@ test('Produktinhalt: ein Produkt ersetzt die Beschreibung, mehrere bekommen den 
   const blocksBefore = fake.cmsBlocks.length;
   await roundtrip('Anhängen', () => call('publish_page', { target: 'product', productIds: ['1', 'BECHER'] }), () => {
     for (const sku of ['VASE', 'BECHER']) { const d = String(fake.products.find(p => p.sku === sku)!.vals[0].description); assert.match(d, /Feucht abwischen/); assert.doesNotMatch(d, /\{\{block/); }
-    assert.match(String(fake.products.find(p => p.sku === 'BECHER')!.vals[0].description), /^<p>Becher<\/p>\n<div class="lotse-/, 'bisheriger Text bleibt erhalten, Inhalt darunter');
-    assert.equal(fake.cmsBlocks.length, blocksBefore, 'kein CMS-Block für Produkte');
+    assert.match(String(fake.products.find(p => p.sku === 'BECHER')!.vals[0].description), /^<p>Becher<\/p>\n<div class="lotse-/, 'previous text is preserved, content below it');
+    assert.equal(fake.cmsBlocks.length, blocksBefore, 'no CMS block for products');
   });
 });
 
-test('Fehler beim Veröffentlichen nimmt Geschriebenes sofort zurück (atomar)', async () => {
+test('error while publishing immediately reverts what was written (atomic)', async () => {
   await draft({ name: 'Kat', type: 'product_list', previewCategoryId: '4', sections: [{ blocks: [{ type: 'text', html: '<p>x</p>' }] }] });
   const before = fake.snapshot(), k = fake.categories.find(c => c.id === 4)!;
   const orig = s.emit;
@@ -166,10 +166,10 @@ test('Fehler beim Veröffentlichen nimmt Geschriebenes sofort zurück (atomar)',
   const r = await call('publish_page', { target: 'category', categoryId: '4' });
   s.emit = orig; fake.categories.push(k); fake.categories.sort((a, b) => a.id - b.id);
   assert.equal(r.status, 'failed', JSON.stringify(r));
-  assert.equal(fake.snapshot(), before, 'Block wieder gelöscht');
+  assert.equal(fake.snapshot(), before, 'block deleted again');
 });
 
-test('CMS-Seiten lesen und ändern: Direktiven bleiben, Systemseiten gesperrt, Rückgängig exakt', async () => {
+test('reading and changing CMS pages: directives stay, system pages locked, exact undo', async () => {
   const list = await call('list_cms_pages', {});
   assert.equal(list.total, 2); assert.equal(list.items[1].identifier, 'ueber-uns');
   const blocks = await call('list_cms_pages', { entity: 'block' });
@@ -178,19 +178,19 @@ test('CMS-Seiten lesen und ändern: Direktiven bleiben, Systemseiten gesperrt, R
   assert.match(pg.html, /<a href="\/alt.html">alt<\/a>/); assert.deepEqual(pg.directives, ['{{block id="usp"}}']);
   await roundtrip('CMS-Seite', () => call('propose_cms_page_changes', { title: 'Link', reason: 'kaputt', changes: [{ id: '5', fields: { content: '<p>Wir sind <a href="/kueche.html">Küche</a></p>{{block id="usp"}} {{widget type="neu"}}', metaDescription: 'Neu', title: 'Über uns neu', active: true } }] }), () => {
     const p = fake.cmsPages.find(x => x.id === 5)!;
-    assert.match(String(p.content), /\{\{block id="usp"\}\} \{ \{widget/, 'alte Direktive bleibt, neue entschärft'); assert.equal(p.meta_description, 'Neu'); assert.equal(p.identifier, 'ueber-uns');
+    assert.match(String(p.content), /\{\{block id="usp"\}\} \{ \{widget/, 'old directive stays, new one neutralized'); assert.equal(p.meta_description, 'Neu'); assert.equal(p.identifier, 'ueber-uns');
   });
   const sys = await call('propose_cms_page_changes', { title: 'x', reason: 'x', changes: [{ id: 'no-route', fields: { title: 'Weg' } }] });
   assert.match(sys.error, /Systemseite/);
 });
 
-test('read_page: nur eigener Shop, Ziel wird erkannt', async () => {
+test('read_page: own shop only, target is detected', async () => {
   assert.match((await call('read_page', { url: 'https://fremd.test/x' })).error, /nur Seiten des eigenen Shops/);
   const r = await call('read_page', { url: `${fake.base}/vase.html` });
   assert.equal(r.target?.type, 'PRODUCT'); assert.equal(r.hint, 'Daten: get_product');
 });
 
-test('read_page: öffentlicher Pfad-Prefix wird intern geholt, angehängte Hosts und Weiterleitungen nicht', async () => {
+test('read_page: public path prefix is fetched internally, appended hosts and redirects are not', async () => {
   const { OmClient } = await import('../../../../src/server/platform/openmage/client');
   const { OmReader } = await import('../../../../src/server/platform/openmage/reader');
   const { openmageTools } = await import('../../../../src/server/platform/openmage/tools');
@@ -223,7 +223,7 @@ test('read_page: öffentlicher Pfad-Prefix wird intern geholt, angehängte Hosts
   assert.ok(!fetched.some(u => new URL(u).hostname === '169.254.169.254'));
 });
 
-test('Shop-Check: OpenMage-Prüfungen mit Befunden und gemeinsamen Werkzeugnamen im Auftrag', async () => {
+test('shop check: OpenMage checks with findings and shared tool names in the task', async () => {
   await openmage.loadChecks();
   const checks = listChecks('openmage').filter(c => c.id.startsWith('openmage.'));
   assert.ok(checks.length >= 12);
@@ -231,7 +231,7 @@ test('Shop-Check: OpenMage-Prüfungen mit Befunden und gemeinsamen Werkzeugnamen
   const run = await runChecks(ro as never, checks, { perRun: false, ctx: r => ({ platform: 'openmage', reader: r, lookup: openmage.lookup(r) }) });
   assert.deepEqual(run.errors, []);
   const by = (id: string) => run.findings.find(f => f.id === id);
-  assert.equal(by('seo.product-meta-description-missing')?.count, 3); // BECHER, KERZE, SCHALE (AUS ist deaktiviert)
+  assert.equal(by('seo.product-meta-description-missing')?.count, 3); // BECHER, KERZE, SCHALE (AUS is deactivated)
   assert.match(by('seo.product-meta-description-missing')!.fixPrompt, /seo_audit.*propose_product_changes/);
   assert.match(String(by('daten.stock-zero-orderable')?.hint), /Lagerposten/);
   assert.equal(by('preise.price-zero')?.sample?.[0]?.id, '3');
@@ -241,23 +241,23 @@ test('Shop-Check: OpenMage-Prüfungen mit Befunden und gemeinsamen Werkzeugnamen
   assert.match(by('links.cms-broken')?.sample?.[0]?.label ?? '', /Über uns.*Kategorie ist inaktiv/);
   assert.equal(by('seo.category-meta-description-missing')?.count, 1);
   assert.match(by('bilder.product-without-image')!.fixPrompt, /find_image_gaps/);
-  assert.ok(by('sprachen.missing-translation.en'), 'Store-View en (en_US) ohne Übersetzung');
+  assert.ok(by('sprachen.missing-translation.en'), 'store view en (en_US) without translation');
   for (const f of run.findings) { assert.doesNotMatch(f.fixPrompt, /find_products_by_data|get_product_details|suggest_internal_links|Einkaufswelt|Shopware/, f.id); assert.doesNotMatch(String(f.hint ?? ''), /Magento/, f.id); }
 });
 
-test('Neutrale Produktzeilen für eigene Prüfungen: Texte, Preise, Bestand, Bild; Befund über denselben Durchlauf', async () => {
+test('neutral product rows for custom checks: texts, prices, stock, image; finding via the same run', async () => {
   const { evaluate } = await import('../../../../src/lib/custom-checks');
   const reader = openmageReaderFor('shop-check-neutral');
   const scan = await openmage.scanProducts(reader);
   assert.ok(scan.rows.length > 0 && scan.total >= scan.rows.length && scan.capped === false);
   for (const r of scan.rows) { assert.ok(r.id && r.label && r.name, 'id/label/name'); assert.equal(typeof r.description, 'string'); assert.ok(r.price === null || typeof r.price === 'number'); assert.equal(typeof r.hasImage, 'boolean'); }
   const noMeta = evaluate(scan.rows, { match: 'all', conditions: [{ field: 'metaDescriptionChars', op: 'eq', value: 0 }] });
-  assert.ok(noMeta.count > 0 && noMeta.sample.length > 0, 'Meta-Description fehlt irgendwo');
+  assert.ok(noMeta.count > 0 && noMeta.sample.length > 0, 'meta description missing somewhere');
   const zero = evaluate(scan.rows, { match: 'all', conditions: [{ field: 'price', op: 'lte', value: 0 }] });
   assert.ok(zero.count >= 0);
 });
 
-test('Import: Plan (neu als Entwurf, nur geänderte Felder, Preise nur mit Option, Varianten übersprungen) und Rückgängig exakt', async () => {
+test('import: plan (new as draft, only changed fields, prices only with option, variants skipped) and exact undo', async () => {
   const csv = 'SKU;Name;Preis;UVP;Bestand;Beschreibung;Kategorie;Hauptartikel\nVASE;Vase neu;49,00;;10;;Wohnaccessoires;\nNEU-1;Neue Schale;29,90;39,90;5;Schöne Schale;Küche;\nNEU-2;Ohne Preis;;;;;;\nVAR-1;Variante;10;;;;;VASE\n';
   const t = await parseTable(Buffer.from(csv), 'liste.csv');
   const mapping = { productNumber: 'SKU', name: 'Name', priceGross: 'Preis', listPrice: 'UVP', stock: 'Bestand', description: 'Beschreibung', category: 'Kategorie', parentNumber: 'Hauptartikel' };
@@ -266,9 +266,9 @@ test('Import: Plan (neu als Entwurf, nur geänderte Felder, Preise nur mit Optio
   const plan = planOmImport(recs, mapping, cat as never, {}, { title: 'T', reason: '', fileName: 'liste.csv', nextOffset: null });
   assert.equal(plan.stats.create, 1); assert.equal(plan.stats.update, 1);
   const create = plan.payload.plans.find(p => p.kind === 'create')!;
-  assert.equal(create.kind === 'create' && create.product.price, 39.9, 'UVP = regulärer Preis'); assert.equal(create.kind === 'create' && create.product.extra?.special_price, 29.9); assert.equal(create.kind === 'create' && create.product.active, false);
+  assert.equal(create.kind === 'create' && create.product.price, 39.9, 'RRP = regular price'); assert.equal(create.kind === 'create' && create.product.extra?.special_price, 29.9); assert.equal(create.kind === 'create' && create.product.active, false);
   const upd = plan.payload.plans.find(p => p.kind === 'update')!;
-  assert.deepEqual(upd.kind === 'update' && upd.scoped, { name: 'Vase neu' }, 'nur Name, Preis/Bestand ohne Option nicht');
+  assert.deepEqual(upd.kind === 'update' && upd.scoped, { name: 'Vase neu' }, 'only name, not price/stock without option');
   assert.ok(plan.cs.skipped.some(x => /Variante/.test(x.reason)) && plan.cs.skipped.some(x => /Preis fehlt/.test(x.reason)));
   const sale = { ...cat, products: [{ ...cat.products[0], price: 100, special_price: 80, qty: 5 }] }, pm = { productNumber: 'SKU', priceGross: 'Preis', stock: 'Bestand' };
   const one = async (row: string) => planOmImport(readRecords(await parseTable(Buffer.from(`SKU;Preis;Bestand\n${row}\n`), 'x.csv'), pm), pm, sale as never, { updatePrices: true, updateStock: true }, { title: 'T', reason: '', fileName: 'x.csv', nextOffset: null });
@@ -276,19 +276,19 @@ test('Import: Plan (neu als Entwurf, nur geänderte Felder, Preise nur mit Optio
   assert.deepEqual(u90.kind === 'update' && u90.global, { special_price: 90, special_from_date: null });
   assert.equal(p90.cs.sample![0].after, 'Preis: 90,00 € statt 100,00 €');
   await assert.rejects(one('VASE;80;5'), /1 unverändert/);
-  // Ende-zu-Ende über das Werkzeug gegen den Fake
+  // end-to-end via the tool against the fake
   const f = saveFile(Buffer.from(csv), 'liste.csv');
   const prev = await call('preview_import', { fileId: f.fileId, mapping, options: { updatePrices: true, updateStock: true } });
   assert.equal(prev.stats.create, 1); assert.equal(prev.stats.update, 1);
   await roundtrip('Import', () => call('propose_import', { fileId: f.fileId, title: 'Import', reason: 'Lieferant', mapping, options: { updatePrices: true, updateStock: true } }), () => {
     const n = fake.products.find(p => p.sku === 'NEU-1')!;
-    assert.ok(n, 'angelegt'); assert.equal(n.vals[0].status, 2, 'Entwurf'); assert.equal(n.vals[0].price, 39.9); assert.equal(n.vals[0].special_price, 29.9); assert.equal(n.stock.qty, 5);
+    assert.ok(n, 'created'); assert.equal(n.vals[0].status, 2, 'draft'); assert.equal(n.vals[0].price, 39.9); assert.equal(n.vals[0].special_price, 29.9); assert.equal(n.stock.qty, 5);
     assert.deepEqual(n.categories, [{ id: 4, position: 0 }]);
     assert.equal(fake.products.find(p => p.sku === 'VASE')!.vals[0].name, 'Vase neu');
   });
 });
 
-test('Prompt: OpenMage-Seiten, Import und CMS ohne fremde Begriffe', () => {
+test('prompt: OpenMage pages, import and CMS without foreign terms', () => {
   const p = buildBasePrompt('openmage');
   assert.doesNotMatch(p, /\{\{\w+\}\}|Shopware|Einkaufswelt|noch nicht verfügbar|Produktseiten-Layouts \(product_detail\) gibt es|mg-/);
   assert.match(p, /## So funktionieren Seiten in OpenMage/); assert.match(p, /## Import aus Lieferantendaten/); assert.match(p, /propose_cms_page_changes/); assert.match(p, /Lotse_Connector/);

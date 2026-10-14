@@ -1,6 +1,6 @@
 import 'server-only';
-// Google Search Console: echte Suchdaten statt Faustregeln. Leistung, Chancen (schwache Klickrate), Inhaltslücken, Erfolgsmessung von Meta-Änderungen.
-// Nur lesen (Google + Shop). Änderungen am Shop laufen weiter über propose_product_changes / propose_category_changes.
+// Google Search Console: real search data instead of rules of thumb. Performance, opportunities (weak click rate), content gaps, success measurement of meta changes.
+// Read only (Google + shop). Shop changes still go through propose_product_changes / propose_category_changes.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { ChangeItem, CheckFinding } from '@/lib/protocol';
@@ -26,18 +26,18 @@ const allowed = () => getSettings().scopes.gsc !== false;
 const need = (): Cfg => { if (!allowed()) throw new Error(BLOCKED); const c = getGscConfig(); if (!c) throw new Error(NOT_CONNECTED); return c; };
 const LAG_NOTE = `Search-Console-Daten sind ca. ${LAG_DAYS} Tage alt; der Zeitraum endet deshalb vor heute.`;
 export const propose = (label: string): Record<string, string> => ({ product: 'propose_product_changes', category: 'propose_category_changes', landing: `Landingpage-Metas: im ${label}-Admin bzw. beim Neuveröffentlichen der Seite (publish_page)`, home: `Startseite: Metas des Verkaufskanals im ${label}-Admin` });
-/** Lese-Seite: plattform-neutral (ShopLookup); ein Shopware-Lese-Client wird wie bisher akzeptiert */
+/** Read side: platform-neutral (ShopLookup); a Shopware read client is accepted as before */
 type Shop = ShopReader | ShopLookup;
 const KIND_OF: Record<string, LinkKind> = { product: 'product', category: 'category', 'landing-page': 'landing' };
 const META_FIELDS = new Set(['metaTitle', 'metaDescription']);
 
-// ---- Ausgangswerte (Baselines) für die Erfolgsmessung ----
+// ---- Baselines for success measurement ----
 const KV = 'gsc_baselines';
 export const listBaselines = (): Baseline[] => kvGet<Baseline[]>(KV) ?? [];
 const saveBaselines = (b: Baseline[]) => kvSet(KV, b.slice(-500));
 const metrics = (rows: Row[]): Metrics => aggregate(rows);
 
-/** Merkt sich Klicks/Impressionen/CTR/Position der letzten 28 Tage einer Seite, deren Metas gerade geändert wurden. Nur wenn Google die Seite kennt. */
+/** Remembers clicks/impressions/CTR/position of the last 28 days for a page whose metas were just changed. Only if Google knows the page. */
 export async function recordBaseline(cfg: Cfg, ro: Shop, a: { entity: Baseline['entity']; entityId: string; label: string; fields: Baseline['fields']; changeSetId: string; chatId?: string }, now = new Date()): Promise<Baseline | null> {
   const kind = KIND_OF[a.entity];
   const { paths, urls } = await asLookup(ro).entityPaths(kind, a.entityId);
@@ -49,13 +49,13 @@ export async function recordBaseline(cfg: Cfg, ro: Shop, a: { entity: Baseline['
   const site = metrics(await searchAnalyticsCached(cfg, { startDate: r.startDate, endDate: r.endDate }));
   const b: Baseline = { id: `b_${now.getTime().toString(36)}${Math.random().toString(36).slice(2, 6)}`, entity: a.entity, entityId: a.entityId, label: a.label, urls: rows.length ? rows.map(x => x.keys[0]) : urls, pathRegex: re, fields: a.fields,
     changedAt: now.toISOString(), changeSetId: a.changeSetId, chatId: a.chatId, before: { ...m, startDate: r.startDate, endDate: r.endDate, days: r.days }, site };
-  // Frühere, noch nicht gemessene Ausgangswerte derselben Seite sind ab jetzt verfälscht
+  // Earlier, not yet measured baselines of the same page are skewed from now on
   const all = listBaselines().map(x => (x.entityId === a.entityId && !x.measured ? { ...x, measured: { at: now.toISOString(), verdict: 'überholt: Seite erneut geändert, bevor gemessen wurde' } } : x));
   saveBaselines([...all, b]);
   return b;
 }
 
-/** Beobachter: angewendete Änderungssets mit Meta-Title/-Description von Produkten, Kategorien, Landingpages */
+/** Observer: applied change sets with meta title/description of products, categories, landing pages */
 export async function baselinesFor(cfg: Cfg, items: ChangeItem[], ctx: { ro: Shop; chatId?: string; changeSetId: string }, now = new Date()) {
   const groups = new Map<string, ChangeItem[]>();
   for (const it of items) if (it.field && META_FIELDS.has(it.field) && it.entityId && KIND_OF[it.entity]) groups.set(`${it.entity}:${it.entityId}`, [...(groups.get(`${it.entity}:${it.entityId}`) ?? []), it]);
@@ -69,7 +69,7 @@ export async function baselinesFor(cfg: Cfg, items: ChangeItem[], ctx: { ro: Sho
 }
 onApplied('gsc', async (cs, items, { ro, lookup, chatId }) => { const cfg = allowed() ? getGscConfig() : null; if (cfg) await baselinesFor(cfg, items, { ro: lookup ?? ro, chatId, changeSetId: cs.id }); });
 
-/** Erfolg messen: Ausgangswert vs. gleich langer Zeitraum nach der Änderung (frühestens nach 14 Tagen Daten). */
+/** Measure success: baseline vs. equally long period after the change (after 14 days of data at the earliest). */
 export async function measure(cfg: Cfg, ro: Shop, b: Baseline, now = new Date()) {
   const w = measureWindow(b, now);
   const head = { baselineId: b.id, entity: b.entity, entityId: b.entityId, label: b.label, changedAt: b.changedAt.slice(0, 10), fields: b.fields.map(f => ({ field: f.field, before: f.before, after: f.after })), urls: b.urls.slice(0, 3), before: { ...view(b.before), period: `${b.before.startDate} bis ${b.before.endDate}` } };
@@ -78,7 +78,7 @@ export async function measure(cfg: Cfg, ro: Shop, b: Baseline, now = new Date())
   const after = metrics(rows);
   const siteAfter = b.site ? metrics(await searchAnalyticsCached(cfg, { startDate: w.startDate, endDate: w.endDate! })) : null;
   const res = compareEffect({ ...b.before, days: b.before.days }, { ...after, days: w.days }, b.site && siteAfter ? { before: { ...b.site, days: b.before.days }, after: { ...siteAfter, days: w.days } } : undefined);
-  // Wurde die Änderung inzwischen überschrieben oder rückgängig gemacht?
+  // Has the change been overwritten or undone in the meantime?
   const cur = await asLookup(ro).current(b.entity, b.entityId).catch(() => null);
   const drift = cur ? b.fields.filter(f => f.afterRaw != null && (cur.translated?.[f.field] ?? cur[f.field] ?? null) !== f.afterRaw).map(f => f.field) : [];
   if (drift.length) res.notes.unshift(`Achtung: ${drift.join(', ')} hat heute einen anderen Wert als nach der Änderung (rückgängig gemacht oder erneut geändert). Die Messung bezieht sich nicht mehr eindeutig auf diese Änderung.`);
@@ -87,7 +87,7 @@ export async function measure(cfg: Cfg, ro: Shop, b: Baseline, now = new Date())
   return { ...head, status: w.status, after: { ...res.after, period: `${w.startDate} bis ${w.endDate}` }, verdict: res.verdict, change: res.change, zScore: res.zScore, notes: res.notes, beforeDetail: res.before };
 }
 
-// ---- Chancen + Inhaltslücken (auch für den Shop-Check) ----
+// ---- Opportunities + content gaps (also for the shop check) ----
 export async function findOpportunities(cfg: Cfg, ro: Shop, a: { days?: number; minImpressions?: number; maxPosition?: number; top?: number; queries?: boolean }, now = new Date()) {
   const r = range(a.days ?? BASE_DAYS, now);
   const rows = await searchAnalyticsCached(cfg, { startDate: r.startDate, endDate: r.endDate, dimensions: ['page'], maxRows: 50_000 });
@@ -98,8 +98,8 @@ export async function findOpportunities(cfg: Cfg, ro: Shop, a: { days?: number; 
   if (a.queries !== false) await pool(top, 3, async o => { queries.set(o.page, (await searchAnalyticsCached(cfg, { startDate: r.startDate, endDate: r.endDate, dimensions: ['query'], filters: [{ dimension: 'page', operator: 'equals', expression: o.page }], maxRows: 5 })).slice(0, 5)); });
   return { period: r, pagesChecked: rows.length, total: all.length, mapped: !!map, items: top.map(o => ({ o, ref: map?.get(o.page) ?? null, queries: queries.get(o.page) ?? [] })) };
 }
-// ---- Rankings: kurz vor Seite 1, Kannibalisierung, Verluste (auch für Shop-Check und SEO-Bereich) ----
-/** Eine Abfrage [query, page] für die letzten 28 Tage, dazu [page] für diesen und den Zeitraum davor; alles zwischengespeichert. */
+// ---- Rankings: just short of page 1, cannibalization, losses (also for the shop check and SEO area) ----
+/** One query [query, page] for the last 28 days, plus [page] for this and the previous period; all cached. */
 export async function rankingInsights(cfg: Cfg, ro: Shop, a: { top?: number } = {}, now = new Date()) {
   const r = range(BASE_DAYS, now), prev = range(BASE_DAYS, now, addDays(r.startDate, -1));
   const [qp, cur, before] = await Promise.all([
@@ -118,7 +118,7 @@ export async function rankingInsights(cfg: Cfg, ro: Shop, a: { top?: number } = 
 
 export const refView = (ref: PageRef | null) => (ref ? { kind: ref.kind, ...(ref.id ? { id: ref.id } : {}), name: ref.name, ...(ref.number ? { number: ref.number } : {}), ...(ref.active === false ? { active: false } : {}) } : null);
 
-// ---- Shop-Check (nur, wenn verbunden) ----
+// ---- Shop check (only if connected) ----
 registerCheck({ id: 'gsc.low-ctr', area: 'Search Console', scopes: ['gsc'], platforms: 'all', run: async (sw, ctx) => {
   const cfg = getGscConfig(); if (!cfg) return null;
   const r = await findOpportunities(cfg, ctx?.lookup ?? sw, { top: 5, queries: false });
@@ -158,7 +158,7 @@ registerCheck({ id: 'gsc.measure-due', area: 'Search Console', scopes: ['gsc'], 
     fixPrompt: 'Miss den Erfolg meiner Meta-Änderungen mit den Search-Console-Daten und fasse zusammen, was gewirkt hat.' };
 } });
 
-// ---- Werkzeuge ----
+// ---- Tools ----
 const filterSchema = z.object({ operator: z.enum(['contains', 'equals', 'notContains', 'regex']).optional().describe('Standard contains'), expression: z.string().min(1) });
 const toFilter = (dimension: Dim, f?: { operator?: string; expression: string }): DimFilter[] => (f ? [{ dimension, operator: (f.operator === 'regex' ? 'includingRegex' : f.operator ?? 'contains') as Operator, expression: f.expression }] : []);
 const dateArgs = { days: z.number().optional().describe('Zeitraum in Tagen bis zum letzten Datentag, Standard 28'), startDate: z.string().optional().describe('JJJJ-MM-TT (statt days)'), endDate: z.string().optional().describe('JJJJ-MM-TT, Standard: heute minus 3 Tage') };

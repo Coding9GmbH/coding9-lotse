@@ -1,26 +1,27 @@
 import 'server-only';
-// Shopify: privilegierter Admin-GraphQL-Client. Bleibt im Adapter, wird NIE an die KI gegeben.
-// Zugang: statisches Admin-API-Token (bestehende eigene App aus „Apps entwickeln“) oder Client-ID + Client-Secret einer App aus dem
-// Dev Dashboard (Client-Credentials-Grant: Token gilt ca. 24 h, wird zwischengespeichert, vor Ablauf und einmal bei HTTP 401 erneuert).
-// Kostenbasierte Drosselung (extensions.cost.throttleStatus, THROTTLED), HTTP 429 mit Retry-After, Wiederholung bei 5xx (nur Lesen),
-// Zeitlimit, Fehlertexte ohne Token/Secret.
+// Shopify: privileged Admin GraphQL client. Stays in the adapter, is NEVER given to the AI.
+// Access: static Admin API token (existing custom app from "Develop apps") or client ID + client secret of an app from the
+// Dev Dashboard (client credentials grant: token valid approx. 24 h, cached, renewed before expiry and once on HTTP 401).
+// Cost-based throttling (extensions.cost.throttleStatus, THROTTLED), HTTP 429 with Retry-After, retry on 5xx (reads only),
+// timeout, error texts without token/secret.
 import { activeAuthMode } from '@/lib/platforms';
 import { getSettings, type Settings } from '../../settings';
 import { log } from '../../log';
+import { sleep as sleepReal } from '../../retry';
 
-/** von Lotse getestete API-Version (Fake 2026-10, aktuelle stabile Version laut shopify.dev) */
+/** API version tested by Lotse (fake 2026-10, current stable version per shopify.dev) */
 export const DEFAULT_API_VERSION = '2026-10';
 const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
 const MYSHOPIFY = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i;
 
 export interface ShopifyConf {
   origin: string; domain: string; apiVersion: string; publicUrl: string; endpoint: string;
-  /** token = statisches Admin-API-Token; app = Client-Credentials-Grant (Standard: token, wenn eines da ist) */
+  /** token = static Admin API token; app = client credentials grant (default: token if one is present) */
   auth?: 'token' | 'app';
   token?: string; clientId?: string; clientSecret?: string;
 }
 
-/** Shop-Domain → Basis-URL der Admin-API. Erlaubt: *.myshopify.com, für lokale Tests auch http://127.0.0.1:Port */
+/** Shop domain → base URL of the Admin API. Allowed: *.myshopify.com, for local tests also http://127.0.0.1:port */
 export function shopifyOrigin(raw: string): string {
   const v = String(raw ?? '').trim().replace(/\/+$/, '');
   if (!v) throw new Error('Shopify: Shop-Domain fehlt (Einstellungen → Shop verbinden).');
@@ -46,14 +47,13 @@ export class ShopifyError extends Error {
 export type Json = Record<string, any>;
 interface Throttle { max: number; available: number; restoreRate: number; at: number }
 export interface ClientOpts { fetch?: typeof fetch; sleep?: (ms: number) => Promise<void>; timeoutMs?: number; maxRetries?: number }
-/** Wie Magento und OpenMage: LOTSE_SHOP_TIMEOUT_MS, mindestens 5s, sonst 60s. */
+/** Like Magento and OpenMage: LOTSE_SHOP_TIMEOUT_MS, at least 5s, otherwise 60s. */
 export const shopTimeoutMs = (raw = process.env.LOTSE_SHOP_TIMEOUT_MS) => Math.max(5_000, parseInt(raw ?? '', 10) || 60_000);
 
 const isMutation = (q: string) => /^\s*mutation\b/.test(q.replace(/#[^\n]*/g, ''));
-const sleepReal = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 const errText = (errors: { message?: string; extensions?: { code?: string } }[]) => errors.map(e => e.message ?? e.extensions?.code ?? 'Fehler').join('; ').slice(0, 600);
 
-/** userErrors (bzw. mediaUserErrors) eines Mutations-Ergebnisses → Fehlertext oder null */
+/** userErrors (or mediaUserErrors) of a mutation result → error text or null */
 export function userErrorsOf(payload: Json | null | undefined): string | null {
   const list = [...(payload?.userErrors ?? []), ...(payload?.mediaUserErrors ?? [])] as { field?: string[] | null; message: string; code?: string }[];
   return list.length ? list.map(e => `${e.field?.length ? `${e.field.join('.')}: ` : ''}${e.message}`).join('; ') : null;
@@ -63,26 +63,26 @@ const authOf = (c: ShopifyConf): 'token' | 'app' => c.auth ?? (c.token ? 'token'
 
 export class ShopifyClient {
   private bucket: Throttle | null = null;
-  private costs = new Map<string, number>(); // zuletzt angefragte Kosten je Query (Schätzung für die Drosselung)
-  // Token aus dem Client-Credentials-Grant: echte private Felder (tauchen in keinem JSON/Log des Objekts auf)
+  private costs = new Map<string, number>(); // last requested cost per query (estimate for throttling)
+  // Token from the client credentials grant: true private fields (never show up in any JSON/log of the object)
   #access: { key: string; token: string; until: number } | null = null;
   #pending: Promise<string> | null = null;
-  #issued: string[] = []; // zuletzt geholte Tokens (zum Schwärzen in Fehlertexten)
+  #issued: string[] = []; // recently fetched tokens (for redaction in error texts)
   constructor(private conf: () => ShopifyConf, private opts: ClientOpts = {}) {}
 
   get base() { return this.conf().origin; }
   get apiVersion() { return this.conf().apiVersion; }
-  /** Token und Secret aus Texten entfernen (Fehlermeldungen) */
+  /** Remove token and secret from texts (error messages) */
   private clean(t: string) { for (const v of this.secrets()) t = t.split(v).join('•••'); return t; }
   private secrets(): string[] {
-    let c: Partial<ShopifyConf> = {}; try { c = this.conf(); } catch { /* nicht eingerichtet */ }
+    let c: Partial<ShopifyConf> = {}; try { c = this.conf(); } catch { /* not configured */ }
     return [c.token, c.clientSecret, ...this.#issued].filter((v): v is string => !!v && v.length > 3);
   }
 
-  /** Zugriffstoken: statisch oder per Client-Credentials-Grant (zwischengespeichert; force = neu holen, z. B. nach HTTP 401) */
+  /** Access token: static or via client credentials grant (cached; force = fetch anew, e.g. after HTTP 401) */
   private async accessToken(c: ShopifyConf, force = false): Promise<string> {
     if (authOf(c) === 'token') return c.token ?? '';
-    const key = `${c.origin}\n${c.clientId}\n${c.clientSecret}`; // Wechsel von Shop/App/Secret = neues Token
+    const key = `${c.origin}\n${c.clientId}\n${c.clientSecret}`; // change of shop/app/secret = new token
     if (force && this.#access?.key === key) this.#access = null;
     if (this.#access?.key === key && Date.now() < this.#access.until) return this.#access.token;
     this.#pending ??= this.fetchToken(c, key).finally(() => { this.#pending = null; });
@@ -100,16 +100,16 @@ export class ShopifyClient {
         throw new ShopifyError(this.clean(`Shopify nicht erreichbar (${c.domain}): ${e instanceof Error ? e.message : String(e)}`));
       }
       if ((res.status === 429 || res.status >= 500) && attempt < 2) { const ra = parseFloat(res.headers.get('retry-after') ?? ''); await sleep(Number.isFinite(ra) ? ra * 1000 : 1000 * 2 ** attempt); continue; }
-      let body: Json = {}; try { body = JSON.parse(await res.text()); } catch { /* kein JSON */ }
+      let body: Json = {}; try { body = JSON.parse(await res.text()); } catch { /* not JSON */ }
       if (!res.ok || typeof body.access_token !== 'string' || !body.access_token) throw new ShopifyError(this.clean(tokenMessage(res.status, body, c)), res.status, typeof body.error === 'string' ? body.error : 'TOKEN');
       const token: string = body.access_token, ttl = Number(body.expires_in) > 0 ? Number(body.expires_in) : 86_399;
       this.#issued = [token, ...this.#issued].slice(0, 4);
-      this.#access = { key, token, until: Date.now() + Math.max(ttl / 2, ttl - 600) * 1000 }; // 10 Minuten vor Ablauf erneuern
+      this.#access = { key, token, until: Date.now() + Math.max(ttl / 2, ttl - 600) * 1000 }; // renew 10 minutes before expiry
       return token;
     }
   }
 
-  /** Wartezeit in ms, bis der Kosten-Bucket (Leaky Bucket laut throttleStatus) need Punkte hat */
+  /** Wait time in ms until the cost bucket (leaky bucket per throttleStatus) has `need` points */
   private budgetWait(need: number): number {
     const b = this.bucket; if (!b) return 0;
     const avail = Math.min(b.max, b.available + ((Date.now() - b.at) / 1000) * b.restoreRate);
@@ -117,10 +117,10 @@ export class ShopifyClient {
   }
   private async waitForBudget(need: number) { const ms = this.budgetWait(need); if (ms) await (this.opts.sleep ?? sleepReal)(ms); }
 
-  /** GraphQL ausführen; liefert data, wirft bei HTTP-Fehlern und Top-Level-errors */
+  /** Run GraphQL; returns data, throws on HTTP errors and top-level errors */
   async gql<T = Json>(query: string, variables?: Json): Promise<T> {
     const c = this.conf(), f = this.opts.fetch ?? fetch, sleep = this.opts.sleep ?? sleepReal, max = this.opts.maxRetries ?? 5, write = isMutation(query);
-    let throttled = 0, renewed = false; // gedrosselte Anfragen wurden nicht ausgeführt: großzügig wiederholen (Bucket füllt sich mit restoreRate)
+    let throttled = 0, renewed = false; // throttled requests were not executed: retry generously (bucket refills at restoreRate)
     for (let attempt = 0; ; attempt++) {
       await this.waitForBudget(this.costs.get(query) ?? 50);
       const token = await this.accessToken(c);
@@ -132,15 +132,15 @@ export class ShopifyClient {
         log.warn('Shop nicht erreichbar', { shop: 'shopify', write, error: this.clean(e instanceof Error ? e.message : String(e)), attempts: attempt + 1 });
         throw new ShopifyError(this.clean(`Shopify nicht erreichbar (${c.domain}): ${e instanceof Error ? e.message : String(e)}`));
       }
-      if (res.status === 429 && attempt < max) { // Rate-Limit: Retry-After (Sekunden, z. B. "2.0") abwarten: die Anfrage wurde nicht ausgeführt
+      if (res.status === 429 && attempt < max) { // rate limit: wait for Retry-After (seconds, e.g. "2.0"): the request was not executed
         const ra = parseFloat(res.headers.get('retry-after') ?? ''); log.info('Shop-Anfrage wird wiederholt', { shop: 'shopify', status: 429, attempt: attempt + 1 }); await sleep(Number.isFinite(ra) ? ra * 1000 : 2000); continue;
       }
       if (res.status >= 500 && !write && attempt < 3) { log.info('Shop-Anfrage wird wiederholt', { shop: 'shopify', status: res.status, attempt: attempt + 1 }); await sleep(1000 * 2 ** attempt); continue; }
       if (res.status >= 500 || res.status === 429) log.warn('Shop-Anfrage fehlgeschlagen', { shop: 'shopify', write, status: res.status, attempts: attempt + 1 });
-      // abgelaufenes/widerrufenes App-Token: einmal neu holen (die Anfrage wurde nicht ausgeführt, auch Mutationen dürfen wiederholt werden)
+      // expired/revoked app token: fetch anew once (the request was not executed, so mutations may be retried too)
       if (res.status === 401 && authOf(c) === 'app' && !renewed) { renewed = true; attempt--; await this.accessToken(c, true); continue; }
       const text = await res.text();
-      let body: Json = {}; try { body = JSON.parse(text); } catch { /* kein JSON */ }
+      let body: Json = {}; try { body = JSON.parse(text); } catch { /* not JSON */ }
       if (!res.ok) throw new ShopifyError(this.clean(httpMessage(res.status, body, c)), res.status);
       const cost = body.extensions?.cost;
       if (cost?.throttleStatus) { const t = cost.throttleStatus; this.bucket = { max: t.maximumAvailable, available: t.currentlyAvailable, restoreRate: t.restoreRate, at: Date.now() }; }
@@ -155,7 +155,7 @@ export class ShopifyClient {
     }
   }
 
-  /** Mutation ausführen und userErrors prüfen; liefert das Payload-Objekt des (ersten) Root-Felds */
+  /** Run a mutation and check userErrors; returns the payload object of the (first) root field */
   async mutate<T = Json>(query: string, variables: Json, root: string): Promise<T> {
     const data = await this.gql<Json>(query, variables);
     const payload = data[root];
@@ -166,7 +166,7 @@ export class ShopifyClient {
   }
 }
 
-/** Fehler beim Holen des App-Tokens (Client-Credentials-Grant) → verständlicher Text */
+/** Error while fetching the app token (client credentials grant) → readable text */
 function tokenMessage(status: number, body: Json, c: ShopifyConf): string {
   const code = typeof body.error === 'string' ? body.error : '', desc = typeof body.error_description === 'string' ? body.error_description.slice(0, 200) : typeof body.errors === 'string' ? body.errors.slice(0, 200) : '';
   if (code === 'shop_not_permitted') return 'Shopify: Die App darf diesen Shop nicht nutzen (shop_not_permitted). App und Shop müssen zur selben Shopify-Organisation gehören, und die App muss im Shop installiert sein.';
@@ -189,8 +189,8 @@ function httpMessage(status: number, body: Json, c: ShopifyConf): string {
   return `Shopify antwortet mit HTTP ${status}${raw ? `: ${raw}` : ''}`;
 }
 
-// ---- IDs: Lotse zeigt kurze numerische IDs (wie im Shopify-Admin), intern GIDs ----
-/** „123“ oder „gid://shopify/Product/123“ → GID des erwarteten Typs; fremder Typ oder Unsinn → Fehler */
+// ---- IDs: Lotse shows short numeric IDs (as in the Shopify admin), GIDs internally ----
+/** "123" or "gid://shopify/Product/123" → GID of the expected type; other type or garbage → error */
 export function toGid(type: string, id: string | number): string {
   const s = String(id ?? '').trim();
   if (/^\d+$/.test(s)) return `gid://shopify/${type}/${s}`;
@@ -199,6 +199,6 @@ export function toGid(type: string, id: string | number): string {
   if (m[1] !== type) throw new Error(`ID ${s} ist ein(e) ${m[1]}, erwartet ${type}`);
   return `gid://shopify/${type}/${m[2]}`;
 }
-/** GID → kurze ID (null bleibt null) */
+/** GID → short ID (null stays null) */
 export const shortId = (g: string | null | undefined): string => (g ? String(g).replace(/^gid:\/\/shopify\/\w+\//, '').replace(/\?.*$/, '') : '');
 export const gidType = (g: string) => /^gid:\/\/shopify\/(\w+)\//.exec(g)?.[1] ?? null;

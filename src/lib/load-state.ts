@@ -2,7 +2,7 @@ export type CatalogKind = 'loading' | 'error' | 'empty' | 'ready';
 export type ShopTone = 'loading' | 'unloaded' | 'disconnected' | 'unreachable' | 'ok';
 export type AiTone = 'loading' | 'unloaded' | 'disconnected' | 'ok';
 
-/** Fehler, noch nicht geladen, leer und Treffer bleiben getrennte Zustände. */
+/** Error, not yet loaded, empty and results remain separate states. */
 export function catalogState(error: string | null | undefined, items: readonly unknown[] | null): CatalogKind {
   if (error) return 'error';
   if (items == null) return 'loading';

@@ -32,6 +32,7 @@ Die Oberfläche gibt es auf Deutsch und Englisch.
 - Kleine, fokussierte Änderungen; ein Thema je PR.
 - Tests ergänzen oder anpassen; `npm run check` muss grün sein.
 - Code-Kommentare und Bezeichner (Funktionen, Variablen, Typen, Dateien) auf Englisch; UI-Texte und diese Dokumentation bleiben Deutsch.
+- Vorhandene Bausteine wiederverwenden (siehe [Architektur, Abschnitt 11](docs/architektur.md#11-erweitern)), statt neue Helfer zu schreiben.
 - Gewöhnliche PRs lassen `CHANGELOG.md` und die Version unangetastet; beides wird erst beim Release geschrieben, siehe [Versionen & Changelog](#versionen--changelog). Die CI prüft Release-PRs (`release-check`).
 - Die Sicherheitsgrenzen bleiben bestehen: Die KI liest nur (`ReadOnly…`-Clients), geschrieben wird ausschließlich im Executor nach Freigabe. Änderungen, die das aufweichen, brauchen eine ausführliche Begründung.
 - Mit deinem Beitrag stimmst du zu, dass er unter der [MIT-Lizenz](LICENSE) veröffentlicht wird.

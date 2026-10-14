@@ -1,6 +1,6 @@
-// Konsistenter Schnappschuss der SQLite-Datenbank für `make backup` (läuft im laufenden Container: node --input-type=module - < docker/db-snapshot.mjs).
-// Die DB läuft im WAL-Modus: einfach die Dateien zu kopieren kann einen halben Stand erwischen. VACUUM INTO schreibt
-// einen in sich stimmigen Stand (inkl. WAL) in eine neue Datei: <Datenordner>/.backup/aicb.db (Rechte 600).
+// Consistent snapshot of the SQLite database for `make backup` (runs in the running container: node --input-type=module - < docker/db-snapshot.mjs).
+// The DB runs in WAL mode: simply copying the files can catch a half-written state. VACUUM INTO writes
+// a self-consistent state (incl. WAL) to a new file: <data dir>/.backup/aicb.db (mode 600).
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';

@@ -1,13 +1,13 @@
 import 'server-only';
-// OpenMage-Werkzeuge der KI: lesen nur über den geschützten Lese-Client (session.reader), schreiben nur über Änderungssets.
-// Namen und Argumente wie bei Shopware/Magento, wo die Bedeutung passt (gemeinsame Prompts, Shop-Check-Aufträge, Onboarding).
+// OpenMage AI tools: read only via the protected read client (session.reader), write only via change sets.
+// Names and arguments as in Shopware/Magento where the meaning fits (shared prompts, shop check tasks, onboarding).
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
-import { viewedImages } from '../../features/bilder';
+import { viewedImages } from '../../features/product-images';
 import type { Session } from '../../sessions';
-import { fail, guard, ok, type AnyTool } from '../../tool-kit';
+import { fail, guard, lim, ok, type AnyTool } from '../../tool-kit';
 import { assertShopUrl, fetchShopPage, parseStorefront } from '../../storefront';
-import { MAX_ITEMS } from './kit';
+import { MAX_ITEMS } from '../magento/kit';
 import { basisWord, isActive, money, omAttr, omStr, plain, priceOf, FROM_KIDS, VISIBILITY, type OmCategory, type OmProduct, type OmRecord } from './map';
 import { LIST_FIELDS, OmReader, type ProductQuery } from './reader';
 import { buildCategoryChangeSet, buildCategoryProductsChangeSet, buildProductChangeSet, buildSeoUrlChangeSet, buildTranslationChangeSet, loadProducts, OM_CATEGORY_FIELDS, OM_PRODUCT_FIELDS, storeViewList, TRANSLATION_FIELDS } from './catalog';
@@ -25,17 +25,16 @@ export const OPENMAGE_TOOL_NAMES = [
   'propose_translations', 'propose_seo_urls', 'propose_variants', 'propose_bulk_product_change', 'propose_promotion', 'propose_cms_page_changes', 'propose_promotion_status',
 ];
 
-/** Lese-Client der Session (geprüft: nur der OpenMage-Reader) */
+/** The session's read client (checked: only the OpenMage reader) */
 export function openmageReader(session: Pick<Session, 'reader'>): OmReader {
   if (!(session.reader instanceof OmReader)) throw new Error('Dieses Werkzeug gibt es nur für OpenMage.');
   return session.reader;
 }
-const lim = (v: number | undefined, d: number, max: number) => Math.max(1, Math.min(Math.floor(v ?? d), max));
 const excerpt = (t: unknown, n = 200) => { const s = plain(t); return s.length > n ? `${s.slice(0, n)}…` : s; };
 
 export function openmageTools(session: Session): AnyTool[] {
   const ro = () => openmageReader(session);
-  /** Kategorienamen + Pfad aus dem Baum (einmal je Session) */
+  /** Category names + path from the tree (once per session) */
   const treeIndex = async () => {
     const idx = new Map<string, { name: string; parent: string | null; level: number; active: boolean; count: number }>();
     const walk = (c: OmCategory, parent: string | null) => { idx.set(String(c.id), { name: String(c.name ?? ''), parent, level: Number(c.level ?? 0), active: !!c.is_active, count: Number(c.product_count ?? 0) }); for (const k of c.children ?? []) walk(k, String(c.id)); };
@@ -47,7 +46,7 @@ export function openmageTools(session: Session): AnyTool[] {
     const s = priceOf(p), fromKids = FROM_KIDS.has(String(p.type_id));
     return { id: String(p.id), name: p.name, number: p.sku, type: p.type_id, price: fromKids ? null : money(s.selling), ...(fromKids ? { priceNote: 'Preis aus den Einzelprodukten (get_variants)' } : {}), ...(s.list != null && !fromKids ? { listPrice: money(s.list) } : {}), active: isActive(p), visible: VISIBILITY[Number(p.visibility)] ?? null, image: ro().allowed('media') ? await ro().mediaUrl(omStr(p, 'small_image') ?? p.image) : undefined };
   };
-  /** Suche über Name ODER SKU: eine Abfrage mit ?term= (exakte Paginierung und Zählwerte); ältere Module ohne term: zwei Abfragen zusammengeführt (Schätzwerte) */
+  /** Search by name OR SKU: one query with ?term= (exact pagination and counts); older modules without term: two queries merged (estimates) */
   const searchProducts = async (a: { term?: string; categoryId?: string; active?: boolean; includeVariants?: boolean; limit: number; page?: number; fields?: boolean }) => {
     const base: ProductQuery = { ...(a.categoryId ? { category_id: a.categoryId } : {}), ...(a.active != null ? { status: a.active ? 1 : 2 } : {}), ...(!a.includeVariants ? { visibility: '2,3,4' } : {}), limit: a.limit, page: a.page ?? 1, sort: 'entity_id', dir: 'asc', ...(a.fields ? { fields: LIST_FIELDS.join(','), with: 'images' } : {}) };
     if (!a.term || await ro().hasTermFilter()) { const r = await ro().products({ ...base, ...(a.term ? { term: a.term } : {}) }); return { items: r.items, total: r.meta.total, pages: r.meta.pages }; }
@@ -182,7 +181,7 @@ export function openmageTools(session: Session): AnyTool[] {
         const refs = [...(productIds ?? []), ...(productNumbers ?? [])];
         if (!refs.length) return fail('productIds oder productNumbers angeben');
         if (refs.length > 50) return fail('Maximal 50 Produkte pro Aufruf');
-        const ps = await loadProducts(ro(), refs, { images: true }); // Galerie kommt mit der Liste (with=images), Detail nur zur Sicherheit
+        const ps = await loadProducts(ro(), refs, { images: true }); // gallery comes with the list (with=images), detail only as a safeguard
         const seen = new Set<number>(), out: OmRecord[] = [];
         for (const p of ps.values()) { if (seen.has(p.id)) continue; seen.add(p.id); const full = p.images ? p : (await ro().product(p.sku)) ?? p; out.push({ id: String(p.id), number: p.sku, name: p.name, type: p.type_id, images: await imageRows(ro(), full) }); }
         return ok(out);

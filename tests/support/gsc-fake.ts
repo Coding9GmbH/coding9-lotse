@@ -1,5 +1,5 @@
-// Nur für Tests und lokale Prüfung: winziger Fake von Google OAuth (JWT-Bearer) und Search Console API (sites.list, searchanalytics.query).
-// Prüft die JWT-Signatur mit dem öffentlichen Schlüssel, Scope, aud und Laufzeit wie Google; Daten kommen aus einer Liste von Tageszeilen.
+// For tests and local checks only: tiny fake of Google OAuth (JWT bearer) and Search Console API (sites.list, searchanalytics.query).
+// Verifies the JWT signature with the public key, scope, aud and lifetime like Google; data comes from a list of daily rows.
 import crypto from 'node:crypto';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';

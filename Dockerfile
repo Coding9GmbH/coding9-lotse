@@ -1,28 +1,28 @@
 # syntax=docker/dockerfile:1.7
-# Lotse – KI-Lotse für Shopware 6 (by CODING 9)
-# Ein Image, alles drin: Next.js-App, Claude-Agent-Laufzeit, SQLite-Datenbank (im Volume /data).
+# Lotse: AI pilot for Shopware 6 (by CODING 9)
+# One image, everything included: Next.js app, Claude agent runtime, SQLite database (in the /data volume).
 
 ARG NODE_VERSION=22.22
-# Quelle des Node-Images; die CI nutzt den Docker-Hub-Spiegel mirror.gcr.io/library/node (kein Rate-Limit für anonyme Pulls)
+# Source of the Node image; CI uses the Docker Hub mirror mirror.gcr.io/library/node (no rate limit for anonymous pulls)
 ARG NODE_IMAGE=node
 
-# ---- Abhängigkeiten + Build: laufen immer nativ auf der Build-Maschine (kein langsames Emulieren für arm64) ----
+# ---- Dependencies + build: always run natively on the build machine (no slow emulation for arm64) ----
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE}:${NODE_VERSION}-bookworm-slim AS build
 ARG TARGETARCH
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
-# Native KI-Programme (Claude, Codex) für die ZIELarchitektur dazulegen – npm ci hat nur die der Build-Maschine installiert
+# Add the native AI binaries (Claude, Codex) for the TARGET architecture; npm ci only installed the build machine's
 COPY docker/add-native.sh /usr/local/bin/add-native
 RUN sh /usr/local/bin/add-native "$TARGETARCH"
 COPY . .
 RUN npm run build \
  && sh /usr/local/bin/add-native "$TARGETARCH" --prune .next/standalone/node_modules
-# --prune entfernt aus der Standalone-Ausgabe: andere Architekturen, musl-Varianten, Bildoptimierung (sharp, ~47 MB)
-# sowie die Sprachausgabe von Codex (~74 MB) – in Lotse abgeschaltet
+# --prune removes from the standalone output: other architectures, musl variants, image optimization (sharp, ~47 MB)
+# as well as Codex's speech output (~74 MB), which is disabled in Lotse
 
-# ---- Laufzeit ----
+# ---- Runtime ----
 FROM ${NODE_IMAGE}:${NODE_VERSION}-bookworm-slim
 ARG VERSION=dev
 ARG REVISION=unknown
@@ -35,7 +35,7 @@ LABEL org.opencontainers.image.title="Lotse" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"
 
-# tini: sauberes Signal-Handling (docker stop) und kein Zombie-Prozess durch den Claude-Unterprozess
+# tini: clean signal handling (docker stop) and no zombie process from the Claude subprocess
 RUN apt-get update \
  && apt-get install -y --no-install-recommends tini ca-certificates \
  && rm -rf /var/lib/apt/lists/*
@@ -51,14 +51,14 @@ ENV NODE_ENV=production \
     LOTSE_VERSION=${VERSION}
 
 WORKDIR /app
-# Nur die Standalone-Ausgabe (Server + benötigte node_modules), statische Assets und die Prompts
+# Only the standalone output (server + required node_modules), static assets and the prompts
 COPY --from=build --chown=root:root /app/.next/standalone ./
 COPY --from=build --chown=root:root /app/.next/static ./.next/static
 COPY --from=build --chown=root:root /app/public ./public
 COPY --from=build --chown=root:root /app/prompts ./prompts
 COPY --chown=root:root docker/entrypoint.sh /usr/local/bin/lotse-entrypoint
 
-# App-Code gehört root und ist schreibgeschützt; die App läuft als unprivilegierter Nutzer und schreibt nur nach /data
+# App code is owned by root and read-only; the app runs as an unprivileged user and writes only to /data
 RUN chmod 0755 /usr/local/bin/lotse-entrypoint \
  && test -x "$(find node_modules/@anthropic-ai -path '*claude-agent-sdk-linux-*' -name claude -type f | head -1)" \
  && test -x "$(find node_modules/@openai -path '*/vendor/*/bin/codex' -type f | head -1)" \

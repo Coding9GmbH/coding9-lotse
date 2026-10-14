@@ -1,6 +1,6 @@
 <?php
 /**
- * GET /v1/products/attributes: Attributsets und Produktattribute mit Optionen (Labels im angefragten Store).
+ * GET /v1/products/attributes: attribute sets and product attributes with options (labels in the requested store).
  */
 class Lotse_Connector_Model_Api_Attribute extends Lotse_Connector_Model_Api_Abstract
 {

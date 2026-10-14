@@ -1,16 +1,16 @@
 import 'server-only';
-// Design-Patterns: geprüfte, responsive, barrierearme Sektionen als custom-html (nutzen die --sg-* Styleguide-Variablen)
+// Design patterns: tested, responsive, accessible sections as custom-html (using the --sg-* styleguide variables)
+import { esc } from '@/lib/format';
 import { wrapCustom, type BlockSpec, type PageSpec } from './cms';
 import { AI_CREDIT, isAiImageUrl } from './media';
-const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c as '&' | '<' | '>' | '"']));
 const href = (u: unknown) => (/^(\/|#|https?:\/\/|mailto:|tel:)/.test(String(u ?? '')) ? esc(u) : '#');
-// Pattern-Daten kommen frei von der KI → bewusst lose typisiert
+// Pattern data comes freely from the AI → deliberately loosely typed
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Data = Record<string, any>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const arr = (v: unknown): any[] => (Array.isArray(v) ? v.filter(Boolean) : []);
 
-const ICONS: Record<string, string> = { // Feather-Stil, 24x24, stroke
+const ICONS: Record<string, string> = { // Feather style, 24x24, stroke
   check: '<path d="M20 6 9 17l-5-5"/>', truck: '<path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', star: '<path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/>',
   heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
@@ -23,7 +23,7 @@ const ICONS: Record<string, string> = { // Feather-Stil, 24x24, stroke
 };
 const icon = (n: string, cls = 'ic') => `<span class="${cls}" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[n] ?? ICONS.check}</svg></span>`;
 
-/** Sichtbare Kennzeichnung für Bilder der Bild-KI (data.imageAi oder automatisch erkannt) */
+/** Visible label for images from the image AI (data.imageAi or detected automatically) */
 const credit = (d: Data) => (d.imageAi === true || (typeof d.imageUrl === 'string' && isAiImageUrl(d.imageUrl)) ? `<p class="credit">${AI_CREDIT}</p>` : '');
 
 const BASE = `.scope{--p:var(--sg-primary,#0042a0);--pc:var(--sg-primary-contrast,#fff);--a:var(--sg-accent,var(--p));--t:var(--sg-text,#1e1e1e);--m:var(--sg-muted,#5b6670);--s:var(--sg-surface,#f4f6f8);--b:var(--sg-border,#e2e7ec);--r:var(--sg-radius,12px);color:var(--t);line-height:1.6}
@@ -47,7 +47,7 @@ export const PATTERNS: Record<string, { desc: string; build: (d: Data) => Patter
     desc: 'Einstieg mit EINEM H1, Subline, Haupt-CTA (+ optional Textlink). Mit Bild standardmäßig redaktioneller Split (großes Bild rechts). data: {eyebrow?, title, subtitle, ctaText, ctaHref, secondaryText?, secondaryHref?, imageUrl?, imageAlt?, variant?: "split"|"image"|"plain"|"solid"}. "image" = Vollbild mit Text darauf (nur bei ruhigem, kontrastreichem Foto), "solid" = Fläche in Primärfarbe (zählt als der eine farbige Abschnitt); image und split brauchen imageUrl, sonst wird plain gebaut',
     build: d => {
       const wanted = ['split', 'image', 'plain', 'solid'].includes(d.variant) ? d.variant : d.imageUrl ? 'split' : 'plain';
-      const v = (wanted === 'image' || wanted === 'split') && !d.imageUrl ? 'plain' : wanted; // Bildvariante ohne Bild wäre weiße Schrift auf weißer Fläche
+      const v = (wanted === 'image' || wanted === 'split') && !d.imageUrl ? 'plain' : wanted; // image variant without an image would be white text on a white background
       return {
         css: `.scope .hero{display:grid;gap:clamp(24px,5vw,72px);align-items:center;padding:clamp(28px,5vw,72px) 0}
 .scope .hero h1{font-size:clamp(2.3rem,5.4vw,4.2rem);margin-bottom:.3em;max-width:16ch}.scope .hero .sub{font-size:clamp(1.08rem,1.6vw,1.3rem);color:var(--m);max-width:48ch;margin-bottom:1.6em}
@@ -128,7 +128,7 @@ export const PATTERNS: Record<string, { desc: string; build: (d: Data) => Patter
   comparison: {
     desc: 'Vergleichstabelle (scrollbar auf Mobile, hebt eine Spalte hervor). data: {title, intro?, columns:[string], rows:[[string]], highlight?: Spaltenindex ab 1}',
     build: d => {
-      // Zeilen sind Arrays (anderes kommt von der KI vor und darf nicht abstürzen); Beschriftung in Spalte 1, aber Kopf ohne leere Ecke → Ecke ergänzen
+      // Rows are arrays (the AI sometimes sends something else, which must not crash); labels in column 1 but header without an empty corner → add the corner
       const rows = (arr(d.rows) as unknown[]).filter((r): r is unknown[] => Array.isArray(r)), cols = arr(d.columns);
       if (rows.length && rows.every(r => r.length === cols.length + 1)) cols.unshift('');
       return {
@@ -159,10 +159,10 @@ export const PATTERNS: Record<string, { desc: string; build: (d: Data) => Patter
 
 export const patternCatalog = () => Object.entries(PATTERNS).map(([k, v]) => `  · ${k}: ${v.desc}`).join('\n');
 
-/** Namen von Pattern-Blöcken, die es im Katalog nicht gibt (Vertipper der KI): draft_page lehnt die Spec damit ab, statt Platzhalter zu bauen */
+/** Names of pattern blocks that do not exist in the catalog (AI typos): draft_page rejects the spec with them instead of building placeholders */
 export const unknownPatterns = (spec: Partial<PageSpec>): string[] => [...new Set((spec.sections ?? []).flatMap(s => (s.blocks ?? []).filter(b => b?.type === 'pattern' && !PATTERNS[String(b.pattern ?? '')]).map(b => String(b.pattern ?? ''))))];
 
-// {type:'pattern', pattern, data, ...} → {type:'custom-html', html, css, js}; unbekannte Patterns bleiben stehen (validateSpec meldet sie, die Vorschau zeigt einen Platzhalter)
+// {type:'pattern', pattern, data, ...} → {type:'custom-html', html, css, js}; unknown patterns stay as they are (validateSpec reports them, the preview shows a placeholder)
 export function expandSpec<T extends Partial<PageSpec>>(spec: T): T {
   return { ...spec, sections: (spec.sections ?? []).map(s => ({ ...s, blocks: (s.blocks ?? []).map((b): BlockSpec => {
     if (b?.type !== 'pattern') return b;
@@ -173,7 +173,7 @@ export function expandSpec<T extends Partial<PageSpec>>(spec: T): T {
   }) })) };
 }
 
-// Fertiges, eingebettetes HTML (inkl. Style/Script) eines Patterns, z.B. für produktindividuelle Inhalte im Zusatzfeld
+// Finished, embedded HTML (incl. style/script) of a pattern, e.g. for product-specific content in the custom field
 export function renderPattern(name: string, data: Data) {
   const out = PATTERNS[name].build(data);
   return wrapCustom({ html: out.html, css: BASE + '\n' + out.css, js: out.js });

@@ -1,6 +1,6 @@
 import 'server-only';
-// Hersteller (Marken): Details lesen sowie anlegen und bearbeiten (Name, Beschreibung, Link, Logo) als Änderungsset mit Freigabe und Rückgängig.
-// Produkt-Zuordnungen laufen weiter über propose_product_data (manufacturer).
+// Manufacturers (brands): read details, and create and edit them (name, description, link, logo) as a change set with approval and undo.
+// Product assignments still go through propose_product_data (manufacturer).
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
@@ -10,7 +10,7 @@ import { fail, guard, ok, type AnyTool } from '../tool-kit';
 import type { Session } from '../sessions';
 import type { Feature } from './types';
 
-export const KIND_HERSTELLER = 'manufacturers';
+export const KIND_MANUFACTURERS = 'manufacturers';
 const ENTITY = 'product-manufacturer';
 const NOUN = { one: 'Hersteller', many: 'Hersteller' };
 export const MANUFACTURER_TOOLS = ['get_manufacturer', 'propose_manufacturer_changes'];
@@ -21,12 +21,12 @@ type FieldKey = 'name' | 'description' | 'link' | 'mediaId';
 const FIELDS: Record<FieldKey, { label: string; html?: boolean }> = { name: { label: 'Name' }, description: { label: 'Beschreibung', html: true }, link: { label: 'Webseite' }, mediaId: { label: 'Logo' } };
 const KEYS = Object.keys(FIELDS) as FieldKey[];
 
-/** Aktueller Wert eines Feldes (übersetzte Texte in der Standardsprache); leer = null */
+/** Current value of a field (translated texts in the default language); empty = null */
 const valueOf = (m: SwEntity, f: FieldKey): string | null => { const v = f === 'name' || f === 'description' ? (m.translated?.[f] ?? m[f]) : m[f]; return v === undefined || v === '' ? null : (v as string | null); };
 const nameOf = (m: SwEntity) => String(m.translated?.name ?? m.name ?? m.id);
 const same = (a: unknown, b: unknown) => String(a ?? '').trim() === String(b ?? '').trim();
 
-/** Link muss eine http(s)-Adresse sein; leer/null = entfernen */
+/** Link must be an http(s) address; empty/null = remove */
 export function cleanLink(v: string): string {
   const s = v.trim();
   if (!/^https?:\/\/[^\s/]+\.[^\s/]{2,}/i.test(s)) throw new Error(`Link „${v}“ ungültig: vollständige Adresse mit https:// angeben.`);
@@ -40,7 +40,7 @@ export async function buildManufacturerChangeSet(ro: ShopReader, a: Manufacturer
   const items: ChangeItem[] = [], skipped: ChangeSet['skipped'] = [];
   const mediaOf = async (id: string) => { if (!HEX32.test(id)) throw new Error(`mediaId „${id}“ ungültig (search_media/import_image liefert die ID).`); const m = await ro.get('media', id); if (!m) throw new Error(`Medium ${id} nicht gefunden.`); return m; };
 
-  // vorhandene Namen (Groß-/Kleinschreibung egal), damit nichts doppelt angelegt wird
+  // existing names (case-insensitive), so nothing is created twice
   const names = [...new Set(create.map(c => c.name.trim()).filter(Boolean))];
   const existing = names.length ? (await ro.search(ENTITY, { limit: 500, filter: [{ type: 'equalsAny', field: 'name', value: names }] })).data : [];
   const seen = new Set<string>();
@@ -85,10 +85,10 @@ export async function buildManufacturerChangeSet(ro: ShopReader, a: Manufacturer
   }
   if (!items.length) throw new Error(`Nichts zu ändern: ${skipped.map(s => `${s.id}: ${s.reason}`).join('; ') || 'keine Änderungen'}`);
   const n = new Set(items.map(i => i.entityId)).size;
-  return { cs: { id: newId(), kind: KIND_HERSTELLER, entity: ENTITY, noun: NOUN, applyLabel: `${n} Hersteller übernehmen`, title: a.title, reason: a.reason ?? null, items, skipped, atomic: false }, payload: null };
+  return { cs: { id: newId(), kind: KIND_MANUFACTURERS, entity: ENTITY, noun: NOUN, applyLabel: `${n} Hersteller übernehmen`, title: a.title, reason: a.reason ?? null, items, skipped, atomic: false }, payload: null };
 }
 
-registerApplier(KIND_HERSTELLER, (swW, cs, _payload, selected, ctx) => applyEach(cs, selected, async (it): Promise<UndoOp> => {
+registerApplier(KIND_MANUFACTURERS, (swW, cs, _payload, selected, ctx) => applyEach(cs, selected, async (it): Promise<UndoOp> => {
   const raw = it.afterRaw as { create: Record<string, unknown> } | string | null;
   if (raw && typeof raw === 'object' && 'create' in raw) {
     await swW.create(ENTITY, { id: it.entityId, ...raw.create });
@@ -96,7 +96,7 @@ registerApplier(KIND_HERSTELLER, (swW, cs, _payload, selected, ctx) => applyEach
   }
   const field = it.field as FieldKey, cur = await swW.get(ENTITY, it.entityId!);
   if (!cur) throw new Error('Hersteller nicht mehr vorhanden');
-  assertFresh(it.fieldLabel, valueOf(cur, field), it.beforeRaw ?? null); // inzwischen anders geändert: nicht überschreiben
+  assertFresh(it.fieldLabel, valueOf(cur, field), it.beforeRaw ?? null); // changed differently in the meantime: don't overwrite
   await swW.update(ENTITY, it.entityId!, { [field]: raw });
   return { op: 'patch', entity: ENTITY, id: it.entityId!, data: { [field]: (it.beforeRaw as string | null) ?? null } };
 }, ctx));
@@ -125,4 +125,4 @@ create: neue Hersteller (Name Pflicht; vorhandene Namen werden übersprungen). u
   ] as AnyTool[];
 }
 
-export const hersteller: Feature = { key: 'hersteller', platforms: ['shopware'], toolNames: MANUFACTURER_TOOLS, tools };
+export const manufacturers: Feature = { key: 'manufacturers', platforms: ['shopware'], toolNames: MANUFACTURER_TOOLS, tools };

@@ -4,7 +4,7 @@ import type { AppConfig, Target } from '@/lib/protocol';
 import { adminUrl, storefrontUrl } from '@/lib/urls';
 import styles from './TargetCard.module.css';
 
-/** Gewählter Kontext mit Links in Admin und Storefront. */
+/** Selected context with links to admin and storefront. */
 export function TargetCard({ target: t, cfg, onClear }: { target: Target; cfg: AppConfig | null; onClear: () => void }) {
   const { locale, t: m } = useI18n(), tx = m.chat.target;
   const landing = t.kind === 'landing';

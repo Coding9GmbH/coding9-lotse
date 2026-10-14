@@ -14,7 +14,7 @@ export function HomeHead() {
   const t = useT().chat.home;
   return (
     <div className={styles.head}>
-      {/* eslint-disable-next-line @next/next/no-img-element -- CODING 9 Logo (SVG) */}
+      {/* eslint-disable-next-line @next/next/no-img-element -- CODING 9 logo (SVG) */}
       <img src="/logo.svg" alt="CODING 9" width={56} height={56} />
       <h2>{t.title}</h2>
       <p>{t.lead}</p>
@@ -24,23 +24,23 @@ export function HomeHead() {
 
 interface Props {
   health: Health | null;
-  /** Statusabruf fehlgeschlagen: nicht als „nicht verbunden“ und nicht als bereit zeigen. */
+  /** Status fetch failed: show neither as "not connected" nor as ready. */
   loadFailed?: boolean;
   hasStyleguide: boolean | null;
   product: string;
   category: string;
   recent: ChatSummary[];
   onExample: (text: string) => void;
-  /** Shop-Check-Befund als Auftrag ins Feld */
+  /** Put a shop check finding into the input as a task */
   onFix: (f: CheckFinding) => void;
-  /** SEO-Hebel als Auftrag ins Feld (wie ein Shop-Check-Befund: danach „in Bearbeitung“) */
+  /** Put an SEO lever into the input as a task (like a shop check finding: "in progress" afterwards) */
   onTask: (t: FixTask) => void;
   fixes: FixMap;
   onOpenChat: (id: string) => void;
   onOnboard: () => void;
 }
 
-/** Startbildschirm: Einrichtung, Styleguide-Empfehlung, Shop-Check, Beispiele, zuletzt genutzte Chats. */
+/** Home screen: setup, styleguide recommendation, shop check, examples, recently used chats. */
 export function HomeContent({ health, loadFailed = false, hasStyleguide, product, category, recent, onExample, onFix, onTask, fixes, onOpenChat, onOnboard }: Props) {
   const { locale, t: m } = useI18n(), t = m.chat.home;
   const needsSetup = !loadFailed && health && (!health.shopware.configured || !health.ai.configured);

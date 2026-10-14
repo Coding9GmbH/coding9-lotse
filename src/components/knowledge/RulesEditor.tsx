@@ -13,7 +13,7 @@ import styles from './Knowledge.module.css';
 const kapi = api.knowledge;
 const SCOPES = Object.keys(RULE_SCOPES) as RuleScope[];
 
-/** Kategorien als flache Liste mit Pfad („Outdoor › Zelte“), sortiert; für die Begrenzung einer Regel auf eine Kategorie. */
+/** Categories as a flat list with path ("Outdoor › Zelte"), sorted; for limiting a rule to one category. */
 function useCategoryOptions() {
   const [cats, setCats] = useState<CategoryRow[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -27,7 +27,7 @@ function useCategoryOptions() {
   return { options, load, failed };
 }
 
-/** Auswahl „Gilt für“: Bereich + optional eine Kategorie. Kategorien werden erst beim Öffnen geladen. */
+/** "Gilt für" (applies to) picker: scope + optionally a category. Categories are loaded only when opened. */
 function ScopePicker({ scope, setScope, target, setTarget }: { scope: RuleScope; setScope: (s: RuleScope) => void; target: RuleTarget | null; setTarget: (t: RuleTarget | null) => void }) {
   const { options, load, failed } = useCategoryOptions();
   const known = target && options.some(o => o.id === target.id);
@@ -46,7 +46,7 @@ function ScopePicker({ scope, setScope, target, setTarget }: { scope: RuleScope;
   );
 }
 
-/** Eigene Regeln: Formular zum Anlegen und Liste zum Bearbeiten; geteilt von Wissen-Seite und Styleguide-Dialog. */
+/** Custom rules: form for creating and list for editing; shared by the knowledge base page and the style guide dialog. */
 export function RulesEditor({ rules, setRules }: { rules: KnowledgeRule[]; setRules: React.Dispatch<React.SetStateAction<KnowledgeRule[]>> }) {
   const [text, setText] = useState('');
   const [scope, setScope] = useState<RuleScope>('all');

@@ -151,6 +151,23 @@ Andere Plattformen veröffentlichen über ihre eigenen Pfade (Shopify: Theme-Vor
 | Neue Plattform | [platform.md](platform.md), Abschnitt 11 |
 | Neue Sprache | `LOCALES` und `LOCALE_NAMES` in `lib/i18n/locales.ts`, Wörterbuch je Namensraum in `lib/i18n/messages/`, `INTL_LOCALE`, `REPLY_LANGUAGE` in `server/prompt.ts` |
 
+### Gemeinsame Bausteine
+
+Vor einem neuen Helfer hier nachsehen; Kopien derselben Logik in mehreren Modulen vermeiden.
+
+| Zweck | Baustein |
+|---|---|
+| HTML-Text: Blöcke entfernen, Text extrahieren, Entities dekodieren, Attribut lesen (linear, ReDoS-sicher) | `lib/text.ts`: `stripBlocks`, `htmlToText`, `decodeEntities`, `attr`, `HEADINGS` |
+| HTML escapen, HTML entfernen | `lib/format.ts`: `esc`, `stripHtml` |
+| Fremdes HTML in Shop-Inhalte übernehmen (Allowlist) | `server/html-sanitize.ts`: `sanitizeHtml`, `safeUrl` |
+| Shop-HTTP mit Parallelitätsgrenze und 429/503-Retry | `server/shop-http.ts`: `createLimiter`, `shopFetch`; `sleep` aus `server/retry.ts` |
+| Shopseiten abrufen, jede Weiterleitung geprüft (SSRF) | `server/storefront.ts`: `fetchShopPage`, `assertShopUrl` |
+| Antworten/Bodies mit Größengrenze lesen | `server/http.ts`: `readLimited`, `readBodyLimited`; `server/media.ts`: `readCapped`, `MAX_IMAGE_BYTES` |
+| Dateien auswerten (PDF, DOCX, XLSX mit Zip-Bomb-Schutz) | `server/knowledge-text.ts`: `extractSegments` |
+| Listen aufteilen, Fehlertext | `server/util.ts`: `chunks`, `errMsg` |
+| Werkzeuge: Ergebnis, Fehler, Limit | `server/tool-kit.ts`: `ok`, `guard`, `lim` |
+| Magento/OpenMage: Apply-Helfer, Linkprüfung | `platform/magento/kit.ts`, `platform/magento/grouped.ts`, `checkLinksWith` in `platform/magento/links.ts` |
+
 ## 12. Mehrsprachigkeit / Internationalization
 
 Oberfläche und KI-Antworten gibt es auf Deutsch (Standard) und Englisch. Alles liegt in `src/lib/i18n/`:

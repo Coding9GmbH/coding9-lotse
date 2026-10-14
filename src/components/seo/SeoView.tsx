@@ -16,7 +16,7 @@ import styles from './Seo.module.css';
 const COLLAPSED = 5;
 const GROUPS: SeoGroup[] = ['tech', 'ranking', 'keyword', 'content', 'check'];
 
-/** Eine Zeile, egal ob SEO-Hebel oder Shop-Check-Befund */
+/** One row, whether SEO lever or shop check finding */
 interface Row { id: string; kind: string; title: string; detail: string; metrics: { label: string; value: string }[]; prompt: string; sev?: CheckSeverity; mark?: SeoMark; markable: boolean }
 
 const fromItem = (i: SeoItem, kinds: Record<SeoItem['kind'], string>): Row => ({
@@ -27,7 +27,7 @@ const fromFinding = (f: CheckFinding, locale: Locale): Row => ({
   id: f.id, kind: f.area, title: f.title, detail: [countText(f, locale), f.hint].filter(Boolean).join(' · '), metrics: [], prompt: f.fixPrompt, sev: f.severity, markable: false,
 });
 
-/** SEO-Übersicht: Hebel aus Search Console, Sistrix und dem Shop-Check; „Optimieren“ legt den fertigen Auftrag in einen neuen Chat. */
+/** SEO overview: levers from Search Console, Sistrix and the shop check; "Optimieren" (optimize) puts the ready-made task into a new chat. */
 export function SeoView() {
   const { t: all, locale } = useI18n(), t = all.seo;
   const shell = useShell();
@@ -48,7 +48,7 @@ export function SeoView() {
     let off = false;
     api.seoOverview().then(d => { if (!off) setData(d); }, e => { if (!off) setError(errorText(e)); }).finally(() => { if (!off) setBusy(false); });
     api.shopCheck().then(s => { if (!off) setChecks((s.run?.findings ?? []).filter(f => f.count > 0 && SEO_CHECK_AREAS.has(f.area))); }, () => {});
-    // erst nach dem Laden: localStorage gibt es beim Server-Rendern nicht
+    // only after loading: localStorage doesn't exist during server rendering
     queueMicrotask(() => { if (!off) setFixes(loadFixes()); });
     return () => { off = true; };
   }, []);
@@ -68,7 +68,7 @@ export function SeoView() {
   const none = data && !data.gsc && !data.sistrix && !data.site, noIntegration = data && !data.gsc && !data.sistrix;
   const rows: Record<SeoGroup, Row[]> = { tech: [], ranking: [], keyword: [], content: [], check: checks.map(f => fromFinding(f, locale)) };
   for (const i of data?.items ?? []) rows[seoGroup(i)].push(fromItem(i, t.kinds));
-  // Technik mischt Live-Check und Sistrix-Crawl: nach Wichtigkeit statt nach Quelle
+  // Technical mixes live check and Sistrix crawl: by importance instead of by source
   const impact = new Map((data?.items ?? []).map(i => [i.id, i.impact]));
   rows.tech.sort((a, b) => (impact.get(b.id) ?? 0) - (impact.get(a.id) ?? 0));
   const visible = (g: SeoGroup) => rows[g].filter(r => showHidden || !r.mark);
@@ -173,7 +173,7 @@ export function SeoView() {
   );
 }
 
-/** OnPage-Status: letzter Crawl, oder warum (noch) keine technischen Fehler kommen, mit Projektwahl */
+/** OnPage status: last crawl, or why no technical errors are showing (yet), with project selection */
 function Onpage({ o, busy, onPick }: { o: SeoOnpage; busy: boolean; onPick: (hash: string) => void }) {
   const { t: all, locale } = useI18n(), t = all.seo.onpage;
   const fmt = (n: number | null | undefined) => (typeof n === 'number' ? n.toLocaleString(INTL_LOCALE[locale]) : '–');

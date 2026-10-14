@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { ShopifyClient } from '../../../../src/server/platform/shopify/client';
 import type { UndoOp } from '@/lib/protocol';
 
-test('Shopify: ist die SKU schon vergeben, wird kein zweites Produkt angelegt', async () => {
+test('Shopify: if the SKU is already taken, no second product is created', async () => {
   const { createProduct } = await import('../../../../src/server/platform/shopify/products');
   let mutated = 0;
   const client = {

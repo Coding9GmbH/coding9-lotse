@@ -1,6 +1,7 @@
 import 'server-only';
-// Links in Seiten und Beschreibungen: technische Shopware-Pfade (/detail/<id>, /navigation/<id>) → SEO-URL,
-// interne Ziele prüfen (existiert, aktiv, im Verkaufskanal, SEO-URL vorhanden) und externe Links (rel/target) – siehe prompts/09-seo.md.
+// Links in pages and descriptions: technical Shopware paths (/detail/<id>, /navigation/<id>) → SEO URL,
+// check internal targets (exists, active, in sales channel, SEO URL present) and external links (rel/target); see prompts/09-seo.md.
+import { attr, closed } from '@/lib/text';
 import type { ShopReader, SwEntity } from './shopware';
 
 export type LinkKind = 'product' | 'category' | 'landing';
@@ -8,26 +9,25 @@ export const ROUTE: Record<LinkKind, string> = { product: 'frontend.detail.page'
 export const ROUTE_KIND: Record<string, LinkKind> = Object.fromEntries(Object.entries(ROUTE).map(([k, v]) => [v, k as LinkKind]));
 const TECH = /^(detail|navigation|landingPage)\/([0-9a-f]{32})\/?$/i;
 const TECH_KIND: Record<string, LinkKind> = { detail: 'product', navigation: 'category', landingpage: 'landing' };
-// Storefront-Routen ohne SEO-URL, die es immer gibt (keine Prüfung)
+// Storefront routes without SEO URL that always exist (no check)
 const STATIC_ROUTE = /^(account|checkout|search|suggest|wishlist|note|newsletter|widgets|maintenance|sitemap(\.xml)?|robots\.txt|media|thumbnail|bundles|theme|country|cookie|form|compare)(\/|$|\?)/i;
 const GENERIC_ANCHOR = /^(hier|hier klicken|klicken sie hier|klick hier|hier entlang|mehr|mehr dazu|weiter|weiterlesen|link|zum link|click here|here|read more|more)$/i;
 
 export interface LinkRef { href: string; text: string; rel?: string; target?: string }
 
-const attr = (tag: string, name: string) => tag.match(new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i'))?.slice(1).find(v => v != null);
-const plain = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+const plain = (h: string) => h.replace(/<[^<>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
 
-/** Alle <a href> eines HTML-Texts samt Linktext, rel und target. */
+/** All <a href> of an HTML text with link text, rel and target. */
 export function extractLinks(html: string): LinkRef[] {
-  return [...String(html ?? '').matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)].flatMap(m => {
-    const href = attr(m[1], 'href'); if (href == null) return [];
+  return [...String(html ?? '').matchAll(/<a\b([^<>]*)>([\s\S]*?)(?:<\/a>|$)/gi)].flatMap(m => {
+    const href = attr(m[1], 'href'); if (href == null || !closed(m[0], 'a')) return [];
     return [{ href: href.trim(), text: plain(m[2]).slice(0, 120) || (attr(m[2], 'alt') ?? ''), rel: attr(m[1], 'rel'), target: attr(m[1], 'target') }];
   });
 }
 
 export interface ParsedHref { type: 'internal' | 'external' | 'anchor' | 'other' | 'invalid'; kind?: LinkKind; id?: string; path?: string; absolute?: boolean }
 
-/** Ordnet einen href ein. bases = Domain-URLs der Verkaufskanäle (+ API-Basis): deren Links gelten als intern. */
+/** Classifies an href. bases = domain URLs of the sales channels (+ API base): their links count as internal. */
 export function parseHref(href: string, bases: string[]): ParsedHref {
   const h = href.trim();
   if (!h || h === '#') return { type: 'anchor' };
@@ -43,7 +43,7 @@ export function parseHref(href: string, bases: string[]): ParsedHref {
   } else if (/^[a-z][a-z0-9+.-]*:/i.test(h)) return { type: 'other' };
   else {
     rest = h;
-    // Domain mit Pfad (z. B. https://shop.de/en): Präfix entfernen
+    // Domain with path (e.g. https://shop.de/en): strip the prefix
     for (const b of bases) { try { const p = new URL(b).pathname.replace(/\/+$/, ''); if (p && (rest === p || rest.startsWith(p + '/'))) { rest = rest.slice(p.length); break; } } catch {} }
   }
   const path = decodeURIComponentSafe(rest.replace(/[?#].*$/, '').replace(/^\/+/, ''));
@@ -53,12 +53,12 @@ export function parseHref(href: string, bases: string[]): ParsedHref {
 }
 const decodeURIComponentSafe = (s: string) => { try { return decodeURIComponent(s); } catch { return s; } };
 
-// ---- Kontext: Verkaufskanal, Sprache, Domain ----
+// ---- Context: sales channel, language, domain ----
 export interface LinkCtx { salesChannelId: string; salesChannel: string; languageId: string; domain: string; navigationCategoryId: string | null; rootIds: string[]; bases: string[] }
-/** Kategorie liegt unter Navigation, Footer oder Service des Kanals (nur dort erzeugt Shopware Kategorie-Seiten/SEO-URLs) */
+/** Category lies under the channel's navigation, footer or service (only there does Shopware generate category pages/SEO URLs) */
 export const underRoots = (ctx: Pick<LinkCtx, 'rootIds'>, c: SwEntity) => !ctx.rootIds.length || ctx.rootIds.some(r => c.id === r || String(c.path ?? '').includes(`|${r}|`));
 
-/** Verkaufskanal für Links: angegeben oder der erste mit Domain (Storefront); Sprache = Sprache seiner ersten Domain. */
+/** Sales channel for links: the given one or the first with a domain (storefront); language = language of its first domain. */
 export async function linkContext(ro: ShopReader, salesChannelId?: string, languageId?: string): Promise<LinkCtx | null> {
   const all = await ro.salesChannels();
   const sc = salesChannelId ? all.find(s => s.id === salesChannelId) : all.find(s => s.domains?.some((d: SwEntity) => /^https?:\/\//.test(String(d.url))));
@@ -70,8 +70,8 @@ export async function linkContext(ro: ShopReader, salesChannelId?: string, langu
   return { salesChannelId: sc.id, salesChannel: sc.translated?.name ?? sc.name, languageId: dom?.languageId ?? sc.languageId, domain: String(dom?.url ?? ro.base).replace(/\/+$/, ''), navigationCategoryId: sc.navigationCategoryId ?? null, rootIds: [...new Set([sc.navigationCategoryId, sc.footerCategoryId, sc.serviceCategoryId].filter((x): x is string => !!x))], bases };
 }
 
-// ---- Ziele auflösen ----
-/** IDs der Produkte, die im Kanal sichtbar sind – Varianten über die Sichtbarkeit ihres Hauptprodukts (wird vererbt). */
+// ---- Resolve targets ----
+/** IDs of products visible in the channel; variants via the visibility of their parent product (inherited). */
 export async function visibleProducts(ro: ShopReader, salesChannelId: string, rows: SwEntity[]): Promise<Set<string>> {
   const ids = [...new Set(rows.flatMap(r => [r.id as string, ...(r.parentId ? [r.parentId as string] : [])]))];
   if (!ids.length) return new Set();
@@ -83,7 +83,7 @@ export interface LinkTarget { kind: LinkKind; id: string; exists: boolean; activ
 export interface Resolved { byId: Map<string, LinkTarget>; byPath: Map<string, LinkTarget | null>; seoChecked: boolean }
 
 const seoKey = (path: string) => path.replace(/\/+$/, '').toLowerCase();
-/** Kanonische SEO-Pfade je (Route, ID) für Kanal + Sprache. */
+/** Canonical SEO paths per (route, ID) for channel + language. */
 export async function canonicalSeoPaths(ro: ShopReader, ctx: Pick<LinkCtx, 'salesChannelId' | 'languageId'>, refs: { kind: LinkKind; id: string }[]): Promise<Map<string, SwEntity>> {
   const out = new Map<string, SwEntity>(), ids = [...new Set(refs.map(r => r.id))];
   for (let i = 0; i < ids.length; i += 200) {
@@ -94,11 +94,11 @@ export async function canonicalSeoPaths(ro: ShopReader, ctx: Pick<LinkCtx, 'sale
   return out;
 }
 
-/** Löst technische IDs und SEO-Pfade gegen den Shop auf (gebündelt; fehlende Leserechte → Prüfung entfällt still). */
+/** Resolves technical IDs and SEO paths against the shop (batched; missing read permissions → check is silently skipped). */
 export async function resolveTargets(ro: ShopReader, ctx: LinkCtx, refs: { kind: LinkKind; id: string }[], paths: string[]): Promise<Resolved> {
   const byId = new Map<string, LinkTarget>(), byPath = new Map<string, LinkTarget | null>();
   let seoChecked = true;
-  // SEO-Pfade → Ziel-IDs (auch alte, nicht-kanonische Pfade)
+  // SEO paths → target IDs (also old, non-canonical paths)
   const want = [...new Set(paths.filter(p => p && !STATIC_ROUTE.test(p)).map(seoKey))];
   const pathHits = new Map<string, SwEntity>();
   if (want.length) {
@@ -124,7 +124,7 @@ export async function resolveTargets(ro: ShopReader, ctx: LinkCtx, refs: { kind:
   const p = ids('product'), c = ids('category'), l = ids('landing');
   const P0 = p.length ? (await ro.search('product', { ids: p, limit: p.length })).data : [];
   const pids = [...new Set(P0.map(x => x.parentId as string).filter(id => id && !p.includes(id)))], par = pids.length ? (await ro.search('product', { ids: pids, limit: pids.length })).data : [];
-  // Varianten erben active und Name vom Hauptprodukt (ohne sw-inheritance null)
+  // Variants inherit active and name from the parent product (without sw-inheritance: null)
   const PR = P0.map(x => { const m = x.parentId ? par.find(r => r.id === x.parentId) : undefined; return m ? { ...x, active: x.active ?? m.active, name: x.translated?.name ?? x.name ?? m.translated?.name ?? m.name, translated: undefined } : x; });
   put('product', p, PR, await visibleProducts(ro, ctx.salesChannelId, P0));
   const C = await load('category', c, []);
@@ -143,14 +143,14 @@ export async function resolveTargets(ro: ShopReader, ctx: LinkCtx, refs: { kind:
   return { byId, byPath, seoChecked };
 }
 
-// ---- Bewertung + Umschreiben ----
-/** problem: ganzer Hinweis mit Abhilfe; short: Kurzform für Listen (Shop-Check-Beispiele), fehlt sie, ist problem schon kurz (Magento/OpenMage) */
+// ---- Rating + rewriting ----
+/** problem: full notice with remedy; short: short form for lists (shop check examples); if missing, problem is already short (Magento/OpenMage) */
 export interface LinkFinding { href: string; text: string; level: 'wichtig' | 'empfohlen'; problem: string; short?: string }
 export const shortProblem = (f: Pick<LinkFinding, 'problem' | 'short'>) => f.short ?? f.problem;
 export interface LinkReport { ctx: LinkCtx | null; internal: number; external: number; findings: LinkFinding[]; rewrites: Map<string, string> }
 
 const absUrl = (ctx: LinkCtx, seoPath: string) => `${ctx.domain}/${seoPath.replace(/^\/+/, '')}`;
-/** Neuer href für einen internen Link: SEO-URL statt technischem/veraltetem Pfad (gleiche Form: absolut bleibt absolut). */
+/** New href for an internal link: SEO URL instead of technical/outdated path (same form: absolute stays absolute). */
 function betterHref(p: ParsedHref, t: LinkTarget | null | undefined, ctx: LinkCtx, href: string): string | null {
   if (!t?.seoPath || !t.exists) return null;
   if (p.kind || (p.path != null && t.canonical === false)) {
@@ -162,7 +162,7 @@ function betterHref(p: ParsedHref, t: LinkTarget | null | undefined, ctx: LinkCt
   return null;
 }
 
-/** Prüft Links (intern: Ziel, aktiv, Kanal, SEO-URL; extern: rel/target; Linktext) und liefert Umschreibungen technischer Links. */
+/** Checks links (internal: target, active, channel, SEO URL; external: rel/target; link text) and returns rewrites of technical links. */
 export async function checkLinks(ro: ShopReader, links: LinkRef[], opts: { salesChannelId?: string; ctx?: LinkCtx | null } = {}): Promise<LinkReport> {
   const ctx = opts.ctx !== undefined ? opts.ctx : await linkContext(ro, opts.salesChannelId);
   const out: LinkReport = { ctx, internal: 0, external: 0, findings: [], rewrites: new Map() };
@@ -170,7 +170,7 @@ export async function checkLinks(ro: ShopReader, links: LinkRef[], opts: { sales
   const parsed = links.map(l => ({ l, p: parseHref(l.href, ctx?.bases ?? [ro.base]) }));
   const res = ctx ? await resolveTargets(ro, ctx, parsed.filter(x => x.p.kind).map(x => ({ kind: x.p.kind!, id: x.p.id! })), parsed.filter(x => x.p.type === 'internal' && !x.p.kind && x.p.path).map(x => x.p.path!)) : null;
   const seen = new Set<string>();
-  // short = Kurzform (Listen), problem = short + Abhilfe
+  // short = short form (lists), problem = short + remedy
   const add = (l: LinkRef, level: LinkFinding['level'], short: string, fix = '') => { const problem = fix ? `${short}: ${fix}` : short, k = `${l.href}|${problem}`; if (!seen.has(k)) { seen.add(k); out.findings.push({ href: l.href, text: l.text, level, problem, short }); } };
   for (const { l, p } of parsed) {
     if (GENERIC_ANCHOR.test(l.text.replace(/[»›→.!…]+/g, '').trim())) add(l, 'empfohlen', `Nichtssagender Linktext „${l.text}“`, 'beschreibenden Ankertext verwenden (Ziel benennen)');
@@ -187,7 +187,7 @@ export async function checkLinks(ro: ShopReader, links: LinkRef[], opts: { sales
     if (l.target === '_blank') add(l, 'empfohlen', 'Interner Link öffnet neuen Tab', 'target="_blank" entfernen');
     if (/\bnofollow\b/i.test(l.rel ?? '')) add(l, 'empfohlen', 'Interner Link mit rel="nofollow"', 'entfernen (verschenkt Linkkraft)');
     if (!ctx || !res) continue;
-    if (!p.kind && (!p.path || STATIC_ROUTE.test(p.path))) continue; // Startseite / Standard-Routen
+    if (!p.kind && (!p.path || STATIC_ROUTE.test(p.path))) continue; // home page / standard routes
     const t = p.kind ? res.byId.get(`${p.kind}:${p.id}`) : res.byPath.get(seoKey(p.path!));
     const what = (x: LinkTarget) => ({ product: 'Produkt', category: 'Kategorie', landing: 'Landingpage' })[x.kind] + (x.name ? ` „${x.name}“` : '');
     if (!t) { if (res.seoChecked) add(l, 'wichtig', `Ziel nicht gefunden: „/${p.path}“ ist keine bekannte SEO-URL im Verkaufskanal ${ctx.salesChannel}`, 'get_seo_urls/suggest_internal_links nutzen'); continue; }
@@ -202,15 +202,15 @@ export async function checkLinks(ro: ShopReader, links: LinkRef[], opts: { sales
   return out;
 }
 
-// ---- Links in beliebigen Strukturen (Page-Spec, Slot-Configs) sammeln und umschreiben ----
+// ---- Collect and rewrite links in arbitrary structures (page spec, slot configs) ----
 const HREF_KEY = /(href|linkurl|link)$/i;
 const isLinkKey = (path: string[]) => { const k = path[path.length - 1] ?? '', parent = path[path.length - 2] ?? ''; return HREF_KEY.test(k) || (k === 'value' && /^(url|link|href)$/i.test(parent)); };
-// Wert sieht nach URL aus (Pfad, Schema, //, #, ?) – nicht z. B. „product.manufacturer.link“
+// Value looks like a URL (path, scheme, //, #, ?), not e.g. "product.manufacturer.link"
 const HREF_LIKE = /^(\/|#|\?|[a-z][a-z0-9+.-]*:)/i;
-// Slot-Config { source: 'mapped', value: 'product.manufacturer.link' } ist eine Feldzuordnung, kein Link → überspringen
+// Slot config { source: 'mapped', value: 'product.manufacturer.link' } is a field mapping, not a link → skip
 const isMapped = (x: Record<string, unknown>) => typeof x.source === 'string' && x.source !== 'static' && 'value' in x;
 
-/** Alle Links eines Objekts: <a href> in HTML-Strings und Link-Felder (ctaHref, linkUrl, config.url.value …). */
+/** All links of an object: <a href> in HTML strings and link fields (ctaHref, linkUrl, config.url.value …). */
 export function collectLinks(obj: unknown): LinkRef[] {
   const out: LinkRef[] = [];
   const walk = (x: unknown, path: string[], parent?: Record<string, unknown>) => {
@@ -224,10 +224,10 @@ export function collectLinks(obj: unknown): LinkRef[] {
   return out;
 }
 
-/** href-Werte in HTML ersetzen (nur exakte Treffer aus der Map). */
-export const rewriteHtml = (html: string, map: Map<string, string>) => !map.size ? html : html.replace(/(<a\b[^>]*?\shref\s*=\s*)(["'])([^"']*)\2/gi, (all, pre, q, href) => { const n = map.get(href.trim()); return n ? `${pre}${q}${n}${q}` : all; });
+/** Replace href values in HTML (only exact matches from the map). */
+export const rewriteHtml = (html: string, map: Map<string, string>) => !map.size ? html : html.replace(/(<a\b[^<>]*?\shref\s*=\s*)(["'])([^"']*)\2/gi, (all, pre, q, href) => { const n = map.get(href.trim()); return n ? `${pre}${q}${n}${q}` : all; });
 
-/** Kopie eines Objekts mit umgeschriebenen Links (HTML-Strings und Link-Felder). */
+/** Copy of an object with rewritten links (HTML strings and link fields). */
 export function rewriteLinks<T>(obj: T, map: Map<string, string>): T {
   if (!map.size) return obj;
   const walk = (x: unknown, path: string[]): unknown => {
@@ -239,15 +239,15 @@ export function rewriteLinks<T>(obj: T, map: Map<string, string>): T {
   return walk(obj, []) as T;
 }
 
-/** Seitenentwurf: Links prüfen und technische Links durch SEO-URLs ersetzen (für Vorschau, Check und Veröffentlichung). */
+/** Page draft: check links and replace technical links with SEO URLs (for preview, check and publishing). */
 export async function prepareSpecLinks<T>(ro: ShopReader, spec: T, salesChannelId?: string): Promise<{ spec: T; report: LinkReport | null }> {
   try {
     const report = await checkLinks(ro, collectLinks(spec), { salesChannelId });
     return { spec: rewriteLinks(spec, report.rewrites), report };
-  } catch { return { spec, report: null }; } // Shop nicht erreichbar o. Ä.: Entwurf bleibt unverändert
+  } catch { return { spec, report: null }; } // shop unreachable or similar: draft stays unchanged
 }
 
-/** Änderungsvorschläge mit HTML (Beschreibungen): technische Links → SEO-URL, Probleme als Warnung am Element. */
+/** Change proposals with HTML (descriptions): technical links → SEO URL, problems as a warning on the item. */
 export async function checkHtmlItems(ro: ShopReader, items: { afterRaw?: unknown; after: string; html?: { before: string; after: string }; warn: string[] }[]) {
   const withLinks = items.filter(i => typeof i.afterRaw === 'string' && /<a\b/i.test(i.afterRaw));
   if (!withLinks.length) return;
@@ -256,7 +256,7 @@ export async function checkHtmlItems(ro: ShopReader, items: { afterRaw?: unknown
   for (const it of withLinks) {
     const hrefs = new Set(extractLinks(it.afterRaw as string).map(l => l.href));
     const html = rewriteHtml(it.afterRaw as string, report.rewrites);
-    if (html !== it.afterRaw) { it.afterRaw = html; it.after = rewriteHtml(it.after, report.rewrites); if (it.html) it.html.after = html.slice(0, 4000); } // Karte zeigt, was geschrieben wird
+    if (html !== it.afterRaw) { it.afterRaw = html; it.after = rewriteHtml(it.after, report.rewrites); if (it.html) it.html.after = html.slice(0, 4000); } // card shows what will be written
     const fs = report.findings.filter(f => hrefs.has(f.href));
     it.warn.push(...fs.slice(0, 3).map(findingText), ...(fs.length > 3 ? [`… und ${fs.length - 3} weitere Link-Hinweise`] : []));
   }

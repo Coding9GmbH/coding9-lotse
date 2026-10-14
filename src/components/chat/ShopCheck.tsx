@@ -14,24 +14,24 @@ import { CheckManager } from './CheckManager';
 import styles from './ShopCheck.module.css';
 
 const COLLAPSED = 3;
-// Einmal je Bereich statt in jedem Befund
-const AREA_NOTE = new Set(['Recht', 'Barrierefreiheit']); // Bereichsnamen kommen vom Server
+// Once per area instead of in every finding
+const AREA_NOTE = new Set(['Recht', 'Barrierefreiheit']); // area names come from the server
 const checkedText = (iso: string, locale: Locale, t: Messages['chat']['shopcheck']) => {
   const a = ago(iso, undefined, locale);
   return a === new Date(iso).toLocaleDateString(INTL_LOCALE[locale]) ? t.checkedOn(a) : t.checkedAgo(a);
 };
 
 interface Props {
-  /** „Als Auftrag ins Feld“: füllt nur das Eingabefeld, es wird nichts gesendet */
+  /** "Als Auftrag ins Feld": only fills the input field, nothing is sent */
   onFix: (f: CheckFinding) => void;
-  /** Befunde, die schon in einem Chat bearbeitet werden */
+  /** Findings already being worked on in a chat */
   fixes?: FixMap;
   onOpenChat?: (id: string) => void;
-  /** „Neue Prüfung im Chat“: füllt nur das Eingabefeld mit einem Anfang, gesendet wird nichts */
+  /** "Neue Prüfung im Chat": only fills the input field with an opening, nothing is sent */
   onNewCheck?: (prompt: string) => void;
 }
 
-/** Startseite: was im Shop gerade nicht stimmt – kompakt (wichtigste zuerst), nach Bereich filterbar. */
+/** Home page: what's currently wrong in the shop, compact (most important first), filterable by area. */
 export function ShopCheck({ onFix, fixes = {}, onOpenChat, onNewCheck }: Props) {
   const { locale, t: m } = useI18n(), t = m.chat.shopcheck;
   const [st, setSt] = useState<ShopCheckState | null>(null);
@@ -43,7 +43,7 @@ export function ShopCheck({ onFix, fixes = {}, onOpenChat, onNewCheck }: Props) 
   const load = useCallback((start = false) => (start ? api.runShopCheck() : api.shopCheck())
     .then(s => { setSt(s); setErr(null); }, e => setErr(errorText(e))), []);
 
-  // Erster Abruf; läuft eine Prüfung (auch im Hintergrund nach dem Besuch), regelmäßig nachsehen
+  // Initial fetch; while a check is running (also in the background after the visit), poll regularly
   const running = !!st?.running;
   useEffect(() => {
     if (st && !running) return;

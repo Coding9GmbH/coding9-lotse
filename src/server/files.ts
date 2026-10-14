@@ -1,6 +1,6 @@
 import 'server-only';
-// Datei-Anhänge aus dem Chat (CSV, Excel, PDF, Text …): liegen lokal im Datenverzeichnis, nie im Shop.
-// Feature-Module lesen sie über getFile(fileId) – z. B. Lieferanten-Import oder Wissensbasis.
+// File attachments from the chat (CSV, Excel, PDF, text …): stored locally in the data directory, never in the shop.
+// Feature modules read them via getFile(fileId), e.g. supplier import or knowledge base.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -14,17 +14,18 @@ export const FILE_TYPES: Record<string, string> = {
   pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 };
 export const FILE_LIMIT = 25 * 1024 * 1024;
+export const FILE_TOO_LARGE = `Datei größer als ${FILE_LIMIT / 1024 / 1024} MB`;
 
 const dir = () => path.join(dataDir(), 'files');
 const ID = /^f_[0-9a-f]{20}$/;
 const ext = (name: string) => (name.match(/\.([a-z0-9]+)$/i)?.[1] ?? '').toLowerCase();
 
-/** Typ anhand der Endung (Browser liefern für CSV/Excel oft leere oder falsche MIME-Typen). null = nicht erlaubt. */
+/** Type by extension (browsers often send empty or wrong MIME types for CSV/Excel). null = not allowed. */
 export function fileType(name: string): string | null { return FILE_TYPES[ext(name)] ?? null; }
 
 export function saveFile(buf: Buffer, name: string): StoredFile {
   const mime = fileType(name); if (!mime) throw new Error(`Dateityp .${ext(name) || '?'} wird nicht unterstützt (erlaubt: ${Object.keys(FILE_TYPES).join(', ')})`);
-  if (buf.length > FILE_LIMIT) throw new Error('Datei größer als 25 MB');
+  if (buf.length > FILE_LIMIT) throw new Error(FILE_TOO_LARGE);
   const fileId = `f_${crypto.randomBytes(10).toString('hex')}`, d = path.join(dir(), fileId);
   fs.mkdirSync(d, { recursive: true });
   const meta: StoredFile = { fileId, name: path.basename(name).slice(0, 200), mime, size: buf.length, createdAt: new Date().toISOString() };
@@ -42,7 +43,7 @@ export function getFile(fileId: string): (StoredFile & { buf: Buffer }) | null {
   return { ...m, buf: fs.readFileSync(path.join(dir(), fileId, 'data')) };
 }
 
-/** Datei endgültig entfernen (z. B. wenn ein Wissensdokument gelöscht wird). */
+/** Remove a file permanently (e.g. when a knowledge base document is deleted). */
 export function deleteFile(fileId: string): boolean {
   if (!ID.test(fileId)) return false;
   fs.rmSync(path.join(dir(), fileId), { recursive: true, force: true });

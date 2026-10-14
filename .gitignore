@@ -11,7 +11,7 @@ backups/
 next-env.d.ts
 *.tsbuildinfo
 
-# Promo-Videos (Quellen und Export) liegen nicht im Repository
+# Promo videos (sources and export) are not kept in the repository
 video/
 
 # Playwright (E2E)

@@ -1,19 +1,19 @@
 <?php
 /**
- * Basis der API-Fachmodelle: Kontext (Store, Query, Body), Paginierung, Validierung,
- * EAV-Helfer für „Standardwert verwenden“ (Store-Wert löschen) und Indexer-Aufrufe.
+ * Base of the API domain models: context (store, query, body), pagination, validation,
+ * EAV helpers for "Use Default Value" (delete store value) and indexer calls.
  */
 abstract class Lotse_Connector_Model_Api_Abstract
 {
     public const MAX_LIMIT = 200;
 
-    /** @var int 0 = globaler Scope */
+    /** @var int 0 = global scope */
     protected $storeId = 0;
     /** @var array */
     protected $query = [];
     /** @var array|null */
     protected $body;
-    /** @var int|null HTTP-Status der Antwort (Standard 200) */
+    /** @var int|null HTTP status of the response (default 200) */
     protected $status;
 
     public function setContext($storeId, array $query, $body)
@@ -29,7 +29,7 @@ abstract class Lotse_Connector_Model_Api_Abstract
         return $this->status;
     }
 
-    /** Store-Objekt für URLs: angefragter Store oder Default-Store-View bei Scope 0. */
+    /** Store object for URLs: requested store, or default store view for scope 0. */
     protected function getUrlStore()
     {
         if ($this->storeId > 0) {
@@ -50,15 +50,15 @@ abstract class Lotse_Connector_Model_Api_Abstract
         return is_string($v) ? trim($v) : $v;
     }
 
-    /** Escaped %, _ und \ für LIKE-Filter aus Nutzereingaben. */
+    /** Escapes %, _ and \ for LIKE filters built from user input. */
     protected function escapeLike($value)
     {
         return Lotse_Connector_Model_Util::escapeLike($value);
     }
 
     /**
-     * Prüft Layout-XML wie der Admin (adminhtml/layoutUpdate_validator): keine Template-Pfade mit "../",
-     * keine helper=-Attribute, keine setTemplate-Aktionen, keine gesperrten Blöcke. Leer = erlaubt.
+     * Validates layout XML like the admin does (adminhtml/layoutUpdate_validator): no template paths with "../",
+     * no helper= attributes, no setTemplate actions, no blocked blocks. Empty = allowed.
      */
     protected function validateLayoutXml($xml, $field)
     {
@@ -74,8 +74,8 @@ abstract class Lotse_Connector_Model_Api_Abstract
             $valid = $validator->isValid($xml);
             $messages = array_values(array_map('strval', $validator->getMessages()));
         } catch (Throwable $e) {
-            // OpenMage 20.x unter PHP 8: Validator wirft TypeError, wenn er vor dem Setzen des Werts ablehnt
-            // (ungültiges XML, Template-Pfad, gesperrter Block). Gilt als abgelehnt, wie im Admin.
+            // OpenMage 20.x on PHP 8: the validator throws TypeError when it rejects before the value is set
+            // (invalid XML, template path, blocked block). Treated as rejected, as in the admin.
             $valid = false;
             $messages = ['Ungültiges XML oder nicht erlaubte Template-/Block-Direktive.'];
         }
@@ -118,7 +118,7 @@ abstract class Lotse_Connector_Model_Api_Abstract
         return Lotse_Connector_Model_Util::pagination(['page' => $this->q('page', 1), 'limit' => $this->q('limit', 50)]);
     }
 
-    /** Standard-Antwort für Listen. */
+    /** Standard response for lists. */
     protected function listResponse(array $items, $page, $limit, $total)
     {
         return ['data' => array_values($items), 'meta' => [
@@ -129,7 +129,7 @@ abstract class Lotse_Connector_Model_Api_Abstract
         ]];
     }
 
-    /** Sortierung aus ?sort=<feld>&dir=asc|desc, nur erlaubte Felder. */
+    /** Sorting from ?sort=<field>&dir=asc|desc, allowed fields only. */
     protected function sorting(array $allowed, $default)
     {
         $sort = (string) $this->q('sort', $default);
@@ -140,7 +140,7 @@ abstract class Lotse_Connector_Model_Api_Abstract
         return [$sort, $dir];
     }
 
-    /** Store-Codes zu IDs (mit 0 = alle). */
+    /** Store codes to IDs (with 0 = all). */
     protected function storeIdsToCodes(array $ids)
     {
         $out = [];
@@ -160,7 +160,7 @@ abstract class Lotse_Connector_Model_Api_Abstract
         return $out;
     }
 
-    /** Akzeptiert Store-IDs oder -Codes (0/"admin" = alle) und liefert IDs. */
+    /** Accepts store IDs or codes (0/"admin" = all) and returns IDs. */
     protected function storeIdsFromInput($stores)
     {
         if (!is_array($stores)) {
@@ -181,7 +181,7 @@ abstract class Lotse_Connector_Model_Api_Abstract
         return array_values(array_unique($ids));
     }
 
-    /** URL-Schlüssel wie OpenMage (Slugger mit Locale des Stores; Store 0 = Default-Store-View). */
+    /** URL key like OpenMage (slugger with the store's locale; store 0 = default store view). */
     protected function formatUrlKey($value, $storeId = null)
     {
         $storeId = $storeId === null ? $this->storeId : (int) $storeId;
@@ -203,8 +203,8 @@ abstract class Lotse_Connector_Model_Api_Abstract
     }
 
     /**
-     * Attribut-Codes, die für die Entität im gegebenen Store (≠ 0) einen eigenen Wert haben.
-     * Grundlage für exaktes Rückgängig („Standardwert verwenden“).
+     * Attribute codes that have their own value for the entity in the given store (!= 0).
+     * Basis for exact undo ("Use Default Value").
      * @return string[]
      */
     protected function storeOverrides($entityTypeCode, $entityId, $storeId)
@@ -233,10 +233,10 @@ abstract class Lotse_Connector_Model_Api_Abstract
     }
 
     /**
-     * Löscht den Store-spezifischen Wert eines Attributs (= „Standardwert verwenden“).
-     * Nur für Store ≠ 0; im globalen Scope gibt es keinen Standardwert, auf den man zurückfällt.
-     * Website-Attribute (z. B. price bei Preis-Scope Website) werden in allen Store-Views der Website gelöscht,
-     * weil updateAttributes sie dort auch alle schreibt.
+     * Deletes the store-specific value of an attribute (= "Use Default Value").
+     * Only for store != 0; in the global scope there is no default value to fall back to.
+     * Website attributes (e.g. price with price scope Website) are deleted in all store views of the website,
+     * because updateAttributes writes them in all of those too.
      */
     protected function deleteStoreValue($entityTypeCode, $entityId, $attributeCode, $storeId)
     {
@@ -266,7 +266,7 @@ abstract class Lotse_Connector_Model_Api_Abstract
         ]);
     }
 
-    /** Alle Attribute (Code => Attribut) eines Attributsets einer Entität. */
+    /** All attributes (code => attribute) of an attribute set of an entity. */
     protected function attributesOfSet($entityTypeCode, $attributeSetId)
     {
         $out = [];

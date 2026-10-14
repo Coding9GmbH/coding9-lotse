@@ -1,6 +1,6 @@
-// Markier-Modus in einer Vorschau: Element unter dem Mauszeiger umranden, Klick liefert Bezeichnung, Abschnitt, CSS-Pfad und Position.
-// Zwei Wege: Shop-Seite über /shop (gleiche Herkunft, direkt im Dokument) und Entwurf im sandboxed iframe (nur postMessage,
-// die Logik dort liefert lib/preview-frame.ts).
+// Annotation mode in a preview: outline the element under the cursor, a click yields label, section, CSS path and position.
+// Two paths: shop page via /shop (same origin, directly in the document) and draft in a sandboxed iframe (postMessage only,
+// the logic there comes from lib/preview-frame.ts).
 import { describeElement } from '@/lib/annotations';
 import { markKeySelects } from '@/lib/a11y';
 import { DEFAULT_LOCALE, type Locale } from '@/lib/i18n';
@@ -8,7 +8,7 @@ import { FRAME_CSS, isFrameMessage, MEANINGFUL } from '@/lib/preview-frame';
 import { isSandboxed, postToFrame } from './DraftFrame';
 
 export interface Pick { label: string; section?: string; path: string; x: number; y: number }
-/** Ziel in der Liste außerhalb des Rahmens (Tastatur, ohne in den Frame zu klicken). */
+/** Target in the list outside the frame (keyboard, without clicking into the frame). */
 export interface FrameTarget { label: string; section?: string; path: string }
 
 const STYLE_ID = 'lotse-annotate';
@@ -40,7 +40,7 @@ function hitOf(tag: string, text: string, alt: string, isButton: boolean, sectio
   return { label: describeElement(tag, { text, alt, isButton }, locale), section: section || undefined, path };
 }
 
-/** Entwurf (sandboxed): Markier-Modus im Dokument einschalten, Klicks kommen als Nachricht zurück. */
+/** Draft (sandboxed): enable annotation mode in the document, clicks come back as messages. */
 function attachByMessage(frame: HTMLIFrameElement, onPick: (p: Pick) => void, onTargets: ((list: FrameTarget[]) => void) | undefined, locale: Locale): () => void {
   const onMsg = (e: MessageEvent) => {
     if (e.source !== frame.contentWindow || !isFrameMessage(e.data)) return;
@@ -56,7 +56,7 @@ function attachByMessage(frame: HTMLIFrameElement, onPick: (p: Pick) => void, on
   const bind = () => postToFrame(frame, { t: 'mark', on: true });
   window.addEventListener('message', onMsg);
   bind();
-  frame.addEventListener('load', bind); // Entwurf neu geladen → wieder einschalten
+  frame.addEventListener('load', bind); // draft reloaded → enable again
   return () => { window.removeEventListener('message', onMsg); frame.removeEventListener('load', bind); postToFrame(frame, { t: 'mark', on: false }); };
 }
 
@@ -66,7 +66,7 @@ function asPick(el: Element, x: number, y: number, locale: Locale): Pick {
   return { ...hitOf(el.tagName, text, (el as HTMLImageElement).alt ?? '', isButton, sectionTitle(el) ?? '', cssPath(el), locale), x, y };
 }
 
-/** Schaltet den Markier-Modus in einem iframe ein; liefert die Abmeldefunktion. `locale`: Sprache der Element-Bezeichnungen. */
+/** Enables annotation mode in an iframe; returns the unsubscribe function. `locale`: language of the element labels. */
 export function attachAnnotator(frame: HTMLIFrameElement, onPick: (p: Pick) => void, onTargets?: (list: FrameTarget[]) => void, locale: Locale = DEFAULT_LOCALE): () => void {
   if (isSandboxed(frame)) return attachByMessage(frame, onPick, onTargets, locale);
   let doc: Document | null = null, hovered: Element | null = null;
@@ -87,7 +87,7 @@ export function attachAnnotator(frame: HTMLIFrameElement, onPick: (p: Pick) => v
     e.preventDefault(); e.stopPropagation();
     onPick(asPick(t, 0, 0, locale));
   };
-  const block = (e: Event) => { e.preventDefault(); e.stopPropagation(); }; // keine Navigation/Formulare im Markier-Modus
+  const block = (e: Event) => { e.preventDefault(); e.stopPropagation(); }; // no navigation/forms in annotation mode
 
   const bind = () => {
     unbind();
@@ -121,11 +121,11 @@ export function attachAnnotator(frame: HTMLIFrameElement, onPick: (p: Pick) => v
     doc = null;
   };
   bind();
-  frame.addEventListener('load', bind); // Entwurf neu geladen → wieder anbinden
+  frame.addEventListener('load', bind); // draft reloaded → bind again
   return () => { frame.removeEventListener('load', bind); unbind(); };
 }
 
-/** Nummern an den markierten Elementen anzeigen (Best effort über den CSS-Pfad). */
+/** Show numbers on the annotated elements (best effort via the CSS path). */
 export function drawPins(frame: HTMLIFrameElement, paths: string[]) {
   if (isSandboxed(frame)) { postToFrame(frame, { t: 'pins', paths }); return; }
   let doc: Document | null = null;
@@ -135,7 +135,7 @@ export function drawPins(frame: HTMLIFrameElement, paths: string[]) {
   const win = doc.defaultView;
   paths.forEach((path, i) => {
     let el: Element | null = null;
-    try { el = doc!.querySelector(path); } catch { /* ungültiger Pfad */ }
+    try { el = doc!.querySelector(path); } catch { /* invalid path */ }
     if (!el || !win) return;
     const r = el.getBoundingClientRect(), pin = doc!.createElement('span');
     pin.className = '__lotse-pin'; pin.textContent = String(i + 1);

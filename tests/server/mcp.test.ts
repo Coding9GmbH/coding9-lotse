@@ -13,11 +13,11 @@ const rpc = (body: unknown, token?: string) => new Request('http://127.0.0.1:333
 });
 const ctx = { params: Promise.resolve({ chatId: 'chat-1' }) };
 
-test('MCP für Codex: ohne gültiges Token abgewiesen, mit Token genau die Shop-Tools', async () => {
+test('MCP for Codex: rejected without valid token, with token exactly the shop tools', async () => {
   const { POST } = await import('../../src/app/api/mcp/[chatId]/route');
   const { mcpTokenFor } = await import('../../src/server/codex');
   const { TOOL_NAMES } = await import('../../src/server/tools');
-  assert.deepEqual(TOOL_NAMES.filter((n, i) => TOOL_NAMES.indexOf(n) !== i), [], 'Werkzeugnamen doppelt');
+  assert.deepEqual(TOOL_NAMES.filter((n, i) => TOOL_NAMES.indexOf(n) !== i), [], 'duplicate tool names');
 
   assert.equal((await POST(rpc({ jsonrpc: '2.0', id: 1, method: 'tools/list' }), ctx)).status, 401);
   const token = mcpTokenFor('chat-1');
@@ -30,14 +30,14 @@ test('MCP für Codex: ohne gültiges Token abgewiesen, mit Token genau die Shop-
   assert.deepEqual(body.result.tools.map(t => t.name).sort(), [...TOOL_NAMES].sort());
   assert.ok(body.result.tools.every(t => t.inputSchema.type === 'object'));
 
-  // Echter Tool-Aufruf über MCP (ohne Shop): liest den (leeren) Styleguide
+  // Real tool call via MCP (without shop): reads the (empty) style guide
   const call = await POST(rpc({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'get_styleguide', arguments: {} } }, token), ctx);
   const res = await call.json() as { result: { content: { text: string }[]; isError?: boolean } };
   assert.equal(res.result.isError ?? false, false);
   assert.match(res.result.content[0].text, /Kein Styleguide/);
 });
 
-test('Chat löschen invalidiert das MCP-Token', async () => {
+test('deleting a chat invalidates the MCP token', async () => {
   const { mcpTokenFor, mcpTokenValid } = await import('../../src/server/codex');
   const { DELETE } = await import('../../src/app/api/chats/[id]/route');
   const alt = mcpTokenFor('chat-1');
@@ -47,17 +47,17 @@ test('Chat löschen invalidiert das MCP-Token', async () => {
   assert.equal(r.status, 200);
   assert.equal(mcpTokenValid('chat-weg', `Bearer ${old}`), false);
   assert.notEqual(mcpTokenFor('chat-weg'), old);
-  assert.equal(mcpTokenValid('chat-1', `Bearer ${alt}`), true, 'anderes Chat-Token bleibt');
+  assert.equal(mcpTokenValid('chat-1', `Bearer ${alt}`), true, 'other chat token stays');
 });
 
-test('MCP-Token gilt während der Runde und ist danach weg', async () => {
+test('MCP token is valid during the turn and gone afterwards', async () => {
   const { bindRoundToken, mcpTokenFor, mcpTokenValid } = await import('../../src/server/codex');
   const id = 'chat-round';
   const token = await bindRoundToken(id, async () => {
     const t = mcpTokenFor(id);
-    assert.equal(mcpTokenValid(id, `Bearer ${t}`), true, 'während der Runde');
+    assert.equal(mcpTokenValid(id, `Bearer ${t}`), true, 'during the turn');
     await new Promise(r => setTimeout(r, 20));
-    assert.equal(mcpTokenValid(id, `Bearer ${t}`), true, 'auch beim Warten auf Freigabe');
+    assert.equal(mcpTokenValid(id, `Bearer ${t}`), true, 'also while waiting for approval');
     return t;
   });
   assert.equal(mcpTokenValid(id, `Bearer ${token}`), false);
@@ -69,10 +69,10 @@ test('MCP-Token gilt während der Runde und ist danach weg', async () => {
     throw new Error('Runde abgebrochen');
   }));
   assert.equal(mcpTokenValid('chat-fail', `Bearer ${thrown}`), false);
-  assert.equal(mcpTokenValid('chat-bleibt', `Bearer ${other}`), true, 'anderes Chat-Token bleibt');
+  assert.equal(mcpTokenValid('chat-bleibt', `Bearer ${other}`), true, 'other chat token stays');
 });
 
-test('dropSession löscht das MCP-Token nicht', async () => {
+test('dropSession does not delete the MCP token', async () => {
   const { mcpTokenFor, mcpTokenValid } = await import('../../src/server/codex');
   const { dropSession } = await import('../../src/server/sessions');
   const t = mcpTokenFor('chat-reset');
@@ -80,7 +80,7 @@ test('dropSession löscht das MCP-Token nicht', async () => {
   assert.equal(mcpTokenValid('chat-reset', `Bearer ${t}`), true);
 });
 
-test('Shop-Check: Prüfungen aus Shop-Check, Recht und Search Console sind registriert (Alt-Texte nur einmal)', async () => {
+test('shop check: checks from shop check, legal and Search Console are registered (alt texts only once)', async () => {
   await import('../../src/server/features');
   const { listChecks } = await import('../../src/server/checks');
   const ids = listChecks().map(c => c.id);

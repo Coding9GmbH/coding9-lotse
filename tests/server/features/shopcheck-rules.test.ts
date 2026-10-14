@@ -5,14 +5,14 @@ import { DEFS, makeFinding, scanHits, toScanRow, type ScanRow } from '../../../s
 const CUR = 'b7d2554b0ce847cd82f3ac9bd1c0dfca';
 const row = (id: string, o: Partial<ScanRow> = {}): ScanRow => ({ id, label: `Produkt ${id}`, metaTitle: `Title ${id}`, description: 'wort '.repeat(60), price: 20, listPrice: null, purchase: null, ...o });
 
-test('toScanRow: Preise der Standardwährung, Streich- und Einkaufspreis, übersetzte Texte', () => {
+test('toScanRow: prices in the default currency, list and purchase price, translated texts', () => {
   const r = toScanRow({ id: 'a', productNumber: 'A-1', name: 'Alt', translated: { name: 'Vase', metaTitle: '  Vase  kaufen ', description: '<p>Text</p>' },
     price: [{ currencyId: 'x', gross: 1 }, { currencyId: CUR, gross: 19.99, listPrice: { gross: 24.99 } }], purchasePrices: [{ currencyId: CUR, gross: 8 }] });
   assert.deepEqual(r, { id: 'a', label: 'Vase (A-1)', metaTitle: 'Vase kaufen', description: '<p>Text</p>', price: 19.99, listPrice: 24.99, purchase: 8 });
   assert.equal(toScanRow({ id: 'b', productNumber: 'B' }).price, null);
 });
 
-test('scanHits: lange/doppelte Titles, dünne Texte, Preisprobleme', () => {
+test('scanHits: long/duplicate titles, thin texts, price problems', () => {
   const h = scanHits([
     row('lang', { metaTitle: 'x'.repeat(61) }),
     row('d1', { metaTitle: 'Gleich' }), row('d2', { metaTitle: ' gleich ' }),
@@ -34,7 +34,7 @@ test('scanHits: lange/doppelte Titles, dünne Texte, Preisprobleme', () => {
   assert.deepEqual(h.listBelow.map(x => x.id), ['streich']);
 });
 
-test('makeFinding: Anzahl im Auftrag, „mindestens“ bei Deckelung, Einzahl, Betroffene bei wenigen', () => {
+test('makeFinding: count in the task, "mindestens" (at least) when capped, singular, affected items when few', () => {
   const s = [{ id: 'a', label: 'Vase (HH-VASE-22)' }];
   const one = makeFinding(DEFS.noImage, 1, 3, s)!;
   assert.match(one.fixPrompt, /betrifft 1 Produkt;/);
@@ -52,6 +52,6 @@ test('makeFinding: Anzahl im Auftrag, „mindestens“ bei Deckelung, Einzahl, B
   assert.equal(t.id, 'sprachen.missing-translation.fr-FR');
 });
 
-test('Befund-Texte ohne lange Gedankenstriche', () => {
+test('finding texts without long dashes', () => {
   for (const d of Object.values(DEFS)) for (const t of [d.title, d.hint, d.fix('3 Produkte')]) assert.doesNotMatch(t, /[–—]/, `${d.id}: ${t}`);
 });

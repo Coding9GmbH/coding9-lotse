@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ChangeSet, ChatEvent } from '@/lib/protocol';
 
-// PUT /api/settings: Änderungen an der Shop-Verbindung landen im Audit-Log (nur Feldnamen) und werden abgewiesen, solange ein Änderungsset geschrieben wird.
+// PUT /api/settings: changes to the shop connection end up in the audit log (field names only) and are rejected while a change set is being written.
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-settings-route-'));
 for (const k of Object.keys(process.env)) if (/^(SHOPWARE_|SHOPIFY_|MAGENTO_|OPENMAGE_|SHOP_PLATFORM$)/.test(k)) delete process.env[k];
 
@@ -20,16 +20,16 @@ const put = (body: unknown) => PUT(new Request('http://127.0.0.1/api/settings', 
 const cs: ChangeSet = { id: 'cs-run', kind: 'products', entity: 'product', title: 'Test', reason: null, atomic: false, skipped: [], items: [{ id: 'a', entity: 'product', entityId: 'p1', label: 'P', field: 'name', fieldLabel: 'Name', before: 'alt', after: 'neu', afterRaw: 'neu', warn: [] }] };
 const tick = () => new Promise(r => setTimeout(r, 5));
 
-test('connectionChanges: nennt nur Felder der Shop-Verbindung, die sich wirklich ändern', () => {
+test('connectionChanges: lists only shop connection fields that actually change', () => {
   assert.deepEqual(connectionChanges({ shopware: { url: 'http://alt.shop', user: 'admin', password: '' }, ai: { model: 'opus' }, scopes: { cms: false } }), []);
   assert.deepEqual(connectionChanges({ shopware: { url: 'http://neu.shop', password: 'neues-passwort' } }), ['shopware.url', 'shopware.password']);
   assert.deepEqual(connectionChanges({ platform: 'shopify', shopify: { storeDomain: 'laden.myshopify.com' } }), ['platform', 'shopify.storeDomain']);
   assert.deepEqual(connectionChanges({ shopware: { password: null } }), ['shopware.password']);
-  assert.deepEqual(connectionChanges({ shopware: { url: 'http://neu.shop' } }), ['shopware.url', 'shopware.password'], 'andere Herkunft verwirft das gespeicherte Passwort (im Audit sichtbar)');
-  assert.deepEqual(connectionChanges({ shopware: { url: 'http://alt.shop/' } }), ['shopware.url'], 'gleiche Herkunft behält es');
+  assert.deepEqual(connectionChanges({ shopware: { url: 'http://neu.shop' } }), ['shopware.url', 'shopware.password'], 'different origin discards the saved password (visible in the audit)');
+  assert.deepEqual(connectionChanges({ shopware: { url: 'http://alt.shop/' } }), ['shopware.url'], 'same origin keeps it');
 });
 
-test('PUT: Shop-Verbindung geändert → Audit-Zeile mit Feldnamen, nie mit Werten; KI-Einstellungen ohne Audit', async () => {
+test('PUT: shop connection changed → audit row with field names, never values; AI settings without audit', async () => {
   const before = auditList().length;
   const r = await put({ shopware: { url: 'http://neu.shop', password: 'streng-geheim' }, ai: { model: 'opus' } });
   assert.equal(r.status, 200);
@@ -38,12 +38,12 @@ test('PUT: Shop-Verbindung geändert → Audit-Zeile mit Feldnamen, nie mit Wert
   assert.equal(rows.length, before + 1);
   assert.equal(rows[0].decision, 'changed'); assert.equal(rows[0].kind, 'settings');
   assert.deepEqual(rows[0].fields, { 'shopware.url': 'geändert', 'shopware.password': 'geändert' });
-  assert.ok(!JSON.stringify(rows).includes('streng-geheim') && !JSON.stringify(rows).includes('neu.shop'), 'keine Werte im Audit-Log');
+  assert.ok(!JSON.stringify(rows).includes('streng-geheim') && !JSON.stringify(rows).includes('neu.shop'), 'no values in the audit log');
   assert.equal((await put({ ai: { model: 'sonnet' }, image: { openaiKey: 'sk-abcdefghijklmnopqrstuvwxyz' } })).status, 200);
-  assert.equal(auditList().length, before + 1, 'KI/Bild-Einstellungen erzeugen keine Zeile');
+  assert.equal(auditList().length, before + 1, 'AI/image settings create no row');
 });
 
-test('PUT: während ein Änderungsset geschrieben wird, wird der Wechsel der Shop-Verbindung mit 409 abgewiesen, andere Einstellungen nicht', async () => {
+test('PUT: while a change set is being written, switching the shop connection is rejected with 409, other settings are not', async () => {
   let finish!: () => void;
   const origApply = ADAPTERS.shopware.apply;
   ADAPTERS.shopware.apply = () => new Promise(res => { finish = () => res({ results: [{ itemId: 'a', ok: true }], undo: [] }); });
@@ -57,9 +57,9 @@ test('PUT: während ein Änderungsset geschrieben wird, wird der Wechsel der Sho
     assert.equal(writesInProgress(), 1);
     const r = await put({ shopware: { url: 'http://anderer.shop' } });
     assert.equal(r.status, 409); assert.match((await r.json() as { error: string }).error, /Bitte warte/);
-    assert.equal(getSettings().shopware.url, 'http://neu.shop', 'nichts gespeichert');
-    assert.equal((await put({ platform: 'magento' })).status, 409, 'Plattformwechsel ebenso');
-    assert.equal((await put({ ai: { model: '' }, shopware: { url: 'http://neu.shop' } })).status, 200, 'unveränderte Verbindung + KI-Einstellung geht');
+    assert.equal(getSettings().shopware.url, 'http://neu.shop', 'nothing saved');
+    assert.equal((await put({ platform: 'magento' })).status, 409, 'platform switch likewise');
+    assert.equal((await put({ ai: { model: '' }, shopware: { url: 'http://neu.shop' } })).status, 200, 'unchanged connection + AI setting works');
     finish(); await pending; s.running = false;
     assert.equal(writesInProgress(), 0);
     assert.equal((await put({ shopware: { url: 'http://anderer.shop' } })).status, 200);

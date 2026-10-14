@@ -1,6 +1,6 @@
-// Schutz vor Zip-Bomben: xlsx/docx sind ZIP-Archive. exceljs/mammoth (JSZip) entpacken ohne Obergrenze im Speicher.
-// Vor dem Parsen: zentrales Verzeichnis lesen (Anzahl, angegebene Größen) und jeden Eintrag einmal zählend entpacken
-// (gestreamt, ohne Speichern) – angegebene Größen können lügen, die tatsächlich entpackte Menge nicht. Keine Abhängigkeiten.
+// Protection against zip bombs: xlsx/docx are ZIP archives. exceljs/mammoth (JSZip) decompress into memory without limit.
+// Before parsing: read the central directory (count, declared sizes) and decompress each entry once while counting
+// (streamed, without storing): declared sizes can lie, the actually decompressed amount can't. No dependencies.
 import zlib from 'node:zlib';
 
 export const ZIP_LIMITS = { total: 200 * 1024 * 1024, entries: 10_000, ratio: 200, ratioMin: 50 * 1024 * 1024 };
@@ -10,7 +10,7 @@ interface Entry { name: string; method: number; comp: number; size: number; loca
 const bad = (msg: string) => new Error(`Datei abgelehnt: ${msg}`);
 const MB = (n: number) => `${Math.round(n / 1024 / 1024)} MB`;
 
-/** Einträge aus dem zentralen Verzeichnis (inkl. ZIP64) */
+/** Entries from the central directory (incl. ZIP64) */
 export function zipEntries(buf: Buffer, maxEntries = ZIP_LIMITS.entries): Entry[] {
   let eocd = -1;
   for (let i = buf.length - 22; i >= Math.max(0, buf.length - 22 - 0xffff); i--) if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
@@ -27,7 +27,7 @@ export function zipEntries(buf: Buffer, maxEntries = ZIP_LIMITS.entries): Entry[
     if (p + 46 > buf.length || buf.readUInt32LE(p) !== 0x02014b50) throw bad('ZIP-Verzeichnis beschädigt');
     const method = buf.readUInt16LE(p + 10), nameLen = buf.readUInt16LE(p + 28), extraLen = buf.readUInt16LE(p + 30), commentLen = buf.readUInt16LE(p + 32);
     let comp = buf.readUInt32LE(p + 20), size = buf.readUInt32LE(p + 24), local = buf.readUInt32LE(p + 42);
-    // ZIP64-Zusatzfeld (0x0001): Werte nur für die Felder, die 0xFFFFFFFF sind, in fester Reihenfolge
+    // ZIP64 extra field (0x0001): values only for the fields that are 0xFFFFFFFF, in fixed order
     for (let x = p + 46 + nameLen, end = x + extraLen; x + 4 <= end && x + 4 <= buf.length; ) {
       const id = buf.readUInt16LE(x), len = buf.readUInt16LE(x + 2);
       if (id === 0x0001) {
@@ -42,7 +42,7 @@ export function zipEntries(buf: Buffer, maxEntries = ZIP_LIMITS.entries): Entry[
   return out;
 }
 
-/** Entpackt einen Deflate-Strom zählend (nichts wird behalten); bricht beim Überschreiten von limit ab */
+/** Decompresses a deflate stream while counting (nothing is kept); aborts when limit is exceeded */
 function inflatedSize(data: Buffer, limit: number, tooBig: () => Error): Promise<number> {
   return new Promise((resolve, reject) => {
     const z = zlib.createInflateRaw(); let n = 0, done = false;
@@ -54,7 +54,7 @@ function inflatedSize(data: Buffer, limit: number, tooBig: () => Error): Promise
   });
 }
 
-/** Wirft, wenn das Archiv entpackt zu groß wird, zu viele Einträge hat oder absurd stark komprimiert ist. */
+/** Throws if the archive becomes too large when decompressed, has too many entries or is absurdly highly compressed. */
 export async function assertSafeZip(buf: Buffer, lim: Limits = ZIP_LIMITS): Promise<void> {
   const entries = zipEntries(buf, lim.entries);
   const declared = entries.reduce((n, e) => n + e.size, 0);

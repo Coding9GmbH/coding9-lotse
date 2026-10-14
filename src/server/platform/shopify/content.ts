@@ -1,5 +1,5 @@
 import 'server-only';
-// Shopify: Übersetzungen (translationsRegister je Sprache) und Rabattcodes (DiscountCodeBasic = Promotionen in Lotse) – lesen, vorschlagen, anwenden, rückgängig.
+// Shopify: translations (translationsRegister per language) and discount codes (DiscountCodeBasic = promotions in Lotse): read, propose, apply, undo.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { slugify } from '@/lib/text';
 import { MAX_ITEMS, WRITE_CONCURRENCY, cut, errMsg, partialTicker, pool, trackedUndo, type ApplyCtx, type ApplyResult } from '../../changes';
@@ -8,10 +8,10 @@ import { shortId, toGid, type Json, type ShopifyClient } from './client';
 import { collectionsByIds, fmtMoney, idsWhere, money, productsByIds, qField, stripHtml, type Q } from './data';
 import { deleteOp, M, reqOp, runCreating, runRecording } from './ops';
 
-// =============== Sprachen + Übersetzungen ===============
+// =============== Languages + translations ===============
 export type TrEntity = 'product' | 'category' | 'page';
 export const TR_TYPE: Record<TrEntity, string> = { product: 'Product', category: 'Collection', page: 'Page' };
-/** Lotse-Feld → Shopify-Übersetzungsschlüssel */
+/** Lotse field → Shopify translation key */
 export const TR_KEYS: Record<string, string> = { name: 'title', description: 'body_html', metaTitle: 'meta_title', metaDescription: 'meta_description', handle: 'handle', productType: 'product_type' };
 const TR_FIELD = Object.fromEntries(Object.entries(TR_KEYS).map(([k, v]) => [v, k]));
 const TR_LABEL: Record<string, string> = { name: 'Name', description: 'Beschreibung', metaTitle: 'Meta-Title', metaDescription: 'Meta-Description', handle: 'URL (Handle)', productType: 'Produkttyp' };
@@ -20,7 +20,7 @@ export async function shopLocales(q: Q): Promise<{ locale: string; name: string;
   return (await q<Json>('query Locales { shopLocales { locale name primary published } }')).shopLocales;
 }
 const TR_QUERY = (locale: string) => `query Translations($resourceIds: [ID!]!, $first: Int!) { translatableResourcesByIds(first: $first, resourceIds: $resourceIds) { nodes { resourceId translatableContent { key value digest locale } translations(locale: "${locale.replace(/[^A-Za-z-]/g, '')}") { key value outdated } } } }`;
-/** Quelltexte + Übersetzungen einer Sprache für Ressourcen (GIDs) */
+/** Source texts + translations of one language for resources (GIDs) */
 export async function readTranslations(q: Q, gids: string[], locale: string): Promise<Map<string, Json>> {
   const out = new Map<string, Json>();
   for (let i = 0; i < gids.length; i += 50) {
@@ -101,7 +101,7 @@ export async function applyTranslations(client: ShopifyClient, cs: ChangeSet, se
   return { results, undo };
 }
 
-// =============== Rabattcodes (Promotionen) ===============
+// =============== Discount codes (promotions) ===============
 export const discountSel = (n = 25) => `id codeDiscount { __typename
   ... on DiscountCodeBasic { title status summary startsAt endsAt usageLimit appliesOncePerCustomer asyncUsageCount
     codesCount { count } codes(first: 5) { nodes { code } }
@@ -115,26 +115,26 @@ export const discountSel = (n = 25) => `id codeDiscount { __typename
 const STATUS_DE: Record<string, string> = { ACTIVE: 'läuft', SCHEDULED: 'geplant', EXPIRED: 'abgelaufen' };
 export const DEFAULT_TZ = 'Europe/Berlin';
 const dateDeTz = (iso: string | null | undefined, tz = DEFAULT_TZ) => { if (!iso) return null; try { return new Date(iso).toLocaleDateString('de-DE', { timeZone: tz }); } catch { return new Date(iso).toLocaleDateString('de-DE', { timeZone: DEFAULT_TZ }); } };
-/** Versatz der Zeitzone zu UTC in ms zum Zeitpunkt utcMs (Sommer-/Winterzeit berücksichtigt) */
+/** Offset of the time zone to UTC in ms at the time utcMs (accounts for DST) */
 function tzOffsetMs(utcMs: number, tz: string): number {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
     .formatToParts(new Date(utcMs)).filter(x => x.type !== 'literal').map(x => [x.type, Number(x.value)]));
   return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(utcMs / 1000) * 1000;
 }
-/** „JJJJ-MM-TT“ → Tagesbeginn bzw. (end) Tagesende in der Shop-Zeitzone als UTC-ISO; volle Zeitpunkte bleiben, wie sie sind */
+/** "YYYY-MM-DD" → start of day or (end) end of day in the shop time zone as UTC ISO; full timestamps stay as they are */
 export function toIso(d: string, end = false, tz = DEFAULT_TZ): string {
   const s = String(d).trim(), m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (m) {
     const local = Date.UTC(+m[1], +m[2] - 1, +m[3], end ? 23 : 0, end ? 59 : 0, end ? 59 : 0), chk = new Date(local);
     if (chk.getUTCMonth() !== +m[2] - 1 || chk.getUTCDate() !== +m[3]) throw new Error(`Datum „${s}“ ungültig (JJJJ-MM-TT)`);
     let zone = tz; try { tzOffsetMs(local, zone); } catch { zone = DEFAULT_TZ; }
-    let t = local - tzOffsetMs(local, zone); t = local - tzOffsetMs(t, zone); // zweiter Durchgang: Versatz am Zieltag selbst (Umstellungstage)
+    let t = local - tzOffsetMs(local, zone); t = local - tzOffsetMs(t, zone); // second pass: offset on the target day itself (DST switch days)
     return new Date(t).toISOString();
   }
   const t = Date.parse(s); if (Number.isNaN(t)) throw new Error(`Datum „${s}“ ungültig (JJJJ-MM-TT)`); return new Date(t).toISOString();
 }
 
-/** Rabatt für die KI (nur Zählwerte, keine Einlöser); Datumsanzeige in der Shop-Zeitzone */
+/** Discount for the AI (counts only, no redeemers); dates shown in the shop time zone */
 export function discountView(n: Json, currency = 'EUR', tz = DEFAULT_TZ) {
   const d = n.codeDiscount ?? {}, v = d.customerGets?.value, items = d.customerGets?.items, min = d.minimumRequirement;
   const value = v?.__typename === 'DiscountPercentage' ? `${Math.round(v.percentage * 10000) / 100} %` : v?.__typename === 'DiscountAmount' ? `${fmtMoney(v.amount.amount, v.amount.currencyCode ?? currency)}${v.appliesOnEachItem ? ' je Artikel' : ''}` : null;
@@ -148,7 +148,7 @@ export function discountView(n: Json, currency = 'EUR', tz = DEFAULT_TZ) {
     combinesWith: d.combinesWith ?? null, allBuyers: d.context ? d.context.__typename === 'DiscountBuyerSelectionAll' : null,
   };
 }
-/** Rabatte per ID über nodes; 10 je Abfrage halten die angefragten Kosten (je Rabatt ≈ 65 mit Produkt-/Kollektionslisten) unter 1000 */
+/** Discounts by ID via nodes; 10 per query keeps the requested cost (≈ 65 per discount with product/collection lists) below 1000 */
 export async function discountsByIds(q: Q, ids: string[]): Promise<Json[]> {
   const gids = [...new Set(ids.map(i => toGid('DiscountCodeNode', i)))], out: Json[] = [];
   for (let i = 0; i < gids.length; i += 10) {
@@ -177,7 +177,7 @@ const valueInput = (a: PromotionArgs) => {
   if (!(a.value! > 0)) throw new Error('Betrag-Rabatt: value > 0'); return { discountAmount: { amount: money(a.value!), appliesOnEachItem: !!a.appliesOnEachItem } };
 };
 
-/** shop: Währung und Zeitzone des Shops (Tagesdaten JJJJ-MM-TT gelten in der Shop-Zeitzone) */
+/** shop: currency and time zone of the shop (dates YYYY-MM-DD apply in the shop time zone) */
 export async function buildPromotionChangeSet(q: Q, a: PromotionArgs, shop: { currency: string; timezone?: string }): Promise<{ cs: ChangeSet; payload: Json }> {
   const warn: string[] = [], items: ChangeItem[] = [], { currency } = shop, tz = shop.timezone || DEFAULT_TZ;
   const day = (d: string, end = false) => toIso(d, end, tz), dateDe = (iso: string | null | undefined) => dateDeTz(iso, tz);
@@ -199,10 +199,10 @@ export async function buildPromotionChangeSet(q: Q, a: PromotionArgs, shop: { cu
     items[0].warn.push(...warn);
     return { cs: { id: newId(), kind: 'promotion', entity: 'promotion', title: `Rabatt ändern: ${v.title}`, reason: a.reason, items, skipped: [], atomic: true, noun: { one: 'Rabatt', many: 'Rabatte' } }, payload: { id: cur.id, input } };
   }
-  // neu
+  // new
   if (!a.title?.trim() || !a.code?.trim() || !a.type || a.value == null) throw new Error('Neu anlegen: title, code, type und value sind Pflicht');
   const code = a.code.trim(); if (/\s/.test(code) || code.length > 255) throw new Error('Code ohne Leerzeichen, max. 255 Zeichen');
-  // Eindeutigkeit des Codes prüft Shopify beim Anlegen (userError TAKEN); laufende Codes warnen unten vorab
+  // Shopify checks code uniqueness on creation (userError TAKEN); active codes trigger a warning below in advance
   const startsAt = a.startsAt ? day(a.startsAt) : new Date().toISOString(), endsAt = a.endsAt ? day(a.endsAt, true) : null;
   if (endsAt && Date.parse(endsAt) <= Date.parse(startsAt)) throw new Error('Ende liegt vor dem Start');
   let itemsInput: Json = { all: true }, scope = 'alle Artikel';
@@ -227,7 +227,7 @@ export async function buildPromotionChangeSet(q: Q, a: PromotionArgs, shop: { cu
 }
 
 const priorValue = (v: Json | undefined) => (v?.__typename === 'DiscountPercentage' ? { percentage: v.percentage } : v?.__typename === 'DiscountAmount' ? { discountAmount: { amount: v.amount.amount, appliesOnEachItem: v.appliesOnEachItem } } : undefined);
-/** Kartenfeld → Schlüssel im DiscountCodeBasicInput. Anlegen ist eine Zeile (id neu) und bleibt ganz oder gar nicht. */
+/** Card field → key in DiscountCodeBasicInput. Creation is one row (new id) and is all or nothing. */
 const PROMO_KEY: Record<string, string> = { title: 'title', startsAt: 'startsAt', endsAt: 'endsAt', usageLimit: 'usageLimit', oncePerCustomer: 'appliesOncePerCustomer', value: 'customerGets', combinesWith: 'combinesWith' };
 export async function applyPromotion(client: ShopifyClient, cs: ChangeSet, payload: { id?: string; input: Json }, selected: Set<string>, ctx?: ApplyCtx): Promise<ApplyResult> {
   const chosen = cs.items.filter(i => selected.has(i.id));

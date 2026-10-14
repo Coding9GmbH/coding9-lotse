@@ -5,17 +5,17 @@ import {
   validateDiscount, discountEntity, discountSnapshot, statusFilter, promotionStatus, promotionEntity, buildPromotionChangeSet, buildStatusChangeSet,
   draftWarning, activeText, overlapText, ruleSnapshot, ruleDescription, promotionRulesDelete,
   type CreatePayload, type UpdatePart,
-} from '../../../src/server/features/promotionen';
+} from '../../../src/server/features/promotions';
 import type { ShopReader, Shopware, SwEntity } from '../../../src/server/shopware';
 import { applyChangeSet, undoOps } from '../../../src/server/changes';
 import type { UndoOp } from '@/lib/protocol';
 
 const NOW = new Date('2026-09-15T10:00:00Z');
 const seq = () => { let n = 0; return () => `id${++n}`; };
-/** Karten-Texte ohne lange Gedankenstriche (Repo-Regel, wie shopcheck-rules.test) */
+/** Card texts without long dashes (repo rule, like shopcheck-rules.test) */
 export const noDashes = (cs: { items: { label: string; after: string; warn: string[] }[] }) => { for (const i of cs.items) for (const t of [i.label, i.after, ...i.warn]) assert.doesNotMatch(t, /[–—]/, t); };
 
-/** Fake-Leser: liefert Datensätze je Entität, filtert ids und einfache equals-Filter */
+/** Fake reader: returns records per entity, filters ids and simple equals filters */
 function fakeReader(db: Record<string, SwEntity[]>): ShopReader {
   const search = async (entity: string, c: Record<string, unknown> = {}) => {
     let rows = db[entity] ?? [];
@@ -32,7 +32,7 @@ const baseDb = () => ({
   promotion: [] as SwEntity[], 'promotion-individual-code': [] as SwEntity[],
 });
 
-test('parseDay: Tagesbeginn/-ende in deutscher Zeit (Sommer- und Winterzeit)', () => {
+test('parseDay: start/end of day in German time (summer and winter time)', () => {
   assert.equal(parseDay('2026-10-01'), '2026-09-30T22:00:00.000Z');
   assert.equal(parseDay('2026-10-31', true), '2026-10-31T22:59:59.000Z');
   assert.equal(parseDay('2026-01-15', true), '2026-01-15T22:59:59.000Z');
@@ -41,7 +41,7 @@ test('parseDay: Tagesbeginn/-ende in deutscher Zeit (Sommer- und Winterzeit)', (
   assert.throws(() => parseDay('1.10.2026'), /JJJJ-MM-TT/);
 });
 
-test('fmtPeriod: kompakt im selben Jahr, offene Enden benannt', () => {
+test('fmtPeriod: compact within the same year, open ends named', () => {
   assert.equal(fmtPeriod(parseDay('2026-10-01'), parseDay('2026-10-31', true)), '01.10. bis 31.10.2026');
   assert.equal(fmtPeriod(parseDay('2026-12-20'), parseDay('2027-01-06', true)), '20.12.2026 bis 06.01.2027');
   assert.equal(fmtPeriod(null, parseDay('2026-10-31', true)), 'bis 31.10.2026');
@@ -49,7 +49,7 @@ test('fmtPeriod: kompakt im selben Jahr, offene Enden benannt', () => {
   assert.equal(fmtPeriod(null, null), 'unbefristet');
 });
 
-test('Texte: Rabatt, Code, Limits', () => {
+test('texts: discount, code, limits', () => {
   assert.equal(discountText({ scope: 'cart', type: 'percentage', value: 20, target: 'Wohnaccessoires' }), '20 % auf Wohnaccessoires');
   assert.equal(discountText({ scope: 'cart', type: 'percentage', value: 15, maxValue: 30 }), '15 % auf den Warenkorb (max. 30,00 €)');
   assert.equal(discountText({ scope: 'cart', type: 'absolute', value: 5 }), '5,00 € Rabatt auf den Warenkorb');
@@ -64,7 +64,7 @@ test('Texte: Rabatt, Code, Limits', () => {
   assert.equal(limitText(null, null), 'ohne Einlöse-Limit');
 });
 
-test('Einzelcodes: Muster prüfen und eindeutig erzeugen', () => {
+test('individual codes: check pattern and generate unique codes', () => {
   assert.equal(patternCapacity('HERBST-%s%s%d%d'), 26 * 26 * 100);
   assert.doesNotThrow(() => validatePattern('HERBST-%s%s%d%d', 1000));
   assert.throws(() => validatePattern('HERBST-%s', 100), /reicht nicht/);
@@ -73,13 +73,13 @@ test('Einzelcodes: Muster prüfen und eindeutig erzeugen', () => {
   assert.throws(() => validatePattern('H-%x%s', 1), /nur Buchstaben/);
   assert.throws(() => validatePattern('H-%s%s%s%s', 0), /Anzahl/);
   let i = 0; const rand = () => [0, 0, 0.5, 0.95][i++ % 4];
-  assert.deepEqual(generateCodes('h-%s%d', 1, new Set(['H-A0']), rand), ['H-N9'], 'vergebene Codes werden übersprungen');
+  assert.deepEqual(generateCodes('h-%s%d', 1, new Set(['H-A0']), rand), ['H-N9'], 'taken codes are skipped');
   assert.throws(() => generateCodes('h-%s', 2, new Set(), () => 0), /Nicht genug freie Codes/);
   assert.equal(new Set(generateCodes('X-%s%s%d%d', 300)).size, 300);
   for (const c of generateCodes('X-%s%d', 5)) assert.match(c, /^X-[A-Z]\d$/);
 });
 
-test('Regel: Aufbau wie im Admin und Rücklesen der Einschränkung', () => {
+test('rule: structure as in the admin and reading back the restriction', () => {
   const r = ruleEntity({ id: 'r1', name: 'Lotse: Herbst – Wohnaccessoires', productIds: ['p1'], categoryIds: ['c1'], promotionId: 'promo1' }, seq());
   assert.equal(r.description, ruleDescription('promo1')); assert.match(r.description, /promo1/);
   assert.equal(r.conditions.length, 1);
@@ -91,7 +91,7 @@ test('Regel: Aufbau wie im Admin und Rücklesen der Einschränkung', () => {
   assert.deepEqual(ruleRestriction([{ name: 'Kunden', conditions: [{ type: 'customerCustomerGroup' }] }]).other, ['customerCustomerGroup', 'Regel „Kunden“']);
 });
 
-test('Rabatt: Prüfung, Warnungen und Entität', () => {
+test('discount: validation, warnings and entity', () => {
   assert.deepEqual(validateDiscount({ type: 'percentage', value: 60 }), ['Rabatt über 50 % (60 %)', 'Ohne Höchstbetrag']);
   assert.deepEqual(validateDiscount({ type: 'percentage', value: 20 }), []);
   assert.throws(() => validateDiscount({ type: 'percentage', value: 120 }), /höchstens 100/);
@@ -106,7 +106,7 @@ test('Rabatt: Prüfung, Warnungen und Entität', () => {
   assert.deepEqual(snap.discountRules, [{ id: 'r' }]); assert.deepEqual(snap.promotionDiscountPrices, [{ id: 'pp', currencyId: 'eur', price: 4 }]); assert.equal(snap.maxValue, null);
 });
 
-test('Status und Statusfilter', () => {
+test('status and status filter', () => {
   const t = NOW.getTime();
   assert.equal(promotionStatus({ active: false }, t), 'inaktiv');
   assert.equal(promotionStatus({ active: true, validFrom: '2026-10-01T00:00:00Z' }, t), 'geplant');
@@ -120,7 +120,7 @@ test('Status und Statusfilter', () => {
   assert.doesNotMatch(JSON.stringify(['running', 'scheduled', 'expired', 'inactive'].map(s => statusFilter(s as 'running', 'x'))), /customer|order"/);
 });
 
-test('Anlegen: Zusammenfassung, Regel, Warnungen, Payload', async () => {
+test('create: summary, rule, warnings, payload', async () => {
   const db = baseDb();
   db.promotion.push({ id: 'old', name: 'Sommer', active: true, useCodes: false, validFrom: null, validUntil: null, salesChannels: [{ salesChannelId: 'sf' }] });
   const { cs, payload } = await buildPromotionChangeSet(fakeReader(db), {
@@ -141,10 +141,10 @@ test('Anlegen: Zusammenfassung, Regel, Warnungen, Payload', async () => {
   assert.equal(cs.items.find(i => i.fieldLabel === 'Code')!.after, 'Code HERBST20 (eingegeben „herbst20“, wird in Großbuchstaben angelegt; beim Einlösen ist Groß-/Kleinschreibung egal)');
   assert.match(cs.items.find(i => i.fieldLabel === 'Status & Kombination')!.after, /^aktiv, geplant: startet automatisch am 01\.10\.2026/);
   const ent = promotionEntity(p, seq());
-  assert.equal(ent.preventCombination, false); assert.deepEqual(ent.salesChannels, [{ id: 'id1', salesChannelId: 'sf', priority: 1 }]); assert.ok(!('individualCodes' in ent), 'Codes kommen getrennt in Blöcken');
+  assert.equal(ent.preventCombination, false); assert.deepEqual(ent.salesChannels, [{ id: 'id1', salesChannelId: 'sf', priority: 1 }]); assert.ok(!('individualCodes' in ent), 'codes come separately in chunks');
 });
 
-test('Anlegen: Pflichtangaben, Kollision, Warnungen ohne Enddatum/>50 %', async () => {
+test('create: required fields, collision, warnings for no end date/>50 %', async () => {
   const db = baseDb();
   db.promotion.push({ id: 'x', name: 'Alt', code: 'HERBST20' });
   const ro = fakeReader(db);
@@ -158,12 +158,12 @@ test('Anlegen: Pflichtangaben, Kollision, Warnungen ohne Enddatum/>50 %', async 
   assert.match(cs.items[0].after, /^70 % auf den Warenkorb \(max\. 50,00 €\), 100 Einzelcodes nach Muster M-%s%s%d%d \(z\. B\. M-[A-Z]{2}\d{2}\), unbefristet, ohne Einlöse-Limit$/);
   assert.equal((payload as CreatePayload).codeCount, 100); assert.equal((payload as CreatePayload).promotion.useIndividualCodes, true);
   assert.equal((payload as CreatePayload).promotion.active, true);
-  await assert.rejects(buildPromotionChangeSet(ro, { name: 'Leise', code: { mode: 'none' }, discounts: [{ type: 'absolute', value: 5 }] }, { now: NOW }), /active fehlt/, 'kein stiller Entwurf');
+  await assert.rejects(buildPromotionChangeSet(ro, { name: 'Leise', code: { mode: 'none' }, discounts: [{ type: 'absolute', value: 5 }] }, { now: NOW }), /active fehlt/, 'no silent draft');
   db.promotion.push({ id: 'y', name: 'Newsletter', useIndividualCodes: true, individualCodePattern: 'M-%s%s%d%d' });
   await assert.rejects(buildPromotionChangeSet(ro, { name: 'Neu', active: true, code: { mode: 'individual', pattern: 'm-%S%s%d%D', count: 10 }, discounts: [{ type: 'absolute', value: 5 }] }, { now: NOW }), /Muster M-%s%s%d%d wird schon von Promotion „Newsletter“/);
 });
 
-test('Ändern: nur Abweichungen als auswählbare Zeilen mit Teil-Payload', async () => {
+test('update: only differences as selectable rows with partial payload', async () => {
   const db = baseDb();
   db.promotion.push({ id: 'p1', name: 'Herbst', active: true, priority: 1, exclusive: false, preventCombination: false, useCodes: true, code: 'HERBST20', useIndividualCodes: false, orderCount: 3,
     validFrom: '2026-09-30T22:00:00.000+00:00', validUntil: '2026-10-31T22:59:59.000+00:00', maxRedemptionsPerCustomer: 1, salesChannels: [{ salesChannelId: 'sf' }],
@@ -174,7 +174,7 @@ test('Ändern: nur Abweichungen als auswählbare Zeilen mit Teil-Payload', async
   const [period, code, disc, excl] = cs.items;
   assert.equal(period.before, '01.10. bis 31.10.2026'); assert.equal(period.after, '01.10. bis 15.11.2026');
   noDashes(cs);
-  assert.deepEqual((period.afterRaw as UpdatePart).patch, { validUntil: '2026-11-15T22:59:59.000Z' }, 'unveränderter Start wird nicht geschrieben');
+  assert.deepEqual((period.afterRaw as UpdatePart).patch, { validUntil: '2026-11-15T22:59:59.000Z' }, 'unchanged start is not written');
   assert.match(code.warn[0], /3× eingelöst/);
   assert.equal(disc.before, '20 % auf Wohnaccessoires'); assert.equal(disc.after, '25 % auf Wohnaccessoires');
   assert.equal((disc.afterRaw as UpdatePart).rules?.length, 1);
@@ -184,7 +184,7 @@ test('Ändern: nur Abweichungen als auswählbare Zeilen mit Teil-Payload', async
   await assert.rejects(buildPromotionChangeSet(fakeReader(db), { id: 'nope', name: 'x' }, { now: NOW }), /nicht gefunden/);
 });
 
-test('Status: Masse mit übersprungenen und unveränderten Einträgen', async () => {
+test('status: bulk with skipped and unchanged entries', async () => {
   const db = baseDb();
   db.promotion.push({ id: 'a', name: 'A', active: true, useCodes: true, validUntil: '2026-12-31T22:59:59Z' }, { id: 'b', name: 'B', active: false }, { id: 'c', name: 'C', active: true, useCodes: false });
   const ro = fakeReader(db);
@@ -198,19 +198,19 @@ test('Status: Masse mit übersprungenen und unveränderten Einträgen', async ()
   await assert.rejects(buildStatusChangeSet(ro, { ids: ['b'], action: 'deactivate' }, NOW), /Keine Änderung nötig/);
 });
 
-test('Entwurf vs. geplant: inaktive Promotion mit Zeitraum startet nie von selbst', () => {
+test('draft vs. scheduled: inactive promotion with a period never starts by itself', () => {
   const t = NOW.getTime();
   assert.deepEqual(draftWarning(false, '2026-09-30T22:00:00.000Z', null, t), ['Inaktiv: startet am 01.10.2026 NICHT automatisch; für einen geplanten Start aktiv anlegen']);
   assert.deepEqual(draftWarning(false, null, '2026-10-31T22:00:00.000Z', t), ['Inaktiv: läuft im Zeitraum NICHT automatisch; zum Start aktiv setzen']);
-  assert.deepEqual(draftWarning(false, null, null, t), [], 'Entwurf ohne Zeitraum');
-  assert.deepEqual(draftWarning(false, null, '2026-09-01T00:00:00Z', t), [], 'abgelaufen');
+  assert.deepEqual(draftWarning(false, null, null, t), [], 'draft without period');
+  assert.deepEqual(draftWarning(false, null, '2026-09-01T00:00:00Z', t), [], 'expired');
   assert.deepEqual(draftWarning(true, '2026-09-30T22:00:00.000Z', null, t), []);
   assert.equal(activeText(true, '2026-09-30T22:00:00.000Z', t), 'aktiv, geplant: startet automatisch am 01.10.2026');
   assert.equal(activeText(true, '2026-09-01T00:00:00Z', t), 'sofort aktiv');
   assert.equal(activeText(false, null, t), 'inaktiv (Entwurf)');
 });
 
-test('Anlegen als Entwurf: Warnung + Überschneidung als Hinweis', async () => {
+test('create as draft: warning + overlap as a hint', async () => {
   const db = baseDb();
   db.promotion.push({ id: 'old', name: 'Sommer', active: true, useCodes: true, validFrom: null, validUntil: null, salesChannels: [{ salesChannelId: 'sf' }] });
   const { cs } = await buildPromotionChangeSet(fakeReader(db), { reason: 'x', name: 'Herbst', active: false, validFrom: '2026-10-01', validUntil: '2026-10-31', code: { mode: 'fixed', code: 'HERBST20' }, discounts: [{ type: 'percentage', value: 20 }] }, { now: NOW, id: seq() });
@@ -221,14 +221,14 @@ test('Anlegen als Entwurf: Warnung + Überschneidung als Hinweis', async () => {
   assert.equal(cs.items.find(i => i.fieldLabel === 'Status & Kombination')!.after.split(' · ')[0], 'inaktiv (Entwurf)');
 });
 
-test('Überschneidung: Zeitraum und Kanal', () => {
+test('overlap: period and channel', () => {
   const pool = [{ id: 'a', name: 'A', validFrom: '2026-10-10T00:00:00Z', validUntil: null, salesChannels: [{ salesChannelId: 'sf' }] }, { id: 'b', name: 'B', salesChannels: [{ salesChannelId: 'api' }] }];
-  assert.deepEqual(overlapText(pool, null, ['2026-10-01T00:00:00Z', '2026-10-05T00:00:00Z'], ['sf']), [], 'endet vor Start von A');
+  assert.deepEqual(overlapText(pool, null, ['2026-10-01T00:00:00Z', '2026-10-05T00:00:00Z'], ['sf']), [], 'ends before A starts');
   assert.equal(overlapText(pool, null, ['2026-10-01T00:00:00Z', null], ['sf', 'api']).length, 1);
-  assert.deepEqual(overlapText(pool, 'a', [null, null], ['sf']), [], 'sich selbst ignorieren');
+  assert.deepEqual(overlapText(pool, 'a', [null, null], ['sf']), [], 'ignore itself');
 });
 
-test('Ändern: neues Einzelcode-Muster, alte Codes bleiben gültig; Entwurf mit neuem Zeitraum', async () => {
+test('update: new individual code pattern, old codes stay valid; draft with new period', async () => {
   const db = baseDb();
   db.promotion.push({ id: 'p1', name: 'News', active: false, priority: 1, useCodes: true, useIndividualCodes: true, individualCodePattern: 'N-%s%s%d%d', orderCount: 0, salesChannels: [{ salesChannelId: 'sf' }], discounts: [] });
   const { cs } = await buildPromotionChangeSet(fakeReader(db), { id: 'p1', code: { mode: 'individual', pattern: 'N2-%s%s%d%d', count: 10 }, validFrom: '2026-10-01' }, { now: NOW, id: seq() });
@@ -237,14 +237,14 @@ test('Ändern: neues Einzelcode-Muster, alte Codes bleiben gültig; Entwurf mit 
   noDashes(cs);
 });
 
-test('Status aktivieren: Überschneidung mit aktiven und gemeinsam aktivierten Promotionen', async () => {
+test('activate status: overlap with active and jointly activated promotions', async () => {
   const db = baseDb();
   db.promotion.push(
     { id: 'run', name: 'Läuft', active: true, useCodes: false, salesChannels: [{ salesChannelId: 'sf' }] },
     { id: 'n1', name: 'N1', active: false, useCodes: true, validUntil: '2026-12-31T00:00:00Z', salesChannels: [{ salesChannelId: 'sf' }] },
     { id: 'n2', name: 'N2', active: false, useCodes: true, validUntil: '2026-12-31T00:00:00Z', salesChannels: [{ salesChannelId: 'api' }] },
     { id: 'n3', name: 'N3', active: false, useCodes: true, validUntil: '2026-12-31T00:00:00Z', salesChannels: [{ salesChannelId: 'api' }] });
-  // Fake-Leser ignoriert den active-Filter → nur aktive in den Pool geben
+  // Fake reader ignores the active filter → only put active ones into the pool
   const ro = fakeReader(db), search = ro.search;
   ro.search = async (e, c = {}) => { const r = await search(e, c); return c.ids ? r : { ...r, data: r.data.filter(p => p.active), total: r.data.filter(p => p.active).length }; };
   const cs = await buildStatusChangeSet(ro, { ids: ['n1', 'n2', 'n3'], action: 'activate' }, NOW);
@@ -253,7 +253,7 @@ test('Status aktivieren: Überschneidung mit aktiven und gemeinsam aktivierten P
   assert.match(w.n2, /Überschneidung mit 1 aktiven Promotion\(en\): „N3“ \(mit Code\)/);
 });
 
-test('Regel-Sicherung: flache Bedingungen → Baum mit gleichen IDs; Undo der Anlage per Kriterium', () => {
+test('rule backup: flat conditions → tree with the same IDs; undo of creation by criterion', () => {
   const snap = ruleSnapshot({ id: 'r', name: 'Lotse: X', priority: 1, description: 'd', conditions: [
     { id: 'c3', parentId: 'c2', type: 'cartLineItem', position: 0, value: { operator: '=', identifiers: ['p'] } },
     { id: 'c1', parentId: null, type: 'orContainer', position: 0, value: null },
@@ -265,7 +265,7 @@ test('Regel-Sicherung: flache Bedingungen → Baum mit gleichen IDs; Undo der An
   assert.deepEqual((op.body as { criteria: unknown }[])[0].criteria, [{ type: 'prefix', field: 'name', value: 'Lotse:' }, { type: 'contains', field: 'description', value: 'promo1' }]);
 });
 
-// ---- Executor gegen einen Fake-Shop (Tabellen je Entität, Sync-API für Einzelcodes, DELETE/create wie die Admin-API, auch für undoOps) ----
+// ---- Executor against a fake shop (tables per entity, sync API for individual codes, DELETE/create like the Admin API, also for undoOps) ----
 type SyncOp = { action: string; entity: string; payload?: SwEntity[]; criteria?: { value: string }[] };
 function fakeShop(db: Record<string, SwEntity[]>, o: { failSyncAt?: number; takenOnce?: boolean } = {}) {
   const log: string[] = [], tbl = (e: string) => (db[e] ||= []); let syncs = 0, codeQueries = 0, taken: string | null = null;
@@ -300,36 +300,36 @@ function fakeShop(db: Record<string, SwEntity[]>, o: { failSyncAt?: number; take
 }
 const all = (cs: { items: { id: string }[] }) => new Set(cs.items.map(i => i.id));
 
-test('Anlegen mit Einzelcodes: Codes in Blöcken, Kollision beim Prüfen wird umgangen, Rückgängig = Regeln per Kriterium + Promotion', async () => {
+test('create with individual codes: codes in chunks, collision during check is worked around, undo = rules by criterion + promotion', async () => {
   const db: Record<string, SwEntity[]> = baseDb();
   const { cs, payload } = await buildPromotionChangeSet(fakeReader(db), { name: 'Codes', active: true, validUntil: '2026-12-31', code: { mode: 'individual', pattern: 'C-%s%s%d%d', count: 1500 }, discounts: [{ type: 'percentage', value: 10, categoryIds: ['cat'] }] }, { now: NOW });
   const shop = fakeShop(db, { takenOnce: true }), ticks: string[][] = [];
   const res = await applyChangeSet(shop.sw, cs, payload, all(cs), { progress: (_d, _t, p) => ticks.push((p?.undo ?? []).map(u => `${u.op} ${u.entity}`)) });
   assert.ok(res.results.every(r => r.ok) && !res.error);
-  assert.deepEqual(ticks, [['delete rule'], ['delete rule', 'delete promotion']], 'B1: jeder Schreibschritt sofort als Zwischenstand gemeldet (Absturz mittendrin verliert kein Rückgängig)');
+  assert.deepEqual(ticks, [['delete rule'], ['delete rule', 'delete promotion']], 'B1: every write step reported immediately as progress (a crash midway loses no undo)');
   assert.deepEqual(shop.log.filter(l => l.startsWith('sync')), ['sync upsert promotion-individual-code 1000', 'sync upsert promotion-individual-code 500']);
   const codes = db['promotion-individual-code'].map(c => c.code);
-  assert.equal(new Set(codes).size, 1500); assert.ok(shop.takenCode() && !codes.includes(shop.takenCode()!), 'als vergeben gemeldeter Code wird nicht verwendet');
+  assert.equal(new Set(codes).size, 1500); assert.ok(shop.takenCode() && !codes.includes(shop.takenCode()!), 'code reported as taken is not used');
   assert.ok(db['promotion-individual-code'].every(c => c.promotionId === (payload as CreatePayload).promotion.id));
   assert.equal(db.rule.length, 1); assert.equal(db.promotion.length, 1);
   assert.deepEqual(res.undo.map(u => `${u.op} ${u.entity}`), ['req rule', 'delete promotion']);
-  // Rückgängig: Promotion samt Codes weg, Lotse-Regel per Kriterium gelöscht
+  // Undo: promotion including codes gone, Lotse rule deleted by criterion
   assert.ok((await undoOps(shop.sw, res.undo)).every(r => r.ok));
   assert.deepEqual([db.promotion.length, db.rule.length, db['promotion-individual-code'].length], [0, 0, 0]);
 });
 
-test('Anlegen: scheitert der zweite Code-Block, bleibt nichts zurück (Promotion und Regeln zurückgerollt)', async () => {
+test('create: if the second code chunk fails, nothing is left behind (promotion and rules rolled back)', async () => {
   const db: Record<string, SwEntity[]> = baseDb();
   const { cs, payload } = await buildPromotionChangeSet(fakeReader(db), { name: 'Codes', active: true, validUntil: '2026-12-31', code: { mode: 'individual', pattern: 'C-%s%s%d%d', count: 1500 }, discounts: [{ type: 'percentage', value: 10, categoryIds: ['cat'] }] }, { now: NOW });
   const shop = fakeShop(db, { failSyncAt: 2 }), ticks: number[] = [];
   const res = await applyChangeSet(shop.sw, cs, payload, all(cs), { progress: (_d, _t, p) => ticks.push(p?.undo.length ?? -1) });
   assert.equal(res.error, 'Sync fehlgeschlagen'); assert.deepEqual([res.results, res.undo], [[], []]);
-  assert.deepEqual(ticks, [1, 2], 'Zwischenstand kannte Regel und Promotion, bevor zurückgerollt wurde');
-  assert.deepEqual([db.promotion.length, db.rule.length, db['promotion-individual-code'].length], [0, 0, 0], 'Codes hängen per Kaskade an der Promotion');
-  assert.deepEqual(shop.log.slice(-3), ['sync upsert promotion-individual-code 500', 'DELETE /promotion', 'DELETE /rule'], 'rückwärts: Promotion (mit Codes), dann Regel');
+  assert.deepEqual(ticks, [1, 2], 'progress knew rule and promotion before rolling back');
+  assert.deepEqual([db.promotion.length, db.rule.length, db['promotion-individual-code'].length], [0, 0, 0], 'codes are attached to the promotion via cascade');
+  assert.deepEqual(shop.log.slice(-3), ['sync upsert promotion-individual-code 500', 'DELETE /promotion', 'DELETE /rule'], 'in reverse: promotion (with codes), then rule');
 });
 
-test('Ändern: Rabatte ersetzen löscht alte Rabatte und verwaiste Lotse-Regel; Rückgängig stellt Regel vor Rabatt wieder her', async () => {
+test('update: replacing discounts deletes old discounts and orphaned Lotse rule; undo restores rule before discount', async () => {
   const db: Record<string, SwEntity[]> = baseDb();
   const r1 = { id: 'r1', name: 'Lotse: Herbst, Wohnaccessoires', description: ruleDescription('p1'), priority: 1, conditions: [{ id: 'c1', parentId: null, type: 'cartLineItemInCategory', position: 0, value: { operator: '=', categoryIds: ['cat'] } }] };
   const d1 = { id: 'd1', promotionId: 'p1', scope: 'cart', type: 'percentage', value: 20, considerAdvancedRules: true, sorterKey: 'PRICE_ASC', applierKey: 'ALL', usageKey: 'ALL', discountRules: [{ id: 'r1', name: r1.name, conditions: r1.conditions }] };
@@ -341,18 +341,18 @@ test('Ändern: Rabatte ersetzen löscht alte Rabatte und verwaiste Lotse-Regel; 
   const res = await applyChangeSet(shop.sw, cs, payload, all(cs));
   assert.ok(res.results.every(r => r.ok) && !res.error, res.error ?? '');
   assert.deepEqual(db['promotion-discount'].map(d => [d.value, d.discountRules]), [[25, [{ id: 'id1' }]]]);
-  assert.deepEqual(db.rule.map(r => r.id), ['id1'], 'alte Lotse-Regel gelöscht');
+  assert.deepEqual(db.rule.map(r => r.id), ['id1'], 'old Lotse rule deleted');
   assert.deepEqual(res.undo.map(u => `${u.op} ${u.entity}`), ['delete rule', 'create promotion-discount', 'delete promotion-discount', 'create rule']);
   const back = res.undo.at(-1) as UndoOp;
   assert.equal(back.id, 'r1'); assert.deepEqual((back.data as { conditions: { id: string; children: unknown[] }[] }).conditions.map(c => [c.id, c.children.length]), [['c1', 0]]);
-  // Rückgängig (rückwärts): erst Regel r1, dann Rabatt d1 mit Bezug auf r1, dann die neuen Teile weg
+  // Undo (in reverse): first rule r1, then discount d1 referencing r1, then remove the new parts
   assert.ok((await undoOps(shop.sw, res.undo)).every(r => r.ok));
   assert.deepEqual(shop.log.slice(-4), ['create rule', 'DELETE /promotion-discount', 'create promotion-discount', 'DELETE /rule']);
   assert.deepEqual(db.rule.map(r => r.id), ['r1']);
   assert.deepEqual(db['promotion-discount'].map(d => [d.id, d.value, d.discountRules]), [['d1', 20, [{ id: 'r1' }]]]);
 });
 
-test('Ändern: Fehler mitten im Set rollt bereits Geschriebenes zurück', async () => {
+test('update: error midway through the set rolls back what was already written', async () => {
   const db: Record<string, SwEntity[]> = baseDb();
   db.promotion.push({ id: 'p1', name: 'Herbst', active: true, useCodes: true, code: 'ALT', useIndividualCodes: false, orderCount: 0, priority: 1, discounts: [], salesChannels: [{ salesChannelId: 'sf' }] });
   db['promotion-sales-channel'] = [{ id: 'ps1', promotionId: 'p1', salesChannelId: 'sf', priority: 1 }];
@@ -362,11 +362,11 @@ test('Ändern: Fehler mitten im Set rollt bereits Geschriebenes zurück', async 
   const res = await applyChangeSet(shop.sw, cs, payload, all(cs));
   assert.match(res.error ?? '', /Kanal gesperrt; nichts geändert \(zurückgerollt\)/);
   assert.ok(res.results.every(r => !r.ok)); assert.deepEqual(res.undo, []);
-  assert.equal(db.promotion[0].name, 'Herbst', 'Name zurückgesetzt');
-  assert.deepEqual(db['promotion-sales-channel'].map(s => s.salesChannelId), ['sf'], 'gelöschter Kanal wieder da');
+  assert.equal(db.promotion[0].name, 'Herbst', 'name reset');
+  assert.deepEqual(db['promotion-sales-channel'].map(s => s.salesChannelId), ['sf'], 'deleted channel back');
 });
 
-test('Ändern: scheitert das Zurückrollen, bleiben die offenen Schritte als Rückgängig', async () => {
+test('update: if rollback fails, the open steps remain as undo', async () => {
   const db: Record<string, SwEntity[]> = baseDb();
   db.promotion.push({ id: 'p1', name: 'Herbst', active: true, useCodes: true, code: 'ALT', useIndividualCodes: false, orderCount: 0, priority: 1, discounts: [], salesChannels: [{ salesChannelId: 'sf' }] });
   db['promotion-sales-channel'] = [{ id: 'ps1', promotionId: 'p1', salesChannelId: 'sf', priority: 1 }];
@@ -378,13 +378,13 @@ test('Ändern: scheitert das Zurückrollen, bleiben die offenen Schritte als Rü
   const res = await applyChangeSet(shop.sw, cs, payload, all(cs));
   assert.match(res.error ?? '', /Kanal gesperrt/);
   assert.match(res.error ?? '', /Zurückrollen unvollständig/);
-  assert.equal(db.promotion[0].name, 'Herbst neu', 'der Name bleibt, weil das Zurücksetzen scheiterte');
+  assert.equal(db.promotion[0].name, 'Herbst neu', 'the name stays because resetting failed');
   assert.deepEqual(db['promotion-sales-channel'].map(s => s.salesChannelId), ['sf']);
   assert.equal(res.undo.length, 1); assert.equal(res.undo[0].op, 'patch');
   assert.deepEqual(res.undo[0].data, { name: 'Herbst' });
 });
 
-test('Anlegen: scheitert das Zurückrollen, bleibt der offene Löschschritt als Rückgängig', async () => {
+test('create: if rollback fails, the open delete step remains as undo', async () => {
   const db: Record<string, SwEntity[]> = baseDb();
   const { cs, payload } = await buildPromotionChangeSet(fakeReader(db), { name: 'Codes', active: true, validUntil: '2026-12-31', code: { mode: 'individual', pattern: 'C-%s%s%d%d', count: 1500 }, discounts: [{ type: 'percentage', value: 10, categoryIds: ['cat'] }] }, { now: NOW });
   const shop = fakeShop(db, { failSyncAt: 2 }), req = shop.sw.req.bind(shop.sw);

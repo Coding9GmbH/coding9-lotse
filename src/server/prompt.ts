@@ -1,8 +1,8 @@
 import 'server-only';
-// System-Prompt: statische Regeln liegen versioniert als Markdown in prompts/common (alle Plattformen) und prompts/<plattform>
-// (z. B. prompts/shopware: Einkaufswelten, Shopware-Werkzeuge). Kataloge kommen live aus dem Code.
-// Reihenfolge: alle Dateien beider Ordner nach Dateinamen sortiert (01-1 … 01-5 greifen ineinander); gleicher Name im
-// Plattform-Ordner ersetzt die gemeinsame Datei. Platzhalter {{shop}}, {{platform}} füllt der Adapter (promptVars).
+// System prompt: static rules are versioned as Markdown in prompts/common (all platforms) and prompts/<platform>
+// (e.g. prompts/shopware: Shopping Experiences, Shopware tools). Catalogs come live from the code.
+// Order: all files of both folders sorted by file name (01-1 … 01-5 build on each other); the same name in the
+// platform folder replaces the common file. The adapter fills the placeholders {{shop}}, {{platform}} (promptVars).
 import fs from 'node:fs';
 import path from 'node:path';
 import type { PlatformKind } from '@/lib/platforms';
@@ -15,18 +15,18 @@ import { rulesPromptBlock } from './knowledge';
 
 export const promptRoot = () => path.join(process.cwd(), 'prompts');
 
-/** Markdown-Dateien für eine Plattform in Prompt-Reihenfolge (Pfad je Datei). */
+/** Markdown files for a platform in prompt order (path per file). */
 export function promptFiles(kind: PlatformKind, root = promptRoot()): string[] {
   const byName = new Map<string, string>();
   for (const dir of ['common', kind]) {
     const d = path.join(root, dir);
     if (!fs.existsSync(d)) continue;
-    for (const f of fs.readdirSync(d)) if (f.endsWith('.md')) byName.set(f, path.join(d, f)); // Plattform nach common → ersetzt gleichnamige
+    for (const f of fs.readdirSync(d)) if (f.endsWith('.md')) byName.set(f, path.join(d, f)); // platform after common → replaces files of the same name
   }
   return [...byName.keys()].sort().map(n => byName.get(n)!);
 }
 
-/** {{name}} → Wert; unbekannte Platzhalter bleiben stehen (fällt im Test auf) */
+/** {{name}} → value; unknown placeholders stay as is (caught in tests) */
 export const fillVars = (text: string, vars: Record<string, string>) => text.replace(/\{\{(\w+)\}\}/g, (all, k: string) => vars[k] ?? all);
 
 export function buildBasePrompt(kind: PlatformKind = activeKind(), root = promptRoot()): string {
@@ -37,16 +37,16 @@ export function buildBasePrompt(kind: PlatformKind = activeKind(), root = prompt
   return parts.join('\n\n');
 }
 
-// Eigene Regeln der Wissensbasis (gedeckelt); ein Lesefehler darf den Chat nicht blockieren
+// the knowledge base's own rules (capped); a read error must not block the chat
 const shopRules = () => { try { return rulesPromptBlock(); } catch { return ''; } };
 
-/** Antwortsprache: die Regeln sind deutsch formuliert, geantwortet wird in der Sprache der Oberfläche. */
+/** Response language: the rules are written in German, responses are in the UI language. */
 const REPLY_LANGUAGE: Record<Locale, string> = {
   de: '## Antwortsprache\nAntworte auf Deutsch (auch Rückfragen, Zusammenfassungen und Begründungen in Vorschlägen).',
   en: '## Antwortsprache\nAntworte auf Englisch (English): Chat-Antworten, Rückfragen (ask_user), Zusammenfassungen und Begründungen in Vorschlägen. Inhalte für den Shop (Texte, Seiten, SEO, Übersetzungen) schreibst du in der Sprache, die der Nutzer bzw. der Shop/Verkaufskanal verlangt – nicht automatisch Englisch. Die deutschen Typografie-Regeln gelten nur für deutsche Shop-Texte.',
 };
 
-/** Internetrecherche (Einstellungen → KI-Zugriff): an → Regeln für Quellen; aus → ehrlich sagen und auf den Schalter verweisen. */
+/** Web research (settings → AI access): on → rules for sources; off → say so honestly and point to the toggle. */
 export const webBlock = (web: boolean) => web
   ? `## Internetrecherche
 Du darfst im Internet suchen und öffentliche Webseiten lesen (Websuche/Webseite abrufen), z. B. für Herstellerangaben, Datenblätter, Pflichtangaben (GPSR) oder Normen.
@@ -57,6 +57,6 @@ Du darfst im Internet suchen und öffentliche Webseiten lesen (Websuche/Webseite
   : `## Internetrecherche
 Du hast keinen Zugriff auf das Internet (keine Websuche, kein Abruf von Links). Sag das offen, wenn eine Aufgabe Recherche im Netz bräuchte, und erfinde keine Angaben. Hinweis an den Nutzer: Der Betreiber kann die Internetrecherche unter „Einstellungen → KI-Zugriff → Internet“ einschalten; alternativ kann der Nutzer die Texte direkt in den Chat einfügen.`;
 
-/** Vollständiger System-Prompt: Regeln + Kataloge + aktueller Styleguide + eigene Regeln des Shops + Internetrecherche + Antwortsprache. */
+/** Complete system prompt: rules + catalogs + current style guide + the shop's own rules + web research + response language. */
 export const buildSystem = (kind: PlatformKind = activeKind(), locale: Locale = DEFAULT_LOCALE, web = false) =>
   [buildBasePrompt(kind), promptBlock(), shopRules(), webBlock(web), REPLY_LANGUAGE[locale]].filter(Boolean).join('\n\n');

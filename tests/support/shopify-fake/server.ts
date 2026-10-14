@@ -25,7 +25,7 @@ import { FakeShopifyState } from './state';
 export const LATEST_API_VERSION = '2026-10';
 export const SUPPORTED_API_VERSIONS = ['2025-10', '2026-01', '2026-04', '2026-07', '2026-10', 'unstable'];
 export const DEFAULT_TOKEN = 'shpat_fake_haus_holm_00000000000000000000';
-/** Zugang einer Dev-Dashboard-App für den Client-Credentials-Grant (POST /admin/oauth/access_token) */
+/** Credentials of a Dev Dashboard app for the client credentials grant (POST /admin/oauth/access_token) */
 export const DEFAULT_CLIENT_ID = 'fake_client_id_haus_holm';
 export const DEFAULT_CLIENT_SECRET = 'fake_client_secret_haus_holm_0000';
 
@@ -373,7 +373,7 @@ export async function startFakeShopify(opts: StartFakeShopifyOptions = {}): Prom
       return sendJson(res, f.status, f.body ?? DEFAULT_FAIL_BODIES[f.status] ?? { errors: `HTTP ${f.status}` }, headers);
     }
     if (path === '/admin/oauth/access_token' && method === 'POST') {
-      // Client-Credentials-Grant (Apps aus dem Dev Dashboard). Form-urlencoded wie in der Shopify-Doku, JSON wird auch angenommen.
+      // Client credentials grant (apps from the Dev Dashboard). Form-urlencoded as in the Shopify docs, JSON is accepted too.
       const raw = (await readBody(req)).toString('utf8');
       const ctype = String(req.headers['content-type'] ?? '');
       let p: Record<string, unknown> = {};

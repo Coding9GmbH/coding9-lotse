@@ -7,7 +7,7 @@ import { ReadOnlyShopware, type ShopReader, type SwEntity } from '../../../src/s
 const CAT = 'e64ae9711d2b406c8a0608045afa56dd', MAN = 'aa'.repeat(16), OPT = 'bb'.repeat(16), STREAM = 'cc'.repeat(16), SC = 'dd'.repeat(16);
 let seq = 0; const ids = () => (++seq).toString(16).padStart(32, '0');
 
-test('Regel → Filterbaum: ODER-Gruppen, UND-Bedingungen, NICHT, Preis/Bestand/Angebot/Datum', () => {
+test('rule → filter tree: OR groups, AND conditions, NOT, price/stock/sale/date', () => {
   const t = specToTree([
     { conditions: [{ field: 'category', ids: [CAT] }, { field: 'price', max: 50 }, { field: 'productNumber', values: ['A-1', 'B-2'], negate: true }] },
     { conditions: [{ field: 'onSale', min: 20 }, { field: 'active', value: true }, { field: 'stock', min: 1 }, { field: 'releaseDate', from: '2026-03-01' }] },
@@ -28,7 +28,7 @@ test('Regel → Filterbaum: ODER-Gruppen, UND-Bedingungen, NICHT, Preis/Bestand/
   assert.deepEqual(condToNode({ field: 'onSale', value: false }), { type: 'not', operator: 'AND', queries: [{ type: 'range', field: 'cheapestPrice.percentage', parameters: { gt: 0 } }] });
 });
 
-test('Regel: ungültige Angaben werfen verständliche Fehler', () => {
+test('rule: invalid input throws understandable errors', () => {
   assert.throws(() => specToTree([]), /Regel ist leer/);
   assert.throws(() => specToTree([{ conditions: [] }]), /keine Bedingung/);
   assert.throws(() => condToNode({ field: 'price' }), /min und\/oder max/);
@@ -42,20 +42,20 @@ test('Regel: ungültige Angaben werfen verständliche Fehler', () => {
   assert.throws(() => condToNode({ field: 'bogus' } as never), /Unbekanntes Feld/);
 });
 
-test('Filterbaum ⇄ Zeilen (product-stream-filter) und zurück zur Regel', () => {
+test('filter tree ⇄ rows (product-stream-filter) and back to the rule', () => {
   const groups: GroupSpec[] = [{ conditions: [{ field: 'category', ids: [CAT] }, { field: 'manufacturer', ids: [MAN], negate: true }, { field: 'price', min: 10, max: 50 }] }, { conditions: [{ field: 'onSale' }] }];
   const tree = specToTree(groups), rows = treeToRows([tree], ids);
   assert.equal(rows.length, 1 + 2 + 3 + 1 + 1);
   assert.equal(rows.filter(r => !r.parentId).length, 1);
   assert.ok(rows.every(r => !r.parentId || rows.some(p => p.id === r.parentId)));
-  const back = rowsToTree([...rows].reverse()); // Reihenfolge der Zeilen egal, Position zählt
+  const back = rowsToTree([...rows].reverse()); // row order doesn't matter, position counts
   assert.ok(sameTree(back, [tree]));
   assert.deepEqual(treeToSpec(back), groups);
   assert.equal(treeToSpec([{ type: 'multi', operator: 'OR', queries: [{ type: 'multi', operator: 'AND', queries: [{ type: 'contains', field: 'name', value: 'x' }] }] }]), null);
   assert.ok(!sameTree(back, [specToTree([{ conditions: [{ field: 'price', max: 50 }] }])]));
 });
 
-test('Lesbare Regel mit Namen, Klammern bei mehreren Gruppen, unbekannte Felder roh', () => {
+test('readable rule with names, parentheses for multiple groups, unknown fields raw', () => {
   const names = { [CAT]: 'Wohnen › Wohnaccessoires', [MAN]: 'Haus Holm', [OPT]: 'Farbe: Blau' };
   assert.equal(renderRule([specToTree([{ conditions: [{ field: 'category', ids: [CAT] }, { field: 'price', max: 50 }] }])], names), 'Kategorie (inkl. Unterkategorien) = Wohnen › Wohnaccessoires UND Preis ≤ 50,00 €');
   assert.equal(renderRule([specToTree([
@@ -68,7 +68,7 @@ test('Lesbare Regel mit Namen, Klammern bei mehreren Gruppen, unbekannte Felder 
   assert.equal(renderRule([]), 'alle Produkte (keine Bedingung)');
 });
 
-// ---- Änderungssets mit Fake-Shop ----
+// ---- Change sets with a fake shop ----
 type Crit = { ids?: string[]; filter?: { field: string; value: unknown }[]; term?: string };
 function fakeShop(over: Partial<Record<string, (c: Crit) => SwEntity[]>> = {}, preview = { total: 2 }) {
   const calls: { method: string; path: string; body?: unknown }[] = [];
@@ -91,7 +91,7 @@ function fakeShop(over: Partial<Record<string, (c: Crit) => SwEntity[]>> = {}, p
   return { ro: new ReadOnlyShopware(raw, createGuard()), calls };
 }
 
-test('Stream anlegen: Namen → IDs, lesbare Regel, Treffer und Beispiele vor der Freigabe', async () => {
+test('create stream: names → IDs, readable rule, hits and examples before approval', async () => {
   const { buildStreamChangeSet } = await import('../../../src/server/features/streams');
   const { ro, calls } = fakeShop();
   const cs = await buildStreamChangeSet(ro, { title: 'Neu', reason: 'Sortiment', streams: [
@@ -112,7 +112,7 @@ test('Stream anlegen: Namen → IDs, lesbare Regel, Treffer und Beispiele vor de
   assert.deepEqual((calls[0].body as { filter: FilterNode[] }).filter[0].queries?.[0].queries?.[0], { type: 'equalsAny', field: 'categoriesRo.id', value: CAT });
 });
 
-test('Stream ändern: alte Regel als Vorher, Warnung bei Verwendung, unveränderte Regel wird erkannt', async () => {
+test('update stream: old rule as before, warning when in use, unchanged rule is detected', async () => {
   const { buildStreamChangeSet } = await import('../../../src/server/features/streams');
   const oldRows = treeToRows([specToTree([{ conditions: [{ field: 'category', ids: [CAT] }] }])], ids).map(r => ({ ...r }));
   const stream = { id: STREAM, name: 'Wohnen', filters: oldRows, categories: [{ id: CAT, name: 'Wohnaccessoires', productAssignmentType: 'product_stream' }], productCrossSellings: [] };
@@ -125,7 +125,7 @@ test('Stream ändern: alte Regel als Vorher, Warnung bei Verwendung, unveränder
   await assert.rejects(buildStreamChangeSet(ro, { title: 'x', reason: 'x', streams: [{ id: STREAM, name: 'Wohnen', groups: [{ conditions: [{ field: 'category', ids: [CAT] }] }] }] }), /1 unverändert/);
 });
 
-test('Applier: Update löscht alte Filter und liefert exakte Rückgängig-Schritte (neue Filter löschen, alten Baum mit IDs neu)', async () => {
+test('applier: update deletes old filters and returns exact undo steps (delete new filters, recreate old tree with IDs)', async () => {
   const { applyStream } = await import('../../../src/server/features/streams');
   const oldRows = treeToRows([specToTree([{ conditions: [{ field: 'stock', min: 1 }] }])], ids);
   const newRows = treeToRows([specToTree([{ conditions: [{ field: 'stock', min: 5 }] }])], ids);
@@ -143,7 +143,7 @@ test('Applier: Update löscht alte Filter und liefert exakte Rückgängig-Schrit
   assert.deepEqual(created, [{ op: 'delete', entity: 'product-stream', id: STREAM }]);
 });
 
-test('Zuordnung: Kategorie dynamisch (Warnung manuelle Produkte), Cross-Selling je Produkt, Undo-Payload', async () => {
+test('assignment: category dynamic (warning for manual products), cross-selling per product, undo payload', async () => {
   const { buildStreamAssignmentChangeSet, applyAssignment } = await import('../../../src/server/features/streams');
   const P1 = '11'.repeat(16), P2 = '22'.repeat(16);
   const { ro } = fakeShop({
@@ -172,28 +172,28 @@ test('Zuordnung: Kategorie dynamisch (Warnung manuelle Produkte), Cross-Selling 
   assert.deepEqual(u, { op: 'delete', entity: 'product-cross-selling', id: (cs.items[2].afterRaw as { id: string }).id });
 });
 
-test('Stale-Write-Guard: Stream bzw. Produktzuordnung inzwischen geändert → nicht überschrieben; gleicher Stand (auch mit neuen Filter-IDs) schreibt', async () => {
+test('stale-write guard: stream or product assignment changed meanwhile → not overwritten; same state (even with new filter IDs) writes', async () => {
   const { applyStream, applyAssignment, buildStreamChangeSet } = await import('../../../src/server/features/streams');
   type Payload = Parameters<typeof applyStream>[1];
   const oldRows = treeToRows([specToTree([{ conditions: [{ field: 'stock', min: 1 }] }])], ids);
   const { ro } = fakeShop({ 'product-stream': c => (c.ids?.includes(STREAM) ? [{ id: STREAM, name: 'Lager', filters: oldRows }] : []) });
   const cs = await buildStreamChangeSet(ro, { title: 't', reason: 'r', streams: [{ id: STREAM, name: 'Lager ab 5', groups: [{ conditions: [{ field: 'stock', min: 5 }] }] }] });
   const before = cs.items[0].beforeRaw, p = cs.items[0].afterRaw as Payload;
-  assert.deepEqual(before, { name: 'Lager', description: null, tree: rowsToTree(oldRows) }, 'Builder merkt Name, Beschreibung und Regelbaum');
+  assert.deepEqual(before, { name: 'Lager', description: null, tree: rowsToTree(oldRows) }, 'builder remembers name, description and rule tree');
   const log: string[] = [];
   const sw = (filters: unknown[], name = 'Lager') => ({
     get: async () => ({ id: STREAM, name, description: null, translated: { name }, filters: filters.map(r => ({ ...(r as object), productStreamId: STREAM })) }),
     req: async (m: string, path: string) => { log.push(`${m} ${path}`); }, update: async (e: string, id: string) => { log.push(`PATCH ${e}/${id}`); },
   }) as unknown as Parameters<typeof applyStream>[0];
-  // Admin hat inzwischen die Regel bzw. den Namen geändert → nichts gelöscht, nichts geschrieben
+  // Admin changed the rule or the name meanwhile → nothing deleted, nothing written
   await assert.rejects(applyStream(sw(treeToRows([specToTree([{ conditions: [{ field: 'stock', min: 3 }] }])], ids)), p, before), /^Error: Produktstream: inzwischen geändert, bitte neu vorschlagen$/);
   await assert.rejects(applyStream(sw(oldRows, 'Lager (umbenannt)'), p, before), /inzwischen geändert/);
-  assert.equal(log.length, 0, 'weder gelöscht noch geschrieben');
-  // gleiche Regel, nur neu gespeichert (andere Filter-IDs): keine Änderung → schreibt; Altbestand ohne beforeRaw ebenso
+  assert.equal(log.length, 0, 'neither deleted nor written');
+  // same rule, just saved again (different filter IDs): no change → writes; legacy data without beforeRaw likewise
   await applyStream(sw(treeToRows(rowsToTree(oldRows), ids)), p, before);
   await applyStream(sw(treeToRows([specToTree([{ conditions: [{ field: 'stock', min: 3 }] }])], ids)), p, undefined);
   assert.equal(log.filter(l => l.startsWith('PATCH product-stream/')).length, 2);
-  // Kategorie-Zuordnung: inzwischen auf einen anderen Stream gestellt
+  // category assignment: switched to a different stream meanwhile
   const writes: unknown[] = [];
   const cat = { get: async () => ({ id: CAT, productAssignmentType: 'product_stream', productStreamId: 'x'.repeat(32) }), update: async (...a: unknown[]) => { writes.push(a); } } as unknown as Parameters<typeof applyAssignment>[0];
   const payload = { kind: 'category', categoryId: CAT, productAssignmentType: 'product_stream', productStreamId: STREAM } as const;
@@ -204,7 +204,7 @@ test('Stale-Write-Guard: Stream bzw. Produktzuordnung inzwischen geändert → n
   assert.equal(writes.length, 1);
 });
 
-test('Policy: Stream-Vorschau ist der einzige erlaubte POST, Body wird wie eine Produktsuche geprüft', () => {
+test('policy: stream preview is the only allowed POST, body is checked like a product search', () => {
   const g = createGuard(), path = `/_admin/product-stream-preview/${SC}`;
   assert.equal(g.checkReq('POST', path, { filter: [], limit: 1, associations: { cover: { associations: { media: {} } } } }), 'product');
   assert.throws(() => g.checkReq('POST', path, { filter: [{ type: 'equals', field: 'orderLineItems.order.orderCustomer.email', value: 'x' }] }), /Filter\/Sortierung/);

@@ -5,7 +5,7 @@ import { toolLabel } from '@/lib/labels';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import styles from './Steps.module.css';
 
-/** Arbeitsschritte der KI. Der Zustand bleibt für assistive Technik lesbar, das Roh-JSON nicht in der normalen Ansicht. */
+/** The AI's work steps. The state stays readable for assistive technology, the raw JSON is not in the normal view. */
 export function Steps({ steps }: { steps: Step[] }) {
   const { locale, t } = useI18n();
   return (

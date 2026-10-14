@@ -8,12 +8,12 @@ import type { AddressInfo } from 'node:net';
 import { NextRequest } from 'next/server';
 import type { ChatEvent } from '@/lib/protocol';
 
-// Bild-Anhang auf Shopware: /api/upload merkt nur vor (staged:…), der Upload in die Medienverwaltung passiert erst beim Anwenden eines freigegebenen
-// Änderungssets (genau einmal je Bild), Rückgängig stellt die Produktbilder wieder her.
+// Image attachment on Shopware: /api/upload only stages (staged:…), the upload to media management happens only when an approved
+// change set is applied (exactly once per image), undo restores the product images.
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-upload-staging-'));
 for (const k of Object.keys(process.env)) if (/^(SHOPWARE_|SHOPIFY_|MAGENTO_|OPENMAGE_|SHOP_PLATFORM$)/.test(k)) delete process.env[k];
 
-// Fake-Shopware: ein Produkt mit einem Bild; Medien, Uploads und Produkt-Bild-Zuordnungen werden mitgeführt
+// Fake Shopware: one product with one image; media, uploads and product-image assignments are tracked
 type Media = { id: string; url: string; fileName: string; fileExtension: string; mimeType: string; alt?: string | null; title?: string | null };
 type Pm = { id: string; mediaId: string; position: number };
 const media = new Map<Media['id'], Media>([['m1', { id: 'm1', url: 'http://shop/media/vase.jpg', fileName: 'vase', fileExtension: 'jpg', mimeType: 'image/jpeg' }]]);
@@ -61,9 +61,9 @@ const { reconfigureAll } = await import('../../src/server/platform');
 const { getSession, decideChange, undoChangeSet } = await import('../../src/server/sessions');
 const { kvGet } = await import('../../src/server/db');
 const { stagedFile } = await import('../../src/server/media');
-const { buildProductImagesChangeSet } = await import('../../src/server/features/bilder');
+const { buildProductImagesChangeSet } = await import('../../src/server/features/product-images');
 const { POST: upload } = await import('../../src/app/api/upload/route');
-await import('../../src/server/features'); // registriert den Executor für Produktbilder
+await import('../../src/server/features'); // registers the executor for product images
 updateSettings({ platform: 'shopware', shopware: { url: base, user: 'admin', password: 'geheim' } });
 reconfigureAll();
 
@@ -71,7 +71,7 @@ const png = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000
 const tick = () => new Promise(r => setTimeout(r, 5));
 let staged: { mediaId: string; url: string; fileName: string };
 
-test('POST /api/upload: SVG mit Script wird abgelehnt und nicht gespeichert', async () => {
+test('POST /api/upload: SVG with script is rejected and not stored', async () => {
   const dir = path.join(process.env.AICB_DATA!, 'staging');
   const before = new Set(fs.existsSync(dir) ? fs.readdirSync(dir) : []);
   const svg = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>';
@@ -85,30 +85,41 @@ test('POST /api/upload: SVG mit Script wird abgelehnt und nicht gespeichert', as
   }
 });
 
-test('POST /api/upload: sauberes SVG bekommt xmlns und bleibt ohne Script', async () => {
+test('POST /api/upload: clean SVG gets xmlns and stays script-free', async () => {
   const svg = '<svg viewBox="0 0 1 1"><rect width="1" height="1"/></svg>';
   const r = await upload(new NextRequest('http://127.0.0.1/api/upload?name=quadrat', { method: 'POST', headers: { 'content-type': 'image/svg+xml' }, body: svg }));
   assert.equal(r.status, 200);
   const staged = await r.json() as { fileName: string };
   const file = stagedFile([staged.fileName]);
-  assert.ok(file, 'Vorschau-Datei vorhanden');
+  assert.ok(file, 'preview file exists');
   const text = fs.readFileSync(file!.path, 'utf8');
   assert.match(text, /xmlns=/);
   assert.doesNotMatch(text, /<script/i);
 });
 
-test('POST /api/upload (Shopware): Bild wird nur vorgemerkt, kein Zugriff auf den Shop', async () => {
+test('POST /api/upload: limit is the staging limit (413 with matching message, also announced via content-length)', async () => {
+  const { MAX_IMAGE_BYTES, IMAGE_TOO_LARGE } = await import('../../src/server/media');
+  assert.equal(IMAGE_TOO_LARGE, `Bild größer als ${MAX_IMAGE_BYTES / 1024 / 1024} MB`);
+  const big = new NextRequest('http://127.0.0.1/api/upload?name=gross', { method: 'POST', headers: { 'content-type': 'image/png' }, body: new Uint8Array(MAX_IMAGE_BYTES + 1) });
+  const r = await upload(big);
+  assert.equal(r.status, 413);
+  assert.equal((await r.json()).error, IMAGE_TOO_LARGE);
+  const announced = await upload(new NextRequest('http://127.0.0.1/api/upload', { method: 'POST', headers: { 'content-type': 'image/png', 'content-length': String(MAX_IMAGE_BYTES + 1) }, body: png }));
+  assert.equal(announced.status, 413);
+});
+
+test('POST /api/upload (Shopware): image is only staged, no access to the shop', async () => {
   const r = await upload(new NextRequest(`http://127.0.0.1/api/upload?name=${encodeURIComponent('Becher Foto.png')}`, { method: 'POST', headers: { 'content-type': 'image/png' }, body: png }));
   assert.equal(r.status, 200);
   staged = await r.json();
   assert.match(staged.mediaId, /^staged:[a-z0-9]+$/);
   assert.equal(staged.url, `/staged/${staged.fileName}`);
-  assert.ok(stagedFile([staged.fileName]), 'Vorschau-Datei für die Oberfläche/view_image vorhanden');
-  assert.deepEqual(requests, [], 'nichts in Richtung Shop');
+  assert.ok(stagedFile([staged.fileName]), 'preview file for the UI/view_image exists');
+  assert.deepEqual(requests, [], 'nothing sent to the shop');
   assert.equal(uploads.length, 0);
 });
 
-test('Anhang → propose_product_images → Freigabe → Anwenden lädt genau einmal hoch → Rückgängig stellt die Bilder wieder her', async () => {
+test('Attachment → propose_product_images → approval → apply uploads exactly once → undo restores the images', async () => {
   const s = getSession('upload-e2e'); s.running = true;
   s.emit = (ev: ChatEvent) => { s.events.push(ev); };
   const approve = async () => {
@@ -118,26 +129,26 @@ test('Anhang → propose_product_images → Freigabe → Anwenden lädt genau ei
   const propose = () => buildProductImagesChangeSet(s.sw, { title: 'Foto zum Becher', reason: 'Nutzerwunsch', products: [{ productId: 'p1', add: [{ image: staged.mediaId, cover: true }] }] }, () => 'pmneu');
   const cs = await propose();
   assert.equal(cs.items.length, 1);
-  assert.ok(cs.assets?.some(a => a.url === staged.url), 'Änderungsset zeigt die Vorschau des vorgemerkten Bilds');
-  assert.equal(uploads.length, 0, 'Vorschlag lädt nichts hoch');
+  assert.ok(cs.assets?.some(a => a.url === staged.url), 'change set shows the preview of the staged image');
+  assert.equal(uploads.length, 0, 'proposal uploads nothing');
 
   const pending = s.requestChange(cs); await tick(); await approve();
   const out = await pending;
   assert.equal(out.status, 'applied', JSON.stringify(out));
-  assert.equal(uploads.length, 1, 'genau ein Upload beim Anwenden');
+  assert.equal(uploads.length, 1, 'exactly one upload on apply');
   assert.match(uploads[0].fileName, /^becher-foto-/); assert.equal(uploads[0].bytes, png.length);
   const newMediaId = uploads[0].id;
-  assert.deepEqual(product.media.map(m => m.mediaId), ['m1', newMediaId], 'ohne position ans Ende'); assert.equal(product.coverId, 'pmneu');
-  assert.equal(kvGet<Record<string, string>>('staging_map')?.[staged.mediaId.slice(7)], newMediaId, 'Zuordnung staged → mediaId gemerkt');
+  assert.deepEqual(product.media.map(m => m.mediaId), ['m1', newMediaId], 'without position, at the end'); assert.equal(product.coverId, 'pmneu');
+  assert.equal(kvGet<Record<string, string>>('staging_map')?.[staged.mediaId.slice(7)], newMediaId, 'mapping staged → mediaId remembered');
 
-  // dasselbe Bild in einem zweiten Änderungsset: kein zweiter Upload
+  // the same image in a second change set: no second upload
   const cs2 = await buildProductImagesChangeSet(s.sw, { title: 'Nochmal', reason: 'r', products: [{ productId: 'p1', add: [{ image: staged.mediaId }] }] }, () => 'pmzwei');
   const pending2 = s.requestChange(cs2); await tick(); await approve();
   assert.equal((await pending2).status, 'applied');
-  assert.equal(uploads.length, 1, 'bereits hochgeladen: wiederverwendet');
+  assert.equal(uploads.length, 1, 'already uploaded: reused');
   assert.deepEqual(product.media.map(m => m.mediaId), ['m1', newMediaId, newMediaId]);
 
-  // Rückgängig (zuletzt zuerst): Produkt wieder wie vorher, das Medium bleibt in der Medienverwaltung
+  // undo (last first): product as before again, the media stays in media management
   for (const id of [cs2.id, cs.id]) { const u = await undoChangeSet('upload-e2e', id); assert.ok(u?.ok, JSON.stringify(u)); }
   assert.deepEqual(product.media, [{ id: 'pm1', mediaId: 'm1', position: 0 }]); assert.equal(product.coverId, 'pm1');
   assert.ok(media.has(newMediaId)); assert.ok(!requests.some(r => r.startsWith('DELETE /api/media/')));

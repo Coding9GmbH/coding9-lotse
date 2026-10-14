@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-test('Dateien: speichern, lesen, Typprüfung', async () => {
+test('files: save, read, type check', async () => {
   process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-files-'));
   const { saveFile, getFile, fileMeta, fileType } = await import('../../src/server/files');
   assert.equal(fileType('Lieferant.XLSX'), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

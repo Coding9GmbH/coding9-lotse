@@ -32,7 +32,7 @@ const events: ChatEvent[] = [
 
 const replay = (evs: ChatEvent[], from: ChatState = initialChatState) => chatReducer(from, { type: 'replay', chat: { target: null, events: evs } });
 
-test('Replay baut den Verlauf in Reihenfolge auf', () => {
+test('replay builds the log in order', () => {
   const s = replay(events);
   assert.deepEqual(s.items.map(i => i.kind), ['user', 'ai', 'steps', 'question', 'changeset']);
   const [user, ai, steps, q, c] = s.items;
@@ -49,7 +49,7 @@ test('Replay baut den Verlauf in Reihenfolge auf', () => {
   assert.ok(!isHome(s) && showPreview(s));
 });
 
-test('Live und Replay liefern denselben Verlauf', () => {
+test('live and replay produce the same log', () => {
   let live = chatReducer(initialChatState, { type: 'run_start', text: (events[0] as { text: string }).text });
   for (const ev of events.slice(1)) live = chatReducer(live, { type: 'event', event: ev, mode: 'live' });
   live = chatReducer(live, { type: 'run_end' });
@@ -59,7 +59,7 @@ test('Live und Replay liefern denselben Verlauf', () => {
   assert.equal(live.status, null);
 });
 
-test('offene Rückfrage/Änderungsset: live bedienbar, im Replay nicht', () => {
+test('open question/change set: interactive live, not in replay', () => {
   const evs: ChatEvent[] = [
     { t: 'question', approvalId: 'q1', question: 'Welche?', options: ['A'], optionHints: ['x'] },
     { t: 'changeset', approvalId: 'c1', cs },
@@ -91,7 +91,7 @@ test('offene Rückfrage/Änderungsset: live bedienbar, im Replay nicht', () => {
   assert.ok(rep.items.every(i => !('interactive' in i) || !i.interactive));
 });
 
-test('Veröffentlichung einer Landingpage setzt die Live-Vorschau', () => {
+test('publishing a landing page sets the live preview', () => {
   const pub: ChatEvent[] = [
     { t: 'changeset', approvalId: 'c2', cs: { ...cs, id: 'cs2', kind: 'page', items: [] } },
     { t: 'changeset_result', csId: 'cs2', status: 'applied', results: [], published: { adminUrl: 'https://a/admin', storefront: 'https://shop.test/sommer', name: 'Sommer' } },
@@ -102,14 +102,14 @@ test('Veröffentlichung einer Landingpage setzt die Live-Vorschau', () => {
   assert.equal(s.liveBust, 1);
 });
 
-test('Fehler aus done und neuer Text nach Werkzeug öffnet neue Blase', () => {
+test('error from done and new text after a tool opens a new bubble', () => {
   const s = replay([
     { t: 'text', text: 'a' }, { t: 'tool', id: 'x', name: 'n', input: {} }, { t: 'text', text: 'b' }, { t: 'done', error: 'kaputt' },
   ]);
   assert.deepEqual(s.items.map(i => i.kind), ['ai', 'steps', 'ai', 'error']);
 });
 
-test('Reset behält den Styleguide', () => {
+test('reset keeps the styleguide', () => {
   const sg = { brandName: 'X' } as never;
   let s = chatReducer(initialChatState, { type: 'set_styleguide', sg });
   s = replay(events, s);
@@ -119,7 +119,7 @@ test('Reset behält den Styleguide', () => {
   assert.ok(isHome(s));
 });
 
-test('Wieder verbinden mit laufender Runde: offene Freigabe wird wieder bedienbar, erledigte nicht', () => {
+test('reconnect with a running turn: open approval becomes interactive again, completed one does not', () => {
   const set = (id: string): ChangeSet => ({ ...cs, id });
   const chat: ChatDetail = { id: 'c', title: 't', target: null, events: [
     { t: 'user', text: 'a' },
@@ -135,7 +135,7 @@ test('Wieder verbinden mit laufender Runde: offene Freigabe wird wieder bedienba
   assert.equal(s.status, 'Wartet auf deine Freigabe');
 });
 
-test('Fortschritt großer Änderungssets: live am Set, Status zeigt Zahlen, Ergebnis beendet ihn', () => {
+test('progress of large change sets: live on the set, status shows numbers, result ends it', () => {
   let s = chatReducer(initialChatState, { type: 'run_start', text: 'Preise' });
   s = chatReducer(s, { type: 'event', event: { t: 'changeset', approvalId: 'c1', cs } });
   s = chatReducer(s, { type: 'decide', approvalId: 'c1', allow: true });
@@ -149,21 +149,21 @@ test('Fortschritt großer Änderungssets: live am Set, Status zeigt Zahlen, Erge
   assert.ok(done?.kind === 'changeset' && done.result && done.progress?.done === 1250);
 });
 
-test('Wieder verbinden: Snapshot meldet „läuft“, der Verlauf endet aber schon mit done → nicht beschäftigt', () => {
+test('reconnect: snapshot reports "running" but the log already ends with done → not busy', () => {
   const evs: ChatEvent[] = [{ t: 'user', text: 'a' }, { t: 'text_start' }, { t: 'text', text: 'fertig' }, { t: 'done', error: null }];
   const chat: ChatDetail = { id: 'c', title: 't', target: null, events: evs };
-  assert.equal(isStillRunning({ running: true, chat }), false, 'done am Ende: Runde ist vorbei');
+  assert.equal(isStillRunning({ running: true, chat }), false, 'done at the end: turn is over');
   assert.equal(isStillRunning({ running: false, chat }), false);
-  assert.equal(isStillRunning({ running: true, chat: { events: evs.slice(0, -1) } }), true, 'ohne done läuft sie noch');
+  assert.equal(isStillRunning({ running: true, chat: { events: evs.slice(0, -1) } }), true, 'without done it is still running');
   assert.equal(isStillRunning({ running: true, chat: { events: [] } }), true);
-  // Replay ohne resume: keine Beschäftigung, kein Status, keine Fehlerblase
+  // Replay without resume: not busy, no status, no error bubble
   const s = replay(evs);
   assert.equal(s.busy, false);
   assert.equal(s.status, null);
   assert.deepEqual(s.items.map(i => i.kind), ['user', 'ai']);
 });
 
-test('Wieder verbinden mit laufender Runde: done beendet sie (busy aus, Status leer, keine Fehlerblase bei error null)', () => {
+test('reconnect with a running turn: done ends it (busy off, status empty, no error bubble for error null)', () => {
   const chat: ChatDetail = { id: 'c', title: 't', target: null, events: [
     { t: 'user', text: 'a' },
     { t: 'question', approvalId: 'q1', question: 'Welche?', options: ['A'], answer: 'A' },
@@ -173,7 +173,7 @@ test('Wieder verbinden mit laufender Runde: done beendet sie (busy aus, Status l
   s = chatReducer(s, { type: 'resume', last: chat.events.at(-1) });
   assert.equal(s.busy, true);
   assert.equal(s.status, 'Produkte analysieren …');
-  assert.equal(pendingQuestion(s), null, 'beantwortete Rückfrage wird nicht wieder interaktiv');
+  assert.equal(pendingQuestion(s), null, 'answered question does not become interactive again');
   s = chatReducer(s, { type: 'event', event: { t: 'done', error: null } });
   s = chatReducer(s, { type: 'run_end' });
   assert.equal(s.busy, false);
@@ -181,7 +181,7 @@ test('Wieder verbinden mit laufender Runde: done beendet sie (busy aus, Status l
   assert.deepEqual(s.items.map(i => i.kind), ['user', 'question', 'steps']);
 });
 
-test('unsend: abgelehnte Nachricht (409) verschwindet wieder, Zustand ist nicht beschäftigt', () => {
+test('unsend: rejected message (409) disappears again, state is not busy', () => {
   let s = replay([{ t: 'user', text: 'alt' }, { t: 'text_start' }, { t: 'text', text: 'ok' }, { t: 'done', error: null }]);
   s = chatReducer(s, { type: 'run_start', text: 'neu' });
   assert.equal(s.busy, true);
@@ -190,10 +190,10 @@ test('unsend: abgelehnte Nachricht (409) verschwindet wieder, Zustand ist nicht 
   assert.deepEqual(s.items.map(i => i.kind), ['user', 'ai']);
   assert.equal(s.busy, false);
   assert.equal(s.status, null);
-  assert.equal(chatReducer(s, { type: 'unsend' }).items.length, 2, 'ohne Nutzerblase am Ende passiert nichts');
+  assert.equal(chatReducer(s, { type: 'unsend' }).items.length, 2, 'without a user bubble at the end nothing happens');
 });
 
-test('Veröffentlichung auf einer Kategorie: live Layout-Name + Vorschau neu laden, im Replay kein Override', () => {
+test('publishing on a category: live layout name + reload preview, no override in replay', () => {
   const pub: ChatEvent[] = [
     { t: 'changeset', approvalId: 'c3', cs: { ...cs, id: 'cs3', kind: 'page', items: [] } },
     { t: 'changeset_result', csId: 'cs3', status: 'applied', results: [], published: { adminUrl: 'https://a/admin', name: 'Sommer-Layout' } },
@@ -205,21 +205,21 @@ test('Veröffentlichung auf einer Kategorie: live Layout-Name + Vorschau neu lad
   assert.deepEqual(live.cmsOverrides, { c1: 'Sommer-Layout' });
   assert.equal(live.liveBust, 1);
   assert.equal(live.tab, 'live');
-  assert.equal(live.liveOverride, null, 'Kategorie behält ihre eigene Seite');
+  assert.equal(live.liveOverride, null, 'category keeps its own page');
   assert.equal(live.items.at(-1)?.kind, 'published');
 
   const rep = chatReducer(initialChatState, { type: 'replay', chat: { target, events: pub } });
   assert.deepEqual(rep.cmsOverrides, {});
   assert.equal(rep.target?.cmsPage, null);
   assert.equal(rep.liveBust, 1);
-  assert.equal(rep.tab, 'live', 'ohne Entwurf: echte Seite');
+  assert.equal(rep.tab, 'live', 'without a draft: real page');
 });
 
-test('select_target und focus: Entwurf bleibt beim Abwählen, anderer Kontext löscht ihn, gleiche ID ändert nichts', () => {
+test('select_target and focus: draft stays on deselect, another context clears it, same ID changes nothing', () => {
   const s0 = replay(events);
   assert.ok(s0.draft && s0.target?.id === 'c9');
   const s1 = chatReducer({ ...s0, liveOverride: '/shop/x' }, { type: 'select_target', target: null });
-  assert.ok(s1.draft, 'Entwurf bleibt ohne Ziel sichtbar');
+  assert.ok(s1.draft, 'draft stays visible without a target');
   assert.equal(s1.target, null);
   assert.equal(s1.liveOverride, null);
   assert.equal(s1.tab, 'live');
@@ -227,12 +227,12 @@ test('select_target und focus: Entwurf bleibt beim Abwählen, anderer Kontext l�
   assert.equal(s2.draft, null);
   assert.equal(s2.target?.id, 'p7');
   const same = chatReducer(s0, { type: 'event', event: { t: 'focus', kind: 'category', id: 'c9', name: 'Anders', path: null, cmsPage: null } });
-  assert.equal(same, s0, 'focus mit gleicher ID lässt den Zustand unverändert');
+  assert.equal(same, s0, 'focus with the same ID leaves the state unchanged');
   const other = chatReducer(s0, { type: 'event', event: { t: 'focus', kind: 'product', id: 'p1', name: 'Shirt', path: null, cmsPage: 'L' } });
   assert.deepEqual(other.target, { kind: 'product', id: 'p1', name: 'Shirt', path: null, cmsPage: 'L' });
 });
 
-test('undo-Aktion mit undoResults: Ergebnis trägt den Ausgang je Schritt, Button bleibt nutzbar (idle) bis alles zurückgesetzt ist', () => {
+test('undo action with undoResults: result carries the outcome per step, button stays usable (idle) until everything is reverted', () => {
   const replayed = chatReducer(initialChatState, { type: 'replay', chat: { target: null, events } });
   const cards = (s: ChatState) => s.items.filter(i => i.kind === 'changeset');
   const part = chatReducer(replayed, { type: 'undo', csId: 'cs1', phase: 'idle', undoResults: [{ ok: false, error: 'kaputt' }] });
@@ -243,10 +243,10 @@ test('undo-Aktion mit undoResults: Ergebnis trägt den Ausgang je Schritt, Butto
   const c2 = cards(done)[0];
   assert.ok(c2.kind === 'changeset' && c2.undo === 'done' && c2.result?.undone === true);
   const plain = chatReducer(part, { type: 'undo', csId: 'cs1', phase: 'running' });
-  assert.deepEqual(cards(plain)[0].kind === 'changeset' && cards(plain)[0].result?.undoResults, [{ ok: false, error: 'kaputt' }], 'ohne undoResults bleibt das Ergebnis, wie es war');
+  assert.deepEqual(cards(plain)[0].kind === 'changeset' && cards(plain)[0].result?.undoResults, [{ ok: false, error: 'kaputt' }], 'without undoResults the result stays as it was');
 });
 
-test('Schritte ohne tool_result werden mit done/run_end/replay abgeschlossen; replay mit laufender Runde öffnet sie per resume wieder', () => {
+test('steps without tool_result are closed by done/run_end/replay; replay with a running turn reopens them via resume', () => {
   const steps = (s: ChatState) => s.items.flatMap(i => (i.kind === 'steps' ? i.steps : []));
   const events: ChatEvent[] = [
     { t: 'user', text: 'Hallo' },
@@ -255,9 +255,9 @@ test('Schritte ohne tool_result werden mit done/run_end/replay abgeschlossen; re
     { t: 'tool_result', id: 'a', error: false, preview: 'ok' },
   ];
   const open = chatReducer(initialChatState, { type: 'replay', chat: { target: null, events } });
-  assert.deepEqual(steps(open).map(x => x.state), ['done', 'done'], 'nachgeladen: nichts blinkt');
+  assert.deepEqual(steps(open).map(x => x.state), ['done', 'done'], 'reloaded: nothing blinks');
   assert.equal(steps(open)[1].stale, true);
-  assert.deepEqual(steps(chatReducer(open, { type: 'resume' })).map(x => x.state), ['done', 'run'], 'Runde läuft noch: offener Schritt läuft wieder');
+  assert.deepEqual(steps(chatReducer(open, { type: 'resume' })).map(x => x.state), ['done', 'run'], 'turn still running: open step runs again');
 
   const live = events.reduce((s, ev) => chatReducer(s, { type: 'event', event: ev, mode: 'live' }), { ...initialChatState, busy: true });
   assert.deepEqual(steps(live).map(x => x.state), ['done', 'run']);

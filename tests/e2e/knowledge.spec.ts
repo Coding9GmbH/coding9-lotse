@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('Wissen: Dokument hochladen, erscheint in der Liste, löschen', async ({ page }) => {
+test('knowledge base: upload a document, it appears in the list, delete it', async ({ page }) => {
   const name = `pflegehinweise-${Date.now()}.txt`;
   await page.goto('/wissen');
   await expect(page.getByRole('heading', { level: 1, name: 'Wissen' })).toBeVisible();

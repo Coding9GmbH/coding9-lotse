@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <!--
-  Lotse Connector: Modul-Konfiguration.
-  Der eigene Router (Lotse_Connector_Controller_Router) fängt /lotse-api/... ab und
-  dispatcht Lotse_Connector_ApiController. Bewusst kein Standard-Router-Eintrag, damit
-  Controller- und Action-Namen nicht aus dem Pfad geraten werden.
+  Lotse Connector: module configuration.
+  The custom router (Lotse_Connector_Controller_Router) intercepts /lotse-api/... and
+  dispatches Lotse_Connector_ApiController. Deliberately no standard router entry, so
+  controller and action names cannot be guessed from the path.
 -->
 <config>
     <modules>
@@ -27,7 +27,7 @@
                 <class>Lotse_Connector_Block</class>
             </lotse_connector>
         </blocks>
-        <!-- Router-Registrierung wie Mage_Cms: global, damit sie in jedem Bereich greift -->
+        <!-- Router registration like Mage_Cms: global, so it applies in every area -->
         <events>
             <controller_front_init_routers>
                 <observers>

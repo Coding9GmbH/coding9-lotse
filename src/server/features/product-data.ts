@@ -1,5 +1,5 @@
 import 'server-only';
-// Produkt-Stammdaten: Eigenschaften, Kategorien, Hersteller, Tags, Lieferzeit, Maße, Steuer, Sichtbarkeit, Abnahme, Cross-Selling, einzeln und in Masse.
+// Product data: properties, categories, manufacturers, tags, delivery time, dimensions, tax, visibility, purchase quantities, cross-selling, single and in bulk.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { ChangeItem, ChangeSet } from '@/lib/protocol';
@@ -8,9 +8,10 @@ import { HEX32, newId, type ShopReader, type SwEntity } from '../shopware';
 import type { AssocTree } from '../policy';
 import { fail, guard, nextOffsetOf, ok, pageOf, type AnyTool } from '../tool-kit';
 import type { Session } from '../sessions';
+import { chunks } from '../util';
 import type { Feature } from './types';
-import { KIND_STAMMDATEN, NewRegistry, nameOf, planProduct, productFilter, productLabel, type Catalog, type DataOps, type ProductFilter, type PropIn } from './stammdaten-plan';
-import { neededCreates, type StammdatenPayload } from './stammdaten-apply'; // registriert zugleich den Applier
+import { KIND_PRODUCT_DATA, NewRegistry, nameOf, planProduct, productFilter, productLabel, type Catalog, type DataOps, type ProductFilter, type PropIn } from './product-data-plan';
+import { neededCreates, type ProductDataPayload } from './product-data-apply'; // also registers the applier
 
 export const PRODUCT_ASSOC: AssocTree = {
   properties: { associations: { group: {} } }, categories: {}, tags: {}, manufacturer: {}, deliveryTime: {}, tax: {}, visibilities: {},
@@ -21,10 +22,9 @@ const VIS_NAME: Record<number, string> = { 30: 'all', 20: 'search', 10: 'link' }
 export interface DataTarget extends DataOps { productIds?: string[]; filter?: ProductFilter }
 export interface ProductDataArgs { title: string; reason: string; changes: DataTarget[] }
 
-const chunks = <T>(xs: T[], n: number) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
 const uniq = <T>(xs: (T | null | undefined)[]) => [...new Set(xs.filter((x): x is T => x != null && x !== ''))];
 
-/** Datensätze per ID und/oder Name (Name: Groß-/Kleinschreibung egal, Abgleich danach im Plan) */
+/** Records by ID and/or name (name: case-insensitive, matched later in the plan) */
 async function byIdsOrNames(ro: ShopReader, entity: string, refs: string[], extra: Record<string, unknown>[] = [], assoc?: AssocTree): Promise<SwEntity[]> {
   const ids = uniq(refs.filter(r => HEX32.test(r))), names = uniq(refs.filter(r => !HEX32.test(r)).map(r => r.trim()));
   if (!ids.length && !names.length) return [];
@@ -38,7 +38,7 @@ const byIds = async (ro: ShopReader, entity: string, ids: string[], assoc?: Asso
 };
 const toMap = (xs: SwEntity[]) => Object.fromEntries(xs.map(x => [x.id, x]));
 
-/** Lädt alles, worauf die Operationen verweisen (Eigenschaften, Hersteller, Tags, Kategorien, Produkte, Streams …) */
+/** Loads everything the operations reference (properties, manufacturers, tags, categories, products, streams …) */
 export async function loadCatalog(ro: ShopReader, opsList: DataOps[], productIds: string[] = []): Promise<Catalog> {
   const props: PropIn[] = opsList.flatMap(o => [...(o.properties?.add ?? []), ...(o.properties?.remove ?? [])]);
   const named = props.map(p => (typeof p === 'string' ? (HEX32.test(p) ? null : p.match(/^([^:]+):\s*(.+)$/)) : [null, p.group, p.option])).filter(Boolean).map(m => ({ group: String(m![1]).trim(), option: String(m![2]).trim() }));
@@ -62,19 +62,19 @@ export async function loadCatalog(ro: ShopReader, opsList: DataOps[], productIds
   };
 }
 
-/** Ziel-Produkte eines Eintrags: productIds und/oder Filter (höchstens MAX_ITEMS) */
+/** Target products of an entry: productIds and/or filter (at most MAX_ITEMS) */
 async function targetIds(ro: ShopReader, t: DataTarget): Promise<string[]> {
   if (!t.productIds?.length && !t.filter) throw new Error('Je Eintrag productIds oder filter angeben');
   const ids = [...(t.productIds ?? [])];
   if (t.filter) {
-    const r = await ro.search('product', { ...productFilter(t.filter), limit: MAX_ITEMS, 'total-count-mode': 1, includes: { product: ['id'] } }); // nur IDs, die Produkte werden unten mit Beziehungen geladen
+    const r = await ro.search('product', { ...productFilter(t.filter), limit: MAX_ITEMS, 'total-count-mode': 1, includes: { product: ['id'] } }); // IDs only, the products are loaded with associations below
     if ((r.total ?? r.data.length) > MAX_ITEMS) throw new Error(`Filter trifft ${r.total} Produkte, höchstens ${MAX_ITEMS} pro Änderungsset. Filter verfeinern oder mit productIds in Sets aufteilen.`);
     ids.push(...r.data.map(p => p.id));
   }
   return uniq(ids);
 }
 
-export async function buildProductDataChangeSet(ro: ShopReader, { title, reason, changes }: ProductDataArgs, genId: () => string = newId): Promise<{ cs: ChangeSet; payload: StammdatenPayload }> {
+export async function buildProductDataChangeSet(ro: ShopReader, { title, reason, changes }: ProductDataArgs, genId: () => string = newId): Promise<{ cs: ChangeSet; payload: ProductDataPayload }> {
   if (!changes?.length) throw new Error('changes ist leer');
   const pairs: { pid: string; ops: DataOps }[] = [];
   for (const t of changes) { const ops: DataOps = { ...t }; delete (ops as DataTarget).productIds; delete (ops as DataTarget).filter; for (const pid of await targetIds(ro, t)) pairs.push({ pid, ops }); }
@@ -82,7 +82,7 @@ export async function buildProductDataChangeSet(ro: ShopReader, { title, reason,
   if (!pids.length) throw new Error('Keine Produkte gefunden (productIds/filter prüfen)');
   if (pids.length > MAX_ITEMS) throw new Error(`Maximal ${MAX_ITEMS} Produkte pro Änderungsset, bitte aufteilen.`);
   const products = toMap(await byIds(ro, 'product', pids, PRODUCT_ASSOC));
-  // Namen der bisher im Cross-Selling zugeordneten Produkte (für den lesbaren Vorher-Wert)
+  // names of the products currently assigned in cross-selling (for the readable before value)
   const assigned = pairs.filter(p => p.ops.crossSellings?.length).flatMap(p => (products[p.pid]?.crossSellings ?? []).flatMap((c: SwEntity) => (c.assignedProducts ?? []).map((a: SwEntity) => a.productId as string)));
   const cat = await loadCatalog(ro, pairs.map(p => p.ops), assigned);
   const reg = new NewRegistry(genId), items: ChangeItem[] = [], skipped: ChangeSet['skipped'] = []; let unchanged = 0;
@@ -98,12 +98,12 @@ export async function buildProductDataChangeSet(ro: ShopReader, { title, reason,
   }
   if (!items.length) throw new Error(`Keine Änderung nötig bzw. nichts anwendbar (${unchanged} unverändert, ${skipped.length} übersprungen${skipped.length ? `: ${skipped.slice(0, 4).map(s => s.reason).join('; ')}` : ''})`);
   return {
-    cs: { id: newId(), kind: KIND_STAMMDATEN, entity: 'product', noun: { one: 'Produkt', many: 'Produkte' }, applyLabel: 'Stammdaten übernehmen', title, reason, items, skipped, unchanged, atomic: false },
-    payload: { creates: neededCreates(items, reg.list) }, // nur Neuanlagen, die ein Item nutzt (inkl. Gruppe einer neuen Option)
+    cs: { id: newId(), kind: KIND_PRODUCT_DATA, entity: 'product', noun: { one: 'Produkt', many: 'Produkte' }, applyLabel: 'Stammdaten übernehmen', title, reason, items, skipped, unchanged, atomic: false },
+    payload: { creates: neededCreates(items, reg.list) }, // only creations an item uses (incl. the group of a new option)
   };
 }
 
-// ---- Lese-Ansichten ----
+// ---- Read views ----
 export function productDetails(p: SwEntity, channels: SwEntity[]) {
   const groups = new Map<string, { groupId: string; group: string; options: { id: string; name: string }[] }>();
   for (const o of (p.properties ?? []) as SwEntity[]) { const g = groups.get(o.groupId) ?? { groupId: o.groupId as string, group: nameOf(o.group), options: [] as { id: string; name: string }[] }; g.options.push({ id: o.id, name: nameOf(o) }); groups.set(o.groupId, g); }
@@ -127,7 +127,7 @@ export function productDetails(p: SwEntity, channels: SwEntity[]) {
   };
 }
 
-// ---- Werkzeuge ----
+// ---- Tools ----
 const filterSchema = z.object({
   categoryId: z.string().optional(), manufacturerId: z.string().optional(), tagId: z.string().optional(), propertyOptionId: z.string().optional(),
   deliveryTimeId: z.string().optional(), salesChannelId: z.string().optional().describe('nur Produkte, die in diesem Verkaufskanal sichtbar sind'),
@@ -166,11 +166,11 @@ const opsShape = {
 
 const pageArgs = { limit: z.number().optional().describe('Standard 50, max 100'), offset: z.number().optional().describe('Vielfaches von limit (nextOffset der vorigen Seite)') };
 const page = (limit?: number, offset?: number) => pageOf(offset, Math.min(Math.max(limit ?? 50, 1), 100));
-/** Seitenangaben der Antwort: tatsächlich gelesener offset (gerundet → note), nextOffset */
+/** Paging info of the response: offset actually read (rounded → note), nextOffset */
 const paged = (pg: ReturnType<typeof page>, r: { data: unknown[]; total?: number }) => ({ total: r.total, returned: r.data.length, offset: pg.offset, ...(pg.note ? { note: pg.note } : {}), nextOffset: nextOffsetOf(pg.offset, r.data.length, pg.limit, r.total) });
 const termFilter = (term?: string) => (term ? [{ type: 'contains', field: 'name', value: term }] : []);
 
-export const STAMMDATEN_TOOLS = ['list_property_groups', 'list_manufacturers', 'list_tags', 'list_delivery_times', 'list_taxes', 'get_product_details', 'find_products_by_data', 'propose_product_data'];
+export const PRODUCT_DATA_TOOLS = ['list_property_groups', 'list_manufacturers', 'list_tags', 'list_delivery_times', 'list_taxes', 'get_product_details', 'find_products_by_data', 'propose_product_data'];
 
 function tools(session: Session): AnyTool[] {
   const { sw } = session;
@@ -241,4 +241,4 @@ Nicht enthalten: Preise/Bestand (einzeln propose_product_changes, in Masse propo
   ] as AnyTool[];
 }
 
-export const stammdaten: Feature = { key: 'stammdaten', platforms: ['shopware'], toolNames: STAMMDATEN_TOOLS, tools };
+export const productData: Feature = { key: 'product-data', platforms: ['shopware'], toolNames: PRODUCT_DATA_TOOLS, tools };

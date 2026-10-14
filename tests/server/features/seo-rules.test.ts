@@ -9,7 +9,7 @@ process.env.AICB_DATA ??= fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-seo-'));
 const { slugify, evaluate, duplicates, summarize, wordCount, buildSeoUrlChangeSet, applySeoUrl } = await import('../../../src/server/features/seo-rules');
 
 const SC = 'sc1', DE = 'de', P1 = 'a'.repeat(32), P2 = 'b'.repeat(32), C1 = 'c'.repeat(32), P3 = 'd'.repeat(32), V1 = 'e'.repeat(32);
-// Mini-Shop für seo-url: equals/equalsAny (Groß-/Kleinschreibung egal wie MySQL), ids; Schreibzugriffe werden protokolliert
+// Mini shop for seo-url: equals/equalsAny (case-insensitive like MySQL), ids; writes are logged
 function fake(db: Record<string, SwEntity[]>) {
   const eq = (v: unknown, x: unknown) => (typeof v === 'string' && typeof x === 'string' ? v.toLowerCase() === x.toLowerCase() : (v ?? null) === x);
   const writes: string[] = [];
@@ -40,7 +40,7 @@ const db = () => ({
   'seo-url': [seoRow('s1', P1, 'frontend.detail.page', 'Vase-Kiesel/HH-1', true), seoRow('s1old', P1, 'frontend.detail.page', 'vase-alt/hh-1', null), seoRow('s2', P2, 'frontend.detail.page', 'becher/hh-2', true), seoRow('s3', C1, 'frontend.navigation.page', 'Wohnen/', true)],
 });
 
-test('slugify: klein, Umlaute, Bindestriche, Kategorien mit „/“, Fehler bei IDs/reservierten Pfaden', () => {
+test('slugify: lowercase, umlauts, hyphens, categories with "/", errors for IDs/reserved paths', () => {
   assert.deepEqual(slugify('  Größe & Übermaß: Vasen  aus Steinzeug! ', 'product'), { slug: 'groesse-und-uebermass-vasen-aus-steinzeug' });
   assert.deepEqual(slugify('/Wohnen//Vasen_Krüge/', 'category'), { slug: 'wohnen/vasen-kruege/' });
   assert.equal(slugify('https://shop.test/Café Crème', 'product').slug, 'cafe-creme');
@@ -50,7 +50,7 @@ test('slugify: klein, Umlaute, Bindestriche, Kategorien mit „/“, Fehler bei 
   assert.match(slugify('Checkout', 'category').error!, /reserviert/);
 });
 
-test('SEO-URL-Änderungsset: normalisiert, Doppelte im Kanal/Vorschlag übersprungen, unverändert gezählt', async () => {
+test('SEO URL change set: normalized, duplicates in channel/proposal skipped, unchanged counted', async () => {
   const sw = fake(db());
   const cs = await buildSeoUrlChangeSet(sw as unknown as ShopReader, { title: 'URLs', reason: 'r', changes: [
     { entity: 'product', id: P1, slug: 'Vase Kiesel Steinzeug' }, { entity: 'category', id: C1, slug: 'wohnen' },
@@ -72,28 +72,28 @@ test('SEO-URL-Änderungsset: normalisiert, Doppelte im Kanal/Vorschlag überspru
   await assert.rejects(buildSeoUrlChangeSet(fake(d2) as unknown as ShopReader, { title: 't', reason: 'r', changes: [{ entity: 'product', id: P1, slug: 'vase' }] }), /1 unverändert/);
 });
 
-test('SEO-URL-Änderungsset: gleiche URL wird nur festgeschrieben → sichtbarer Hinweis statt leerer Änderung', async () => {
+test('SEO URL change set: same URL is only pinned → visible notice instead of an empty change', async () => {
   const cs = await buildSeoUrlChangeSet(fake(db()) as unknown as ShopReader, { title: 't', reason: 'r', changes: [{ entity: 'product', id: P2, slug: 'becher/hh-2' }] });
   assert.equal(cs.items.length, 1); assert.equal(cs.items[0].before, cs.items[0].after);
   assert.ok(cs.items[0].warn.includes('URL bleibt gleich und wird als eigene URL festgeschrieben (Shopware generiert sie nicht mehr neu)'), cs.items[0].warn.join());
 });
 
-test('SEO-URL-Änderungsset: nur im Kanal sichtbare Produkte (Varianten über das Hauptprodukt)', async () => {
+test('SEO URL change set: only products visible in the channel (variants via the parent product)', async () => {
   const cs = await buildSeoUrlChangeSet(fake(db()) as unknown as ShopReader, { title: 't', reason: 'r', changes: [{ entity: 'product', id: P3, slug: 'unsichtbar' }, { entity: 'product', id: V1, slug: 'vase-kiesel-variante' }] });
   assert.deepEqual(cs.items.map(i => i.entityId), [V1]);
   assert.match(cs.skipped[0].reason, /Unsichtbar \(HH-3\): im Verkaufskanal Storefront nicht sichtbar/);
 });
 
-test('applySeoUrl: neue kanonische URL, alte nicht-kanonisch; Rückgängig löscht neu und stellt alt her', async () => {
+test('applySeoUrl: new canonical URL, old one non-canonical; undo deletes the new one and restores the old one', async () => {
   const d = db(), sw = fake(d);
   const undo = await applySeoUrl(sw as never, { salesChannelId: SC, languageId: DE, foreignKey: P1, routeName: 'frontend.detail.page', pathInfo: `/detail/${P1}`, seoPathInfo: 'vase-neu' });
-  assert.equal(sw.writes[0], 'update s1 {"isCanonical":null}', 'erst Platz schaffen (eindeutiger kanonischer Eintrag)');
+  assert.equal(sw.writes[0], 'update s1 {"isCanonical":null}', 'make room first (unique canonical entry)');
   const created = d['seo-url'].find(s => s.seoPathInfo === 'vase-neu')!;
   assert.equal(created.isCanonical, true); assert.equal(created.isModified, true);
   assert.deepEqual(undo, [{ op: 'patch', entity: 'seo-url', id: 's1', data: { isCanonical: true } }, { op: 'delete', entity: 'seo-url', id: created.id }]);
 });
 
-test('applySeoUrl: frühere eigene URL wird wieder kanonisch (patch statt Duplikat), gleiche URL nur markiert, Konflikt wirft', async () => {
+test('applySeoUrl: earlier custom URL becomes canonical again (patch instead of duplicate), same URL only marked, conflict throws', async () => {
   const d = db(), sw = fake(d);
   const undo = await applySeoUrl(sw as never, { salesChannelId: SC, languageId: DE, foreignKey: P1, routeName: 'frontend.detail.page', pathInfo: `/detail/${P1}`, seoPathInfo: 'vase-alt/hh-1' });
   assert.deepEqual(undo, [{ op: 'patch', entity: 'seo-url', id: 's1', data: { isCanonical: true } }, { op: 'patch', entity: 'seo-url', id: 's1old', data: { seoPathInfo: 'vase-alt/hh-1', isCanonical: null, isModified: false, isDeleted: false } }]);
@@ -104,7 +104,7 @@ test('applySeoUrl: frühere eigene URL wird wieder kanonisch (patch statt Duplik
   await assert.rejects(applySeoUrl(fake(db()) as never, { salesChannelId: SC, languageId: DE, foreignKey: P1, routeName: 'frontend.detail.page', pathInfo: `/detail/${P1}`, seoPathInfo: 'becher/hh-2' }), /vergeben/);
 });
 
-test('SEO-Audit: Prüfpunkte, Doppelte, Bericht sortiert (wichtig zuerst)', () => {
+test('SEO audit: check items, duplicates, report sorted (important first)', () => {
   const desc = '<p>' + 'Wort '.repeat(49) + '</p>';
   assert.equal(wordCount(desc), 49); assert.equal(wordCount('<h2>Vase „Kiesel“</h2><p>Steinzeug-Vase, 22 cm</p>'), 5);
   const dups = duplicates([{ id: '1', value: 'Vasen | Haus Holm' }, { id: '2', value: ' vasen  | haus holm' }, { id: '3', value: 'Becher' }, { id: '4', value: null }]);
@@ -115,8 +115,14 @@ test('SEO-Audit: Prüfpunkte, Doppelte, Bericht sortiert (wichtig zuerst)', () =
   assert.deepEqual(evaluate({ id: 'b', isProduct: true, metaTitle: 'Vasen | Haus Holm', metaDescription: 'kurz', description: desc, hasCover: false, imagesWithoutAlt: 2, seoPath: null, brokenLinks: 1 }, d),
     ['seoUrl.missing', 'links.broken', 'metaTitle.short', 'metaTitle.duplicate', 'metaDescription.length', 'description.thin', 'image.cover', 'image.alt']);
   assert.deepEqual(evaluate({ id: 'c', isProduct: false, metaTitle: 'T'.repeat(61), description: '', seoPath: `x/${P1}/` }, d), ['seoUrl.technical', 'metaTitle.long', 'metaDescription.missing', 'description.thin']);
-  assert.deepEqual(evaluate({ id: 'i', isProduct: true, metaTitle: good.metaTitle, metaDescription: good.metaDescription, description: good.description, hasCover: true, seoPath: undefined }, d), [], 'SEO-URL nicht geprüft → keine Meldung');
+  assert.deepEqual(evaluate({ id: 'i', isProduct: true, metaTitle: good.metaTitle, metaDescription: good.metaDescription, description: good.description, hasCover: true, seoPath: undefined }, d), [], 'SEO URL not checked → no finding');
   const rep = summarize([{ ...good, issues: [] }, { id: 'b', name: 'B', isProduct: true, issues: ['description.thin', 'metaTitle.missing'] }, { id: 'c', name: 'C', isProduct: true, issues: ['description.thin'] }], 'propose_product_changes');
   assert.deepEqual(rep.summary.map(s => [s.issue, s.level, s.count, s.fix]), [['metaTitle.missing', 'wichtig', 1, 'propose_product_changes fields.metaTitle'], ['description.thin', 'empfohlen', 2, 'propose_product_changes fields.description']]);
   assert.deepEqual(rep.ids['description.thin'], ['b', 'c']); assert.deepEqual(rep.worst.map(w => w.id), ['b', 'c']);
+});
+
+test('wordCount: unclosed <script> swallows the rest and stays linear (ReDoS)', () => {
+  assert.equal(wordCount('<p>Eins zwei</p><script>var drei'), 2);
+  const t = Date.now(); wordCount('<script'.repeat(100_000) + '<'.repeat(100_000)); const d = Date.now() - t;
+  assert.ok(d < 1000, `${d} ms`);
 });

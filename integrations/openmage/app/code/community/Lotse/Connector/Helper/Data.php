@@ -1,7 +1,7 @@
 <?php
 /**
- * Konfiguration, Token und Zugriffsprüfung der Lotse-API.
- * Der Token liegt verschlüsselt (Mage core encrypt) in core_config_data unter lotse/api/token.
+ * Configuration, token and access check of the Lotse API.
+ * The token is stored encrypted (Mage core encrypt) in core_config_data under lotse/api/token.
  */
 class Lotse_Connector_Helper_Data extends Mage_Core_Helper_Abstract
 {
@@ -15,7 +15,7 @@ class Lotse_Connector_Helper_Data extends Mage_Core_Helper_Abstract
         return (bool) Mage::getStoreConfigFlag(self::XML_PATH_ENABLED, 0);
     }
 
-    /** Entschlüsselter Token oder '' (Standard-Scope; die API hat keinen Store-Scope). */
+    /** Decrypted token or '' (default scope; the API has no store scope). */
     public function getToken()
     {
         $raw = (string) Mage::getStoreConfig(self::XML_PATH_TOKEN, 0);
@@ -25,13 +25,13 @@ class Lotse_Connector_Helper_Data extends Mage_Core_Helper_Abstract
         return (string) Mage::helper('core')->decrypt($raw);
     }
 
-    /** Neuer Token: 48 Hex-Zeichen (192 Bit) aus random_bytes. */
+    /** New token: 48 hex characters (192 bits) from random_bytes. */
     public function generateToken()
     {
         return 'lotse_' . bin2hex(random_bytes(24));
     }
 
-    /** Speichert den Token verschlüsselt und leert den Config-Cache. */
+    /** Stores the token encrypted and clears the config cache. */
     public function saveToken($token)
     {
         $encrypted = Mage::helper('core')->encrypt($token);
@@ -41,7 +41,7 @@ class Lotse_Connector_Helper_Data extends Mage_Core_Helper_Abstract
         return $this;
     }
 
-    /** Konstantzeit-Vergleich über gleich lange Hashes, damit die Länge nichts verrät. */
+    /** Constant-time comparison over equal-length hashes so the length reveals nothing. */
     public function tokenMatches($given)
     {
         $expected = $this->getToken();
@@ -63,8 +63,8 @@ class Lotse_Connector_Helper_Data extends Mage_Core_Helper_Abstract
     }
 
     /**
-     * Client-IP: REMOTE_ADDR; bei trust_proxy der vom Proxy angehängte (letzte) Eintrag aus X-Forwarded-For.
-     * Der erste Eintrag wäre vom Client fälschbar (Logik und Tests: Lotse_Connector_Model_Net::clientIp).
+     * Client IP: REMOTE_ADDR; with trust_proxy the (last) X-Forwarded-For entry appended by the proxy.
+     * The first entry could be forged by the client (logic and tests: Lotse_Connector_Model_Net::clientIp).
      */
     public function getClientIp(Mage_Core_Controller_Request_Http $request)
     {

@@ -6,18 +6,18 @@ import { popoverLeft } from '../../src/lib/popover';
 const read = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 const rule = (css: string, selector: string) => {
   const hit = css.match(new RegExp(`${selector}\\s*\\{[^}]*\\}`));
-  assert.ok(hit, `Regel fehlt: ${selector}`);
+  assert.ok(hit, `rule missing: ${selector}`);
   return hit[0];
 };
 
-test('popoverLeft klemmt an die tatsächliche Breite', () => {
+test('popoverLeft clamps to the actual width', () => {
   assert.equal(popoverLeft(100, 320, 800), 100);
   assert.equal(popoverLeft(500, 320, 400), 72);
   assert.equal(popoverLeft(0, 184, 200), 8);
   assert.ok(popoverLeft(180, 184, 200) + 184 <= 200 - 8);
 });
 
-test('Vorschau-Leiste umbricht in der Spalte, nicht erst bei 640px', () => {
+test('preview bar wraps within the column, not only at 640px', () => {
   const preview = read('src/components/preview/PreviewPane.module.css');
   const bar = rule(preview, '\\.bar');
   assert.match(bar, /flex-wrap:\s*wrap/);
@@ -29,7 +29,7 @@ test('Vorschau-Leiste umbricht in der Spalte, nicht erst bei 640px', () => {
   assert.match(rule(preview, '\\.pop'), /width:\s*min\(320px,\s*calc\(100%\s*-\s*16px\)\)/);
 });
 
-test('Kurze Höhe: der Arbeits-Chat scrollt, der Composer bleibt im Fluss', () => {
+test('short height: the work chat scrolls, the composer stays in the flow', () => {
   const ws = read('src/components/workspace/Workspace.module.css');
   assert.match(ws, /\.app\[data-mode="work"\] \.chat[^{]*\{[^}]*overflow:\s*auto/);
   assert.match(ws, /\.app\[data-mode="pv"\] \.chat[^{]*\{[^}]*overflow:\s*auto/);
@@ -37,14 +37,14 @@ test('Kurze Höhe: der Arbeits-Chat scrollt, der Composer bleibt im Fluss', () =
   assert.doesNotMatch(ws, /\.app\[data-mode="pv"\] \.chat[^{]*\{[^}]*overflow:\s*hidden/);
 });
 
-test('Dialog und Seite nutzen dvh, mit vh davor', () => {
+test('dialog and page use dvh, with vh before it', () => {
   const dialog = read('src/components/ui/Dialog.module.css');
   assert.match(dialog, /max-height:\s*88vh;\s*max-height:\s*88dvh/);
   assert.match(dialog, /max-height:\s*62vh;\s*max-height:\s*62dvh/);
   assert.match(read('src/app/globals.css'), /min-height:\s*100vh;\s*min-height:\s*100dvh/);
 });
 
-test('Menü, Schließen und Icon-Knöpfe sind mindestens 40px', () => {
+test('menu, close and icon buttons are at least 40px', () => {
   const menu = rule(read('src/components/shell/AppShell.module.css'), '\\.menu');
   assert.match(menu, /min-width:\s*40px/);
   assert.match(menu, /min-height:\s*40px/);
@@ -58,12 +58,12 @@ test('Menü, Schließen und Icon-Knöpfe sind mindestens 40px', () => {
   assert.match(icon, /min-height:\s*40px/);
 });
 
-test('Chat löschen bleibt ohne Hover sichtbar', () => {
+test('delete chat stays visible without hover', () => {
   const css = read('src/components/shell/SideNav.module.css');
   assert.match(css, /@media\s*\(hover:\s*none\)[^{]*\{[^}]*\.del[^{]*\{[^}]*opacity:\s*1/);
 });
 
-test('Vorher und Nachher brechen lange Tokens um', () => {
+test('before and after wrap long tokens', () => {
   const css = read('src/components/chat/ChangeSetCard.module.css');
   assert.match(rule(css, '\\.old'), /overflow-wrap:\s*anywhere/);
   assert.match(rule(css, '\\.new'), /overflow-wrap:\s*anywhere/);

@@ -12,21 +12,21 @@ const lines = async (res: Response, n: number) => {
   return { reader, out: buf.split('\n').filter(Boolean).map(l => JSON.parse(l) as ChatEvent), done };
 };
 
-test('listenStream: erst der Snapshot, dann Live-Ereignisse; „done“ schließt den Strom und meldet den Listener ab', async () => {
+test('listenStream: first the snapshot, then live events; "done" closes the stream and unsubscribes the listener', async () => {
   const s = session();
   const res = listenStream(s, [{ t: 'snapshot', chat: { id: 'c', title: '', target: null, events: [] }, running: true }], true);
   assert.equal(res.headers.get('content-type'), 'application/x-ndjson');
-  assert.equal(s.listeners.size, 1, 'angemeldet');
+  assert.equal(s.listeners.size, 1, 'subscribed');
   emit(s, { t: 'text', text: 'Hallo' });
   emit(s, { t: 'done', error: null });
   const { reader, out } = await lines(res, 3);
   assert.deepEqual(out.map(e => e.t), ['snapshot', 'text', 'done']);
-  assert.equal((await reader.read()).done, true, 'nach done geschlossen');
-  assert.equal(s.listeners.size, 0, 'abgemeldet');
-  emit(s, { t: 'text', text: 'zu spät' }); // kein Fehler, nichts mehr zu tun
+  assert.equal((await reader.read()).done, true, 'closed after done');
+  assert.equal(s.listeners.size, 0, 'unsubscribed');
+  emit(s, { t: 'text', text: 'zu spät' }); // no error, nothing left to do
 });
 
-test('listenStream: ohne live schließt der Strom nach dem Verlauf; cancel des Lesers entfernt den Listener (Runde läuft weiter)', async () => {
+test('listenStream: without live the stream closes after the history; cancelling the reader removes the listener (turn keeps running)', async () => {
   const s = session();
   const res = listenStream(s, [{ t: 'user', text: 'a' }, { t: 'text', text: 'b' }], false);
   const { reader, out } = await lines(res, 2);
@@ -37,11 +37,11 @@ test('listenStream: ohne live schließt der Strom nach dem Verlauf; cancel des L
   const live = listenStream(s, [], true);
   assert.equal(s.listeners.size, 1);
   await live.body!.getReader().cancel();
-  assert.equal(s.listeners.size, 0, 'Client weg = nur abmelden');
-  emit(s, { t: 'done', error: null }); // niemand hört mehr zu, kein Fehler
+  assert.equal(s.listeners.size, 0, 'client gone = only unsubscribe');
+  emit(s, { t: 'done', error: null }); // nobody is listening anymore, no error
 });
 
-test('listenStream: Fehler beim Senden (Client schon zu) räumt den Listener auf', async () => {
+test('listenStream: an error while sending (client already closed) cleans up the listener', async () => {
   const s = session();
   const res = listenStream(s, [], true);
   const reader = res.body!.getReader();

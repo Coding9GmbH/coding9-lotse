@@ -43,18 +43,18 @@ await new Promise<void>(res => srv.listen(0, '127.0.0.1', res));
 after(() => srv.close());
 const base = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
 
-test('Medien-Upload: ein Zeitlimit nach dem Anlegen löscht den Medien-Datensatz', async () => {
+test('Media upload: a timeout after creation deletes the media record', async () => {
   const { Shopware } = await import('../../src/server/shopware');
   const sw = new Shopware({ url: base, publicUrl: base, user: 'a', password: 'b', clientId: '', clientSecret: '' });
   dropUpload = true;
   const png = Buffer.from('89504e470d0a1a0a', 'hex');
   await assert.rejects(sw.uploadMediaBinary(png, { ext: 'png', mime: 'image/png', fileName: 'vase' }), /fetch failed|ECONNRESET|socket|nicht erreichbar|Zeitlimit|aborted|other side closed/i);
   dropUpload = false;
-  assert.equal(media.size, 0, 'angelegter Datensatz wurde gelöscht');
+  assert.equal(media.size, 0, 'created record was deleted');
   assert.ok(calls.some(c => c.startsWith('DELETE /api/media/')));
 });
 
-test('URL-Import: derselbe Aufruf legt die Datei kein zweites Mal an', async () => {
+test('URL import: the same call does not create the file a second time', async () => {
   const { Shopware } = await import('../../src/server/shopware');
   const { importFromUrl, setFetcher, setTrustedOrigins } = await import('../../src/server/media');
   setTrustedOrigins(async () => ['https://cdn.example.com']);
@@ -64,5 +64,5 @@ test('URL-Import: derselbe Aufruf legt die Datei kein zweites Mal an', async () 
   const a = await importFromUrl(sw, 'https://cdn.example.com/vase.jpg', { alt: 'Vase' });
   const b = await importFromUrl(sw, 'https://cdn.example.com/vase.jpg', { alt: 'Vase' });
   assert.equal(a.mediaId, b.mediaId);
-  assert.equal(media.size, before + 1, 'kein zweites Medium');
+  assert.equal(media.size, before + 1, 'no second media');
 });

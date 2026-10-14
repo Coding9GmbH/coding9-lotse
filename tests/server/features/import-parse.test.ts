@@ -4,10 +4,10 @@ import ExcelJS from 'exceljs';
 import { columnDecimal, columnInfo, decodeText, detectDelimiter, detectHeaderRow, headerSignature, parseCsv, parseNumber, parseTable } from '../../../src/server/features/import-parse';
 import { checkMapping, describeMapping, suggestMapping } from '../../../src/server/features/import-mapping';
 
-// Testdaten wie aus Excel „CSV (Trennzeichen-getrennt)“ unter Windows: „ “ € als Windows-1252-Bytes
+// Test data as from Excel "CSV (Trennzeichen-getrennt)" on Windows: „ “ € as Windows-1252 bytes
 const cp1252 = (s: string) => Buffer.from([...s].map(ch => ({ '€': 0x80, '„': 0x84, '“': 0x93, '–': 0x96 } as Record<string, number>)[ch] ?? ch.charCodeAt(0)));
 
-test('Kodierung: UTF-8, UTF-8 mit BOM, Windows-1252 (Umlaute)', () => {
+test('Encoding: UTF-8, UTF-8 with BOM, Windows-1252 (umlauts)', () => {
   assert.deepEqual(decodeText(Buffer.from('Größe;Preis', 'utf8')), { text: 'Größe;Preis', encoding: 'UTF-8' });
   assert.deepEqual(decodeText(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('Maß', 'utf8')])), { text: 'Maß', encoding: 'UTF-8 (BOM)' });
   const w = decodeText(Buffer.from('Größe;Übergröße;€', 'latin1'));
@@ -15,7 +15,7 @@ test('Kodierung: UTF-8, UTF-8 mit BOM, Windows-1252 (Umlaute)', () => {
   assert.equal(decodeText(cp1252('„Wärme“ – 9 €')).text, '„Wärme“ – 9 €');
 });
 
-test('CSV: Trennzeichen erkennen, Anführungszeichen, Zeilenumbrüche im Feld', () => {
+test('CSV: detect delimiter, quotes, line breaks inside a field', () => {
   assert.equal(detectDelimiter('a;b;c\n1;2,5;3\n4;5;6'), ';');
   assert.equal(detectDelimiter('a,b,c\n1,2,3'), ',');
   assert.equal(detectDelimiter('a\tb\tc\n1\t2\t3'), '\t');
@@ -26,7 +26,7 @@ test('CSV: Trennzeichen erkennen, Anführungszeichen, Zeilenumbrüche im Feld', 
   assert.equal(rows.length, 3);
 });
 
-test('Zahlen: Dezimalkomma, Tausenderpunkt, Währung, Prozent', () => {
+test('Numbers: decimal comma, thousands separator, currency, percent', () => {
   assert.equal(parseNumber('12,50'), 12.5);
   assert.equal(parseNumber('1.234,56 €'), 1234.56);
   assert.equal(parseNumber('1,234.56', '.'), 1234.56);
@@ -38,17 +38,17 @@ test('Zahlen: Dezimalkomma, Tausenderpunkt, Währung, Prozent', () => {
   assert.equal(parseNumber(''), null);
   assert.equal(columnDecimal(['12,50', '3,99', '7']), ',');
   assert.equal(columnDecimal(['12.50', '3.99']), '.');
-  // „1.250“ ist mehrdeutig: deutsch (Semikolon) = Tausenderpunkt, Komma-getrennte Datei = Dezimalpunkt
+  // "1.250" is ambiguous: German (semicolon) = thousands separator, comma-separated file = decimal point
   assert.equal(columnDecimal(['1.250', '2.500']), ','); assert.equal(parseNumber('1.250', columnDecimal(['1.250'], ';')), 1250);
   assert.equal(columnDecimal(['1.250', '2.500'], ','), '.'); assert.equal(columnDecimal(['1.250', '12.99']), '.');
 });
 
-test('Kopfzeile: Titelzeilen davor werden übersprungen', () => {
+test('Header row: title rows before it are skipped', () => {
   assert.equal(detectHeaderRow([['Preisliste Nordlicht GmbH'], ['Stand: 01.10.2026'], [], ['Art.-Nr.', 'Bezeichnung', 'VK brutto'], ['N-1', 'Plaid', '89,00']]), 3);
   assert.equal(detectHeaderRow([['Nr', 'Name'], ['1', 'x']]), 0);
 });
 
-test('CSV-Datei (Windows-1252, Semikolon, Dezimalkomma) → Tabelle mit Spaltentypen', async () => {
+test('CSV file (Windows-1252, semicolon, decimal comma) → table with column types', async () => {
   const csv = 'Lieferant Nordlicht;;\nArtikelnummer;Bezeichnung;VK brutto;EAN;Bild\nN-1;Plaid „Fjord“ Größe L;89,90;4012345678901;https://x.test/a.jpg\nN-2;Kissen Wärme;24,50;4012345678918;\n';
   const t = await parseTable(cp1252(csv), 'liste.csv');
   assert.equal(t.encoding, 'Windows-1252'); assert.equal(t.delimiter, ';'); assert.equal(t.headerRow, 2);
@@ -58,7 +58,7 @@ test('CSV-Datei (Windows-1252, Semikolon, Dezimalkomma) → Tabelle mit Spaltent
   assert.deepEqual(cols.map(c => c.type), ['text', 'text', 'preis', 'ean', 'url']);
 });
 
-test('XLSX: Blatt wählen, Titelzeile, Zahlen, Rich-Text, Formel', async () => {
+test('XLSX: sheet selection, title row, numbers, rich text, formula', async () => {
   const wb = new ExcelJS.Workbook();
   wb.addWorksheet('Info').addRow(['nur Hinweise']);
   const ws = wb.addWorksheet('Artikel');
@@ -74,7 +74,7 @@ test('XLSX: Blatt wählen, Titelzeile, Zahlen, Rich-Text, Formel', async () => {
   const first = await parseTable(buf, 'lieferant.xlsx');
   assert.equal(first.sheet, 'Info');
   await assert.rejects(parseTable(buf, 'lieferant.xlsx', 'Fehlt'), /Blatt „Fehlt“ nicht gefunden/);
-  // Zuordnung: netto + MwSt, Gramm, Eigenschaft Farbe
+  // Mapping: net + VAT, grams, property color
   const m = suggestMapping(columnInfo(t));
   assert.equal(m.productNumber, 'Art.-Nr.'); assert.equal(m.name, 'Bezeichnung'); assert.equal(m.priceNet, 'Preis netto'); assert.equal(m.taxRate, 'MwSt');
   assert.equal(m.stock, 'Bestand'); assert.equal(m.weight, 'Gewicht (g)'); assert.deepEqual(m.units, { weight: 'g' });
@@ -82,12 +82,12 @@ test('XLSX: Blatt wählen, Titelzeile, Zahlen, Rich-Text, Formel', async () => {
   assert.ok(describeMapping(m).includes('Gewicht in Gramm (wird in kg umgerechnet)'));
 });
 
-test('Altes .xls-Binärformat und falsche Dateitypen werden klar abgewiesen', async () => {
+test('Old .xls binary format and wrong file types are clearly rejected', async () => {
   await assert.rejects(parseTable(Buffer.from('d0cf11e0a1b11ae1', 'hex'), 'alt.xls'), /als \.xlsx oder \.csv speichern/);
   await assert.rejects(parseTable(Buffer.from('%PDF'), 'liste.pdf'), /CSV-, TSV- oder Excel-Datei/);
 });
 
-test('Zuordnungs-Vorschlag: Netto vor Brutto, Hersteller-Nr. vor Artikelnummer, Varianten', () => {
+test('Mapping suggestion: net before gross, manufacturer no. before product number, variants', () => {
   const cols = ['Artikelnummer', 'Hauptartikel', 'Hersteller-Artikelnummer', 'Artikelbezeichnung', 'Langtext', 'VK-Preis', 'UVP', 'EK netto', 'Lagerbestand', 'Marke', 'Warengruppe', 'Farbe', 'Größe', 'Material', 'Bild 1', 'Bild 2', 'Lieferzeit', 'Breite (cm)']
     .map(name => ({ name, type: 'text' as const, filled: 1, distinct: 1, samples: [] }));
   const m = suggestMapping(cols);
@@ -101,7 +101,7 @@ test('Zuordnungs-Vorschlag: Netto vor Brutto, Hersteller-Nr. vor Artikelnummer, 
   assert.match(checkMapping({ name: 'Fehlt' }, ['A']).join(' '), /Spalte „Fehlt“ gibt es nicht.*Produktnummer oder EAN/);
 });
 
-test('Signatur der Kopfzeile: Reihenfolge und Schreibweise egal', () => {
+test('Header row signature: order and spelling do not matter', () => {
   assert.equal(headerSignature(['Art.-Nr.', 'Größe', 'Preis']), headerSignature(['preis', 'GRÖSSE', 'Art Nr']));
   assert.notEqual(headerSignature(['A', 'B']), headerSignature(['A', 'C']));
 });

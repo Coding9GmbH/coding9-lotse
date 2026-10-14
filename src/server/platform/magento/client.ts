@@ -1,21 +1,20 @@
 import 'server-only';
-// Privilegierter Magento-2-Client (REST /rest/<store>/V1 + öffentliches GraphQL). Bleibt im Adapter: nie in der Session, nie an die KI.
-// Auth: Integrations-Token (Bearer) oder Admin-Benutzer (Token über /V1/integration/admin/token, wird bei 401 erneuert).
-// Schutz des Shops: Timeout je Anfrage, höchstens MAX_CONC Anfragen gleichzeitig, bei 429/503 kurz warten und höchstens 2× wiederholen.
+// Privileged Magento 2 client (REST /rest/<store>/V1 + public GraphQL). Stays in the adapter: never in the session, never given to the AI.
+// Auth: integration token (Bearer) or admin user (token via /V1/integration/admin/token, renewed on 401).
+// Shop protection: timeout per request, at most MAX_CONC concurrent requests, on 429/503 wait briefly and retry at most 2×.
 import { criteriaQuery, type Criteria } from './criteria';
 import { parseBasis, type PriceBasis } from './map';
-import { log, urlForLog } from '../../log';
+import { createLimiter, shopFetch } from '../../shop-http';
 
 export interface MagentoConfig { url: string; publicUrl?: string; storeCode?: string; accessToken?: string; user?: string; password?: string; priceBasis?: string }
 export class MagentoError extends Error { constructor(msg: string, public status: number) { super(msg); } }
 
 const TIMEOUT_MS = Math.max(5_000, parseInt(process.env.LOTSE_SHOP_TIMEOUT_MS ?? '', 10) || 60_000);
 const MAX_CONC = Math.min(8, Math.max(1, parseInt(process.env.LOTSE_MAGENTO_CONCURRENCY ?? '', 10) || 4));
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-/** Store-Code für /rest/<store>/V1: Kleinbuchstaben, Ziffern, Unterstrich (keine Pfad-Injektion) */
+/** Store code for /rest/<store>/V1: lowercase letters, digits, underscore (no path injection) */
 export const STORE_RE = /^[a-z][a-z0-9_]{0,31}$/;
 
-/** Magento-Fehlertext: „%1“/„%fieldName“ durch parameters ersetzen, Stacktrace weglassen */
+/** Magento error text: replace "%1"/"%fieldName" with parameters, omit the stack trace */
 export function magentoMessage(json: unknown, fallback: string): string {
   const j = json as { message?: string; parameters?: Record<string, unknown> | unknown[]; errors?: { message?: string; parameters?: unknown }[] } | null;
   const fill = (m: string, p: unknown) => {
@@ -35,13 +34,12 @@ export class MagentoClient {
   base = '';
   publicUrl = '';
   storeCode = 'default';
-  /** Preise im Admin brutto oder netto (Einstellung, Magento verrät es über die API nicht); null = unbekannt */
+  /** Prices in the admin gross or net (setting, Magento doesn't reveal it via the API); null = unknown */
   priceBasis: PriceBasis | null = null;
   #adminToken: string | null = null;
   #adminExpires = 0;
   #adminLogin: Promise<string> | null = null;
-  #active = 0;
-  #queue: (() => void)[] = [];
+  #slot = createLimiter(MAX_CONC);
 
   constructor(cfg: MagentoConfig) { this.configure(cfg); }
   configure(cfg: MagentoConfig) {
@@ -52,33 +50,17 @@ export class MagentoClient {
   }
   get configured() { return !!(this.base && (this.cfg.accessToken || (this.cfg.user && this.cfg.password))); }
 
-  async #slot<T>(fn: () => Promise<T>): Promise<T> {
-    // Freier Platz wird direkt an den nächsten Wartenden übergeben (kein Zwischenraum, in dem ein Neuer vordrängelt)
-    if (this.#active >= MAX_CONC) await new Promise<void>(r => this.#queue.push(r)); else this.#active++;
-    try { return await fn(); } finally { const next = this.#queue.shift(); if (next) next(); else this.#active--; }
+  #fetch(url: string, init: RequestInit): Promise<Response> {
+    return shopFetch(url, init, { shop: 'magento', name: 'Magento', timeoutMs: TIMEOUT_MS, slot: this.#slot, toError: m => new MagentoError(m, 0) });
   }
 
-  async #fetch(url: string, init: RequestInit): Promise<Response> {
-    for (let attempt = 0; ; attempt++) {
-      const r = await this.#slot(() => fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) })).catch((e: Error & { cause?: { code?: string } }) => {
-        log.warn('Shop nicht erreichbar', { shop: 'magento', url: urlForLog(url), error: e.name === 'TimeoutError' ? 'timeout' : e.cause?.code || e.message });
-        throw new MagentoError(e.name === 'TimeoutError' ? `Magento antwortet nicht (Timeout nach ${TIMEOUT_MS / 1000}s)` : `Magento nicht erreichbar: ${e.cause?.code || e.message}`, 0);
-      });
-      const retry = r.status === 429 || (r.status === 503 && (init.method ?? 'GET') === 'GET'); // Schreibzugriffe nur bei 429 (sicher nicht verarbeitet)
-      if (!retry || attempt >= 2) { if (r.status >= 500 || r.status === 429) log.warn('Shop-Anfrage fehlgeschlagen', { shop: 'magento', method: init.method ?? 'GET', url: urlForLog(url), status: r.status, attempts: attempt + 1 }); return r; }
-      const ra = parseInt(r.headers.get('retry-after') ?? '', 10), wait = Math.min(Number.isFinite(ra) ? ra * 1000 : 1000 * 2 ** attempt, 10_000);
-      log.info('Shop-Anfrage wird wiederholt', { shop: 'magento', url: urlForLog(url), status: r.status, attempt: attempt + 1, waitMs: wait });
-      await sleep(wait);
-    }
-  }
-
-  /** Bearer-Token: Integrations-Token direkt, sonst Admin-Token (Magento-Standard: 1 h gültig, hier 50 min zwischengespeichert) */
+  /** Bearer token: integration token directly, otherwise admin token (Magento default: valid 1 h, cached here for 50 min) */
   async token(force = false): Promise<string> {
     if (!this.base) throw new MagentoError('Magento ist noch nicht verbunden (Einstellungen).', 0);
     if (this.cfg.accessToken) return this.cfg.accessToken;
     if (!this.cfg.user || !this.cfg.password) throw new MagentoError('Magento-Zugang unvollständig (Token oder Admin-Benutzer + Passwort).', 0);
     if (!force && this.#adminToken && Date.now() < this.#adminExpires) return this.#adminToken;
-    // parallele Erstanfragen teilen sich eine Anmeldung
+    // parallel first requests share one login
     return (this.#adminLogin ??= this.#login().finally(() => { this.#adminLogin = null; }));
   }
   async #login(): Promise<string> {
@@ -90,8 +72,8 @@ export class MagentoClient {
   }
 
   /**
-   * REST-Aufruf. path beginnt mit /V1/… (Store aus o.store bzw. Einstellung) oder – für gespeicherte Rückgängig-Schritte – mit /<store>/V1/….
-   * Liefert JSON; 404 bei GET mit o.nullOn404 → null.
+   * REST call. path starts with /V1/… (store from o.store or the setting) or (for stored undo steps) with /<store>/V1/….
+   * Returns JSON; 404 on GET with o.nullOn404 → null.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async req(method: string, path: string, body?: unknown, o: { store?: string; query?: string; nullOn404?: boolean } = {}): Promise<any> {
@@ -102,7 +84,7 @@ export class MagentoClient {
     const url = `${this.base}/rest${scoped ? '' : `/${store}`}${path}${o.query ? `?${o.query}` : ''}`;
     for (let auth = 0; ; auth++) {
       const r = await this.#fetch(url, { method, headers: { authorization: `Bearer ${await this.token(auth > 0)}`, 'content-type': 'application/json', accept: 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-      if (r.status === 401 && auth === 0 && !this.cfg.accessToken) continue; // Admin-Token abgelaufen → einmal neu anmelden
+      if (r.status === 401 && auth === 0 && !this.cfg.accessToken) continue; // admin token expired → log in again once
       const text = await r.text();
       let json: unknown; try { json = text ? JSON.parse(text) : null; } catch { json = text; }
       if (r.status === 404 && o.nullOn404 && method === 'GET') return null;
@@ -111,14 +93,14 @@ export class MagentoClient {
     }
   }
 
-  /** Suche mit searchCriteria (fields = Magento-Feldauswahl, z. B. „items[id,sku,name],total_count“) */
+  /** Search with searchCriteria (fields = Magento field selection, e.g. "items[id,sku,name],total_count") */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   search(path: string, c: Criteria = {}, o: { store?: string; fields?: string } = {}): Promise<{ items: any[]; total_count: number }> {
     const q = [criteriaQuery(c), o.fields ? `fields=${encodeURIComponent(o.fields)}` : ''].filter(Boolean).join('&');
     return this.req('GET', path, undefined, { store: o.store, query: q }).then(r => ({ items: r?.items ?? [], total_count: r?.total_count ?? 0 }));
   }
 
-  /** Öffentliches Storefront-GraphQL (ohne Token: nur öffentliche Daten), Header Store = Store-View */
+  /** Public storefront GraphQL (without token: public data only), header Store = store view */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async graphql(query: string, variables: Record<string, unknown> = {}, store = this.storeCode): Promise<any> {
     const r = await this.#fetch(`${this.base}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', store }, body: JSON.stringify({ query, variables }) });
@@ -127,9 +109,9 @@ export class MagentoClient {
     return j.data;
   }
 
-  /** Storefront-Abruf für die Vorschau (ohne Token) */
+  /** Storefront fetch for the preview (without token) */
   storefrontFetch(url: string, init: RequestInit = {}): Promise<Response> { return this.#fetch(url, init); }
 }
 
-/** SKU sicher in einen Pfad einsetzen */
+/** Insert a SKU safely into a path */
 export const skuPath = (sku: string) => encodeURIComponent(sku);

@@ -1,4 +1,4 @@
-// Zerlegt einen Byte-Strom in Zeilen (NDJSON). Unvollständige Zeilen werden bis zum nächsten Stück gepuffert.
+// Splits a byte stream into lines (NDJSON). Incomplete lines are buffered until the next chunk.
 
 export function createLineSplitter(onLine: (line: string) => void) {
   const dec = new TextDecoder();

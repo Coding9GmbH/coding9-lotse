@@ -1,7 +1,7 @@
 import 'server-only';
-// Geschützter Magento-Lese-Client der KI: feste Lese-Methoden statt freier Abfragen, Freigabeliste der REST-Pfade je Bereich,
-// erlaubte Filterfelder je Ressource, Bereinigung sensibler Felder und Zugriffsprotokoll. Kunden, Bestellungen, Rechnungen,
-// Warenkörbe, Admin-Benutzer, Integrationen und Tokens sind nie lesbar, egal was im Prompt steht.
+// Guarded Magento read client for the AI: fixed read methods instead of free queries, allow-list of REST paths per scope,
+// allowed filter fields per resource, scrubbing of sensitive fields and access log. Customers, orders, invoices,
+// carts, admin users, integrations and tokens are never readable, no matter what the prompt says.
 import type { ScopeKey } from '@/lib/protocol';
 import { DeniedError, DENIED_TERMS, isSensitiveKey, SCOPES, scrubSensitive, type AccessEvent, type Scopes } from '../../policy';
 import { DEFAULT_SCOPES } from '../../policy';
@@ -9,7 +9,7 @@ import { MagentoClient, STORE_RE, skuPath } from './client';
 import { criteriaFields, type Criteria, type Filter } from './criteria';
 import type { MProduct, MCategory, MRecord } from './map';
 
-/** Freigabeliste: Methode + Pfad (ohne /rest/<store>) → Bereich. Alles andere wird abgewiesen. */
+/** Allow-list: method + path (without /rest/<store>) → scope. Everything else is rejected. */
 export const ALLOW: { re: RegExp; scope: ScopeKey; entity: string; method?: 'GET' | 'POST' }[] = [
   { re: /^\/V1\/products$/, scope: 'products', entity: 'product' },
   { re: /^\/V1\/products\/attributes\/[a-z][a-z0-9_]{0,59}$/, scope: 'products', entity: 'product-attribute' },
@@ -33,7 +33,7 @@ export const ALLOW: { re: RegExp; scope: ScopeKey; entity: string; method?: 'GET
   { re: /^\/V1\/coupons\/search$/, scope: 'marketing', entity: 'coupon' },
   { re: /^\/V1\/store\/(storeViews|storeConfigs|websites|storeGroups)$/, scope: 'shop', entity: 'store' },
 ];
-/** Erlaubte Filter-/Sortierfelder je Ressource (searchCriteria) */
+/** Allowed filter/sort fields per resource (searchCriteria) */
 const FILTER_FIELDS: Record<string, string[]> = {
   product: ['entity_id', 'sku', 'name', 'type_id', 'status', 'visibility', 'price', 'special_price', 'category_id', 'attribute_set_id', 'url_key', 'updated_at', 'created_at', 'meta_title', 'meta_description', 'manufacturer', 'color', 'news_from_date'],
   category: ['entity_id', 'name', 'parent_id', 'is_active', 'level', 'url_key', 'path', 'position'],
@@ -46,13 +46,13 @@ const FILTER_FIELDS: Record<string, string[]> = {
   'product-attribute': ['attribute_id', 'attribute_code', 'is_user_defined', 'frontend_input', 'is_visible_on_front'],
   'attribute-set': ['entity_type_id', 'attribute_set_name'],
 };
-// Pfade mit Kunden-, Bestell-, Benutzer- oder Zugangsbezug: vor der Freigabeliste hart abweisen (verständliche Meldung)
+// Paths related to customers, orders, users or access: reject hard before the allow-list (clear message)
 const DENY_PATH = /(customer|order|invoice|creditmemo|shipment|transaction|carts?\b|guest-carts|quote|integration|admin|tfa|token|payment|giftcard|gift-card|negotiable|company|requisition|returns?\b|rma|newsletter|user|password|bulk)/i;
 
-/** Magento-Feldnamen, die harmlose Wortteile wie „order“/„user“ enthalten (Sortierung, Attribut-Metadaten) */
+/** Magento field names containing harmless word parts like "order"/"user" (sorting, attribute metadata) */
 const SAFE_FIELDS = new Set(['sort_order', 'is_user_defined']);
 
-/** Magento-Attribute als Liste {attribute_code, value}: sensible Attribute (E-Mail, Telefon, Kunden-/Bestellbezug …) entfernen */
+/** Magento attributes as a list {attribute_code, value}: remove sensitive attributes (email, phone, customer/order related …) */
 export function scrubAttributes(data: unknown): number {
   let n = 0;
   const walk = (x: unknown) => {
@@ -69,7 +69,7 @@ export function scrubAttributes(data: unknown): number {
 
 export interface MagentoGuard {
   scopes: () => Scopes;
-  /** prüft Methode, Pfad, Filterfelder und Feldauswahl; liefert die Ressource (für das Protokoll) */
+  /** checks method, path, filter fields and field selection; returns the resource (for the log) */
   check(method: string, path: string, c?: Criteria, fields?: string): string;
   after<T>(op: string, entity: string, res: T, n?: number): T;
   deny(entity: string, msg: string): DeniedError;
@@ -104,8 +104,8 @@ export function createMagentoGuard({ getScopes = () => DEFAULT_SCOPES, onAccess 
 export interface ProductQuery extends Criteria { store?: string; fields?: string }
 
 /**
- * Lese-Client der KI (Magento). Nur feste Methoden; der privilegierte Client ist privat (#c) und von außen nicht erreichbar.
- * Ergebnisse werden bereinigt und protokolliert. store: Store-View-Code (Standard aus den Einstellungen; 'all' = globale Werte).
+ * Read client for the AI (Magento). Fixed methods only; the privileged client is private (#c) and not reachable from outside.
+ * Results are scrubbed and logged. store: store view code (default from the settings; 'all' = global values).
  */
 export class MagentoReader {
   readonly #c: MagentoClient;
@@ -118,7 +118,7 @@ export class MagentoReader {
   get storeCode() { return this.#c.storeCode; }
   get priceBasis() { return this.#c.priceBasis; }
   scopes() { return this.#g.scopes(); }
-  /** Bereich freigegeben? (Werkzeuge blenden z. B. Bilder aus, wenn „Medienbibliothek“ aus ist) */
+  /** Scope enabled? (tools hide e.g. images when "Medienbibliothek" (media library) is off) */
   allowed(scope: ScopeKey) { return !!this.#g.scopes()[scope]; }
 
   #store(s?: string) { const st = s ?? this.#c.storeCode; if (st !== 'all' && !STORE_RE.test(st)) throw this.#g.deny('store', `Ungültiger Store-Code „${String(s).slice(0, 40)}“.`); return st; }
@@ -130,7 +130,7 @@ export class MagentoReader {
   }
   #once<T>(key: string, fn: () => Promise<T>): Promise<T> { if (!this.#cache.has(key)) this.#cache.set(key, fn().catch(e => { this.#cache.delete(key); throw e; })); return this.#cache.get(key) as Promise<T>; }
 
-  // ---- Produkte ----
+  // ---- Products ----
   products(q: ProductQuery = {}): Promise<{ items: MProduct[]; total_count: number }> { const { store, fields, ...c } = q; return this.#get('/V1/products', { c, store, fields }); }
   product(sku: string, store?: string): Promise<MProduct | null> { return this.#get(`/V1/products/${skuPath(sku)}`, { store, nullOn404: true }); }
   async productsByIds(ids: (string | number)[], store?: string): Promise<MProduct[]> {
@@ -141,35 +141,35 @@ export class MagentoReader {
   }
   async productsBySkus(skus: string[], store?: string): Promise<MProduct[]> {
     const list = [...new Set(skus.filter(Boolean))]; if (!list.length) return [];
-    // Magento trennt in-Werte am Komma: SKUs mit Komma einzeln lesen
+    // Magento splits in-values at commas: read SKUs containing a comma individually
     const plain = list.filter(s => !s.includes(',')), out: MProduct[] = [];
     for (let i = 0; i < plain.length; i += 100) out.push(...(await this.products({ filters: [[{ field: 'sku', value: plain.slice(i, i + 100), condition_type: 'in' }]], pageSize: 100, store })).items);
     for (const s of list.filter(x => x.includes(','))) { const p = await this.product(s, store); if (p) out.push(p); }
     return out;
   }
-  /** Produkt per Entitäts-ID (wie in den Werkzeugen) oder SKU */
+  /** Product by entity ID (as in the tools) or SKU */
   async productByRef(ref: string, store?: string): Promise<MProduct | null> {
     if (/^\d+$/.test(ref)) { const [p] = await this.productsByIds([ref], store); if (p) return p; }
     return this.product(ref, store);
   }
   attribute(code: string): Promise<MRecord | null> { return this.#once(`attr:${code}`, () => this.#get<MRecord | null>(`/V1/products/attributes/${code}`, { store: 'all', nullOn404: true })); }
   attributes(c: Criteria): Promise<{ items: MRecord[]; total_count: number }> { return this.#get('/V1/products/attributes', { c, store: 'all' }); }
-  /** Eigene (nutzerdefinierte) Attribute einmal je Lese-Client: Grundlage für die Attributanzeige statt eines GET je Attributcode */
+  /** Custom (user-defined) attributes once per read client: basis for displaying attributes instead of one GET per attribute code */
   userAttributes(): Promise<MRecord[]> { return this.#once('userattrs', async () => (await this.attributes({ filters: [[{ field: 'is_user_defined', value: 1 }]], pageSize: 500 })).items); }
   attributeSets(): Promise<{ items: MRecord[]; total_count: number }> { return this.#once('sets', () => this.#get('/V1/products/attribute-sets/sets/list', { c: { pageSize: 100 }, store: 'all' })); }
   configurableChildren(sku: string): Promise<MProduct[]> { return this.#get(`/V1/configurable-products/${skuPath(sku)}/children`, { op: 'children' }); }
   configurableOptions(sku: string): Promise<MRecord[]> { return this.#get(`/V1/configurable-products/${skuPath(sku)}/options/all`, { op: 'options' }); }
-  /** MSI-Quellen; null = Inventory-Module nicht vorhanden (Altsystem) */
+  /** MSI sources; null = inventory modules not present (legacy system) */
   sources(): Promise<MRecord[] | null> { return this.#once('sources', async () => { try { return (await this.#get<{ items: MRecord[] }>('/V1/inventory/sources', { c: { pageSize: 50 }, store: 'all' })).items; } catch (e) { if ((e as { status?: number }).status === 404) return null; throw e; } }); }
   async sourceItems(skus: string[]): Promise<MRecord[]> {
     const out: MRecord[] = [], plain = skus.filter(s => !s.includes(','));
     const get = (filters: Filter[][]) => this.#get<{ items: MRecord[] }>('/V1/inventory/source-items', { c: { filters, pageSize: 500 }, store: 'all' }).then(r => r.items);
     for (let i = 0; i < plain.length; i += 100) out.push(...await get([[{ field: 'sku', value: plain.slice(i, i + 100), condition_type: 'in' }]]));
-    for (const s of skus.filter(x => x.includes(','))) out.push(...await get([[{ field: 'sku', value: s }]])); // Komma = Trennzeichen des in-Filters
+    for (const s of skus.filter(x => x.includes(','))) out.push(...await get([[{ field: 'sku', value: s }]])); // comma = separator of the in-filter
     return out;
   }
 
-  // ---- Kategorien ----
+  // ---- Categories ----
   categoryTree(rootId?: number, depth?: number): Promise<MCategory> {
     const q = [rootId != null ? `rootCategoryId=${Number(rootId)}` : '', depth != null ? `depth=${Number(depth)}` : ''].filter(Boolean).join('&');
     const entity = this.#g.check('GET', '/V1/categories');
@@ -179,7 +179,7 @@ export class MagentoReader {
   categories(c: Criteria, store?: string): Promise<{ items: MCategory[]; total_count: number }> { return this.#get('/V1/categories/list', { c, store }); }
   categoryProducts(id: string | number): Promise<{ sku: string; position: number; category_id: string }[]> { if (!/^\d+$/.test(String(id))) return Promise.resolve([]); return this.#get(`/V1/categories/${id}/products`, { op: 'links', store: 'all' }); }
 
-  // ---- Inhalte, Marketing, Shop ----
+  // ---- Content, marketing, shop ----
   cmsPages(c: Criteria, store?: string): Promise<{ items: MRecord[]; total_count: number }> { return this.#get('/V1/cmsPage/search', { c, store }); }
   cmsBlocks(c: Criteria, store?: string): Promise<{ items: MRecord[]; total_count: number }> { return this.#get('/V1/cmsBlock/search', { c, store }); }
   salesRules(c: Criteria): Promise<{ items: MRecord[]; total_count: number }> { return this.#get('/V1/salesRules/search', { c, store: 'all' }); }
@@ -190,7 +190,7 @@ export class MagentoReader {
   websites(): Promise<MRecord[]> { return this.#once('websites', () => this.#get('/V1/store/websites', { store: 'all' })); }
   storeGroups(): Promise<MRecord[]> { return this.#once('groups', () => this.#get('/V1/store/storeGroups', { store: 'all' })); }
 
-  /** Store-View-Konfiguration der Storefront (öffentliches GraphQL): URL-Suffixe, Basis-URL, Locale */
+  /** Store view config of the storefront (public GraphQL): URL suffixes, base URL, locale */
   storefrontConfig(store?: string): Promise<{ product_url_suffix?: string | null; category_url_suffix?: string | null; base_url?: string; base_media_url?: string; locale?: string; store_code?: string }> {
     const st = this.#store(store);
     return this.#once(`sfc:${st}`, async () => {
@@ -199,7 +199,7 @@ export class MagentoReader {
       return this.#g.after('storefront-config', 'store', d?.storeConfig ?? {});
     });
   }
-  /** Storefront-URL (Pfad) → Entität über das öffentliche GraphQL (urlResolver/route) */
+  /** Storefront URL (path) → entity via the public GraphQL (urlResolver/route) */
   async resolveUrl(path: string, store?: string): Promise<{ type: string; id?: number; sku?: string; identifier?: string; relative_url?: string; redirect_code?: number } | null> {
     const st = this.#store(store), url = path.replace(/^\/+/, '').slice(0, 400);
     const d = await this.#c.graphql('query($u:String!){ route(url:$u){ type relative_url redirect_code ... on ProductInterface { id sku } ... on CategoryInterface { id } ... on CmsPage { identifier } } }', { u: url }, st).catch(() => null);
@@ -210,7 +210,7 @@ export class MagentoReader {
     this.#g.after('route', String(r.type ?? 'url').toLowerCase(), r);
     return { type: r.type, id: r.id, sku: r.sku, identifier: r.identifier, relative_url: r.relative_url, redirect_code: r.redirect_code };
   }
-  /** Bild-URL einer Galerie-Datei (/p/r/x.jpg) */
+  /** Image URL of a gallery file (/p/r/x.jpg) */
   async mediaUrl(file: string | null | undefined): Promise<string | undefined> {
     if (!file || file === 'no_selection') return undefined;
     if (/^https?:\/\//.test(file)) return file;
@@ -218,9 +218,9 @@ export class MagentoReader {
     const base = String(cfg.base_media_url ?? `${this.#c.publicUrl || this.#c.base}/media/`).replace(/\/?$/, '/');
     return `${this.#rebase(base)}catalog/product${file.startsWith('/') ? '' : '/'}${file}`;
   }
-  /** interne Basis-URL (Docker) → öffentliche URL des Browsers */
+  /** internal base URL (Docker) → public URL for the browser */
   #rebase(u: string) { const { base, publicUrl } = this.#c; return base && publicUrl && base !== publicUrl && u.startsWith(base) ? publicUrl + u.slice(base.length) : u; }
-  /** Storefront-Basis der Store-View (öffentlich) */
+  /** Storefront base of the store view (public) */
   async storefrontBase(store?: string): Promise<string> {
     const st = store ?? this.#c.storeCode;
     const cfg = (await this.storeConfigs().catch(() => [])).find(s => s.code === st);

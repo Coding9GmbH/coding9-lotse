@@ -27,11 +27,11 @@ type TestState = { running: boolean; result: TestResult | null };
 const SCOPE_ORDER: ScopeKey[] = ['products', 'manufacturers', 'categories', 'cms', 'media', 'marketing', 'shop'];
 const INTEGRATION_SCOPES: ScopeKey[] = ['gsc', 'sistrix'];
 
-/** Unterseiten der Einstellungen (Routen unter /settings) */
+/** Settings subpages (routes under /settings) */
 export type SettingsSection = 'general' | 'access' | 'integrations' | 'logs';
 const SECTION_PATH: Record<SettingsSection, string> = { general: '/settings', access: '/settings/ki-zugriff', integrations: '/settings/integrationen', logs: '/settings/protokolle' };
 
-/** Einstellungen: Unterseiten Allgemein (Shop, KI, Bild-KI), KI-Zugriff, Integrationen (Search Console, Sistrix), Protokolle. */
+/** Settings: subpages General (shop, AI, image AI), AI access, Integrations (Search Console, Sistrix), Logs. */
 export function SettingsView({ section = 'general' }: { section?: SettingsSection }) {
   const { refreshHealth } = useShell();
   const { t, locale } = useI18n();
@@ -42,7 +42,7 @@ export function SettingsView({ section = 'general' }: { section?: SettingsSectio
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [tests, setTests] = useState<Record<TestTarget, TestState>>({ shop: { running: false, result: null }, ai: { running: false, result: null } });
-  const [secretsReset, setSecretsReset] = useState<PlatformKind | null>(null); // Shop-Adresse auf anderen Server: Zugangsdaten verworfen
+  const [secretsReset, setSecretsReset] = useState<PlatformKind | null>(null); // shop address points to another server: credentials discarded
 
 
   useEffect(() => {
@@ -56,8 +56,8 @@ export function SettingsView({ section = 'general' }: { section?: SettingsSectio
   const dirty = !!form && !!saved && autosaveDirty(form, saved);
   const pending = !!form && !!saved && platformPending(form, saved);
 
-  // Automatisch speichern: kurz nach der letzten Eingabe. In einem Geheimnis-Feld erst beim Verlassen
-  // (sonst landet ein halb eingetippter Schlüssel im Speicher und das Feld leert sich mitten im Tippen).
+  // Auto-save: shortly after the last input. In a secret field only on blur
+  // (otherwise a half-typed key gets stored and the field clears mid-typing).
   const formRef = useRef<HTMLFormElement>(null);
   const inFlight = useRef(false);
   const [kick, setKick] = useState(0);
@@ -68,7 +68,7 @@ export function SettingsView({ section = 'general' }: { section?: SettingsSectio
       const s = await api.saveSettings(autosavePatch(sent, base));
       setSaved(s);
       if (secretsDropped(base, s, sent, sent.platform)) setSecretsReset(sent.platform);
-      // Nur zurücksetzen, wenn seither nichts mehr eingegeben wurde; gewählte Plattform und KI bleiben (auch wenn sie noch nicht aktiv sind)
+      // Only reset if nothing has been typed since; the chosen platform and AI stay (even if they are not active yet)
       setForm(cur => { if (cur !== sent) return cur; const next = formFromSettings(s); return { ...next, platform: sent.platform, ai: { ...next.ai, provider: sent.ai.provider } }; });
       setNotice({ ok: true, text: ts.saved });
       refreshHealth();
@@ -99,7 +99,7 @@ export function SettingsView({ section = 'general' }: { section?: SettingsSectio
   const set = (fn: (f: SettingsForm) => SettingsForm) => { setForm(f => (f ? fn(f) : f)); setNotice(n => (n?.ok ? n : null)); };
   const setSecret = (k: SecretKey, v: { value: string; remove: boolean }) => set(f => ({ ...f, secrets: { ...f.secrets, [k]: v } }));
   const setAi = (patch: Partial<SettingsForm['ai']>) => set(f => ({ ...f, ai: { ...f.ai, ...patch } }));
-  // Nach ChatGPT-An-/Abmeldung nur den Anmeldestatus übernehmen (ungespeicherte Eingaben bleiben erhalten)
+  // After ChatGPT sign-in/sign-out, only take over the sign-in status (unsaved input is kept)
   const reloadAiState = useCallback(() => {
     api.settings().then(s => setSaved(p => (p ? { ...p, ai: { ...p.ai, codexLoggedIn: s.ai.codexLoggedIn } } : s))).catch(() => {});
     refreshHealth();
@@ -239,7 +239,7 @@ export function SettingsView({ section = 'general' }: { section?: SettingsSectio
   );
 }
 
-/** Shop verbinden: Plattform wählen (Shopware / Shopify / Magento / OpenMage), dann deren Felder laut lib/platforms.ts. */
+/** Connect shop: choose the platform (Shopware / Shopify / Magento / OpenMage), then its fields per lib/platforms.ts. */
 function ShopSection({ form, saved, set, test, onTest, saving, dirty, pending, secretsReset }: { form: SettingsForm; saved: PublicSettings; set: (fn: (f: SettingsForm) => SettingsForm) => void; test: TestState; onTest: () => void; saving: boolean; dirty: boolean; pending: boolean; secretsReset: boolean }) {
   const { t, locale } = useI18n();
   const ts = t.settings.shop;
@@ -284,7 +284,7 @@ function ShopSection({ form, saved, set, test, onTest, saving, dirty, pending, s
   );
 }
 
-/** **fett** in Hilfetexten aus lib/platforms.ts */
+/** **bold** in help texts from lib/platforms.ts */
 const rich = (t: string) => t.split('**').map((part, i) => (i % 2 ? <b key={i}>{part}</b> : part));
 
 function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactElement }) {
@@ -297,7 +297,7 @@ function Field({ label, hint, children }: { label: string; hint?: React.ReactNod
   );
 }
 
-/** Unterseiten links: Allgemein, KI-Zugriff, Integrationen, Protokolle (eigene Routen); Allgemein zeigt, ob Shop und KI eingerichtet sind. */
+/** Subpages on the left: General, AI access, Integrations, Logs (own routes); General shows whether shop and AI are set up. */
 function SubNav({ active, general }: { active: SettingsSection; general?: 'ok' | 'todo' }) {
   const t = useI18n().t.settings;
   const items: { key: SettingsSection; label: string; state?: 'ok' | 'todo' }[] = [
@@ -320,7 +320,7 @@ function SubNav({ active, general }: { active: SettingsSection; general?: 'ok' |
   );
 }
 
-/** Ein Schalter für einen KI-Zugriffsbereich (Shop-Daten oder Integration) */
+/** A toggle for one AI access area (shop data or integration) */
 function ScopeSwitch({ k, form, saved, set, locale }: { k: ScopeKey; form: SettingsForm; saved: PublicSettings; set: (fn: (f: SettingsForm) => SettingsForm) => void; locale: Locale }) {
   const info = scopeDisplay(form.platform, k, saved.scopeInfo?.[k] ?? { label: k, hint: '' }, locale);
   return (
@@ -334,7 +334,7 @@ function ScopeSwitch({ k, form, saved, set, locale }: { k: ScopeKey; form: Setti
   );
 }
 
-/** Speicherstand oben neben der Überschrift: speichert … / gespeichert / Fehler mit „Erneut versuchen“. */
+/** Save status at the top next to the heading: saving … / saved / error with "Erneut versuchen" (retry). */
 function SaveState({ saving, dirty, notice, onRetry }: { saving: boolean; dirty: boolean; notice: { ok: boolean; text: string } | null; onRetry: () => void }) {
   const t = useI18n().t;
   const failed = notice && !notice.ok;

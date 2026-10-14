@@ -1,11 +1,12 @@
 import 'server-only';
-// Vereinfachte Page-Spec (für die KI) → Shopware cms_page Payload + HTML-Vorschau
+// Simplified page spec (for the AI) → Shopware cms_page payload + HTML preview
+import { esc } from '@/lib/format';
 import { FRAME_CSS, FRAME_SCRIPT } from '@/lib/preview-frame';
 import { injectIntoHead, spliceSections } from './real-page';
 import { newId } from './shopware';
 import { cssVars } from './styleguide';
 
-// ---- Typen der Page-Spec (kommt von der KI, wird zur Laufzeit validiert) ----
+// ---- Page spec types (comes from the AI, validated at runtime) ----
 export type PageType = 'landingpage' | 'product_list' | 'product_detail';
 export type ImageObj = { mediaId?: string; url?: string; alt?: string };
 export type ImageRef = string | ImageObj;
@@ -14,15 +15,15 @@ export interface BlockSpec {
   html?: string; leftHtml?: string; centerHtml?: string; rightHtml?: string; css?: string; js?: string;
   image?: ImageRef; image2?: ImageRef; minHeight?: string; displayMode?: string; linkUrl?: string;
   title?: string; productIds?: string[];
-  /** Produktboxen: image = großes Bild (Standard), standard = Shopware-Standard, minimal = nur Bild/Name/Preis */
+  /** Product boxes: image = large image (default), standard = Shopware default, minimal = image/name/price only */
   boxLayout?: 'image' | 'standard' | 'minimal';
   marginTop?: string; marginBottom?: string; backgroundColor?: string | null;
   pattern?: string; data?: Record<string, unknown>; _pattern?: string;
-  /** reuse: Block 1:1 aus einer vorhandenen Einkaufswelt übernehmen (cmsPageId + blockIndex laut get_cms_page) */
+  /** reuse: take over a block 1:1 from an existing Shopping Experience (cmsPageId + blockIndex per get_cms_page) */
   cmsPageId?: string; blockIndex?: number; _src?: RawBlock; cmsType?: string; like?: string;
   [k: string]: unknown;
 }
-/** Roher Shopware-Block (Auszug), wie er aus einer bestehenden Seite kopiert wird */
+/** Raw Shopware block (excerpt), as copied from an existing page */
 export interface RawSlot { slot: string; type: string; config: Record<string, unknown> | null }
 export interface RawBlock {
   type: string; name?: string | null; cssClass?: string | null; backgroundColor?: string | null; backgroundMediaId?: string | null; backgroundMediaMode?: string | null;
@@ -30,9 +31,9 @@ export interface RawBlock {
 }
 const boxLayout = (b: BlockSpec) => (b.boxLayout === 'standard' || b.boxLayout === 'minimal' ? b.boxLayout : 'image');
 const SLOT_LIKE: Record<string, string> = { 'product-listing': 'product-listing', 'buy-box': 'pdp-gallery-buybox', 'product-slider': 'product-slider', 'cross-selling': 'pdp-cross-selling', 'product-description-reviews': 'pdp-description-reviews', 'sidebar-filter': 'sidebar-filter' };
-/** Statischer Wert einer Slot-Config ({source:"static", value}); gemappte Werte → undefined */
+/** Static value of a slot config ({source:"static", value}); mapped values → undefined */
 export const staticVal = (cfg: RawSlot['config'], key: string): unknown => { const c = (cfg ?? {})[key] as { source?: string; value?: unknown } | undefined; return c && c.source !== 'mapped' ? c.value : undefined; };
-/** Medien-/Produkt-IDs, die ein übernommener Block für die Vorschau braucht */
+/** Media/product IDs that a reused block needs for the preview */
 export function reuseRefs(b: BlockSpec): { mediaIds: string[]; productIds: string[] } {
   const mediaIds: string[] = [], productIds: string[] = [];
   for (const sl of b._src?.slots ?? []) {
@@ -41,7 +42,7 @@ export function reuseRefs(b: BlockSpec): { mediaIds: string[]; productIds: strin
   }
   return { mediaIds, productIds };
 }
-/** Löst reuse-Blöcke auf: kopiert den Quellblock (Typ, Slots, Config) in die Spec. loader liefert die Blöcke einer Seite in Lesereihenfolge. */
+/** Resolves reuse blocks: copies the source block (type, slots, config) into the spec. loader returns a page's blocks in reading order. */
 export async function resolveReuse(spec: Partial<PageSpec>, loader: (cmsPageId: string) => Promise<RawBlock[]>): Promise<string[]> {
   const errs: string[] = [], cache = new Map<string, Promise<RawBlock[]>>();
   for (const [si, s] of (spec.sections ?? []).entries()) for (const [bi, b] of (s.blocks ?? []).entries()) {
@@ -68,8 +69,8 @@ export interface PageSpec {
 }
 type SlotConfig = Record<string, unknown>;
 type MediaLookup = (im: ImageRef | undefined) => string | null | undefined;
-/** generic = auf jeder Plattform darstellbar (statisches HTML, siehe page-html.ts); sonst Shopware-Einkaufswelt (gemappte/dynamische Elemente, reuse) */
-/** htmlOnly = nur HTML-Plattformen mit Theme (Shopify: theme-main), nie in Shopware-Einkaufswelten */
+/** generic = renderable on every platform (static HTML, see page-html.ts); otherwise Shopware Shopping Experience (mapped/dynamic elements, reuse) */
+/** htmlOnly = only HTML platforms with a theme (Shopify: theme-main), never in Shopware Shopping Experiences */
 interface BlockDef { desc: string; cms?: string; generic?: boolean; htmlOnly?: boolean; slots: (b: BlockSpec, m: MediaLookup) => [string, string, SlotConfig][] }
 
 const S = (v: unknown) => ({ source: 'static', value: v });
@@ -120,7 +121,7 @@ export const BLOCKS: Record<string, BlockDef> = {
     }]],
   },
   'sidebar-filter': { desc: 'Filter-Sidebar (nur Kategorie, mit section.type="sidebar"). Keine Felder', cms: 'sidebar-filter', slots: () => [['content', 'sidebar-filter', {}]] },
-  // --- Produktdetailseite: dynamische (gemappte) Standardbausteine ---
+  // --- Product detail page: dynamic (mapped) standard elements ---
   'pdp-heading': {
     desc: 'PDP: Produktname + Herstellerlogo. Keine Felder', cms: 'product-heading',
     slots: () => [
@@ -152,12 +153,12 @@ export const BLOCKS: Record<string, BlockDef> = {
   },
 };
 
-/** Blocktypen, die jede Plattform kann (zusätzlich immer "pattern") – Grundlage für PlatformCapabilities.blocks */
+/** Block types every platform supports (plus always "pattern"); basis for PlatformCapabilities.blocks */
 export const GENERIC_BLOCKS: string[] = Object.keys(BLOCKS).filter(k => BLOCKS[k].generic);
-/** Blockkatalog einer Plattform ('all' = alle) */
+/** A platform's block catalog ('all' = all) */
 export const blocksFor = (allowed: 'all' | readonly string[]) => (allowed === 'all' ? Object.keys(BLOCKS).filter(k => !BLOCKS[k].htmlOnly) : Object.keys(BLOCKS).filter(k => allowed.includes(k)));
 
-// Verpackt html/css/js eines custom-html-Blocks: eindeutige Scope-Klasse, <style>, <script> mit root-Variable
+// Wraps html/css/js of a custom-html block: unique scope class, <style>, <script> with root variable
 export function wrapCustom(b: Pick<BlockSpec, 'html' | 'css' | 'js'>, scopeId = 'aicb-' + Math.random().toString(36).slice(2, 8)) {
   const css = (b.css ?? '').replace(/\.scope\b/g, '.' + scopeId);
   const js = b.js ? `<script>(function(){var run=function(){var root=document.querySelector('.${scopeId}');if(!root)return;try{${b.js}\n}catch(e){console.error('[custom-html]',e)}};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);else run();})();</script>` : '';
@@ -169,9 +170,9 @@ export function wrapCustom(b: Pick<BlockSpec, 'html' | 'css' | 'js'>, scopeId = 
 export const PAGE_TYPES = ['landingpage', 'product_list', 'product_detail'] as const;
 
 /**
- * Prüft die Spec. layoutRules=false (HTML-Plattformen): product_list/product_detail ohne Pflicht auf product-listing bzw.
- * pdp-gallery-buybox, denn dort wird nur der Inhalt der Kategorie/Kollektion gesetzt; Produktliste und Kaufbox liefert das Theme.
- * themeMain=true (Plattform mit Theme-Vorlagen, z. B. Shopify): product_list/product_detail brauchen genau einen theme-main-Block (Position des Theme-Inhalts).
+ * Validates the spec. layoutRules=false (HTML platforms): product_list/product_detail without requiring product-listing or
+ * pdp-gallery-buybox, because there only the category/collection content is set; the theme provides product list and buy box.
+ * themeMain=true (platform with theme templates, e.g. Shopify): product_list/product_detail need exactly one theme-main block (position of the theme content).
  */
 export function validateSpec(spec: PageSpec, { layoutRules = true, themeMain = false }: { layoutRules?: boolean; themeMain?: boolean } = {}): string[] {
   const errs: string[] = [];
@@ -181,10 +182,10 @@ export function validateSpec(spec: PageSpec, { layoutRules = true, themeMain = f
   let listings = 0, buybox = 0, mains = 0;
   for (const [si, s] of (spec?.sections ?? []).entries()) {
     for (const [bi, b] of (s.blocks ?? []).entries()) {
-      if (b.type === 'pattern') { errs.push(`sections[${si}].blocks[${bi}]: unbekanntes Pattern "${b.pattern}" (Namen laut Pattern-Katalog)`); continue; } // nach expandSpec nur noch da, wenn der Name falsch ist
+      if (b.type === 'pattern') { errs.push(`sections[${si}].blocks[${bi}]: unbekanntes Pattern "${b.pattern}" (Namen laut Pattern-Katalog)`); continue; } // after expandSpec only present if the name is wrong
       if (!BLOCKS[b.type]) { errs.push(`sections[${si}].blocks[${bi}]: unbekannter Typ "${b.type}"`); continue; }
       if (b.type === 'reuse' && (typeof b.cmsPageId !== 'string' || !Number.isInteger(b.blockIndex))) { errs.push(`sections[${si}].blocks[${bi}]: reuse braucht cmsPageId und blockIndex`); continue; }
-      const kind = b.type === 'reuse' ? b.like ?? '' : b.type; // übernommener Block zählt wie sein Gegenstück im Katalog
+      const kind = b.type === 'reuse' ? b.like ?? '' : b.type; // reused block counts like its catalog counterpart
       if (kind === 'product-listing') listings++;
       if (kind === 'pdp-gallery-buybox') buybox++;
       if (kind === 'theme-main') { mains++; if (spec.type === 'landingpage') errs.push('theme-main nur bei type=product_list oder product_detail (eine Landingpage hat keinen Theme-Inhalt)'); }
@@ -200,7 +201,7 @@ export function validateSpec(spec: PageSpec, { layoutRules = true, themeMain = f
   return errs;
 }
 
-// image-Feld: {mediaId} | {url, alt} | string(url)  →  mediaId (lädt bei Bedarf hoch)
+// image field: {mediaId} | {url, alt} | string(url)  →  mediaId (uploads if needed)
 export async function compile(spec: PageSpec, resolveMedia: (im: ImageObj) => Promise<string | null>) {
   const cache = new Map<string, string | null>();
   const imgs: ImageRef[] = [];
@@ -221,7 +222,7 @@ export async function compile(spec: PageSpec, resolveMedia: (im: ImageObj) => Pr
       backgroundColor: s.backgroundColor ?? null,
       blocks: s.blocks.map((b, bi) => {
         const def = BLOCKS[b.type];
-        if (b.type === 'reuse') { // Kopie des Quellblocks mit neuen IDs
+        if (b.type === 'reuse') { // copy of the source block with new IDs
           const src = b._src; if (!src) throw new Error(`reuse-Block ${bi} wurde nicht aufgelöst (draft_page erneut aufrufen)`);
           return {
             id: newId(), position: bi, type: src.type, name: src.name ?? null, cssClass: src.cssClass ?? null,
@@ -243,17 +244,16 @@ export async function compile(spec: PageSpec, resolveMedia: (im: ImageObj) => Pr
   };
 }
 
-// ---------- HTML-Vorschau ----------
-// Läuft im sandboxed iframe (DraftFrame.tsx): Skripte aus custom-html und Shop-HTML haben keinen Zugriff auf Oberfläche und API;
-// Teil-Updates, Scroll und Markier-Modus gehen über das Skript aus lib/preview-frame.ts (postMessage).
-const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c as '&' | '<' | '>' | '"']));
+// ---------- HTML preview ----------
+// Runs in the sandboxed iframe (DraftFrame.tsx): scripts from custom-html and shop HTML have no access to the UI and API;
+// partial updates, scroll and mark mode go through the script from lib/preview-frame.ts (postMessage).
 
 export interface PreviewProduct { id?: string; name?: string; price?: string | null; img?: string; description?: string; faqHtml?: string; [k: string]: unknown }
 export interface PreviewCtx {
   imageUrl?: (im: ImageRef) => string | null | undefined; products?: Record<string, PreviewProduct>; product?: PreviewProduct; themeCss?: string | null;
-  /** HTML der echten Zielseite (Skripte entfernt, URLs auf /shop umgeschrieben): der Entwurf ersetzt darin den CMS-Inhalt */
+  /** HTML of the real target page (scripts removed, URLs rewritten to /shop): the draft replaces the CMS content in it */
   realPage?: string;
-  /** echte dynamische Blöcke (Kaufbox, Produktliste …) dieser Seite je Blocktyp des Entwurfs */
+  /** real dynamic blocks (buy box, product list …) of this page per block type of the draft */
   realBlocks?: Record<string, string>;
 }
 
@@ -265,7 +265,7 @@ export function renderPreview(spec: Partial<PageSpec>, ctx: PreviewCtx = {}): st
       : `<div class="ph" style="min-height:${h}px">Bild</div>`;
   };
   const products = (ids: string[] | undefined) => (ids ?? []).map(id => ctx.products?.[id]).filter((p): p is PreviewProduct => !!p);
-  // Produktbox wie im Shop (Boxlayout „Großes Bild“): Bild, Name (2 Zeilen), Preis, Warenkorb
+  // Product box as in the shop (box layout "Großes Bild"): image, name (2 lines), price, cart
   const card = (p: PreviewProduct) => `<div class="card">${p.img ? `<div class="pi"><img src="${esc(p.img)}" alt=""></div>` : '<div class="pi ph">Produkt</div>'}<div class="pb"><b>${esc(p.name)}</b><span>${esc(p.price ?? '')}</span><i>In den Warenkorb</i></div></div>`;
   const prod = ctx.product;
 
@@ -290,7 +290,7 @@ export function renderPreview(spec: Partial<PageSpec>, ctx: PreviewCtx = {}): st
       const others = Object.values(ctx.products ?? {}).filter(p => p.id !== prod?.id).slice(0, 4);
       return others.length ? `<h3>Das könnte dir auch gefallen</h3><div class="slider">${others.map(card).join('')}</div>` : `<div class="ph">Cross-Selling (dynamisch)</div>`;
     },
-    // Theme-Inhalt (HTML-Plattformen): Produktliste der Kollektion bzw. Produktbereich mit echten Daten, so weit vorhanden
+    // Theme content (HTML platforms): the collection's product list or the product area with real data, where available
     'theme-main': () => spec.type === 'product_detail'
       ? `<div class="theme-main"><div class="cols c2">${prod?.img ? `<img src="${esc(prod.img)}" style="width:100%">` : '<div class="ph" style="min-height:300px">Galerie (Theme)</div>'}<div class="buy"><h1>${esc(prod?.name ?? 'Produktname')}</h1><div class="price">${esc(prod?.price ?? '€ …')}</div><button>In den Warenkorb</button><small>Produktbereich des Themes</small></div></div>${prod?.description ? `<div class="t">${prod.description}</div>` : ''}</div>`
       : `<div class="theme-main"><small>Produktliste des Themes</small><div class="slider wrap">${Object.values(ctx.products ?? {}).slice(0, 8).map(card).join('') || '<div class="ph">Produktliste (Theme)</div>'}</div></div>`,
@@ -311,7 +311,7 @@ export function renderPreview(spec: Partial<PageSpec>, ctx: PreviewCtx = {}): st
     },
   };
 
-  const shop = !!ctx.themeCss || !!ctx.realPage; // echtes Theme-CSS des Shops + Shopware-Markup → Vorschau sieht aus wie der Shop
+  const shop = !!ctx.themeCss || !!ctx.realPage; // the shop's real theme CSS + Shopware markup → preview looks like the shop
   const sections = (spec.sections ?? []).filter(Boolean);
   const blocksOf = (sec: SectionSpec) => (sec.blocks ?? []).filter(b => b && b.type);
   const inner = (b: BlockSpec) => {
@@ -319,7 +319,7 @@ export function renderPreview(spec: Partial<PageSpec>, ctx: PreviewCtx = {}): st
     if (shop) h = h.replace(/class="t( |")/g, 'class="t cms-element-text$1');
     return `<div class="blk" data-type="${esc(b.type === 'reuse' ? `reuse: ${b.cmsType ?? '?'}` : b.type)}">${h}</div>`;
   };
-  // Echter Block der Zielseite (Kaufbox, Produktliste …) statt Platzhalter, wenn die Seite ihn hat
+  // Real block of the target page (buy box, product list …) instead of a placeholder, if the page has one
   const block = (b: BlockSpec, j: number) => ctx.realBlocks && b.type in ctx.realBlocks
     ? `<div class="blk" data-type="${esc(b.type)}"${ctx.realBlocks[b.type] ? '' : ' hidden'}>${ctx.realBlocks[b.type]}</div>`
     : `<div class="cms-block pos-${j} cms-block-${esc(b.type)} position-relative"><div class="cms-block-container" style="padding:20px">${inner(b)}</div></div>`;
@@ -348,7 +348,7 @@ export function renderPreview(spec: Partial<PageSpec>, ctx: PreviewCtx = {}): st
   .pv-new{animation:pvin .5s ease-out}@keyframes pvin{from{opacity:0;transform:translateY(8px)}}
   @media(max-width:700px){.c2,.c3{grid-template-columns:1fr}}
   ${FRAME_CSS}`;
-  // Entwurf auf der echten Seite: Kopf, Fuß, Theme und dynamische Blöcke bleiben, nur der CMS-Inhalt wird ersetzt
+  // Draft on the real page: header, footer, theme and dynamic blocks stay, only the CMS content is replaced
   if (shop && ctx.realPage) {
     const merged = spliceSections(ctx.realPage, sectionsHtml);
     if (merged) return injectIntoHead(merged, `<meta charset="utf-8"><style>${css}</style><script>${FRAME_SCRIPT}</script>`);

@@ -5,7 +5,7 @@ import path from 'node:path';
 
 const read = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
 
-test('Magento und OpenMage nennen die 5.000er Stapelgrenze, die Plattform-Doku beide Deckel', () => {
+test('Magento and OpenMage name the 5,000 bulk limit, the platform docs both caps', () => {
   for (const rel of ['prompts/magento/12-varianten.md', 'prompts/openmage/12-varianten.md']) {
     const t = read(rel);
     const section = t.slice(t.indexOf('## Stapelverarbeitung'));

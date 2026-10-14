@@ -1,6 +1,6 @@
 import 'server-only';
-// Vertrag einer Shop-Plattform (Adapter). Ausführlich beschrieben in docs/platform.md.
-// Der Kern (Chat, Freigabe-Workflow, Vorschau, Wissensbasis, Search Console, Shop-Check) spricht NUR über diese Schnittstelle mit dem Shop.
+// Contract of a shop platform (adapter). Described in detail in docs/platform.md.
+// The core (chat, approval workflow, preview, knowledge base, Search Console, shop check) talks to the shop ONLY via this interface.
 import type { ZodRawShape } from 'zod';
 import type { CategoryRow, ChangeSet, ChatEvent, PlatformPaths, ProductRow, TestResult, UndoOp } from '@/lib/protocol';
 import type { PlatformKind, PlatformSettingsDescriptor } from '@/lib/platforms';
@@ -17,77 +17,77 @@ import type { Fetcher } from '../styleguide';
 
 export type { PlatformKind } from '@/lib/platforms';
 
-/** Ziele von publish_page: category = Kategorie/Kollektion, product = Produkt(e), landingpage = eigene Seite mit URL */
+/** Targets of publish_page: category = category/collection, product = product(s), landingpage = standalone page with URL */
 export type PublishTarget = 'category' | 'product' | 'landingpage';
-/** Seitentyp des Entwurfs je Ziel (gilt für alle Plattformen) */
+/** Draft page type per target (applies to all platforms) */
 export const PUBLISH_PAGE_TYPE: Record<PublishTarget, PageType> = { category: 'product_list', product: 'product_detail', landingpage: 'landingpage' };
 
 /**
- * Was eine Plattform kann. draft_page/publish_page prüfen dagegen, der Prompt beschreibt es (Blockkatalog, Seitentypen).
- * blocks: 'all' = alle BLOCKS aus cms.ts (Shopware-Einkaufswelten); sonst die erlaubten Blocktypen (siehe GENERIC_BLOCKS) – "pattern" ist immer erlaubt.
- * pageFormat: 'cms' = Layout mit Sections/Blöcken (Shopware), 'html' = die Seite wird als statisches HTML veröffentlicht (renderPageHtml in page-html.ts).
+ * What a platform can do. draft_page/publish_page check against it, the prompt describes it (block catalog, page types).
+ * blocks: 'all' = all BLOCKS from cms.ts (Shopware Shopping Experiences); otherwise the allowed block types (see GENERIC_BLOCKS); "pattern" is always allowed.
+ * pageFormat: 'cms' = layout with sections/blocks (Shopware), 'html' = the page is published as static HTML (renderPageHtml in page-html.ts).
  */
 export interface PlatformCapabilities {
   pageTypes: readonly PageType[];
   publishTargets: readonly PublishTarget[];
-  /** Entwurfstypen, die einer Kategorie zugewiesen werden dürfen (Standard: nur product_list); Shopware: auch landingpage (Startseite, Shopseiten) */
+  /** Draft types that may be assigned to a category (default: only product_list); Shopware: also landingpage (home page, shop pages) */
   categoryPageTypes?: readonly PageType[];
   blocks: 'all' | readonly string[];
   pageFormat: 'cms' | 'html';
-  /** reuse-Blöcke (bestehende Blöcke 1:1 übernehmen) */
+  /** reuse blocks (take over existing blocks 1:1) */
   reuse: boolean;
 }
 
-/** Datensatz einer Plattform, je Entität dynamisch – bewusst lose typisiert */
+/** A platform record, dynamic per entity, deliberately loosely typed */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type LooseRecord = Record<string, any>;
 
 export interface ProductFacts { id: string; number?: string; name?: string; ean?: string; categoryIds: string[] }
 
 /**
- * Plattform-neutrale Lesefunktionen für Kern-Funktionen (Wissensbasis, Search Console, view_image).
- * Liest IMMER über den geschützten Lese-Client der Session (Freigabeliste der Plattform), nie über den privilegierten Client.
+ * Platform-neutral read functions for core features (knowledge base, Search Console, view_image).
+ * ALWAYS reads via the session's protected read client (the platform's allowlist), never via the privileged client.
  */
 export interface ShopLookup {
-  /** Produkte per ID und/oder Artikelnummer (SKU); Reihenfolge: erst Treffer der IDs, dann der Nummern */
+  /** Products by ID and/or SKU; order: first the ID matches, then the SKU matches */
   findProducts(q: { ids?: string[]; numbers?: string[] }): Promise<{ id: string; number?: string; name?: string }[]>;
   findCategories(ids: string[]): Promise<{ id: string; name?: string }[]>;
-  /** Produkt-Kerndaten (Wissensbasis: Nummer, EAN, Name, Kategorien inkl. Eltern) */
+  /** Core product data (knowledge base: SKU, EAN, name, categories incl. parents) */
   getProduct(id: string): Promise<ProductFacts | null>;
-  /** öffentliche URL eines Mediums der Plattform (Medien-ID wie in den Werkzeugen) */
+  /** public URL of a platform media item (media ID as in the tools) */
   mediaUrl(id: string): Promise<string | undefined>;
-  /** Seiten-URLs (Search Console) → Shop-Entität; nicht zuordenbar = null. metas: aktuelle metaTitle/metaDescription mitliefern */
+  /** Page URLs (Search Console) → shop entity; unmappable = null. metas: also return current metaTitle/metaDescription */
   mapUrls(urls: string[], o?: { metas?: boolean }): Promise<Map<string, PageRef | null>>;
-  /** URL-Pfade (ohne Domain, ohne führenden Slash) und absolute URLs einer Entität */
+  /** URL paths (without domain, without leading slash) and absolute URLs of an entity */
   entityPaths(kind: LinkKind, id: string): Promise<{ paths: string[]; urls: string[] }>;
-  /** aktueller Datensatz für Drift-Prüfungen: Feldwerte direkt oder unter translated (entity: product | category | landing-page) */
+  /** current record for drift checks: field values directly or under translated (entity: product | category | landing-page) */
   current(entity: string, id: string): Promise<LooseRecord | null>;
 }
 
-/** Was eine Session von der Plattform bekommt (je Chat einmal angelegt). */
+/** What a session gets from the platform (created once per chat). */
 export interface PlatformSessionParts {
-  /** geschützter Lese-Client der KI (Freigabeliste, Bereinigung, Zugriffsprotokoll) */
+  /** the AI's protected read client (allowlist, sanitization, access log) */
   reader: unknown;
   lookup: ShopLookup;
   storefrontFetch: Fetcher;
   themeCss: () => Promise<string | null>;
 }
 
-/** Seiten: Vorschau-Daten, Entwurfs-Vorbereitung und Veröffentlichung */
+/** Pages: preview data, draft preparation and publishing */
 export interface PlatformPages {
-  /** Produkte/Medien für die Vorschau: products nach ID (Name, Preis formatiert, Bild-URL, url), product = previewProductId, imageUrl löst ImageRefs auf */
+  /** Products/media for the preview: products by ID (name, formatted price, image URL, url), product = previewProductId, imageUrl resolves ImageRefs */
   previewData(session: Session, spec: PageSpec): Promise<PreviewCtx>;
-  /** vor dem Rendern: plattformspezifische Auflösung (Shopware: reuse-Blöcke, technische Links → SEO-URLs). errors → draft_page schlägt fehl */
+  /** before rendering: platform-specific resolution (Shopware: reuse blocks, technical links → SEO URLs). errors → draft_page fails */
   prepareDraft?(session: Session, spec: PageSpec): Promise<{ spec: PageSpec; links?: LinkReport | null; errors?: string[] }>;
-  /** Fokus-Ereignis (Produkt/Kategorie der Vorschau) für die Oberfläche */
+  /** Focus event (product/category of the preview) for the UI */
   focus?(session: Session, spec: PageSpec): Promise<ChatEvent | null>;
-  /** Beschreibung + Felder des Werkzeugs publish_page (zod-Shape) */
+  /** Description + fields of the publish_page tool (zod shape) */
   publishTool: { description: string; shape: ZodRawShape };
-  /** Änderungsset (kind „page“ o. Ä.) + Payload für den Applier; wirft bei fehlenden Angaben (Text geht an die KI) */
+  /** Change set (kind "page" or similar) + payload for the applier; throws on missing details (the text goes to the AI) */
   buildPublish(session: Session, spec: PageSpec, args: Record<string, unknown>): Promise<{ cs: ChangeSet; payload: unknown }>;
 }
 
-/** Daten für die Kontext-Auswahl (/api/categories, /api/products) – Anzeige für den Menschen, nicht für die KI */
+/** Data for the context picker (/api/categories, /api/products): display for the human, not for the AI */
 export interface PlatformContext {
   categories(): Promise<CategoryRow[]>;
   products(q: { term?: string | null; categoryId?: string | null }): Promise<ProductRow[]>;
@@ -98,38 +98,38 @@ export interface PlatformAdapter {
   label: string;
   settings: PlatformSettingsDescriptor;
   capabilities: PlatformCapabilities;
-  /** Platzhalter in prompts/common/*.md und im Blockkatalog: {{shop}} (z. B. „Shopware-6-Shop“), {{platform}} („Shopware“), {{htmlElement}} (custom-html, z. B. „Shopware-HTML-Element“), {{shopcheckTools}} (Lese-Werkzeuge für Shop-Check-Aufträge, mit führendem Leerzeichen und Klammern, oder leer) */
+  /** Placeholders in prompts/common/*.md and in the block catalog: {{shop}} (e.g. "Shopware-6-Shop"), {{platform}} ("Shopware"), {{htmlElement}} (custom-html, e.g. "Shopware-HTML-Element"), {{shopcheckTools}} (read tools for shop check tasks, with leading space and parentheses, or empty) */
   promptVars: Record<string, string>;
-  /** Zugang vollständig (Einstellungen) */
+  /** Credentials complete (settings) */
   configured(): boolean;
-  /** nach Änderung der Einstellungen: Clients/Caches neu aufbauen */
+  /** after settings change: rebuild clients/caches */
   reconfigure(): void;
-  /** „Verbindung testen“ in den Einstellungen */
+  /** "Verbindung testen" (test connection) in the settings */
   testConnection(): Promise<TestResult>;
-  /** Statuszeile (Seitenleiste): erreichbar + Anzeige-URL */
+  /** Status line (sidebar): reachable + display URL */
   health(): Promise<{ url: string; ok: boolean; error?: string }>;
-  /** Admin-/Storefront-Basis und Pfad-Vorlagen für Links in der Oberfläche */
+  /** Admin/storefront base and path templates for links in the UI */
   urls(): Promise<{ admin: string; storefront: string; paths: PlatformPaths }>;
-  /** Lese-Client + Lookup für eine Session bzw. den Shop-Check (chat = Name im Zugriffsprotokoll) */
+  /** Read client + lookup for a session or the shop check (chat = name in the access log) */
   openSession(chat: string): PlatformSessionParts;
-  /** ShopLookup über einen (geschützten) Lese-Client dieser Plattform, z. B. den des Shop-Check-Durchlaufs */
+  /** ShopLookup via a (protected) read client of this platform, e.g. that of the shop check run */
   lookup(reader: unknown): ShopLookup;
-  /** Werkzeugnamen und Werkzeuge der Plattform (ohne Kern- und Feature-Werkzeuge) */
+  /** Tool names and tools of the platform (without core and feature tools) */
   toolNames: string[];
   tools(session: Session): AnyTool[];
-  /** zusätzliche Feature-Module dieser Plattform (außerhalb von features/index.ts); dort registrierte Module wählen ihre Plattform über Feature.platforms */
+  /** additional feature modules of this platform (outside features/index.ts); modules registered there choose their platform via Feature.platforms */
   features?: Feature[];
-  /** lädt die Module, die Shop-Prüfungen registrieren (registerCheck mit platforms) */
+  /** loads the modules that register shop checks (registerCheck with platforms) */
   loadChecks(): Promise<void>;
-  /** Aktive Produkte in neutraler Form (Name, Texte, Meta, Preis, Bestand, Bild) für eigene Prüfungen; liest über den geschützten Lese-Client des Durchlaufs */
+  /** Active products in neutral form (name, texts, meta, price, stock, image) for custom checks; reads via the run's protected read client */
   scanProducts(reader: unknown): Promise<NeutralScan>;
-  /** Freigegebenes Änderungsset schreiben (privilegierter Client, nur hier) */
+  /** Write an approved change set (privileged client, only here) */
   apply(cs: ChangeSet, payload: unknown, selected: Set<string>, ctx?: ApplyCtx): Promise<ApplyResult>;
-  /** Rückgängig: UndoOps dieser Plattform in umgekehrter Reihenfolge ausführen */
+  /** Undo: run this platform's UndoOps in reverse order */
   undo(ops: UndoOp[]): Promise<{ ok: boolean; error?: string }[]>;
   pages: PlatformPages;
   context: PlatformContext;
-  /** Storefront für den Vorschau-Proxy /shop (Basis-URL + Abruf über die interne Adresse) */
+  /** Storefront for the preview proxy /shop (base URL + fetch via the internal address) */
   storefront: { base(): Promise<string>; fetch: Fetcher };
 }
 

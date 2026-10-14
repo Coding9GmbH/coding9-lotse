@@ -1,6 +1,6 @@
 <?php
 /**
- * Unit-Tests der reinen Logik (ohne Magento): IP-Freigabeliste, Client-IP hinter Proxys, Routentabelle, Helfer (Util).
+ * Unit tests of the pure logic (without Magento): IP allowlist, client IP behind proxies, route table, helpers (Util).
  *   php integrations/openmage/tests/unit.php
  */
 declare(strict_types=1);
@@ -41,7 +41,7 @@ check('ungültige IP', !Lotse_Connector_Model_Net::isAllowed('nicht-ip', ['0.0.0
 check('ungültiger Eintrag ignoriert', !Lotse_Connector_Model_Net::isAllowed('1.2.3.4', ['foo', '1.2.3.0/abc', '1.2.3.4/40']));
 check('Mehrere Einträge', Lotse_Connector_Model_Net::isAllowed('1.2.3.4', ['9.9.9.9', '1.2.3.0/24']));
 
-// --- SSRF-Schutz: öffentliche vs. private Adressen ---
+// --- SSRF protection: public vs. private addresses ---
 foreach (['127.0.0.1', '127.255.255.254', '10.1.2.3', '172.16.0.1', '172.31.255.255', '192.168.0.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '224.0.0.1', '255.255.255.255', '192.0.2.1', '198.51.100.7', '203.0.113.9', '::1', '::', 'fc00::1', 'fd12::1', 'fe80::1', 'ff02::1', '2001:db8::1', '::ffff:127.0.0.1', '::ffff:10.0.0.1', '64:ff9b::7f00:1'] as $ip) {
     check('nicht öffentlich: ' . $ip, !Lotse_Connector_Model_Net::isPublicIp($ip));
 }
@@ -50,7 +50,7 @@ foreach (['8.8.8.8', '1.1.1.1', '93.184.216.34', '172.32.0.1', '172.15.255.255',
 }
 check('keine IP ist nicht öffentlich', !Lotse_Connector_Model_Net::isPublicIp('localhost') && !Lotse_Connector_Model_Net::isPublicIp(''));
 
-// --- Client-IP hinter Proxys: der Proxy HÄNGT die echte Adresse AN, der erste Eintrag ist vom Client fälschbar ---
+// --- Client IP behind proxies: the proxy APPENDS the real address, the first entry can be forged by the client ---
 $ip = fn($remote, $xff, $trust, $hops = 1) => Lotse_Connector_Model_Net::clientIp($remote, $xff, $trust, $hops);
 check('ohne trust_proxy zählt REMOTE_ADDR', $ip('198.51.100.7', '203.0.113.10', false) === '198.51.100.7');
 check('trust_proxy: letzter Eintrag (vom Proxy angehängt)', $ip('10.0.0.2', '203.0.113.10, 198.51.100.7', true) === '198.51.100.7');
@@ -103,7 +103,7 @@ check('kein v2', Lotse_Connector_Model_Route::match('GET', 'v2/products') === nu
 check('leer', Lotse_Connector_Model_Route::match('GET', '') === null);
 check('Methode case-insensitiv', Lotse_Connector_Model_Route::match('get', 'v1/info')['method'] === 'info');
 
-// Datenschutz: keine Route darf verbotene Bereiche enthalten
+// Privacy: no route may contain forbidden areas
 $forbidden = ['customer', 'order', 'quote', 'invoice', 'shipment', 'creditmemo', 'user', 'api', 'payment', 'newsletter', 'admin', 'wishlist', 'review'];
 foreach (Lotse_Connector_Model_Route::table() as $route) {
     foreach ($forbidden as $word) {
@@ -112,7 +112,7 @@ foreach (Lotse_Connector_Model_Route::table() as $route) {
 }
 check('jede Route hat 4 Felder', count(array_filter(Lotse_Connector_Model_Route::table(), fn($r) => count($r) !== 4)) === 0);
 
-// --- URL-Rewrite target_path: nur relative Katalog- und CMS-Pfade, keine Schemata und kein // ---
+// --- URL rewrite target_path: only relative catalog and CMS paths, no schemes and no // ---
 if (!class_exists('Lotse_Connector_Model_Api_Abstract', false)) {
     abstract class Lotse_Connector_Model_Api_Abstract {}
 }

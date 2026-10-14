@@ -9,9 +9,9 @@ const { buildBasePrompt, promptRoot } = await import('../../src/server/prompt');
 
 const read = (rel: string) => fs.readFileSync(path.join(promptRoot(), rel), 'utf8');
 
-test('Qualität: H1, Listing und Wortumfang nur, wo der Seiten-Check sie verlangt', () => {
+test('quality: H1, listing and word count only where the page check requires them', () => {
   const common = read('common/04-1-qualitaet.md');
-  assert.match(common, /draft_page/, 'Qualitätsschleife bleibt');
+  assert.match(common, /draft_page/, 'quality loop stays');
   assert.match(common, /wichtig/);
   assert.match(common, /450/);
   assert.doesNotMatch(common, /Genau eine H1/);

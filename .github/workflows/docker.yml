@@ -5,7 +5,7 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
-  # Image wird bei einem Tag v* automatisch veröffentlicht, sonst nur von Hand (Actions → Docker-Image → Run workflow)
+  # The image is published automatically on a v* tag, otherwise only manually (Actions → Docker-Image → Run workflow)
   workflow_dispatch:
 
 permissions:
@@ -18,7 +18,7 @@ concurrency:
 env:
   IMAGE: ghcr.io/coding9gmbh/lotse
 
-# Fremde Actions sind per Commit-SHA gepinnt (Kommentar = Version); Dependabot hält sie aktuell.
+# Third-party actions are pinned by commit SHA (comment = version); Dependabot keeps them up to date.
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -35,8 +35,8 @@ jobs:
       - run: npm test
       - name: OpenMage-Modul (Unit, ohne Shop)
         run: php integrations/openmage/tests/unit.php
-      # Build + Smoke-Test laufen auch bei PRs: Build-Fehler (z. B. Server/Client-Grenzen) fallen
-      # sonst erst nach dem Merge auf. Der Smoke-Test spricht nur localhost an und braucht keine Secrets.
+      # Build + smoke test also run on PRs: build errors (e.g. server/client boundaries) would
+      # otherwise only surface after the merge. The smoke test only talks to localhost and needs no secrets.
       - name: Build
         run: npm run build
       - name: Smoke-Test (Standalone-Server startet, Healthcheck & Seite antworten)
@@ -48,7 +48,7 @@ jobs:
           curl -fs -o /dev/null localhost:3333/
           curl -fs -o /dev/null localhost:3333/settings
 
-  # Release-Prüfung: Wird die Version in package.json erhöht, muss package-lock.json mitziehen und CHANGELOG.md den passenden Abschnitt haben (siehe CONTRIBUTING.md). Gewöhnliche PRs ohne Versionsänderung bestehen immer.
+  # Release check: if the version in package.json is bumped, package-lock.json must follow and CHANGELOG.md must have the matching section (see CONTRIBUTING.md). Ordinary PRs without a version change always pass.
   release-check:
     if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
@@ -58,7 +58,7 @@ jobs:
       - run: node .github/scripts/check-release.mjs "origin/${BASE_REF}"
         env: { BASE_REF: '${{ github.base_ref }}' }
 
-  # Ende-zu-Ende: echte Oberfläche gegen Shopify-Fake + Fake-KI (Vorschlag → Anwenden → Rückgängig, Einstellungen, Wissen, axe)
+  # End-to-end: real UI against a Shopify fake + fake AI (proposal → apply → undo, settings, knowledge base, axe)
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20

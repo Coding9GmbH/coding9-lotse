@@ -10,12 +10,12 @@ for (const k of Object.keys(process.env)) if (/^(SHOPWARE|SHOPIFY|MAGENTO|OPENMA
 const { stagedFile, stagedMeta, stageImage, sanitizeSvg, downloadImage, setTrustedOrigins, trustedOrigins } = await import('../../src/server/media');
 const { updateSettings } = await import('../../src/server/settings');
 
-test('stagedFile: Pfad-Ausbruch wird abgewiesen', () => {
+test('stagedFile: path traversal is rejected', () => {
   for (const segs of [['..', 'aicb.db'], ['..%2Faicb.db'], ['../secret.key'], ['..'], ['sub', 'a.png'], ['a.png/..'], ['/etc/passwd'], ['abc.json'], ['abc'], ['.png'], ['a b.png'], ['abc.png\0.json']])
     assert.equal(stagedFile(segs), null, JSON.stringify(segs));
 });
 
-test('stagedFile: gültige Bilddatei liegt im Staging-Ordner', () => {
+test('stagedFile: valid image file is in the staging folder', () => {
   const f = stagedFile(['abc123.png']);
   assert.ok(f);
   assert.equal(f.mime, 'image/png');
@@ -23,7 +23,7 @@ test('stagedFile: gültige Bilddatei liegt im Staging-Ordner', () => {
   assert.equal(stagedFile(['x1.svg'])?.mime, 'image/svg+xml');
 });
 
-test('stagedMeta: nur einfache IDs', () => {
+test('stagedMeta: simple IDs only', () => {
   assert.equal(stagedMeta('../aicb'), null);
   const m = stageImage(Buffer.from(sanitizeSvg('<svg viewBox="0 0 1 1"><rect width="1" height="1" fill="#000"/></svg>')), 'image/svg+xml', { name: 'Test', alt: 'Alt' });
   const id = m.mediaId.slice('staged:'.length);
@@ -32,7 +32,7 @@ test('stagedMeta: nur einfache IDs', () => {
   assert.ok(f && fs.readFileSync(f.path, 'utf8').includes('xmlns='));
 });
 
-test('sanitizeSvg: einfache Vektorgrafik (Verlauf, use, style-Attribut, Kommentar, Text mit Doppelpunkt) wird angenommen, xmlns ergänzt', () => {
+test('sanitizeSvg: simple vector graphic (gradient, use, style attribute, comment, text with colon) is accepted, xmlns added', () => {
   const svg = '<svg viewBox="0 0 100 100"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1d4ed8"/><stop offset="100%" stop-color="#9333ea" stop-opacity="0.8"/></linearGradient></defs>'
     + '<rect x="0" y="0" width="100" height="100" rx="8" fill="url(#g)"/><circle cx="50" cy="50" r="20" style="fill:#fff;stroke:#000;stroke-width:2"/><text x="10" y="90" font-family="system-ui" font-size="12" text-anchor="start">Preis: 10 €</text>'
     + '<g transform="rotate(45 50 50)"><path d="M10 10 L90 90" stroke="#000"/></g><use href="#g" xlink:href="#g" xmlns:xlink="http://www.w3.org/1999/xlink"/><!-- Kommentar --><title>Hallo &amp; Co</title></svg>';
@@ -43,7 +43,7 @@ test('sanitizeSvg: einfache Vektorgrafik (Verlauf, use, style-Attribut, Kommenta
   assert.throws(() => sanitizeSvg('<?xml version="1.0"?><svg/>'), /muss mit <svg beginnen/);
 });
 
-test('sanitizeSvg: lehnt ab statt zu strippen (Script, Handler, Entities, Animation, Style, externe Verweise, Tag-Splitting)', () => {
+test('sanitizeSvg: rejects instead of stripping (script, handlers, entities, animation, style, external references, tag splitting)', () => {
   const bad: [string, RegExp][] = [
     ['<svg viewBox="0 0 1 1"><script>alert(1)</script></svg>', /<script/],
     ['<svg onload=alert(1)></svg>', /onload/],
@@ -71,13 +71,13 @@ test('sanitizeSvg: lehnt ab statt zu strippen (Script, Handler, Entities, Animat
   for (const [svg, re] of bad) assert.throws(() => sanitizeSvg(svg), re, svg);
 });
 
-// ---- Bild-Download: kein Zugriff ins interne Netz (SSRF), eigener Shop ausgenommen, Weiterleitungen einzeln geprüft ----
+// ---- Image download: no access to the internal network (SSRF), own shop excepted, redirects checked individually ----
 const serve = (handler: (req: http.IncomingMessage, res: http.ServerResponse) => void) => new Promise<{ port: number; close: () => void }>(resolve => {
   const srv = http.createServer(handler).listen(0, '127.0.0.1', () => resolve({ port: (srv.address() as { port: number }).port, close: () => srv.close() }));
 });
 const PNG = Buffer.from('89504e470d0a1a0a', 'hex');
 
-test('downloadImage: lokale/interne Adressen und Nicht-http werden abgewiesen, Fehlertext ohne Status', async () => {
+test('downloadImage: local/internal addresses and non-http are rejected, error text without status', async () => {
   const srv = await serve((req, res) => { res.statusCode = 401; res.end('x'); });
   try {
     for (const u of [`http://127.0.0.1:${srv.port}/latest/meta-data/`, `http://localhost:${srv.port}/a.png`, `http://[::1]:${srv.port}/a.png`, 'http://10.0.0.5/a.png', 'http://169.254.169.254/latest/meta-data/', 'http://192.168.1.1/a.png', 'http://172.16.0.1/a.png', 'http://0.0.0.0/a.png', 'http://[fd00::1]/a.png', 'http://[::ffff:10.0.0.1]/a.png'])
@@ -85,11 +85,11 @@ test('downloadImage: lokale/interne Adressen und Nicht-http werden abgewiesen, F
     await assert.rejects(downloadImage('ftp://example.com/a.png'), /nur http\(s\)/);
     await assert.rejects(downloadImage('nicht-url'), /keine gültige URL/);
     setTrustedOrigins(async () => [`http://127.0.0.1:${srv.port}`]);
-    await assert.rejects(downloadImage(`http://127.0.0.1:${srv.port}/a.png`), /HTTP 401/); // eigener Shop: Status darf genannt werden
+    await assert.rejects(downloadImage(`http://127.0.0.1:${srv.port}/a.png`), /HTTP 401/); // own shop: status may be mentioned
   } finally { setTrustedOrigins(async () => []); srv.close(); }
 });
 
-test('downloadImage: Weiterleitung vom eigenen Shop auf eine interne Adresse wird nicht gefolgt, auf den Shop selbst schon', async () => {
+test('downloadImage: a redirect from our own shop to an internal address is not followed, one to the shop itself is', async () => {
   const inner = await serve((req, res) => { res.setHeader('content-type', 'image/png'); res.end(PNG); });
   const shop = await serve((req, res) => {
     if (req.url === '/intern') { res.statusCode = 302; res.setHeader('location', `http://127.0.0.1:${inner.port}/secret.png`); res.end(); }
@@ -109,9 +109,24 @@ test('downloadImage: Weiterleitung vom eigenen Shop auf eine interne Adresse wir
   } finally { setTrustedOrigins(async () => []); shop.close(); inner.close(); }
 });
 
-test('trustedOrigins: Shop-URLs aus den Einstellungen gelten als eigener Shop', async () => {
+test('trustedOrigins: shop URLs from the settings count as our own shop', async () => {
   updateSettings({ shopware: { url: 'http://shopware', publicUrl: 'http://localhost:8888/' }, shopify: { storeDomain: 'demo.myshopify.com' } });
   const t = await trustedOrigins();
   assert.ok(t.has('http://shopware') && t.has('http://localhost:8888') && t.has('https://demo.myshopify.com'));
   updateSettings({ shopware: { url: '', publicUrl: '' }, shopify: { storeDomain: '' } });
+});
+
+test('generateRaster: image delivered by URL is read with the size cap', async () => {
+  const { generateRaster, setImageConfig, MAX_IMAGE_BYTES } = await import('../../src/server/media');
+  const srv = http.createServer((q, r) => {
+    const base = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+    if (q.url === '/v1/images/generations') { r.setHeader('content-type', 'application/json'); return r.end(JSON.stringify({ data: [{ url: `${base}/big.png` }] })); }
+    r.setHeader('content-type', 'image/png'); r.write(Buffer.alloc(MAX_IMAGE_BYTES)); r.end(Buffer.alloc(10)); // no content-length (chunked)
+  });
+  await new Promise<void>(res => srv.listen(0, '127.0.0.1', res));
+  const prev = process.env.LOTSE_OPENAI_API_BASE;
+  process.env.LOTSE_OPENAI_API_BASE = `http://127.0.0.1:${(srv.address() as { port: number }).port}/v1`;
+  setImageConfig({ key: 'sk-test', model: '' });
+  try { await assert.rejects(generateRaster('x'), /Bild größer als 20 MB/); }
+  finally { setImageConfig({ key: '', model: '' }); process.env.LOTSE_OPENAI_API_BASE = prev; if (prev === undefined) delete process.env.LOTSE_OPENAI_API_BASE; srv.closeAllConnections(); srv.close(); }
 });

@@ -1,11 +1,11 @@
 import 'server-only';
-// Magento-Werkzeuge der KI: lesen nur über den geschützten Lese-Client (session.reader), schreiben nur über Änderungssets.
-// Namen und Argumente wie bei Shopware, wo die Bedeutung passt (gemeinsame Prompts, Shop-Check-Aufträge, Onboarding).
+// Magento tools for the AI: read only via the protected read client (session.reader), write only via change sets.
+// Names and arguments as in Shopware where the meaning matches (shared prompts, shop check tasks, onboarding).
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
-import { viewedImages } from '../../features/bilder';
+import { viewedImages } from '../../features/product-images';
 import type { Session } from '../../sessions';
-import { fail, guard, ok, type AnyTool } from '../../tool-kit';
+import { fail, guard, lim, ok, type AnyTool } from '../../tool-kit';
 import { MAX_ITEMS } from './kit';
 import { likeTerm, type Filter } from './criteria';
 import { attr, attrStr, basisWord, isActive, money, plain, priceState, VISIBILITY, type MCategory, type MProduct, type MRecord } from './map';
@@ -27,12 +27,11 @@ export const MAGENTO_TOOL_NAMES = [
   'propose_translations', 'propose_seo_urls', 'propose_variants', 'propose_bulk_product_change', 'propose_promotion', 'propose_cms_page_changes', 'propose_promotion_status',
 ];
 
-/** Lese-Client der Session (geprüft: nur der Magento-Reader) */
+/** The session's read client (checked: only the Magento reader) */
 export function magentoReader(session: Pick<Session, 'reader'>): MagentoReader {
   if (!(session.reader instanceof MagentoReader)) throw new Error('Dieses Werkzeug gibt es nur für Magento.');
   return session.reader;
 }
-const lim = (v: number | undefined, d: number, max: number) => Math.max(1, Math.min(Math.floor(v ?? d), max));
 const excerpt = (t: unknown, n = 200) => { const s = plain(t); return s.length > n ? `${s.slice(0, n)}…` : s; };
 
 export function magentoTools(session: Session): AnyTool[] {
@@ -40,7 +39,7 @@ export function magentoTools(session: Session): AnyTool[] {
   const sf = async () => ({ base: await ro().storefrontBase().catch(() => ro().publicUrl), cfg: await ro().storefrontConfig().catch(() => ({ product_url_suffix: '.html', category_url_suffix: '.html' })) });
   const productUrl = async (p: MRecord) => { const k = attrStr(p, 'url_key'); if (!k || Number(p.visibility) === 1) return null; const s = await sf(); return `${s.base}/${k}${s.cfg.product_url_suffix ?? ''}`; };
   const categoryUrl = async (c: MRecord) => { const k = attrStr(c, 'url_path') ?? attrStr(c, 'url_key'); if (!k) return null; const s = await sf(); return `${s.base}/${k}${s.cfg.category_url_suffix ?? ''}`; };
-  /** Kategorienamen + Pfad aus dem Baum (einmal je Session) */
+  /** Category names + path from the tree (once per session) */
   const treeIndex = async () => {
     const idx = new Map<string, { name: string; parent: string | null; level: number; active: boolean; count: number }>();
     const walk = (c: MCategory, parent: string | null) => { idx.set(String(c.id), { name: String(c.name ?? ''), parent, level: Number(c.level ?? 0), active: !!c.is_active, count: Number(c.product_count ?? 0) }); for (const k of c.children_data ?? []) walk(k, String(c.id)); };
@@ -58,7 +57,7 @@ export function magentoTools(session: Session): AnyTool[] {
     ...(a.categoryId ? [[{ field: 'category_id', value: a.categoryId }]] : []),
     ...(a.active != null ? [[{ field: 'status', value: a.active ? 1 : 2 }]] : []),
     ...(!a.includeVariants ? [[{ field: 'visibility', value: [2, 3, 4], condition_type: 'in' as const }]] : []),
-    // Preisspanne serverseitig vorfiltern (Obermenge: Verkaufspreis ≤ regulärer Preis; Höchstpreis: regulärer ODER Sonderpreis darunter), genau geprüft wird je Seite am Verkaufspreis
+    // Pre-filter the price range server-side (superset: sale price ≤ regular price; max price: regular OR special price below it), checked exactly per page against the sale price
     ...(a.minPrice != null ? [[{ field: 'price', value: a.minPrice, condition_type: 'gteq' as const }]] : []),
     ...(a.maxPrice != null ? [[{ field: 'price', value: a.maxPrice, condition_type: 'lteq' as const }, { field: 'special_price', value: a.maxPrice, condition_type: 'lteq' as const }]] : []),
   ];
@@ -97,7 +96,7 @@ export function magentoTools(session: Session): AnyTool[] {
       { id: z.string().describe('Produkt-ID oder SKU') }, guard(async ({ id }) => {
         const p = await ro().productByRef(id);
         if (!p) return fail('Produkt nicht gefunden');
-        const full = p, s = priceState(full), idx = await treeIndex(); // productByRef liefert schon den vollständigen Datensatz
+        const full = p, s = priceState(full), idx = await treeIndex(); // productByRef already returns the full record
         const stock = ro().allowed('products') ? await ro().sourceItems([p.sku]).catch(() => []) : [];
         return ok({
           ...(await brief(full)), url: await productUrl(full), urlKey: attrStr(full, 'url_key'),
@@ -142,7 +141,7 @@ export function magentoTools(session: Session): AnyTool[] {
         const base = await ro().storefrontBase().catch(() => ro().publicUrl);
         const allowed = [base, ro().publicUrl, ro().base].filter(Boolean);
         const u = assertShopUrl(url, allowed);
-        // Docker o. Ä.: öffentliche Adresse intern über die Shop-URL abrufen. Nur Pfad/Query/Fragment, jede Weiterleitung neu prüfen.
+        // Docker or similar: fetch the public address internally via the shop URL. Only path/query/fragment, check every redirect again.
         const r = await fetchShopPage(u.href, allowed, { publicUrl: ro().publicUrl, internalBase: ro().base, fetchImpl: (href, init) => (session.storefrontFetch ?? fetch)(href, init) });
         if (!r.ok) return fail(`Seite antwortet mit HTTP ${r.status}`);
         const page = parseStorefront((await r.text()).slice(0, 2_500_000), u.href);
@@ -205,7 +204,7 @@ export function magentoTools(session: Session): AnyTool[] {
       { missing: z.enum(['images', 'alt']), categoryId: z.string().optional(), active: z.boolean().optional(), includeVariants: z.boolean().optional(), limit: z.number().optional(), offset: z.number().optional() },
       guard(async a => {
         if (!ro().allowed('media')) return fail('ZUGRIFF VERWEIGERT: Medienbibliothek ist vom Betreiber nicht freigegeben (Einstellungen → KI-Zugriff).');
-        // Seitengröße = limit, alle Treffer der Seite liefern: so geht zwischen Limit und Seite kein Treffer verloren (Magento filtert Galerielücken nicht serverseitig)
+        // Page size = limit, return all hits of the page: this way no hit is lost between limit and page (Magento does not filter gallery gaps server-side)
         const n = lim(a.limit, 100, 100), page = Math.floor(Math.max(0, a.offset ?? 0) / n) + 1;
         const r = await ro().products({ filters: productFilters(a), pageSize: n, currentPage: page, sort: [{ field: 'entity_id', direction: 'ASC' }] });
         const hits: MRecord[] = [];
@@ -305,7 +304,7 @@ export function magentoTools(session: Session): AnyTool[] {
         for (const k of ['specialFromDate', 'specialToDate'] as const) if (c[k] != null && !/^\d{4}-\d{2}-\d{2}$/.test(String(c[k]))) return fail(`${k}: JJJJ-MM-TT oder null`);
         const { rows, scanned, total } = await resolveBulk(ro(), filter);
         const { cs, payload } = bulkChangeSet(title, reason || describeBulk(c), c, rows, ro().priceBasis, scanHint(scanned, total));
-        return ok(await session.requestChange(cs, { ...payload, store: ro().storeCode })); // Store-View des Vorschlags, nicht die zur Ausführungszeit
+        return ok(await session.requestChange(cs, { ...payload, store: ro().storeCode })); // the proposal's store view, not the one at execution time
       })),
 
     tool('propose_promotion', `SCHLÄGT eine neue Promotion (Warenkorb-Preisregel, ohne id) oder die Änderung einer bestehenden (mit id) vor. Es wird NICHTS geschrieben, bis der Nutzer freigibt. Neu: name, discount, code und active sind Pflicht (active=true mit künftigem validFrom = geplant). discount: type percentage | absolute (€ je Artikel) | cart_fixed (€ auf den Warenkorb) | buy_x_get_y, value, optional step (bei buy_x_get_y: X), maxQty, applyToShipping, categoryIds/productIds (Rabatt nur auf diese Artikel). code: none | fixed (code) | individual (count bis ${MAX_CODES}, length, prefix). minSubtotal = Mindestbestellwert. Datum JJJJ-MM-TT, null entfernt. Gilt für alle Kundengruppen und Websites.`,

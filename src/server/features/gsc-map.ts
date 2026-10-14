@@ -1,5 +1,5 @@
 import 'server-only';
-// Search Console ↔ Shop: Seiten-URLs auf Produkte/Kategorien/Landingpages abbilden (über SEO-URLs) und umgekehrt die URL-Pfade einer Entität.
+// Search Console ↔ shop: map page URLs to products/categories/landing pages (via SEO URLs) and, conversely, the URL paths of an entity.
 import { canonicalSeoPaths, ROUTE, ROUTE_KIND, type LinkKind } from '../seo-links';
 import type { ShopReader, SwEntity } from '../shopware';
 
@@ -11,7 +11,7 @@ const dec = (s: string) => { try { return decodeURIComponent(s); } catch { retur
 const httpDomains = (scs: SwEntity[]) => scs.flatMap(sc => (sc.domains ?? []).filter((d: SwEntity) => /^https?:\/\//.test(String(d.url))).map((d: SwEntity) => ({ sc, d, url: String(d.url).replace(/\/+$/, '') })));
 const prefixOf = (u: string) => { try { return new URL(u).pathname.replace(/\/+$/, ''); } catch { return ''; } };
 
-/** Pfad-Kandidaten einer Seiten-URL: voller Pfad und ohne Sprach-/Domain-Präfix (z. B. /en) */
+/** Path candidates of a page URL: full path and without language/domain prefix (e.g. /en) */
 export function pathCandidates(url: string, prefixes: string[]): string[] {
   let p: string; try { p = dec(new URL(url).pathname); } catch { return []; }
   const out = [p.replace(/^\/+/, '')];
@@ -19,7 +19,7 @@ export function pathCandidates(url: string, prefixes: string[]): string[] {
   return [...new Set(out)];
 }
 
-/** Seiten-URLs (aus GSC) → Shop-Entität mit Name und aktuellen Metas. Nicht zuordenbar = null. */
+/** Page URLs (from GSC) → shop entity with name and current metas. Not mappable = null. */
 export async function mapUrls(ro: ShopReader, urls: string[], o: { metas?: boolean } = {}): Promise<Map<string, PageRef | null>> {
   const out = new Map<string, PageRef | null>(); if (!urls.length) return out;
   const doms = httpDomains(await ro.salesChannels()), prefixes = [...new Set(doms.map(x => prefixOf(x.url)).filter(Boolean))];
@@ -46,7 +46,7 @@ export async function mapUrls(ro: ShopReader, urls: string[], o: { metas?: boole
     const ids = [...new Set([...refs.values()].flatMap(r => (r !== 'home' && r.kind === kind ? [r.id] : [])))];
     for (let i = 0; i < ids.length; i += 200) { const chunk = ids.slice(i, i + 200); for (const e of (await ro.search(ENTITY[kind], { ids: chunk, limit: chunk.length })).data) ents.set(`${kind}:${e.id}`, e); }
   }
-  // Varianten ohne eigenen Namen: Name des Hauptprodukts
+  // Variants without their own name: name of the parent product
   const parents = [...new Set([...ents.values()].filter(e => e.parentId && !(e.translated?.name ?? e.name)).map(e => e.parentId as string))];
   const par = parents.length ? new Map((await ro.search('product', { ids: parents, limit: parents.length })).data.map(p => [p.id, p])) : new Map<string, SwEntity>();
   const scName = new Map(doms.map(x => [x.sc.id, x.sc.translated?.name ?? x.sc.name]));
@@ -64,7 +64,7 @@ export async function mapUrls(ro: ShopReader, urls: string[], o: { metas?: boole
   return out;
 }
 
-/** URL-Pfade einer Entität über alle Storefront-Domains (kanonische SEO-URL + technischer Pfad), relativ ohne führenden Slash, inkl. Domain-Präfix. */
+/** URL paths of an entity across all storefront domains (canonical SEO URL + technical path), relative without leading slash, incl. domain prefix. */
 export async function entityPaths(ro: ShopReader, kind: LinkKind, id: string): Promise<{ paths: string[]; urls: string[] }> {
   const doms = httpDomains(await ro.salesChannels()), paths = new Set<string>(), urls = new Set<string>();
   const tech = { product: 'detail', category: 'navigation', landing: 'landingPage' }[kind];

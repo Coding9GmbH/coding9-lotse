@@ -1,17 +1,17 @@
 import 'server-only';
-// OpenMage: Änderungssets für Produkte, Kategorien, Übersetzungen, URL-Schlüssel und Kategorie-Zuordnungen (bauen + Executor).
-// Bauen liest über den geschützten Lese-Client; der Executor liest die Vorher-Werte neu und schreibt mit dem privilegierten Client.
+// OpenMage: change sets for products, categories, translations, URL keys and category assignments (build + executor).
+// Building reads via the guarded read client; the executor re-reads the before values and writes with the privileged client.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
-import { assertFresh, isStale, STALE } from '../../changes';
-import { applyEach, errMsg, MAX_ITEMS, newIdSafe, partialTicker, pool, resolvePrice, WRITE_CONCURRENCY, type ApplyCtx, type ApplyResult, type PriceSpec } from './kit';
+import { isStale, STALE } from '../../changes';
+import { applyEach, errMsg, MAX_ITEMS, newIdSafe, partialTicker, pool, resolvePrice, WRITE_CONCURRENCY, type ApplyResult, type PriceSpec } from '../magento/kit';
+import { applyGrouped, splitStale, validate, withFailed, type ApplyPiece, type FieldDef as BaseFieldDef } from '../magento/grouped';
 import { skuPath, type OmClient } from './client';
-import { basisWord, day, isActive, money, mrec, omAttr, omStr, plain, planPrice, priceOf, priceText, priceUndo, productLabel, same, stripTitleAffixes, urlKey, VISIBILITY, VISIBILITY_IN, FROM_KIDS, SIMPLE_TYPES, type OmCategory, type OmProduct, type OmRecord, type PriceWrite } from './map';
+import { basisWord, day, isActive, money, mrec, omAttr, omStr, plain, planPrice, priceOf, priceText, priceUndo, productLabel, same, stripTitleAffixes, urlKey, VISIBILITY, FROM_KIDS, SIMPLE_TYPES, type OmCategory, type OmProduct, type OmRecord, type PriceWrite } from './map';
 import { LIST_FIELDS, parseRef, pickRef, type OmReader } from './reader';
 import { getCategory, getProduct, reg, reqOp, writeScoped, writeStore } from './write';
 
-type Kind = 'str' | 'html' | 'price' | 'date' | 'int' | 'bool' | 'visibility' | 'num';
-interface FieldDef { label: string; kind: Kind; attr?: string; /** global = Website-/Global-Attribut (nicht je Store-View) */ global?: boolean }
-/** Felder für propose_product_changes (Namen wie bei Shopware/Magento) → OpenMage-Attribut */
+interface FieldDef extends BaseFieldDef { /** global = website/global attribute (not per store view) */ global?: boolean }
+/** Fields for propose_product_changes (names as in Shopware/Magento) → OpenMage attribute */
 export const OM_PRODUCT_FIELDS: Record<string, FieldDef> = {
   name: { label: 'Name', kind: 'str', attr: 'name' }, description: { label: 'Beschreibung', kind: 'html', attr: 'description' }, shortDescription: { label: 'Kurzbeschreibung', kind: 'html', attr: 'short_description' },
   metaTitle: { label: 'Meta-Title', kind: 'str', attr: 'meta_title' }, metaDescription: { label: 'Meta-Description', kind: 'str', attr: 'meta_description' }, keywords: { label: 'Meta-Keywords', kind: 'str', attr: 'meta_keyword' },
@@ -23,35 +23,22 @@ export const OM_CATEGORY_FIELDS: Record<string, FieldDef> = {
   metaTitle: { label: 'Meta-Title', kind: 'str', attr: 'meta_title' }, metaDescription: { label: 'Meta-Description', kind: 'str', attr: 'meta_description' }, keywords: { label: 'Meta-Keywords', kind: 'str', attr: 'meta_keywords' },
   active: { label: 'Aktiv', kind: 'bool', attr: 'is_active' },
 };
-/** Eigene Produktattribute (propose_product_changes fields.attributes): erlaubte Eingabetypen */
+/** Custom product attributes (propose_product_changes fields.attributes): allowed input types */
 const ATTR_INPUTS = new Set(['text', 'textarea', 'select', 'boolean']);
 const PRICE_KEYS = ['price', 'listPrice', 'specialFromDate', 'specialToDate'];
 const cut = (t: unknown, n = 220) => { const s = plain(t); return s.length > n ? `${s.slice(0, n)}…` : s || '–'; };
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-function validate(def: FieldDef, v: unknown): unknown {
-  switch (def.kind) {
-    case 'str': case 'html': if (typeof v !== 'string') throw new Error(`${def.label}: Text erwartet`); if (def.kind === 'str' && v.length > 255) throw new Error(`${def.label}: max. 255 Zeichen`); if (def.attr === 'name' && !v.trim()) throw new Error('Name darf nicht leer sein'); return v;
-    case 'int': if (!Number.isInteger(v) || (v as number) < 0) throw new Error(`${def.label}: ganze Zahl ≥ 0 erwartet`); return v;
-    case 'num': if (typeof v !== 'number' || !(v >= 0)) throw new Error(`${def.label}: Zahl ≥ 0 erwartet`); return v;
-    case 'bool': if (typeof v !== 'boolean') throw new Error(`${def.label}: true/false erwartet`); return v;
-    case 'visibility': { const n = typeof v === 'number' ? v : VISIBILITY_IN[String(v)]; if (![1, 2, 3, 4].includes(n)) throw new Error('Sichtbarkeit: none, catalog, search oder both'); return n; }
-    case 'date': if (v !== null && !(typeof v === 'string' && DATE_RE.test(v))) throw new Error(`${def.label}: Datum JJJJ-MM-TT oder null`); return v;
-  }
-  return v;
-}
-/** Meta-Title ohne das Theme-Suffix/-Präfix der Store-View (OpenMage hängt es selbst an) */
+/** Meta title without the store view's theme suffix/prefix (OpenMage adds it itself) */
 const normTitle = (def: FieldDef, v: unknown, view: Parameters<typeof stripTitleAffixes>[1]) => (def.attr === 'meta_title' && typeof v === 'string' ? stripTitleAffixes(v, view) : v);
 const shown = (def: FieldDef, v: unknown) => (def.kind === 'bool' ? (v ? 'ja' : 'nein') : def.kind === 'visibility' ? VISIBILITY[Number(v)] ?? String(v ?? '–') : def.kind === 'int' || def.kind === 'num' ? String(v ?? '–') : cut(v));
 const catActive = (c: OmRecord) => { const v = omAttr(c, 'is_active'); return v === true || Number(v) === 1; };
 
 export interface ProposeArgs { title: string; reason: string; changes: { id: string; fields: Record<string, unknown> }[] }
-/** Payload der Sets products/categories: Store-View beim Bauen + SKU je Produkt-ID (OpenMage schreibt per SKU) */
+/** Payload of the products/categories sets: store view at build time + SKU per product ID (OpenMage writes by SKU) */
 export interface CatalogPayload { store: string; skus?: Record<string, string> }
 
 /**
- * Produkte der Vorschläge laden (Referenzen: id:…, sku:…, Zahl = ID oder SKU, sonst SKU) als Listeneinträge mit Inhalts-/SEO-Feldern,
- * Schlüssel = Referenz; optional mit Galerie, mit details auch das Detail (eigene Attribute). Eine Zahl mit zwei verschiedenen Treffern wirft „Mehrdeutig“.
+ * Load the proposals' products (references: id:…, sku:…, number = ID or SKU, otherwise SKU) as list entries with content/SEO fields,
+ * key = reference; optionally with gallery, with details also the detail (custom attributes). A number with two different hits throws "Mehrdeutig" (ambiguous).
  */
 export async function loadProducts(ro: OmReader, refs: string[], o: { details?: boolean; store?: string; images?: boolean } = {}): Promise<Map<string, OmProduct>> {
   const byRef = new Map<string, OmProduct>(), want = refs.map(ref => ({ ref, ...parseRef(ref) }));
@@ -63,7 +50,7 @@ export async function loadProducts(ro: OmReader, refs: string[], o: { details?: 
   return byRef;
 }
 
-// ================= Produkte =================
+// ================= Products =================
 export async function buildProductChangeSet(ro: OmReader, { title, reason, changes }: ProposeArgs): Promise<{ cs: ChangeSet; payload: CatalogPayload }> {
   if (!changes?.length) throw new Error('changes ist leer');
   if (changes.length > MAX_ITEMS) throw new Error(`Maximal ${MAX_ITEMS} Produkte pro Änderungsset, bitte aufteilen.`);
@@ -77,7 +64,7 @@ export async function buildProductChangeSet(ro: OmReader, { title, reason, chang
     if (!p) { skipped.push({ id: String(ch.id), reason: 'nicht gefunden' }); continue; }
     const id = String(p.id), label = productLabel(p); skus[id] = p.sku;
     const f = { ...(ch.fields ?? {}) }, push = (field: string, fieldLabel: string, before: string, after: string, afterRaw: unknown, warn: string[] = [], html?: ChangeItem['html'], beforeRaw?: unknown) => items.push({ id: `${id}:${field}`, entity: 'product', entityId: id, label, field, fieldLabel, before, after, afterRaw, ...(beforeRaw !== undefined ? { beforeRaw } : {}), warn, ...(html ? { html } : {}) });
-    // Preise: price/listPrice/Sonderpreis-Zeitraum ergeben EINE Zeile mit den OpenMage-Werten
+    // Prices: price/listPrice/special price period make up ONE row with the OpenMage values
     if (PRICE_KEYS.some(k => k in f)) {
       try {
         if (FROM_KIDS.has(String(p.type_id))) throw new Error(`Preis eines ${p.type_id}-Produkts kommt aus seinen Einzelprodukten, dort ändern`);
@@ -147,8 +134,8 @@ export async function buildProductChangeSet(ro: OmReader, { title, reason, chang
 }
 
 /**
- * Preisfelder seit dem Vorschlag unverändert? (sonst Fehler, bitte neu vorschlagen). Verglichen wird im Scope des Vorschlags
- * (Store-View der Einstellungen), denn dort wurde `expect` gelesen; bei Website-Preisen kann der globale Datensatz abweichen.
+ * Price fields unchanged since the proposal? (otherwise error, please propose again). Compared in the proposal's scope
+ * (store view from the settings), because that is where `expect` was read; with website prices the global record may differ.
  */
 export async function assertPriceUnchanged(c: OmClient, sku: string, store: string, expect: PriceWrite, what = 'Produkt'): Promise<OmProduct> {
   const cur = await getProduct(c, sku, store);
@@ -157,29 +144,12 @@ export async function assertPriceUnchanged(c: OmClient, sku: string, store: stri
   if (Object.keys(exp).some(k => !same(day(now[k]), day(exp[k])))) throw new Error('Preis wurde inzwischen in OpenMage geändert, bitte neu vorschlagen');
   return cur;
 }
-/** Bestand setzen mit exaktem Rückgängig (qty + is_in_stock) */
+/** Set stock with exact undo (qty + is_in_stock) */
 export async function writeStock(c: OmClient, sku: string, quantity: number): Promise<UndoOp> {
   const cur = await c.req('GET', `/v1/products/${skuPath(sku)}/stock`) as { qty: number; is_in_stock: boolean } | null;
   await c.req('PUT', `/v1/products/${skuPath(sku)}/stock`, { qty: quantity, is_in_stock: quantity > 0 ? true : !!cur?.is_in_stock });
   return reqOp('stock', sku, 'PUT', `/v1/products/${skuPath(sku)}/stock`, { qty: Number(cur?.qty ?? 0), is_in_stock: !!cur?.is_in_stock });
 }
-
-type ApplyPiece = { undo: UndoOp[]; failed?: { id: string; error: string }[] };
-
-/** Frischer Attributwert. Preis und Bestand haben eigene Prüfungen. Ohne beforeRaw keine Prüfung. */
-function splitStale(its: ChangeItem[], freshOf: (it: ChangeItem) => unknown): { live: ChangeItem[]; failed: { id: string; error: string }[] } {
-  const live: ChangeItem[] = [], failed: { id: string; error: string }[] = [];
-  for (const it of its) {
-    if (it.beforeRaw === undefined || !it.field || it.field === 'price' || it.field === 'stock') { live.push(it); continue; }
-    try { assertFresh(it.fieldLabel, freshOf(it), it.beforeRaw); live.push(it); }
-    catch (e) { failed.push({ id: it.id, error: errMsg(e) }); }
-  }
-  return { live, failed };
-}
-const withFailed = (e: unknown, undo: UndoOp[], failed: { id: string; error: string }[]): never => {
-  const prev = (e as { undo?: UndoOp[] }).undo;
-  throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: !prev?.length || prev === undo ? undo : [...undo, ...prev], ...(failed.length ? { failed } : {}) });
-};
 
 async function applyProduct(c: OmClient, store: string, sku: string, its: ChangeItem[]): Promise<ApplyPiece> {
   const fresh = await getProduct(c, sku, store);
@@ -225,41 +195,12 @@ async function applyProduct(c: OmClient, store: string, sku: string, its: Change
   return { undo, ...(failed.length ? { failed } : {}) };
 }
 
-/** Gruppiert die Zeilen je Datensatz. Veraltete Felder gelten nur für ihre Zeile, der Rest wird geschrieben. */
-export async function applyGrouped(cs: ChangeSet, selected: Set<string>, fn: (id: string, its: ChangeItem[]) => Promise<UndoOp[] | ApplyPiece>, ctx?: ApplyCtx): Promise<ApplyResult> {
-  const groups = new Map<string, ChangeItem[]>();
-  let n = 0;
-  for (const it of cs.items) if (selected.has(it.id) && it.entity !== 'info') { groups.set(it.entityId ?? '', [...(groups.get(it.entityId ?? '') ?? []), it]); n++; }
-  const results: ApplyResult['results'] = [], undo: UndoOp[] = [], tick = partialTicker(ctx, n, { results, undo });
-  const mark = (its: ChangeItem[], failed: { id: string; error: string }[] | undefined, okIds: string[] | undefined, msg: string) => {
-    const bad = new Map((failed ?? []).map(f => [f.id, f.error]));
-    its.forEach(i => {
-      if (okIds?.includes(i.id)) results.push({ itemId: i.id, ok: true });
-      else if (bad.has(i.id)) results.push({ itemId: i.id, ok: false, error: bad.get(i.id) });
-      else results.push({ itemId: i.id, ok: !msg, ...(msg ? { error: msg } : {}) });
-    });
-  };
-  await pool([...groups], WRITE_CONCURRENCY, async ([id, its]) => {
-    try {
-      const out = await fn(id, its);
-      if (Array.isArray(out)) { undo.push(...out); its.forEach(i => results.push({ itemId: i.id, ok: true })); }
-      else { undo.push(...out.undo); mark(its, out.failed, undefined, ''); }
-    } catch (e) {
-      const extra = (e as { undo?: UndoOp[] }).undo ?? [], okIds = (e as { okIds?: string[] }).okIds, msg = errMsg(e);
-      undo.push(...extra);
-      mark(its, (e as { failed?: { id: string; error: string }[] }).failed, okIds, msg);
-    }
-    finally { tick(); }
-  });
-  return { results, undo };
-}
-
 reg.register('products', (c, cs, payload, selected, ctx) => {
   const p = payload as CatalogPayload;
   return applyGrouped(cs, selected, (id, its) => { const sku = p.skus?.[id]; if (!sku) throw new Error('SKU fehlt'); return applyProduct(c, p.store, sku, its); }, ctx);
 });
 
-// ================= Kategorien =================
+// ================= Categories =================
 export async function buildCategoryChangeSet(ro: OmReader, { title, reason, changes }: ProposeArgs): Promise<{ cs: ChangeSet; payload: CatalogPayload }> {
   if (!changes?.length) throw new Error('changes ist leer');
   if (changes.length > MAX_ITEMS) throw new Error(`Maximal ${MAX_ITEMS} Kategorien pro Änderungsset, bitte aufteilen.`);
@@ -297,7 +238,7 @@ reg.register('categories', (c, cs, payload, selected, ctx) => applyGrouped(cs, s
   catch (e) { return withFailed(e, [], failed); }
 }, ctx));
 
-// ================= Übersetzungen (Store-Views) =================
+// ================= Translations (store views) =================
 const TR_FIELDS: Record<'product' | 'category', Record<string, FieldDef>> = {
   product: { name: OM_PRODUCT_FIELDS.name, description: OM_PRODUCT_FIELDS.description, shortDescription: OM_PRODUCT_FIELDS.shortDescription, metaTitle: OM_PRODUCT_FIELDS.metaTitle, metaDescription: OM_PRODUCT_FIELDS.metaDescription, keywords: OM_PRODUCT_FIELDS.keywords },
   category: { name: OM_CATEGORY_FIELDS.name, description: OM_CATEGORY_FIELDS.description, metaTitle: OM_CATEGORY_FIELDS.metaTitle, metaDescription: OM_CATEGORY_FIELDS.metaDescription, keywords: OM_CATEGORY_FIELDS.keywords },
@@ -306,7 +247,7 @@ export const TRANSLATION_FIELDS = TR_FIELDS;
 export interface TranslationArgs { title: string; reason: string; entity: 'product' | 'category'; changes: { id: string; store: string; fields: Record<string, unknown> }[] }
 export interface TranslationPayload { refs: Record<string, string> }
 
-/** Store-Views mit Locale */
+/** Store views with locale */
 export async function storeViewList(ro: OmReader) {
   const main = await ro.store();
   return (await ro.storeViews()).map(v => ({ id: v.id, code: v.code, name: v.name, active: !!v.is_active, websiteId: v.website_id, locale: v.locale ?? null, currency: v.currency ?? null, isDefault: v.code === main, ...(v.title_suffix?.trim() ? { titleSuffix: v.title_suffix.trim(), hint: 'Das Theme hängt dieses Suffix an jeden Seitentitel an; Meta-Titles und Seitentitel ohne Shopnamen schreiben.' } : {}) }));
@@ -318,7 +259,7 @@ export async function buildTranslationChangeSet(ro: OmReader, a: TranslationArgs
   if (!FIELDS) throw new Error('entity: product oder category');
   const items: ChangeItem[] = [], skipped: { id: string; reason: string }[] = [], refs: Record<string, string> = {}; let unchanged = 0;
   for (const ch of a.changes) {
-    const sv = await ro.storeView(String(ch.store)), view = sv && views.find(v => v.code === sv.code); // Code, ID oder Locale (eine Auflösung für alle Werkzeuge)
+    const sv = await ro.storeView(String(ch.store)), view = sv && views.find(v => v.code === sv.code); // code, ID or locale (one resolution for all tools)
     if (!view) { skipped.push({ id: String(ch.id), reason: `Store-View „${ch.store}“ gibt es nicht (vorhanden: ${views.map(v => `${v.code} (${v.locale})`).join(', ')})` }); continue; }
     const base = a.entity === 'product' ? await ro.productByRef(String(ch.id), 'admin') : await ro.category(ch.id, 'admin');
     if (!base) { skipped.push({ id: String(ch.id), reason: 'nicht gefunden' }); continue; }
@@ -365,7 +306,7 @@ reg.register('translations', (c, cs, payload, selected, ctx) => {
   }).then(() => ({ results, undo }));
 });
 
-// ================= URL-Schlüssel (SEO-URLs) mit Weiterleitung =================
+// ================= URL keys (SEO URLs) with redirect =================
 export interface SeoUrlArgs { title: string; reason: string; entity: 'product' | 'category'; changes: { id: string; urlKey: string }[] }
 export async function buildSeoUrlChangeSet(ro: OmReader, a: SeoUrlArgs): Promise<{ cs: ChangeSet; payload: CatalogPayload }> {
   if (!a.changes?.length) throw new Error('changes ist leer');
@@ -382,7 +323,7 @@ export async function buildSeoUrlChangeSet(ro: OmReader, a: SeoUrlArgs): Promise
     const cur = omStr(rec, 'url_key');
     if (cur === key) { unchanged++; continue; }
     if (seen.has(key)) { skipped.push({ id, reason: `„${key}“ doppelt im Set` }); continue; }
-    // belegt? Produkte: Rewrite auf den Pfad in der Haupt-Store-View; Kategorien: Geschwister mit gleichem Schlüssel
+    // taken? Products: rewrite to the path in the main store view; categories: siblings with the same key
     const clash = a.entity === 'product' ? await ro.resolveUrl(`${key}${suffix}`).then(r => (r && r.type === 'PRODUCT' && String(r.id) !== id ? `Produkt ${r.id}` : r && r.type === 'CATEGORY' ? `Kategorie ${r.id}` : null)).catch(() => null)
       : cats.filter(x => String(x.id) !== id && Number(x.parent_id) === Number(rec.parent_id) && x.url_key === key).map(x => x.name ?? x.id)[0] ?? null;
     if (clash) { skipped.push({ id, reason: `URL-Schlüssel „${key}“ ist schon vergeben (${clash})` }); continue; }
@@ -400,7 +341,7 @@ reg.register('seo-urls', (c, cs, payload, selected, ctx) => {
   return applyEach(cs, selected, it => writeScoped(c, e, e === 'product' ? p.skus![it.entityId!] : it.entityId!, p.store, { url_key: it.afterRaw }), ctx);
 });
 
-// ================= Kategorie-Zuordnung von Produkten =================
+// ================= Category assignment of products =================
 export interface CategoryProductsArgs { title: string; reason: string; categoryId: string; add?: { productId: string; position?: number }[]; remove?: string[] }
 export async function buildCategoryProductsChangeSet(ro: OmReader, a: CategoryProductsArgs): Promise<{ cs: ChangeSet; payload: { categoryId: string } }> {
   const cat = await ro.category(a.categoryId);
@@ -427,7 +368,7 @@ export async function buildCategoryProductsChangeSet(ro: OmReader, a: CategoryPr
 reg.register('category-products', async (c, cs, payload, selected, ctx) => {
   const cid = Number((payload as { categoryId: string }).categoryId);
   const results: ApplyResult['results'] = [], undo: UndoOp[] = [], list = cs.items.filter(i => selected.has(i.id) && i.entity !== 'info'), tick = partialTicker(ctx, list.length, { results, undo });
-  for (const it of list) { // nacheinander (Kategoriemodell speichert jedes Mal die Zuordnung)
+  for (const it of list) { // sequentially (the category model saves the assignment every time)
     try { undo.push(await linkOne(it)); results.push({ itemId: it.id, ok: true }); } catch (e) { results.push({ itemId: it.id, ok: false, error: errMsg(e) }); } finally { tick(); }
   }
   return { results, undo };
@@ -440,5 +381,5 @@ reg.register('category-products', async (c, cs, payload, selected, ctx) => {
   }
 });
 
-/** Ausgabe-Hilfen für Werkzeuge */
+/** Output helpers for tools */
 export const priceView = (p: OmRecord) => { const s = priceOf(p); return { price: money(s.selling), priceValue: s.selling, listPrice: s.list, regularPrice: s.regular, specialPrice: s.special, specialFrom: s.from, specialTo: s.to, specialActive: s.active }; };

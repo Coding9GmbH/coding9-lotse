@@ -1,9 +1,9 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
-// Barrierefreiheit (Rauchtest): nur kritische Verstöße lassen den Test scheitern, der Rest steht im Bericht
+// Accessibility (smoke test): only critical violations fail the test, the rest goes into the report
 for (const path of ['/', '/settings', '/settings/ki-zugriff', '/settings/integrationen', '/settings/protokolle', '/wissen']) {
-  test(`axe: keine kritischen Verstöße auf ${path}`, async ({ page }, info) => {
+  test(`axe: no critical violations on ${path}`, async ({ page }, info) => {
     await page.goto(path);
     await expect(page.getByRole('heading').first()).toBeVisible();
     await page.waitForLoadState('networkidle');

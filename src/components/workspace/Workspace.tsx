@@ -29,7 +29,7 @@ import { AuditDialog } from '@/components/dialogs/AuditDialog';
 import { StyleguideDialog } from '@/components/dialogs/StyleguideDialog';
 import styles from './Workspace.module.css';
 
-// Aktiver Chat im Cookie: beim nächsten Laden rendert der Server ihn direkt mit
+// Active chat in a cookie: on the next load the server renders it right away
 function rememberChatId(id: string): string {
   document.cookie = `${CHAT_COOKIE}=${encodeURIComponent(id)}; path=/; max-age=31536000; samesite=lax`;
   return id;
@@ -38,15 +38,15 @@ function rememberChatId(id: string): string {
 const pickTarget = (t: Target | null): Target | null =>
   t && { kind: t.kind, id: t.id, name: t.name, path: t.path, cmsPage: t.cmsPage };
 
-/** Schmaler Viewport (Tablet, geteiltes Fenster): die Vorschau liegt als Überlagerung über dem Chat (siehe Workspace.module.css). */
+/** Narrow viewport (tablet, split window): the preview lies as an overlay above the chat (see Workspace.module.css). */
 const narrow = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 1100px)').matches;
 
-/** Arbeitsfläche: Startbildschirm → Chat (+ Verlauf/Kontext) → Chat + Vorschau. */
+/** Workspace: start screen → chat (+ history/context) → chat + preview. */
 export function Workspace({ initialChatId, initialChat }: { initialChatId: string; initialChat: ChatDetail | null }) {
   const shell = useShell();
   const { health, setup, chats, reloadChats: loadHistory, setActiveChatId, setContextName, setStyleguide: shareStyleguide } = shell;
   const { locale, t: { workspace: t, context: tc } } = useI18n();
-  // Startzustand direkt aus den Server-Daten (gespeicherter Chat, Styleguide) – so springt beim Laden nichts
+  // Initial state straight from the server data (stored chat, styleguide), so nothing jumps on load
   const [state, dispatch] = useReducer(chatReducer, null, () => {
     const base = { ...initialChatState, locale, styleguide: shell.styleguide };
     return initialChat?.events?.length ? chatReducer(base, { type: 'replay', chat: initialChat }) : base;
@@ -61,9 +61,9 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const [input, setInput] = useState('');
   const [sgOpen, setSgOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
-  const [notes, setNotes] = useState<Annotation[]>([]); // Änderungswünsche aus der Vorschau
-  const [previewOpen, setPreviewOpen] = useState(false); // schmaler Viewport: Vorschau über dem Chat
-  const [fixes, setFixes] = useState<FixMap>({}); // Shop-Check-Befunde, die in einem Chat bearbeitet werden
+  const [notes, setNotes] = useState<Annotation[]>([]); // change requests from the preview
+  const [previewOpen, setPreviewOpen] = useState(false); // narrow viewport: preview above the chat
+  const [fixes, setFixes] = useState<FixMap>({}); // shop check findings being worked on in a chat
   const pendingFix = useRef<{ id: string; title: string; prompt: string } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sentApprovals = useRef(new Set<string>());
@@ -74,33 +74,33 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const reportError = useCallback((text: string) => dispatch({ type: 'error', text }), []);
   const attachments = useAttachments(reportError);
 
-  // ---- Start: Konfiguration, Kategorien (Chat und Styleguide liefert der Server schon mit) ----
+  // ---- Start: configuration, categories (the server already delivers chat and styleguide) ----
   useEffect(() => {
     let off = false;
     rememberChatId(initialChatId);
     (async () => {
       const [c, sg] = await Promise.allSettled([api.config(), shell.styleguideKnown ? Promise.resolve(undefined) : api.styleguide()]);
       if (off) return;
-      setFixes(loadFixes()); // erst nach dem Laden: localStorage gibt es beim Server-Rendern nicht
+      setFixes(loadFixes()); // only after loading: localStorage does not exist during server rendering
       if (c.status === 'fulfilled') setCfg(c.value);
       if (sg.status === 'fulfilled' && sg.value !== undefined) dispatch({ type: 'set_styleguide', sg: sg.value && typeof sg.value === 'object' ? sg.value : null });
       setSgLoaded(true);
-      api.categories().then(l => { if (!off) { setCategoryError(null); setCategories(l); } }).catch(e => { if (!off) setCategoryError(errorText(e) || 'error'); }); // Kennzeichen + Ursache; angezeigt wird der übersetzte Hinweis
+      api.categories().then(l => { if (!off) { setCategoryError(null); setCategories(l); } }).catch(e => { if (!off) setCategoryError(errorText(e) || 'error'); }); // code + cause; the translated hint is what gets shown
       api.products('').then(l => { if (!off && l[0]) setExampleProduct(l[0].name); }).catch(() => {});
     })();
     return () => { off = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- einmalig beim Start
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once on start
 
-  // Sprache gewechselt: Statustexte des Chats folgen ihr
+  // Language changed: the chat's status texts follow it
   useEffect(() => { dispatch({ type: 'set_locale', locale }); }, [locale]);
 
   const { target, busy, styleguide: sg } = state;
-  // Solange Shop oder KI fehlen, gibt es nichts zu senden (unbekannter Stand oder Ladefehler: nicht sperren)
+  // As long as shop or AI are missing, there is nothing to send (unknown state or load error: don't block)
   const locked = !shell.healthFailed && !setupReady(setup);
-  // Für die Einrichtungs-Karte genügt „eingerichtet ja/nein“ – das kennt der Server schon beim ersten Rendern
+  // For the setup card, "set up yes/no" is enough; the server already knows that on first render
   const homeHealth: Health | null = shell.healthFailed ? null : (health ?? (setup && { shopware: { url: '', ok: false, configured: setup.shopware }, ai: { configured: setup.ai } }));
 
-  // Navigation (links) mit dem Zustand der Arbeitsfläche versorgen
+  // Feed the navigation (left) with the workspace state
   useEffect(() => { setActiveChatId(chatId); return () => setActiveChatId(null); }, [chatId, setActiveChatId]);
   useEffect(() => { setContextName(target ? (target.name ?? tc.newLanding) : null); return () => setContextName(null); }, [target, setContextName, tc.newLanding]);
   useEffect(() => { if (sgLoaded) shareStyleguide(sg); }, [sg, sgLoaded, shareStyleguide]);
@@ -116,7 +116,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const live = liveSrc(target, state.liveOverride, cfg?.paths);
   const liveUrl = live ? withBust(live, state.liveBust) : null;
 
-  // Live-Ereignis einer Runde; auf schmalen Viewports öffnet der fertige Entwurf die Vorschau, Rückfragen/Freigaben holen den Chat zurück
+  // Live event of a run; on narrow viewports the finished draft opens the preview, questions/approvals bring the chat back
   const liveEvent = useCallback((event: ChatEvent) => {
     dispatch({ type: 'event', event, mode: 'live' });
     if (!narrow()) return;
@@ -124,8 +124,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     else if (event.t === 'question' || event.t === 'changeset') setPreviewOpen(false);
   }, []);
 
-  // ---- Chat ausführen ----
-  // extra.chatId: Runde in einem gerade erst angelegten Chat starten (der State kennt die neue ID noch nicht)
+  // ---- Run chat ----
+  // extra.chatId: start a run in a just-created chat (the state doesn't know the new ID yet)
   const run = async (message: string, extra: { onboarding?: boolean; chatId?: string } = {}) => {
     const id = extra.chatId ?? chatId;
     if (busyRef.current || !id) return;
@@ -137,15 +137,15 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       onEvent: event => {
         if (gen !== runGen.current) return;
         liveEvent(event);
-        // Der Chat ist ab jetzt gespeichert: sofort links im Verlauf zeigen (als „läuft“), nicht erst nach der Runde
+        // The chat is stored from now on: show it in the history on the left right away (as "running"), not only after the run
         if (event.t === 'start') loadHistory();
       },
       onError: (msg, status) => { if (gen !== runGen.current) return; if (status === 409) conflict = true; else dispatch({ type: 'error', text: msg }); },
     });
-    if (gen !== runGen.current) return; // inzwischen anderer Chat – die Runde läuft dort im Hintergrund weiter
+    if (gen !== runGen.current) return; // meanwhile a different chat; the run continues there in the background
     busyRef.current = false;
     if (conflict) {
-      // Dort läuft schon eine Runde (zweiter Tab, Doppelklick): Nachricht kam nie an → zurück ins Eingabefeld, an die laufende Runde hängen
+      // A run is already active there (second tab, double click): message never arrived → back into the input, attach to the running run
       dispatch({ type: 'unsend' });
       setInput(parseAttachments(message).text);
       handlers.current?.openChat(id);
@@ -167,9 +167,9 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     api.stop(chatId).catch(e => reportError(t.stopFailed(errorText(e))));
   };
 
-  /** Andere Ansicht: Verbindung zum laufenden Chat trennen (die Runde läuft auf dem Server weiter). */
+  /** Other view: disconnect from the running chat (the run continues on the server). */
   const detach = (nextId?: string) => {
-    if (nextId !== chatId) setNotes([]); // Wünsche gehören zum Chat, den man verlässt
+    if (nextId !== chatId) setNotes([]); // requests belong to the chat being left
     stream.abort();
     runGen.current++;
     busyRef.current = false;
@@ -186,7 +186,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     if (question && message) { setInput(''); answer(question.approvalId, message); return; }
     if ((!message && !attachments.atts.length) || busyRef.current || locked) return;
     if (attachments.uploading) { dispatch({ type: 'status', text: t.uploading }); return; }
-    // Auftrag aus dem Shop-Check: Befund mit diesem Chat verknüpfen („in Arbeit“ auf der Startseite)
+    // Task from the shop check: link the finding with this chat ("in progress" on the start page)
     const fix = pendingFix.current;
     if (fix && chatId && sentFix(fix.prompt, message)) setFixes(m => rememberFix(m, fix.id, { chatId, title: fix.title, at: new Date().toISOString() }));
     pendingFix.current = null;
@@ -196,7 +196,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     void run(full);
   };
 
-  // Styleguide-Onboarding bekommt immer einen frischen Chat: neuer Kontext, nichts aus dem bisherigen Verlauf
+  // Styleguide onboarding always gets a fresh chat: new context, nothing from the previous history
   const onboard = () => { const id = newChat(); void run(t.onboard, { onboarding: true, chatId: id }); };
 
   const decide = (approvalId: string, allow: boolean, selected?: string[]) => {
@@ -218,7 +218,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     dispatch({ type: 'undo', csId, phase: 'running' });
     try {
       const r = await api.undo(chatId, csId);
-      dispatch({ type: 'undo', csId, phase: r.ok ? 'done' : r.undoResults ? 'idle' : 'failed', undoResults: r.undoResults }); // teilweise: erneut klicken setzt den Rest zurück
+      dispatch({ type: 'undo', csId, phase: r.ok ? 'done' : r.undoResults ? 'idle' : 'failed', undoResults: r.undoResults }); // partial: clicking again reverts the rest
       if (!r.ok && r.error) reportError(t.undoResult(r.undoResults ? t.undoPartial(r.done ?? 0, r.total ?? 0) : t.undoFailedWord, r.error));
     } catch (e) {
       dispatch({ type: 'undo', csId, phase: 'failed' });
@@ -238,7 +238,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     return id;
   };
 
-  // Chat öffnen – auch während ein anderer läuft. Läuft der geöffnete selbst noch, geht es live weiter.
+  // Open chat, even while another one is running. If the opened one is still running, it continues live.
   const openChat = async (id: string) => {
     detach(id);
     const gen = runGen.current;
@@ -272,14 +272,14 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   };
 
   const selectTarget = (t: Target | null) => {
-    // Anderer Kontext in einem Chat mit Verlauf → neuer Chat für diesen Kontext (Chats bleiben je Seite sauber getrennt)
+    // Different context in a chat with history → new chat for this context (chats stay cleanly separated per page)
     const other = t && !home && (t.kind !== target?.kind || t.id !== target?.id);
     if (other) newChat();
     dispatch({ type: 'select_target', target: t });
     if (t) inputRef.current?.focus();
   };
 
-  // Brücke für die Navigation: immer die aktuellen Handler, stabil registriert
+  // Bridge for the navigation: always the current handlers, registered stably
   const handlers = useRef<WorkspaceBridge | null>(null);
   useEffect(() => {
     handlers.current = {
@@ -303,9 +303,9 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       prefill: (text, fix) => handlers.current?.prefill(text, fix),
     });
     return () => shell.registerWorkspace(null);
-  }, [shell.registerWorkspace]); // eslint-disable-line react-hooks/exhaustive-deps -- nur bei Mount/Unmount
+  }, [shell.registerWorkspace]); // eslint-disable-line react-hooks/exhaustive-deps -- only on mount/unmount
 
-  // Auftrag aus der Navigation einer anderen Seite (z. B. „Neuer Chat“ in den Einstellungen) nach dem Laden ausführen
+  // Run a task from another page's navigation (e.g. "Neuer Chat" (new chat) in settings) after loading
   useEffect(() => {
     const intent = shell.takeIntent();
     if (!intent) return;
@@ -318,20 +318,20 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     else if (intent.type === 'rules') h.openRules();
     else if (intent.type === 'prompt') { h.newChat(); h.prefill(intent.text, intent.fix); }
     else h.openStyleguide();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- einmalig beim Start
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once on start
 
-  // Selbstheilung: Der Verlauf meldet den offenen Chat als laufend, die Ansicht hängt aber an keiner Runde
-  // (z. B. Neuladen genau beim Absenden) → wieder verbinden. Nicht direkt nach dem Rundenende: ein Abruf aus dem
-  // Fenster zwischen `done` und dem Abräumen der Runde meldet noch „läuft“, obwohl nichts mehr kommt.
+  // Self-healing: the history reports the open chat as running, but the view is not attached to any run
+  // (e.g. reload right while sending) → reconnect. Not right after the run ends: a fetch from the
+  // window between `done` and the run's cleanup still reports "running" although nothing more comes.
   const activeStatus = chats?.find(c => c.id === chatId)?.status;
   useEffect(() => {
     if (activeStatus && !busyRef.current && chatId && Date.now() - lastRunEnd.current > 2500) handlers.current?.openChat(chatId);
   }, [activeStatus, chatId]);
 
-  // Gespeicherter Chat läuft noch (z. B. nach Neuladen) → live weiterverfolgen
+  // Stored chat is still running (e.g. after reload) → keep following live
   useEffect(() => {
     if (initialChat?.running) handlers.current?.openChat(initialChatId);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- einmalig beim Start
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once on start
 
   const onDrop = (e: React.DragEvent) => {
     if (!Array.from(e.dataTransfer?.types ?? []).includes('Files')) return;
@@ -345,7 +345,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const placeholder = locked ? t.lockedPlaceholder : question ? t.answerPlaceholder : target ? placeholderFor(target.kind, target.name, locale) : defaultPlaceholder(locale);
   const chips = !busy && target ? suggestions(target.kind, locale) : [];
   const mode = home ? 'home' : pv ? 'pv' : 'work';
-  const overlay = pv && previewOpen; // schmaler Viewport: Vorschau über dem Chat (Desktop zeigt sie ohnehin rechts)
+  const overlay = pv && previewOpen; // narrow viewport: preview above the chat (desktop shows it on the right anyway)
 
   const contextChip = <ContextChip target={target} onPick={() => setContextOpen(true)} onClear={() => selectTarget(null)} />;
   const composer = (

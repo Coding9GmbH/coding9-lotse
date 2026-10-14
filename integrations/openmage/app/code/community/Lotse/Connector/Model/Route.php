@@ -1,15 +1,15 @@
 <?php
 /**
- * Reine Routing-Logik ohne Magento-Abhängigkeit: Routentabelle der API v1 und Pfad-Abgleich.
- * Pfad = Teil nach "/lotse-api/", z. B. "v1/products/HH-VASE-KIESEL/images/12".
- * Platzhalter {name} matchen genau ein Pfadsegment (URL-dekodiert).
+ * Pure routing logic without Magento dependency: route table of API v1 and path matching.
+ * Path = part after "/lotse-api/", e.g. "v1/products/HH-VASE-KIESEL/images/12".
+ * Placeholders {name} match exactly one path segment (URL-decoded).
  */
 class Lotse_Connector_Model_Route
 {
     /**
-     * Routentabelle: [Methode, Muster, Modell-Alias, Methode des Modells]. Reihenfolge zählt
-     * (feste Segmente wie "products/attributes" stehen vor Platzhaltern).
-     * Bewusst NICHT enthalten: customers, orders, quotes, invoices, users, api users, payments, newsletter.
+     * Route table: [method, pattern, model alias, model method]. Order matters
+     * (fixed segments like "products/attributes" come before placeholders).
+     * Deliberately NOT included: customers, orders, quotes, invoices, users, api users, payments, newsletter.
      */
     public static function table()
     {
@@ -61,9 +61,9 @@ class Lotse_Connector_Model_Route
     }
 
     /**
-     * Sucht die Route zu Methode + Pfad.
-     * @return array|null ['model'=>..., 'method'=>..., 'params'=>[...]] oder null; bei passendem Pfad
-     *                    mit falscher Methode ['method_not_allowed'=>[erlaubte Methoden]]
+     * Finds the route for method + path.
+     * @return array|null ['model'=>..., 'method'=>..., 'params'=>[...]] or null; for a matching path
+     *                    with the wrong method ['method_not_allowed'=>[allowed methods]]
      */
     public static function match($httpMethod, $path, array $table = null)
     {
@@ -87,7 +87,7 @@ class Lotse_Connector_Model_Route
         return null;
     }
 
-    /** @return string[] URL-dekodierte Segmente ohne leere Einträge */
+    /** @return string[] URL-decoded segments without empty entries */
     public static function segments($path)
     {
         $path = trim((string) $path, '/');
@@ -103,7 +103,7 @@ class Lotse_Connector_Model_Route
         return $out;
     }
 
-    /** @return array|null Platzhalterwerte oder null, wenn das Muster nicht passt */
+    /** @return array|null placeholder values or null if the pattern does not match */
     public static function matchPattern($pattern, array $segments)
     {
         $parts = explode('/', $pattern);

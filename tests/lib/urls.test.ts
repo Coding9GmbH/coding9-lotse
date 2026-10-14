@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { adminUrl, liveSrc, storefrontUrl } from '../../src/lib/urls';
 
-test('Links: ohne Plattform-Pfade wie bisher Shopware, sonst Vorlagen der Plattform', () => {
+test('Links: without platform paths Shopware as before, otherwise the platform templates', () => {
   const sw = { admin: 'https://shop.test', storefront: 'https://shop.test' };
   assert.equal(adminUrl(sw, 'category', 'c1'), 'https://shop.test/admin#/sw/category/index/c1');
   assert.equal(adminUrl(sw, 'product', 'p1'), 'https://shop.test/admin#/sw/product/detail/p1/base');
@@ -17,7 +17,7 @@ test('Links: ohne Plattform-Pfade wie bisher Shopware, sonst Vorlagen der Plattf
   assert.equal(liveSrc({ kind: 'category', id: 'sommer' }, null, paths), '/shop/collections/sommer');
 });
 
-test('storefrontPrefix: Präfixe aller Plattformen, Zuordnung je Plattform', async () => {
+test('storefrontPrefix: prefixes of all platforms, mapping per platform', async () => {
   const { storefrontPrefix, isStorefrontPathOf } = await import('../../src/lib/platforms');
   assert.equal(storefrontPrefix('/widgets/checkout/info'), 'widgets');
   assert.equal(storefrontPrefix('/store-api'), 'store-api');

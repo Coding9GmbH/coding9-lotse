@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-// Ganzer Ablauf gegen einen lokalen Fake von Sistrix: Schlüssel/Domain speichern (verschlüsselt), Test, Werkzeuge mit Shop-Zuordnung, Cache, Fehler, Shop-Check.
+// Full flow against a local Sistrix fake: save key/domain (encrypted), test, tools with shop mapping, cache, errors, shop check.
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-sistrix-'));
 const KEY = 'sx_0123456789abcdef0123456789abcdef';
 const { startFakeSistrix } = await import('../../support/sistrix-fake');
@@ -27,7 +27,7 @@ const run = async (name: string, args: Record<string, unknown> = {}) => {
 };
 const calls = (m: string) => fake.calls.filter(c => c.method === m);
 
-test('Adress-Parameter: domain, host, path oder url je nach Eingabe', () => {
+test('address parameter: domain, host, path or url depending on input', () => {
   assert.deepEqual(A.addressParam('huntify.de'), { domain: 'huntify.de' });
   assert.deepEqual(A.addressParam('www.huntify.de'), { host: 'www.huntify.de' });
   assert.deepEqual(A.addressParam('shop.example.co.uk'), { host: 'shop.example.co.uk' });
@@ -37,19 +37,19 @@ test('Adress-Parameter: domain, host, path oder url je nach Eingabe', () => {
   assert.deepEqual(A.addressParam('huntify.de/'), { domain: 'huntify.de' });
 });
 
-test('Eingaben prüfen: Schlüssel, Domain, Land', () => {
+test('validate inputs: key, domain, country', () => {
   assert.throws(() => A.normKey('kurz'), /Sistrix-API-Schlüssel/);
   assert.equal(A.normDomain('https://WWW.Shop.de/Wohnen/?a=1'), 'www.shop.de/wohnen/');
   assert.equal(A.normDomain(''), '');
-  assert.equal(A.normDomain('www.huntify.de/'), 'www.huntify.de', 'Schrägstrich beim Host fällt weg');
-  assert.equal(A.normDomain('shop.de/wohnen/'), 'shop.de/wohnen/', 'Pfad bleibt');
+  assert.equal(A.normDomain('www.huntify.de/'), 'www.huntify.de', 'trailing slash on the host is dropped');
+  assert.equal(A.normDomain('shop.de/wohnen/'), 'shop.de/wohnen/', 'path stays');
   assert.throws(() => A.normDomain('kein domain'), /Domain:/);
-  assert.throws(() => A.normDomain('shop.de&api_key=x'), /Domain:/, 'keine Parameter-Einschleusung');
+  assert.throws(() => A.normDomain('shop.de&api_key=x'), /Domain:/, 'no parameter injection');
   assert.equal(A.normCountry('DE'), 'de');
   assert.throws(() => A.normCountry('deu'), /Land:/);
 });
 
-test('Speichern: verschlüsselt, nach außen nur „vorhanden“, Trennen leert alles, Schlüssel wird aus Meldungen geschwärzt', () => {
+test('save: encrypted, only "present" exposed, disconnect clears everything, key is redacted from messages', () => {
   assert.equal(A.sistrixPublic().connected, false);
   A.saveSistrix({ key: KEY, domain: 'Shop.de', country: 'DE' });
   const pub = A.sistrixPublic();
@@ -58,12 +58,12 @@ test('Speichern: verschlüsselt, nach außen nur „vorhanden“, Trennen leert 
   const raw = JSON.stringify(kvGet('sistrix'));
   assert.ok(!raw.includes(KEY) && raw.includes('enc:v1:'));
   assert.ok(!redact(`Fehler mit ${KEY} im Text`).includes(KEY));
-  A.saveSistrix({ domain: 'mein-shop.de' }); // Schlüssel bleibt
+  A.saveSistrix({ domain: 'mein-shop.de' }); // key stays
   assert.equal(A.getSistrixConfig()?.key, KEY);
   A.saveSistrix({ domain: 'shop.de' });
 });
 
-test('Verbindung testen: kostenloser credits-Aufruf, Schlüssel im Body (nie in der URL), falscher Schlüssel wird verständlich gemeldet', async () => {
+test('test connection: free credits call, key in the body (never in the URL), wrong key is reported clearly', async () => {
   const r = await A.testSistrix();
   assert.equal(r.ok, true); assert.equal(r.credits, 1234); assert.match(r.message, /Verbunden für shop\.de, 1234 Credits übrig/);
   assert.equal(calls('credits').at(-1)!.params.format, 'json');
@@ -72,7 +72,7 @@ test('Verbindung testen: kostenloser credits-Aufruf, Schlüssel im Body (nie in 
   A.saveSistrix({ key: KEY });
 });
 
-test('Sichtbarkeit: Reihe aufsteigend, Veränderung, Land und Limit gehen mit', async () => {
+test('visibility: series ascending, change, country and limit are passed along', async () => {
   fake.data['domain.visibilityindex'] = [
     { date: '2026-09-28', value: '8.4', domain: 'shop.de' }, { date: '2026-09-21', value: '9.1', domain: 'shop.de' },
     { date: '2026-09-14', value: '10.0', domain: 'shop.de' }, { date: '2026-09-07', value: '10.2', domain: 'shop.de' },
@@ -83,13 +83,13 @@ test('Sichtbarkeit: Reihe aufsteigend, Veränderung, Land und Limit gehen mit', 
   assert.equal(r.json.latest.value, 8.4); assert.equal(r.json.changePct, -17.6);
   const c = calls('domain.visibilityindex').at(-1)!.params;
   assert.deepEqual([c.domain, c.address_object, c.history, c.limit, c.country], ['shop.de', undefined, 'true', '4', 'de']);
-  // zweiter Aufruf mit denselben Argumenten kommt aus dem Cache (keine Credits)
+  // second call with the same arguments comes from the cache (no credits)
   const n = calls('domain.visibilityindex').length;
   await run('sistrix_visibility', { weeks: 4 });
   assert.equal(calls('domain.visibilityindex').length, n);
 });
 
-test('Startseiten-Karte: Verlauf und Veränderung, lange zwischengespeichert (kein Credit-Verbrauch bei jedem Seitenaufruf)', async () => {
+test('home page card: history and change, cached for long (no credit usage on every page view)', async () => {
   A.clearSistrixCache();
   fake.data['domain.visibilityindex'] = [{ date: '2026-10-05', value: '0.058' }, { date: '2026-09-28', value: '0.05' }];
   const cfg = A.getSistrixConfig()!;
@@ -99,15 +99,15 @@ test('Startseiten-Karte: Verlauf und Veränderung, lange zwischengespeichert (ke
   assert.equal(o.latest?.value, 0.058); assert.equal(o.changePct, 16);
   assert.equal(calls('domain.visibilityindex').at(-1)!.params.limit, '8');
   await S.visibilityOverview(cfg, 8);
-  assert.equal(calls('domain.visibilityindex').length, n + 1, 'zweiter Aufruf aus dem Cache');
+  assert.equal(calls('domain.visibilityindex').length, n + 1, 'second call from the cache');
 });
 
-test('Chancen und Top-Seiten: Zeilen werden dem Shop zugeordnet, Limit gedeckelt, fremde Domain möglich', async () => {
+test('opportunities and top pages: rows are mapped to the shop, limit capped, other domain possible', async () => {
   fake.data['domain.opportunities'] = [{ domain: 'vase steinzeug', gain: '72', position: '11', url: PAGE, competition: '40' }, { domain: 'becher', gain: '10', position: '15', url: 'https://www.shop.de/unbekannt', competition: '10' }];
   const r = await run('sistrix_opportunities', { limit: 500 });
-  assert.equal(calls('domain.opportunities').at(-1)!.params.limit, '50', 'auf 50 gedeckelt');
+  assert.equal(calls('domain.opportunities').at(-1)!.params.limit, '50', 'capped at 50');
   assert.equal(r.json.items[0].shop.id, 'p1'); assert.equal(r.json.items[0].change, 'propose_product_changes');
-  assert.equal(r.json.items[0].gain, 72, 'Zahl-Text wird Zahl');
+  assert.equal(r.json.items[0].gain, 72, 'numeric text becomes a number');
   assert.equal(r.json.items[1].shop, null); assert.match(r.json.items[1].change, /nicht im Shop/);
   fake.data['domain.urls'] = [{ url: PAGE, top10: '5', top100: '20', share: '3.5' }];
   const t = await run('sistrix_top_pages', { domain: 'https://Wettbewerber.de', regexUrl: '/wohnen/' });
@@ -118,7 +118,7 @@ test('Chancen und Top-Seiten: Zeilen werden dem Shop zugeordnet, Limit gedeckelt
   assert.equal(bad.err, true); assert.match(bad.text, /Domain:/);
 });
 
-test('Keywords: mehrere als JSON-Liste, höchstens 10, Duplikate fallen weg', async () => {
+test('keywords: several as JSON list, at most 10, duplicates are dropped', async () => {
   fake.data['keyword.seo.metrics'] = [{ kw: 'vase', competition: '55', cpc: '0.4', traffic: '1200' }];
   await run('sistrix_keyword_metrics', { keywords: ['vase', 'Vase ', 'becher'] });
   assert.equal(calls('keyword.seo.metrics').at(-1)!.params.kw, JSON.stringify(['vase', 'Vase', 'becher']));
@@ -126,25 +126,25 @@ test('Keywords: mehrere als JSON-Liste, höchstens 10, Duplikate fallen weg', as
   assert.equal(calls('keyword.seo.metrics').at(-1)!.params.kw, 'einzeln');
 });
 
-test('OnPage: Projekt zur Domain, Zusammenfassung, dann URLs einer Fehlerart', async () => {
+test('OnPage: project for the domain, summary, then URLs of one issue type', async () => {
   fake.data['project.overview'] = [{ hash: 'h-other', name: 'andere.de' }, { hash: 'h-shop', name: 'www.shop.de' }];
   fake.data['project.onpage.crawl'] = [{ type: 'error', name: 'http_404', count: '7' }, { type: 'warning', name: 'title_too_long', count: '40' }];
   fake.data['project.onpage.overview'] = [{ time: '2026-09-01', pages: '900', error: '7', warnings: '40', notice: '3' }, { time: '2026-10-01', pages: '910', error: '7', warnings: '40', notice: '2' }];
   fake.data['project.onpage.issue'] = [{ url: PAGE, status_code: '404', link_from: ['https://www.shop.de/'] }];
   const s = await run('sistrix_onpage');
   assert.equal(s.json.project, 'www.shop.de'); assert.equal(s.json.lastCrawl.time, '2026-10-01');
-  assert.equal(s.json.issues[0].name, 'title_too_long', 'nach Anzahl sortiert');
+  assert.equal(s.json.issues[0].name, 'title_too_long', 'sorted by count');
   const i = await run('sistrix_onpage', { issue: 'http_404' });
   assert.equal(calls('project.onpage.issue').at(-1)!.params.project, 'h-shop');
-  assert.equal(i.json.items[0].shop.id, 'p1', 'verschachtelte Antwort: URLs kommen an');
+  assert.equal(i.json.items[0].shop.id, 'p1', 'nested response: URLs arrive');
   assert.equal(i.json.items[0].status_code, 404);
   const unk = await run('sistrix_onpage', { issue: 'gibt_es_nicht' });
   assert.match(unk.json.message, /Unbekannte Fehlerart.*http_404/);
-  A.clearSistrixCache(); // Daten ändern sich: sonst kommt die Projektliste aus dem Cache
+  A.clearSistrixCache(); // data changes: otherwise the project list comes from the cache
   fake.data['project.overview'] = [{ hash: 'h1', name: 'a.de' }, { hash: 'h2', name: 'b.de' }];
   const many = await run('sistrix_onpage');
   assert.match(many.json.message, /Mehrere Projekte/);
-  A.saveSistrix({ project: 'h2' }); // im SEO-Bereich gewählt: gilt ohne Angabe für alle Werkzeuge und den Shop-Check
+  A.saveSistrix({ project: 'h2' }); // chosen in the SEO area: applies to all tools and the shop check when not specified
   assert.equal((await run('sistrix_onpage')).json.project, 'b.de');
   A.saveSistrix({ project: '' });
   A.clearSistrixCache();
@@ -152,14 +152,14 @@ test('OnPage: Projekt zur Domain, Zusammenfassung, dann URLs einer Fehlerart', a
   assert.match((await run('sistrix_onpage', { project: 'x' })).json.message, /kein Optimizer-Projekt/);
 });
 
-test('Fehler von Sistrix kommen verständlich an, ohne Verbindung sagt das Werkzeug es', async () => {
+test('errors from Sistrix arrive in understandable form, without connection the tool says so', async () => {
   fake.failNext = { code: '202', message: 'Not enough credits' };
   const r = await run('sistrix_competitors', { limit: 3 });
   assert.equal(r.err, true); assert.match(r.text, /Not enough credits \(202\)/);
-  assert.ok(!(await run('sistrix_competitors', { limit: 3 })).err, 'Fehler werden nicht zwischengespeichert');
+  assert.ok(!(await run('sistrix_competitors', { limit: 3 })).err, 'errors are not cached');
 });
 
-test('Shop-Check: Sichtbarkeitsverlust und OnPage-Fehler, ohne Verbindung nichts', async () => {
+test('shop check: visibility loss and OnPage issues, nothing without connection', async () => {
   const checks = listChecks().filter(c => c.area === 'Sistrix');
   assert.deepEqual(checks.map(c => c.id).sort(), ['sistrix.onpage-errors', 'sistrix.visibility-drop']);
   const drop = checks.find(c => c.id === 'sistrix.visibility-drop')!;

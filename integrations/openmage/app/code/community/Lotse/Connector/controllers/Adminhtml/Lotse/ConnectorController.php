@@ -1,7 +1,7 @@
 <?php
 /**
- * Admin-Aktion „Token erzeugen“ (POST, Form-Key + Secret-Key wie jede Admin-Aktion).
- * Antwortet mit JSON {token}; der Token wird genau einmal übertragen.
+ * Admin action "Token erzeugen" (generate token) (POST, form key + secret key like every admin action).
+ * Responds with JSON {token}; the token is transmitted exactly once.
  */
 class Lotse_Connector_Adminhtml_Lotse_ConnectorController extends Mage_Adminhtml_Controller_Action
 {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
 import { assertSafeZip, zipEntries, ZIP_LIMITS } from '../../src/server/zip-guard';
 
-// Minimales ZIP (lokale Header + zentrales Verzeichnis + EOCD); size = angegebene Größe (zum Lügen)
+// Minimal ZIP (local headers + central directory + EOCD); size = declared size (for lying)
 function mkZip(files: { name: string; data: Buffer; store?: boolean; size?: number }[]): Buffer {
   const locals: Buffer[] = [], central: Buffer[] = []; let off = 0;
   for (const f of files) {
@@ -18,22 +18,22 @@ function mkZip(files: { name: string; data: Buffer; store?: boolean; size?: numb
 }
 const small = { ...ZIP_LIMITS, total: 1024 * 1024, ratioMin: 100 * 1024 };
 
-test('zipEntries/assertSafeZip: normales Archiv wird gelesen und angenommen', async () => {
+test('zipEntries/assertSafeZip: a normal archive is read and accepted', async () => {
   const z = mkZip([{ name: 'a.xml', data: Buffer.from('<a>hallo</a>') }, { name: 'b.txt', data: Buffer.from('x'), store: true }]);
   assert.deepEqual(zipEntries(z).map(e => [e.name, e.method, e.size]), [['a.xml', 8, 12], ['b.txt', 0, 1]]);
   await assertSafeZip(z);
   await assert.rejects(assertSafeZip(Buffer.from('kein zip')), /kein gültiges ZIP/);
 });
 
-test('assertSafeZip: Zip-Bombe (auch mit gelogener Größe), zu viele Einträge, absurde Kompression', async () => {
+test('assertSafeZip: zip bomb (also with a false size), too many entries, absurd compression', async () => {
   const zeros = Buffer.alloc(2 * 1024 * 1024);
   await assert.rejects(assertSafeZip(mkZip([{ name: 'bomb.xml', data: zeros }]), small), /entpackt 2 MB, höchstens 1 MB/);
-  await assert.rejects(assertSafeZip(mkZip([{ name: 'bomb.xml', data: zeros, size: 10 }]), small), /Zip-Bombe/, 'angegebene Größe lügt: tatsächliches Entpacken zählt');
+  await assert.rejects(assertSafeZip(mkZip([{ name: 'bomb.xml', data: zeros, size: 10 }]), small), /Zip-Bombe/, 'declared size lies: actual decompression counts');
   await assert.rejects(assertSafeZip(mkZip(Array.from({ length: 6 }, (_, i) => ({ name: `f${i}`, data: Buffer.from('x') }))), { ...small, entries: 5 }), /zu viele Einträge im Archiv \(6, höchstens 5\)/);
   await assert.rejects(assertSafeZip(mkZip([{ name: 'z.xml', data: Buffer.alloc(512 * 1024) }]), small), /ungewöhnlich stark komprimiert/);
 });
 
-test('Dateien mit Zip-Bombe werden vor exceljs/mammoth abgewiesen (Import und Wissensbasis); echte XLSX geht weiter', async () => {
+test('files with a zip bomb are rejected before exceljs/mammoth (import and knowledge base); real XLSX passes', async () => {
   const { parseTable } = await import('../../src/server/features/import-parse');
   const { extractSegments } = await import('../../src/server/knowledge-text');
   const many = mkZip(Array.from({ length: ZIP_LIMITS.entries + 1 }, (_, i) => ({ name: `x/${i}`, data: Buffer.alloc(0), store: true })));

@@ -1,6 +1,6 @@
 import 'server-only';
-// Magento: Promotionen = Warenkorb-Preisregeln (salesRules) mit Gutscheincodes (coupons). Lesen nur Regeln und Zählwerte (nie Kunden oder Bestellungen).
-// Kundengruppen setzt der Executor (alle Gruppen) mit dem privilegierten Client – die KI liest keine Kundengruppen.
+// Magento: promotions = cart price rules (salesRules) with coupon codes (coupons). Reads only rules and counts (never customers or orders).
+// The executor sets customer groups (all groups) with the privileged client; the AI reads no customer groups.
 import type { ChangeItem, ChangeSet } from '@/lib/protocol';
 import { applyEach, errMsg, MAX_ITEMS, newIdSafe, trackedUndo } from './kit';
 import type { MagentoClient } from './client';
@@ -12,7 +12,6 @@ const COMBINE = 'Magento\\SalesRule\\Model\\Rule\\Condition\\Combine', PRODUCT_C
 const PRODUCT_COND = 'Magento\\SalesRule\\Model\\Rule\\Condition\\Product', ADDRESS_COND = 'Magento\\SalesRule\\Model\\Rule\\Condition\\Address';
 export const MAX_CODES = 1000;
 const ACTION: Record<string, string> = { percentage: 'by_percent', absolute: 'by_fixed', cart_fixed: 'cart_fixed', buy_x_get_y: 'buy_x_get_y' };
-const ACTION_BACK: Record<string, string> = Object.fromEntries(Object.entries(ACTION).map(([k, v]) => [v, k]));
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export type PromoStatus = 'läuft' | 'geplant' | 'abgelaufen' | 'inaktiv';
@@ -22,7 +21,7 @@ export function promoStatus(r: MRecord, today = isoDay()): PromoStatus {
   if (r.from_date && String(r.from_date).slice(0, 10) > today) return 'geplant';
   return 'läuft';
 }
-/** Einschränkung aus der Aktionsbedingung (nur Kategorien/SKUs lesbar; Sonstiges als Anzahl) */
+/** Restriction from the action condition (only categories/SKUs readable; anything else as a count) */
 export function restriction(r: MRecord): { categoryIds: string[]; skus: string[]; other: number } {
   const out = { categoryIds: [] as string[], skus: [] as string[], other: 0 };
   const walk = (c: MRecord | undefined) => { for (const x of (c?.conditions ?? []) as MRecord[]) {
@@ -35,11 +34,11 @@ export function restriction(r: MRecord): { categoryIds: string[]; skus: string[]
 }
 const isMin = (c: MRecord) => c.attribute_name === 'base_subtotal' && c.operator === '>=';
 const minSubtotal = (r: MRecord): number | null => { const x = ((r.condition?.conditions ?? []) as MRecord[]).find(isMin); return x ? Number(x.value) : null; };
-/** Weitere Warenkorb-Bedingungen außer dem Mindestbestellwert (z. B. Lieferland), nur als Anzahl */
+/** Further cart conditions besides the minimum order value (e.g. shipping country), only as a count */
 const otherCartConds = (r: MRecord) => ((r.condition?.conditions ?? []) as MRecord[]).filter(c => !isMin(c)).length;
-/** Standard-Bezeichnung im Warenkorb (Store 0) */
+/** Default label in the cart (store 0) */
 export const labelOf = (r: MRecord): string | null => ((r.store_labels ?? []) as MRecord[]).find(l => Number(l.store_id) === 0)?.store_label || null;
-/** Lesbares Rabattziel (Kategorien mit Namen, SKUs, sonstige Bedingungen); null = alle Artikel */
+/** Readable discount target (categories with names, SKUs, other conditions); null = all items */
 async function targetText(ro: MagentoReader, r: MRecord, cats = new Map<string, string>()) {
   const res = restriction(r);
   for (const id of res.categoryIds.slice(0, 20)) if (!cats.has(id)) cats.set(id, String((await ro.category(id).catch(() => null))?.name ?? id));
@@ -70,7 +69,7 @@ export async function promoView(ro: MagentoReader, r: MRecord, detail = false) {
   };
 }
 
-// ================= Vorschlag: anlegen / ändern =================
+// ================= Proposal: create / update =================
 export interface PromoDiscount { type: 'percentage' | 'absolute' | 'cart_fixed' | 'buy_x_get_y'; value: number; step?: number; maxQty?: number | null; applyToShipping?: boolean; categoryIds?: string[]; productIds?: string[] }
 export interface PromoArgs {
   id?: string; reason: string; name?: string; description?: string | null; label?: string | null; active?: boolean; validFrom?: string | null; validUntil?: string | null;
@@ -88,8 +87,8 @@ function actionCondition(categoryIds: string[], skus: string[]): MRecord {
 const subCond = (sub: number) => ({ condition_type: ADDRESS_COND, attribute_name: 'base_subtotal', operator: '>=', value: String(sub) });
 const condition = (sub: number | null): MRecord => ({ condition_type: COMBINE, aggregator_type: 'all', value: '1', conditions: sub != null ? [subCond(sub)] : [] });
 /**
- * Warenkorb-Bedingung mit neuem Mindestbestellwert. Übrige Bedingungen (z. B. Lieferland) bleiben, wenn die Regel sie mit
- * „alle wahr“ verknüpft; sonst ersetzt der Mindestbestellwert sie (dropped = Anzahl, steht als Warnung auf der Karte).
+ * Cart condition with a new minimum order value. Other conditions (e.g. shipping country) remain if the rule combines them with
+ * "all true"; otherwise the minimum order value replaces them (dropped = count, shown as a warning on the card).
  */
 export function conditionWith(before: MRecord | null, sub: number | null): { cond: MRecord; dropped: number } {
   const bc = before?.condition as MRecord | undefined, others = ((bc?.conditions ?? []) as MRecord[]).filter(c => !isMin(c));
@@ -114,7 +113,7 @@ export async function buildPromotionChangeSet(ro: MagentoReader, a: PromoArgs): 
   const rule: MRecord = {}, warn: string[] = [], items: ChangeItem[] = [];
   if (a.name !== undefined) rule.name = a.name.trim();
   if (a.description !== undefined) rule.description = a.description ?? '';
-  // Magento ignoriert store_labels [] bzw. null: Bezeichnung entfernen = leerer Text für Store 0
+  // Magento ignores store_labels [] or null: removing the label = empty text for store 0
   if (a.label !== undefined && (a.label || before)) rule.store_labels = [{ store_id: 0, store_label: a.label?.trim() ?? '' }];
   if (a.active !== undefined) rule.is_active = a.active;
   const from = dateIn(a.validFrom, 'validFrom'), to = dateIn(a.validUntil, 'validUntil');
@@ -131,7 +130,7 @@ export async function buildPromotionChangeSet(ro: MagentoReader, a: PromoArgs): 
     const prods = d.productIds?.length ? await ro.productsByIds(d.productIds).then(async ps => [...ps, ...await ro.productsBySkus(d.productIds!.filter(x => !ps.some(p => String(p.id) === x)))]) : [];
     const missing = (d.productIds ?? []).filter(x => !prods.some(p => String(p.id) === x || p.sku === x)); if (missing.length) throw new Error(`Produkte nicht gefunden: ${missing.join(', ')}`);
     for (const cid of d.categoryIds ?? []) if (!await ro.category(cid)) throw new Error(`Kategorie ${cid} nicht gefunden`);
-    // Bei bestehenden Regeln nur die angegebenen Rabatt-Felder schreiben: Einschränkung, Versand, Schritt und Höchstmenge bleiben sonst
+    // For existing rules write only the given discount fields: restriction, shipping, step and max quantity stay otherwise
     Object.assign(rule, { simple_action: ACTION[d.type], discount_amount: d.value });
     if (!before || d.step !== undefined) rule.discount_step = d.step ?? 0;
     if (d.maxQty !== undefined) rule.discount_qty = d.maxQty ?? 0;
@@ -177,7 +176,7 @@ export async function buildPromotionChangeSet(ro: MagentoReader, a: PromoArgs): 
     } else throw new Error('code.mode: none, fixed oder individual');
   }
   if (rule.is_active === true && f && f > isoDay()) warn.push(`Geplant: startet am ${deDay(f)}`);
-  // Überschneidung mit laufenden Regeln ohne Code (wirken automatisch zusammen)
+  // Overlap with running rules without a code (they apply together automatically)
   const running = (await ro.salesRules({ filters: [[{ field: 'is_active', value: 1 }]], pageSize: 100 })).items.filter(r => String(r.rule_id) !== String(a.id ?? '') && promoStatus(r) !== 'abgelaufen');
   if (running.length && (rule.coupon_type ?? before?.coupon_type) === 'NO_COUPON') warn.push(`Weitere aktive Regeln: ${running.slice(0, 3).map(r => r.name).join(', ')}${running.length > 3 ? ' …' : ''}`);
   const merged = { ...(before ?? {}), ...rule };
@@ -197,17 +196,17 @@ export async function buildPromotionChangeSet(ro: MagentoReader, a: PromoArgs): 
   return { cs: { id: newIdSafe(), kind: 'promotion', entity: 'promotion', noun: { one: 'Promotion', many: 'Promotionen' }, title: before ? `Promotion ändern: ${before.name}` : `Neue Promotion: ${rule.name}`, reason: a.reason, items, skipped: [], atomic: true }, payload: { ruleId: before ? String(before.rule_id) : null, rule, before, code: a.code ?? null, oldCoupon } };
 }
 
-/** Leerwerte für Rückgängig: Magento ignoriert null, darum je Feld der Wert, der „nicht gesetzt“ bedeutet */
+/** Empty values for undo: Magento ignores null, so per field the value that means "not set" */
 const EMPTY: Record<string, unknown> = { from_date: '', to_date: '', description: '', discount_qty: 0, discount_step: 0, uses_per_customer: 0, uses_per_coupon: 0, sort_order: 0 };
-/** Bezeichnungen zurück: vorherige Texte, und leerer Text für jede Store-View, die vorher keine hatte (Magento ignoriert []) */
+/** Restore labels: previous texts, and empty text for every store view that had none before (Magento ignores []) */
 export const undoLabels = (prev: MRecord[] = [], next: MRecord[] = []) => [...prev.map(l => ({ store_id: Number(l.store_id), store_label: l.store_label })), ...next.filter(n => !prev.some(l => Number(l.store_id) === Number(n.store_id))).map(n => ({ store_id: Number(n.store_id), store_label: '' }))];
-/** Vorherige Werte genau der geänderten Regel-Felder */
+/** Previous values of exactly the changed rule fields */
 export const undoRule = (before: MRecord, keys: string[], set: MRecord = {}) => Object.fromEntries(keys.map(k => [k, k === 'store_labels' ? undoLabels(before.store_labels, set.store_labels) : before[k] ?? (k in EMPTY ? EMPTY[k] : null)]));
 
 reg.register('promotion', async (c, cs, payload, selected, ctx) => {
   const p = payload as PromoPayload;
   if (!selected.has('promo')) return { results: [], undo: [] };
-  const undo = trackedUndo(ctx, 1); // jeder Schritt sofort gesichert (Regel angelegt, Codes erzeugt)
+  const undo = trackedUndo(ctx, 1); // every step saved immediately (rule created, codes generated)
   try {
     let id = p.ruleId;
     if (!id) {
@@ -236,7 +235,7 @@ reg.register('promotion', async (c, cs, payload, selected, ctx) => {
   } catch (e) { return { results: [{ itemId: 'promo', ok: false, error: errMsg(e) }], undo }; }
 });
 
-// ================= Status (aktivieren, deaktivieren, beenden) =================
+// ================= Status (activate, deactivate, end) =================
 export async function buildPromotionStatusChangeSet(ro: MagentoReader, a: { ids: string[]; action: 'activate' | 'deactivate' | 'end'; reason?: string }): Promise<ChangeSet> {
   if (!a.ids?.length) throw new Error('ids ist leer');
   if (a.ids.length > MAX_ITEMS) throw new Error(`Maximal ${MAX_ITEMS} Promotionen.`);
@@ -262,4 +261,3 @@ reg.register('promotion-status', (c: MagentoClient, cs, _p, selected, ctx) => ap
   await c.req('PUT', `/V1/salesRules/${it.entityId}`, { rule: { rule_id: Number(it.entityId), ...set } }, { store: 'all' });
   return reqOp('sales-rule', it.entityId!, 'PUT', `/all/V1/salesRules/${it.entityId}`, { rule: { rule_id: Number(it.entityId), ...undoRule(cur, Object.keys(set)) } });
 }, ctx));
-export const ACTION_NAMES = ACTION_BACK;

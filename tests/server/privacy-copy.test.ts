@@ -5,7 +5,7 @@ import path from 'node:path';
 
 const read = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
 
-test('Suchanfragen: die Begriffe gehen an den Modellanbieter, sie sind nicht „keine Personendaten“', () => {
+test('search queries: the terms go to the model provider, they are not "keine Personendaten" (no personal data)', () => {
   const t = read('prompts/common/18-gsc.md');
   assert.doesNotMatch(t, /keine Personendaten/);
   assert.doesNotMatch(t, /nur Begriffe/);
@@ -13,7 +13,7 @@ test('Suchanfragen: die Begriffe gehen an den Modellanbieter, sie sind nicht „
   assert.doesNotMatch(t, /updatedAt/);
 });
 
-test('Freigegebene Daten: ungenutzte Beispielcodes ohne Einlöser dürfen an die KI', () => {
+test('approved data: unused sample codes without redeemers may go to the AI', () => {
   const files = [
     'prompts/shopware/02-2-freigegebene-daten.md',
     'prompts/magento/02-2-freigegebene-daten.md',

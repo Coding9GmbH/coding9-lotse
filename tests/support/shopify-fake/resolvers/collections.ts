@@ -268,7 +268,7 @@ export const collectionMutations = {
     return { job: newJob(ctx), userErrors: [] };
   },
 
-  // Moves wirken nacheinander (newPosition 0-basiert, ab Produktanzahl = ans Ende), nur bei sortOrder MANUAL (wie Shopify)
+  // moves apply one after another (newPosition 0-based, >= product count = to the end), only with sortOrder MANUAL (like Shopify)
   collectionReorderProducts: (_: unknown, a: { id: string; moves: { id: string; newPosition: string }[] }, ctx: Ctx) => {
     const id = safeIdOf(a.id, 'Collection');
     const c = id !== null ? ctx.state.collections.get(id) : undefined;

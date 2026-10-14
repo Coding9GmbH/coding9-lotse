@@ -1,7 +1,7 @@
-// Wissensbasis: gemeinsame Typen für Server und Oberfläche.
+// Knowledge base: shared types for server and UI.
 import { DEFAULT_LOCALE, messages, type Locale } from './i18n';
 
-/** upload = auf der Seite Wissen hochgeladen, chat = Chat-Anhang, text = vom Nutzer diktiert */
+/** upload = uploaded on the knowledge base page, chat = chat attachment, text = dictated by the user */
 export type KnowledgeSource = 'upload' | 'chat' | 'text';
 export interface KnowledgeLink { kind: 'product' | 'category'; id: string; number?: string | null; name?: string | null }
 export interface KnowledgeDoc {
@@ -10,15 +10,15 @@ export interface KnowledgeDoc {
 }
 
 export type RuleScope = 'all' | 'products' | 'pages' | 'seo';
-/** Bereichsnamen deutsch (Server, KI); je Sprache: ruleScopeLabel(scope, locale) */
+/** Scope names in German (server, AI); per language: ruleScopeLabel(scope, locale) */
 export const RULE_SCOPES: Record<RuleScope, string> = messages(DEFAULT_LOCALE).lib.knowledge.scopes;
 export const ruleScopeLabel = (scope: RuleScope, locale: Locale = DEFAULT_LOCALE): string => messages(locale).lib.knowledge.scopes[scope];
-/** Optionale Begrenzung einer Regel auf eine Kategorie (gilt dann für diese Kategorie und deren Produkte/Seiten) */
+/** Optional limit of a rule to one category (it then applies to this category and its products/pages) */
 export interface RuleTarget { id: string; name: string }
 export interface KnowledgeRule { id: string; text: string; scope: RuleScope; target: RuleTarget | null; createdAt: string; updatedAt: string }
 
 export const RULE_MAX = 300;
-/** Lead der Wissensseite: lokal gespeichert, Auszüge und Regeln gehen an den Modellanbieter. */
+/** Lead text of the knowledge base page: stored locally, excerpts and rules go to the model provider. */
 export const KNOWLEDGE_LEAD = messages(DEFAULT_LOCALE).lib.knowledge.lead;
 export const knowledgeLead = (locale: Locale = DEFAULT_LOCALE): string => messages(locale).lib.knowledge.lead;
 export const TITLE_MAX = 160;

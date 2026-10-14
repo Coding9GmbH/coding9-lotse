@@ -1,4 +1,4 @@
 import 'server-only';
-// Gemeinsame Kern-Hilfen für den Magento-Adapter (aus changes.ts), an einer Stelle gebündelt.
+// Shared core helpers for the Magento and OpenMage adapters (from changes.ts), bundled in one place.
 export { applyEach, errMsg, MAX_ITEMS, partialTicker, pool, resolvePrice, trackedUndo, WRITE_CONCURRENCY, type ApplyCtx, type ApplyResult, type PriceSpec } from '../../changes';
 export { newId as newIdSafe } from '../../shopware';

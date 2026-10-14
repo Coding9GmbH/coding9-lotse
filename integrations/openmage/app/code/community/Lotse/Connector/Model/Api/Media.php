@@ -1,8 +1,8 @@
 <?php
 /**
- * Produktbilder (Media-Galerie): Liste, hinzufügen (Base64 oder URL), Label/Position/Rollen/deaktivieren,
- * entfernen. Label und Position sind je Store-View überschreibbar (null = Standardwert verwenden).
- * Neue Bilder werden immer im globalen Scope angelegt.
+ * Product images (media gallery): list, add (Base64 or URL), label/position/roles/disable,
+ * remove. Label and position can be overridden per store view (null = use default value).
+ * New images are always created in the global scope.
  */
 class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
 {
@@ -61,7 +61,7 @@ class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
         return $out;
     }
 
-    /** value_ids mit eigener Zeile im angefragten Store (nur Store > 0). */
+    /** value_ids with their own row in the requested store (store > 0 only). */
     protected function storeValueRows(array $valueIds)
     {
         if ($this->storeId === 0 || $valueIds === []) {
@@ -111,7 +111,7 @@ class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
 
     /**
      * POST /v1/products/{sku}/images: {base64 | url, filename?, label?, position?, types?, disabled?}.
-     * Datei wird nach media/catalog/product/<a>/<b>/ übernommen (Dateiname wird bei Kollision nummeriert).
+     * The file is moved to media/catalog/product/<a>/<b>/ (file name gets numbered on collision).
      */
     public function addImage(array $params)
     {
@@ -150,7 +150,7 @@ class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
         return ['data' => ['image' => $created, 'images' => $images]];
     }
 
-    /** Lädt Base64-Daten oder eine http(s)-URL in eine temporäre Datei unter var/tmp/lotse. */
+    /** Loads Base64 data or an http(s) URL into a temporary file under var/tmp/lotse. */
     protected function fetchToTmp(array $body)
     {
         $filename = isset($body['filename']) ? basename((string) $body['filename']) : '';
@@ -205,8 +205,8 @@ class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
     }
 
     /**
-     * Lädt eine http(s)-URL serverseitig. Schutz vor SSRF: jeder Hop (auch Weiterleitungen) muss auf eine
-     * öffentliche Adresse zeigen (keine Loopback-, privaten, Link-Local- oder Multicast-Adressen).
+     * Fetches an http(s) URL server-side. SSRF protection: every hop (including redirects) must point to a
+     * public address (no loopback, private, link-local or multicast addresses).
      */
     protected function download($url)
     {
@@ -239,13 +239,13 @@ class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
         throw Lotse_Connector_Model_Exception::validation('Bild konnte nicht geladen werden: zu viele Weiterleitungen.');
     }
 
-    /** Absolute oder relative Location gegen die vorherige URL auflösen. */
+    /** Resolve an absolute or relative Location against the previous URL. */
     protected function resolveLocation($base, $location)
     {
         return Lotse_Connector_Model_Util::resolveLocation($base, $location);
     }
 
-    /** Alle Adressen des Hosts (IP-Literal oder DNS A/AAAA) müssen öffentlich sein. */
+    /** All addresses of the host (IP literal or DNS A/AAAA) must be public. */
     protected function assertPublicHost($host)
     {
         $host = trim($host, '[]');
@@ -273,10 +273,10 @@ class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
     }
 
     /**
-     * Galerie-Werte (label, position, disabled) eines Bildes im Scope des Stores direkt schreiben.
-     * Ein Produkt-Save im Store-Scope würde in Magento 1 jedes Attribut und jedes Bild als Store-Wert kopieren;
-     * hier entsteht genau eine Zeile (value_id, store_id). null bei label/position = Standardwert verwenden.
-     * Eine Store-Zeile ohne eigenen Wert (label und position NULL, disabled wie global) wird entfernt.
+     * Write an image's gallery values (label, position, disabled) directly in the store scope.
+     * A product save in store scope would copy every attribute and every image as a store value in Magento 1;
+     * here exactly one row (value_id, store_id) is created. null for label/position = use default value.
+     * A store row without its own value (label and position NULL, disabled as global) is removed.
      */
     protected function writeGalleryValue($valueId, array $data)
     {
@@ -294,7 +294,7 @@ class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
                 continue;
             }
             if ($data[$field] === null || ($field === 'label' && $this->storeId === 0 && (string) $data[$field] === '')) {
-                // global ist „kein Label“ NULL (wie nach dem Upload); im Store-Scope ist "" ein eigener leerer Wert
+                // globally, "no label" is NULL (as after upload); in store scope "" is a separate empty value
                 $row[$field] = null;
             } else {
                 $row[$field] = $field === 'position' ? (int) $data[$field] : (string) $data[$field];
@@ -318,8 +318,8 @@ class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
     }
 
     /**
-     * Bildrollen im Scope des Stores über catalog/product_action::updateAttributes (wie PATCH /v1/products):
-     * nur Rollen, die sich ändern, werden geschrieben, geerbte unveränderte Rollen bleiben geerbt.
+     * Image roles in store scope via catalog/product_action::updateAttributes (like PATCH /v1/products):
+     * only roles that change are written, inherited unchanged roles stay inherited.
      */
     protected function writeRoles(Mage_Catalog_Model_Product $product, array $image, array $types)
     {
@@ -336,7 +336,7 @@ class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
         }
     }
 
-    /** Nach direkten Galerie-Schreibvorgängen: updated_at und Produkt-Cache wie nach einem Save. */
+    /** After direct gallery writes: updated_at and product cache as after a save. */
     protected function afterGalleryWrite(Mage_Catalog_Model_Product $product)
     {
         $resource = Mage::getSingleton('core/resource');
@@ -350,7 +350,7 @@ class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
 
     /**
      * PATCH /v1/products/{sku}/images/{id}: {label?, position?, disabled?, types?}.
-     * label/position null = Standardwert verwenden (nur Store > 0). types = exakte Rollen dieses Bildes.
+     * label/position null = use default value (store > 0 only). types = exact roles of this image.
      */
     public function updateImage(array $params)
     {
@@ -399,8 +399,8 @@ class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
     }
 
     /**
-     * DELETE /v1/products/{sku}/images/{id}?mode=disable|delete. Standard: disable (exakt rückgängig machbar).
-     * delete entfernt den Galerie-Eintrag in allen Stores; die Datei bleibt, wenn andere Produkte sie nutzen.
+     * DELETE /v1/products/{sku}/images/{id}?mode=disable|delete. Default: disable (exactly undoable).
+     * delete removes the gallery entry in all stores; the file stays if other products use it.
      */
     public function removeImage(array $params)
     {
@@ -414,7 +414,7 @@ class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
             }
         }
         if ($mode === 'delete') {
-            // global (Store 0) geladen: der Produkt-Save entfernt den Galerie-Eintrag in allen Stores, ohne Store-Kopien anzulegen
+            // loaded globally (store 0): the product save removes the gallery entry in all stores without creating store copies
             $this->backend($product)->removeImage($product, $image['file']);
             foreach (self::ROLES as $role) {
                 if ($product->getData($role) === $image['file']) {
@@ -430,7 +430,7 @@ class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
         }
         $fileDeleted = false;
         if ($mode === 'delete' && !$this->fileInUse($image['file'])) {
-            // OpenMage löscht beim Entfernen aus der Galerie nur die Datenbankzeile; die Datei räumen wir auf
+            // OpenMage only deletes the database row when removing from the gallery; we clean up the file
             $path = Mage::getSingleton('catalog/product_media_config')->getMediaPath($image['file']);
             $fileDeleted = is_file($path) && @unlink($path);
         }
@@ -438,7 +438,7 @@ class Lotse_Connector_Model_Api_Media extends Lotse_Connector_Model_Api_Abstract
         return ['data' => ['mode' => $mode, 'before' => $before, 'file_deleted' => $fileDeleted, 'images' => $this->formatImages($fresh)]];
     }
 
-    /** Verweist noch eine Galerie (irgendein Produkt) oder eine Bildrolle auf die Datei? */
+    /** Does any gallery (any product) or image role still reference the file? */
     protected function fileInUse($file)
     {
         $resource = Mage::getSingleton('core/resource');

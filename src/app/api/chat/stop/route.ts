@@ -4,7 +4,7 @@ import { stopChat } from '@/server/sessions';
 
 export const dynamic = 'force-dynamic';
 
-// Laufende Runde abbrechen (offene Rückfragen/Freigaben gelten als abgelehnt – es wird nichts geschrieben).
+// Abort the running turn (open questions/approvals count as declined; nothing is written).
 export async function POST(req: Request) {
   const body = await parseJson(req, z.object({ chatId: chatIdSchema }));
   if (!body.ok) return body.res;

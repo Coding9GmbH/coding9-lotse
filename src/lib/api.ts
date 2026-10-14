@@ -1,4 +1,4 @@
-// Typisierte fetch-Helfer für die Oberfläche (nur im Browser verwenden).
+// Typed fetch helpers for the UI (use in the browser only).
 import type { FileAttachment } from './attachments';
 import type { CheckListItem } from './custom-checks';
 import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget } from './knowledge';
@@ -11,7 +11,7 @@ export class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
 
-/** Kennung der Oberfläche: der Server verlangt sie bei jedem schreibenden Aufruf (Schutz vor Aufrufen aus eingebetteten Vorschauen). */
+/** UI identifier: the server requires it on every writing call (protection against calls from embedded previews). */
 export const LOTSE_HEADER = { 'x-lotse': '1' } as const;
 const withHeader = (init: RequestInit = {}): RequestInit => ({ ...init, headers: { ...LOTSE_HEADER, ...(init.headers as Record<string, string> | undefined) } });
 
@@ -38,7 +38,7 @@ export const api = {
   categories: () => request<CategoryRow[]>('/api/categories'),
   products: (term: string, categoryId?: string) =>
     request<ProductRow[]>(`/api/products?term=${encodeURIComponent(term)}${categoryId ? `&categoryId=${encodeURIComponent(categoryId)}` : ''}`),
-  /** Ohne Optionen die neuesten 200; before = letzter Chat der vorigen Seite (weiterblättern), q = Titelsuche */
+  /** Without options the newest 200; before = last chat of the previous page (paging), q = title search */
   chats: (o: { before?: Pick<ChatSummary, 'updatedAt' | 'id'>; q?: string } = {}) => {
     const p = new URLSearchParams(); if (o.before) { p.set('before', o.before.updatedAt); p.set('beforeId', o.before.id); } if (o.q) p.set('q', o.q);
     return request<ChatSummary[]>(`/api/chats${p.size ? `?${p}` : ''}`);
@@ -73,13 +73,13 @@ export const api = {
   accessLog: () => request<AccessLogRow[]>('/api/access-log'),
   audit: () => request<AuditRow[]>('/api/audit'),
   shopCheck: () => request<ShopCheckState>('/api/shopcheck'),
-  /** eingebaute und eigene Prüfungen (an/aus); Anlegen/Ändern eigener Prüfungen läuft im Chat */
+  /** built-in and custom checks (on/off); creating/changing custom checks happens in the chat */
   checks: {
     list: () => request<CheckListItem[]>('/api/shopcheck/checks'),
     setEnabled: (id: string, enabled: boolean) => request<unknown>(`/api/shopcheck/checks/${encodeURIComponent(id)}`, json('PUT', { enabled })),
     remove: (id: string) => request<unknown>(`/api/shopcheck/checks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
-  /** startet einen neuen Durchlauf im Hintergrund */
+  /** starts a new run in the background */
   runShopCheck: () => request<ShopCheckState>('/api/shopcheck', { method: 'POST' }),
   knowledge: {
     list: () => request<{ docs: KnowledgeDoc[]; rules: KnowledgeRule[] }>('/api/knowledge'),
@@ -92,9 +92,9 @@ export const api = {
   },
 };
 
-/** Startet den Chat-Stream; der Aufrufer liest response.body (siehe useChatStream). */
+/** Starts the chat stream; the caller reads response.body (see useChatStream). */
 export const postChat = (body: ChatRequest, signal: AbortSignal) => fetch('/api/chat', withHeader({ ...json('POST', body), signal }));
-/** Mit einem Chat verbinden: erst „snapshot“, dann Live-Ereignisse, solange die Runde läuft. */
+/** Connect to a chat: first "snapshot", then live events while the run is active. */
 export const listenChat = (chatId: string, signal: AbortSignal) => fetch(`/api/chat?chatId=${encodeURIComponent(chatId)}`, { signal });
 
 export const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));

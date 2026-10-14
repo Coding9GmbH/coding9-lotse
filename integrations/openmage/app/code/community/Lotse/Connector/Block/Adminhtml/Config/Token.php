@@ -1,7 +1,7 @@
 <?php
 /**
- * Konfigurationsfeld „API-Token“: zeigt nur, ob ein Token gesetzt ist, und einen Button
- * „Token erzeugen“. Der neue Token wird per AJAX erzeugt und genau einmal angezeigt.
+ * "API-Token" config field: shows only whether a token is set, plus a
+ * "Token erzeugen" (generate token) button. The new token is generated via AJAX and shown exactly once.
  */
 class Lotse_Connector_Block_Adminhtml_Config_Token extends Mage_Adminhtml_Block_System_Config_Form_Field
 {

@@ -1,10 +1,10 @@
-// Live-Prüfung des OpenMage-Adapters gegen eine echte OpenMage-Instanz mit installiertem Lotse_Connector und den
-// „Haus Holm“-Demodaten (integrations/openmage/README.md): jede Änderungsart über die echten Lotse-Werkzeuge
-// (Vorschlag → Freigabe → Schreiben → Rückgängig), Seiten veröffentlichen mit Storefront-HTML-Prüfung, Shop-Check, Import.
-// Am Ende muss der Shop-Zustand (Produkte, Kategorien, CMS, Preisregeln, URL-Rewrites) dem Ausgangszustand entsprechen.
+// Live check of the OpenMage adapter against a real OpenMage instance with Lotse_Connector installed and the
+// "Haus Holm" demo data (integrations/openmage/README.md): every change kind via the real Lotse tools
+// (proposal → approval → write → undo), publishing pages with storefront HTML check, shop check, import.
+// At the end the shop state (products, categories, CMS, price rules, URL rewrites) must match the initial state.
 //
 //   OPENMAGE_URL=http://127.0.0.1:8891 OPENMAGE_TOKEN=… npx tsx --conditions=react-server tests/support/openmage-live/verify.ts
-//   Optional: OPENMAGE_STORE_CODE (Standard: Standard-Store-View), LOTSE_OUT=<Ordner> für die Storefront-HTML-Dateien.
+//   Optional: OPENMAGE_STORE_CODE (default: default store view), LOTSE_OUT=<folder> for the storefront HTML files.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -44,7 +44,7 @@ const ok = (cond: unknown, msg: string) => { if (!cond) throw new Error(`PRÜFUN
 const log = (...a: unknown[]) => console.log(...a);
 const save = (name: string, html: string) => { if (OUT) { fs.mkdirSync(OUT, { recursive: true }); fs.writeFileSync(path.join(OUT, name), html); } };
 
-/** Vollständiger Vergleichszustand (ohne Zeitstempel und Zähler): global und jede Store-View (auch die, die Kunden sehen) */
+/** Complete comparison state (without timestamps and counters): global and every store view (including the ones customers see) */
 const STORES = ['', ...((await api('/v1/info') as { store_views: { id: number; code: string }[] }).store_views.filter(v => v.id > 0).map(v => v.code))];
 async function state(): Promise<string> {
   const strip = (x: unknown): unknown => Array.isArray(x) ? x.map(strip) : x && typeof x === 'object' ? Object.fromEntries(Object.entries(x).filter(([k]) => !['updated_at', 'update_time', 'duration_ms', 'created_at', 'creation_time'].includes(k)).map(([k, v]) => [k, strip(v)])) : x;
@@ -56,7 +56,7 @@ async function state(): Promise<string> {
   for (const pg of (await list('/v1/cms/pages')) as { id: number }[]) out[`page:${pg.id}`] = await api(`/v1/cms/pages/${pg.id}`);
   for (const b of (await list('/v1/cms/blocks')) as { id: number }[]) out[`block:${b.id}`] = await api(`/v1/cms/blocks/${b.id}`);
   for (const r of (await list('/v1/salesrules')) as { id: number }[]) out[`rule:${r.id}`] = await api(`/v1/salesrules/${r.id}`);
-  // System-Rewrites legt OpenMage bei Kategorie-Zuordnungen neu an (neue ID): ohne ID vergleichen
+  // OpenMage recreates system rewrites on category assignments (new ID): compare without ID
   out.rewrites = ((await api('/v1/urlrewrites?all=1&limit=200')) as Record<string, unknown>[]).map(r => { const { id: _ignored, ...rest } = r; void _ignored; return rest; }).map(r => JSON.stringify(r)).sort();
   return JSON.stringify(strip(out));
 }
@@ -75,7 +75,7 @@ async function roundtrip(label: string, run: () => Promise<{ status?: string; [k
   if (after !== before) diff(before, after);
   ok(after === before, `${label}: Ausgangszustand exakt wiederhergestellt`);
 }
-/** Unterschiede zweier Zustände ausgeben (zur Fehlersuche) */
+/** Print the differences between two states (for debugging) */
 function diff(a: string, b: string) {
   const A = JSON.parse(a) as Record<string, unknown>, B = JSON.parse(b) as Record<string, unknown>;
   const walk = (x: unknown, y: unknown, p: string) => {
@@ -92,7 +92,7 @@ const write = async (method: string, p: string, body: unknown) => { const r = aw
 const info = await api('/v1/info') as { price_includes_tax: boolean };
 log(`Preisbasis laut Shop: ${info.price_includes_tax ? 'brutto' : 'netto'}`);
 
-// ---- Lesen ----
+// ---- Reading ----
 const sp = await call('search_products', { term: 'Vase' });
 ok(sp.products.some((p: { number: string }) => p.number === 'HH-VASE-KIESEL'), 'search_products findet die Vase');
 const gp = await call('get_product', { id: 'HH-VASE-KIESEL' });
@@ -111,12 +111,12 @@ const promos = await call('list_promotions', {});
 ok(promos.promotions.some((p: { code: { code?: string } }) => p.code.code === 'WILLKOMMEN10'), 'list_promotions zeigt den Gutschein');
 ok(!JSON.stringify(await api('/v1/products/HH-VASE-KIESEL')).replace(/backorders/g, '').match(/customer|order/i), 'Produktdaten ohne Kunden-/Bestellbezug');
 
-// ---- Produkte ----
+// ---- Products ----
 await roundtrip('Produktänderung (Texte, Preis + Streichpreis, Bestand, Status, Attribut)', () => call('propose_product_changes', { title: 'Live', reason: 'Test', changes: [{ id: 'HH-VASE-KIESEL', fields: { name: 'Vase „Kiesel“ (Test)', metaDescription: 'Neue Meta-Description aus dem Live-Test, lang genug für die Suche und mit einem Nutzen für den Leser formuliert.', price: { percent: -10, round: '.99' }, listPrice: 49, specialToDate: '2026-12-31', stock: 95, active: false } }, { id: 'HH-KISSEN-WELLE-SAND', fields: { attributes: { color: 'Salbei' } } }] }), async () => {
   const p = await api('/v1/products/HH-VASE-KIESEL') as Record<string, unknown>, en = await api('/v1/products/HH-VASE-KIESEL?store=en') as { name: string; attributes: Record<string, unknown> };
   const de = await api('/v1/products/HH-VASE-KIESEL?store=default') as { status: number; special_price: number | null };
   ok(p.name === 'Vase „Kiesel“ (Test)' && Number(p.price) === 49 && Number(p.special_price) === 43.99 && String(p.special_to_date).startsWith('2026-12-31'), `global: Name, Preis 49 / Sonderpreis 43.99 bis 31.12.`);
-  // status hat in der Standard-Store-View einen eigenen Wert: Lotse schreibt dort (so sieht es Kunde und Admin), global bleibt unberührt
+  // status has its own value in the default store view: Lotse writes there (that's what customer and admin see), global stays untouched
   ok(de.status === 2 && Number(de.special_price) === 43.99, 'Store-View default: Status 2 (eigener Wert), Sonderpreis sichtbar');
   ok((p.stock as { qty: number }).qty === 95, 'Bestand 95');
   ok(en.name === 'Vase "Kiesel"', 'englischer Name (eigener Wert der View) unverändert');
@@ -131,7 +131,7 @@ await roundtrip('Kategorie (Name, Meta, aktiv) und Übersetzung', () => call('pr
   ok((await api('/v1/categories/4') as { meta_title: string }).meta_title === 'Küche & Tisch | Haus Holm (Test)', 'Kategorie-Meta-Title global geschrieben');
 });
 await roundtrip('Kategorie-Übersetzung en', () => call('propose_translations', { title: 'EN', reason: 'Test', entity: 'category', changes: [{ id: '4', store: 'en', fields: { description: '<p>Kitchen (test)</p>' } }] }), async () => ok((await api('/v1/categories/4?store=en') as { description: string }).description === '<p>Kitchen (test)</p>', 'en: eigene Beschreibung'));
-// Store-Scope-Save in Magento 1 kopiert sonst jedes Attribut in die View: store_overrides darf nur um die geschriebenen Codes wachsen
+// otherwise a store-scope save in Magento 1 copies every attribute into the view: store_overrides may only grow by the written codes
 const cat4Before = (await api('/v1/categories/4?store=default') as { store_overrides: string[] }).store_overrides;
 await roundtrip('Kategorie-Übersetzung in der Haupt-View (nur der geschriebene Code wird Store-Wert)', () => call('propose_translations', { title: 'DE', reason: 'Test', entity: 'category', changes: [{ id: '4', store: 'default', fields: { name: 'Küche & Tisch (DE-Test)' } }] }), async () => {
   const de = await api('/v1/categories/4?store=default') as { name: string; store_overrides: string[] };
@@ -168,7 +168,7 @@ await roundtrip('Stapel: Kategorie 3 −20 % mit Streichpreis', () => call('prop
   ok(p.price === 24 && p.special_price === 18.99, `Kerze: regulär 24 als Streichpreis, Sonderpreis ${p.special_price} (19,20 auf .99 gerundet)`);
 });
 
-// ---- Bilder ----
+// ---- Images ----
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP4z8DwHwyBNAMDA5gGAwAAEf8L/6GwrhgAAAAASUVORK5CYII=', 'base64');
 const staged = stageImage(png, 'image/png', { name: 'lotse-test', alt: 'Lotse Testbild' });
 await roundtrip('Produktbilder: neues Titelbild', () => call('propose_product_images', { title: 'B', reason: 'Test', products: [{ productId: 'HH-BECHER-MORGEN', add: [{ image: staged.mediaId, cover: true, alt: 'Lotse Testbild' }] }] }), async () => {
@@ -181,7 +181,7 @@ await roundtrip('Produktbild ausblenden', () => call('propose_product_images', {
 session.events.push({ t: 'tool', name: 'mcp__shop__view_image', input: { mediaId: `om-1-${gp.images[0].mediaId.split('-')[2]}` } } as unknown as ChatEvent);
 await roundtrip('Alt-Text (Bild-Label)', () => call('propose_alt_texts', { title: 'A', reason: 'Test', images: [{ mediaId: gp.images[0].mediaId, alt: 'Vase Kiesel aus Steinzeug, matt glasiert, von vorn' }] }), async () => ok((await api('/v1/products/HH-VASE-KIESEL/images') as { label: string }[])[0].label === 'Vase Kiesel aus Steinzeug, matt glasiert, von vorn', 'Label gesetzt'));
 
-// Store-View mit eigener Galerie-Zeile (Label je View; disabled ist in Magento 1 je Zeile ein fester Wert): Ausblenden muss auch dort greifen
+// store view with its own gallery row (label per view; disabled is a fixed value per row in Magento 1): hiding must work there too
 await write('PATCH', '/v1/products/HH-BECHER-MORGEN/images/' + becherImgs[0].id + '?store=default', { label: 'Becher Morgen (DE)' });
 const becherOver = (await api('/v1/products/HH-BECHER-MORGEN?store=default') as { store_overrides: string[] }).store_overrides;
 await roundtrip('Produktbild ausblenden (View mit eigener Galerie-Zeile)', () => call('propose_product_images', { title: 'B', reason: 'Test', products: [{ productId: 'HH-BECHER-MORGEN', remove: [`om-2-${becherImgs[0].id}`] }] }), async () => {
@@ -196,7 +196,7 @@ await roundtrip('Alt-Text in der View mit eigenem Text', () => call('propose_alt
 });
 await write('PATCH', '/v1/products/HH-BECHER-MORGEN/images/' + becherImgs[0].id + '?store=default', { label: null });
 
-// ---- Neue Produkte, Promotionen, CMS ----
+// ---- New products, promotions, CMS ----
 await roundtrip('Neues Produkt (inaktiv, Bestand, Kategorie, Bild)', () => call('propose_new_products', { title: 'N', reason: 'Test', products: [{ name: 'Lotse Testteller', description: '<p>Teller aus dem Live-Test.</p>', price: 12.5, sku: 'LOTSE-TEST-TELLER', stock: 3, categoryIds: ['4'], images: [staged.mediaId], metaTitle: 'Testteller' }] }), async () => {
   const p = await api('/v1/products/LOTSE-TEST-TELLER') as { status: number; price: number; stock: { qty: number }; categories: { id: number }[]; images: unknown[]; url_key: string };
   ok(p.status === 2 && p.price === 12.5 && p.stock.qty === 3 && p.categories.some(c => c.id === 4) && p.images.length === 1, `angelegt: inaktiv, 12,50, Bestand 3, Küche, 1 Bild (url_key ${p.url_key})`);
@@ -210,7 +210,7 @@ await roundtrip('Promotion ändern (nur Rabattwert und Enddatum)', () => call('p
 await roundtrip('Promotion beenden', () => call('propose_promotion_status', { ids: ['1'], action: 'end' }), async () => ok((await api('/v1/salesrules/1') as { is_active: boolean }).is_active === false, 'inaktiv'));
 await roundtrip('CMS-Seite ändern', () => call('propose_cms_page_changes', { title: 'Meta', reason: 'Test', changes: [{ id: 'ueber-haus-holm', fields: { metaDescription: 'Haus Holm: ruhige Dinge aus Keramik, Leinen und Licht (Live-Test).', title: 'Über Haus Holm (Test)' } }] }), async () => ok(/Über Haus Holm \(Test\)/.test((await page('/ueber-haus-holm')).html), 'Storefront zeigt den neuen Titel'));
 
-// ---- Seiten veröffentlichen ----
+// ---- Publishing pages ----
 const d1 = await call('draft_page', { name: 'Herbst bei Haus Holm', type: 'landingpage', seo: { keyword: 'herbst deko', metaTitle: 'Herbst-Deko aus Keramik und Leinen | Haus Holm', metaDescription: 'Ruhige Herbst-Deko von Haus Holm: Vasen, Schalen und Plaids aus natürlichen Materialien. Jetzt die Favoriten der Saison ansehen und bestellen.' },
   sections: [{ blocks: [
     { type: 'pattern', pattern: 'hero', data: { eyebrow: 'Saison', title: 'Herbst bei Haus Holm', subtitle: 'Keramik, Leinen und Licht für ruhige Abende.', ctaText: 'Zu den Wohnaccessoires', ctaHref: '/wohnaccessoires.html', variant: 'plain' } },
@@ -246,7 +246,7 @@ await roundtrip('Kategorie-Inhalt veröffentlichen', () => call('publish_page', 
 });
 ok(!/Ruhige Dinge für jeden Raum/.test((await page('/wohnaccessoires.html')).html), 'nach Rückgängig: Block nicht mehr auf der Kategorieseite');
 
-// Haupt-View mit eigenem Anzeigemodus: display_mode wird in der View geschrieben, landing_page global; Rückgängig darf keinen Store-Wert zurücklassen
+// main view with its own display mode: display_mode is written in the view, landing_page globally; undo must not leave a store value behind
 await write('PATCH', '/v1/categories/5?store=default', { attributes: { display_mode: 'PRODUCTS' } });
 const cat5Over = (await api('/v1/categories/5?store=default') as { store_overrides: string[] }).store_overrides;
 ok(cat5Over.includes('display_mode'), `Vorbereitung: Kategorie 5 hat in default einen eigenen display_mode (${cat5Over.join(', ')})`);
@@ -281,12 +281,12 @@ const prev = await call('preview_import', { fileId: f.fileId, mapping });
 ok(prev.stats.create === 1 && prev.stats.update === 1, `preview_import: ${prev.stats.create} neu, ${prev.stats.update} aktualisieren`);
 await roundtrip('Lieferanten-Import', () => call('propose_import', { fileId: f.fileId, title: 'Import', reason: 'Live', mapping }), async () => {
   const n = await api('/v1/products/LOTSE-IMP-1') as { status: number; price: number; special_price: number; stock: { qty: number }; categories: { id: number }[] };
-  // Shop rechnet netto, die Datei brutto: 39,90 / 1,19 = 33,5294 (Streichpreis), 29,90 / 1,19 = 25,1261 (Verkaufspreis)
+  // shop calculates net, the file is gross: 39.90 / 1.19 = 33.5294 (strikethrough price), 29.90 / 1.19 = 25.1261 (selling price)
   ok(n.status === 2 && Math.abs(n.price - 39.9 / 1.19) < 0.001 && Math.abs(n.special_price - 29.9 / 1.19) < 0.001 && n.stock.qty === 5 && n.categories.some(c => c.id === 4), `neues Produkt als Entwurf, Preise netto (${n.price} / ${n.special_price}), Bestand, Kategorie`);
   ok((await api('/v1/products/HH-BECHER-MORGEN') as { name: string }).name === 'Becher „Morgen“ (Import)', 'vorhandenes Produkt: Name aktualisiert');
 });
 
-// ---- Shop-Check ----
+// ---- Shop check ----
 await openmage.loadChecks();
 const ro = openmageReaderFor('openmage-live-check');
 const run = await runChecks(ro as never, listChecks('openmage').filter(c => c.id.startsWith('openmage.')), { perRun: false, ctx: r => ({ platform: 'openmage', reader: r, lookup: openmage.lookup(r) }) });

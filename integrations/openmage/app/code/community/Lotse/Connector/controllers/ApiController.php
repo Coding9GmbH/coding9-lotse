@@ -1,8 +1,8 @@
 <?php
 /**
- * Einziger Einstiegspunkt der Lotse-API (/lotse-api/...). Zustandslos: keine Session, keine Cookies,
- * kein Form-Key. Auth: Authorization: Bearer <token>, optional IP-Freigabeliste.
- * Routing über Lotse_Connector_Model_Route, Fachlogik in Lotse_Connector_Model_Api_*.
+ * Single entry point of the Lotse API (/lotse-api/...). Stateless: no session, no cookies,
+ * no form key. Auth: Authorization: Bearer <token>, optional IP allowlist.
+ * Routing via Lotse_Connector_Model_Route, business logic in Lotse_Connector_Model_Api_*.
  */
 class Lotse_Connector_ApiController extends Mage_Core_Controller_Front_Action
 {
@@ -14,8 +14,8 @@ class Lotse_Connector_ApiController extends Mage_Core_Controller_Front_Action
         $this->setFlag('', self::FLAG_NO_COOKIES_REDIRECT, false);
         $this->getLayout()->setArea($this->_currentArea);
         Mage::app()->loadArea($this->_currentArea);
-        // Wie die Core-API: Admin-Store als aktueller Store, sonst verwirft Mage_Catalog_Model_Product
-        // die Originaldaten (setOrigData) und ein Produkt-Save scheitert unter PHP 8.
+        // Like the core API: admin store as the current store, otherwise Mage_Catalog_Model_Product discards
+        // the original data (setOrigData) and a product save fails under PHP 8.
         Mage::app()->setCurrentStore(Mage_Core_Model_App::ADMIN_STORE_ID);
         return $this;
     }
@@ -70,15 +70,15 @@ class Lotse_Connector_ApiController extends Mage_Core_Controller_Front_Action
         } catch (Mage_Core_Exception $e) {
             $this->sendJson(422, ['error' => ['code' => 'magento', 'message' => $e->getMessage()]]);
         } catch (Throwable $e) {
-            // Details (Klasse, Meldung, Pfade) nur ins Log, nicht an den Client
+            // Details (class, message, paths) only go to the log, not to the client
             Mage::logException($e);
             $this->sendJson(500, ['error' => ['code' => 'internal', 'message' => 'Interner Fehler; Details stehen in var/log/exception.log.']]);
         }
     }
 
     /**
-     * Parallele Produkt-/Kategorie-Saves lösen in OpenMage Deadlocks im Indexer aus (index_process, MySQL 1213).
-     * Idempotente Methoden (PUT, PATCH, DELETE) werden dann bis zu dreimal wiederholt; der Handler liest den Zustand jeweils neu.
+     * Concurrent product/category saves trigger indexer deadlocks in OpenMage (index_process, MySQL 1213).
+     * Idempotent methods (PUT, PATCH, DELETE) are then retried up to three times; the handler re-reads the state each time.
      */
     protected function runWithDeadlockRetry(Lotse_Connector_Model_Api_Abstract $api, array $route, string $method)
     {
@@ -117,7 +117,7 @@ class Lotse_Connector_ApiController extends Mage_Core_Controller_Front_Action
         }
     }
 
-    /** Store-Scope: ?store=<code> oder Header X-Lotse-Store; leer/"admin"/"0" = globaler Scope (Store 0). */
+    /** Store scope: ?store=<code> or header X-Lotse-Store; empty/"admin"/"0" = global scope (store 0). */
     protected function resolveStoreId()
     {
         $request = $this->getRequest();
@@ -140,7 +140,7 @@ class Lotse_Connector_ApiController extends Mage_Core_Controller_Front_Action
         return (int) $store->getId();
     }
 
-    /** @return array|null JSON-Body (Objekt) oder null bei GET/DELETE ohne Body */
+    /** @return array|null JSON body (object) or null for GET/DELETE without a body */
     protected function readBody($method)
     {
         $raw = (string) $this->getRequest()->getRawBody();

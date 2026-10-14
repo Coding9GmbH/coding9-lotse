@@ -1,13 +1,12 @@
 import { DEFAULT_LOCALE, messages, type Locale } from './i18n';
 import type { AuditCheck, DraftAudit } from './protocol';
 
-// Qualitäts-Check: Prüfpunkte vereinheitlichen. Der Server liefert je nach Stand
-// { area, w, msg } (bisher) oder { label, weight, level } (Vertrag) – beides wird verstanden.
+// Quality check: normalize check items. Depending on its version, the server returns
+// { area, w, msg } (legacy) or { label, weight, level } (contract); both are understood.
 
 export type AuditArea = 'SEO' | 'CRO' | 'UX' | 'other';
 export interface AuditRow { area: AuditArea; ok: boolean; important: boolean; text: string; hint?: string }
 
-export const AREA_LABEL: Record<AuditArea, string> = messages(DEFAULT_LOCALE).lib.auditArea;
 export const areaLabel = (area: AuditArea, locale: Locale = DEFAULT_LOCALE): string => messages(locale).lib.auditArea[area];
 
 const num = (v: unknown) => (typeof v === 'number' ? v : undefined);

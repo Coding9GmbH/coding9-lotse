@@ -1,5 +1,5 @@
 import 'server-only';
-// Varianten eines Hauptprodukts: lesen, anlegen (Eigenschaften × Ausprägungen), ändern, löschen – als Änderungsset mit exaktem Rückgängig.
+// Variants of a parent product: read, create (properties × options), update, delete, as a change set with exact undo.
 import type { ChangeItem, ChangeSet } from '@/lib/protocol';
 import { DEFAULT_CURRENCY, MAX_ITEMS, WRITE_CONCURRENCY, errMsg, eur, net, pool, resolvePrice, trackedUndo, type ApplyCtx, type ApplyResult, type PriceSpec } from '../changes';
 import { newId, type Shopware, type ShopReader, type SwEntity } from '../shopware';
@@ -20,29 +20,29 @@ export interface VariantsArgs {
   updateAll?: VariantChange;
 }
 
-/** Neue Variante (afterRaw eines create-Items) */
+/** New variant (afterRaw of a create item) */
 export interface NewVariant { id: string; productNumber: string; optionIds: string[]; price: number | null; listPrice: number | null; stock: number; active: boolean | null }
 export interface NewOption { id: string; groupId: string; name: string; position: number }
 export interface VariantsPayload { parentId: string; taxRate: number; currencyId: string; newGroups: { id: string; name: string }[]; newOptions: NewOption[] }
 
 interface Opt { id: string; name: string; groupId: string; groupName: string }
-/** Alle Kombinationen der Achsen (kartesisches Produkt) */
+/** All combinations of the axes (Cartesian product) */
 export const combinations = <T,>(axes: T[][]): T[][] => axes.reduce<T[][]>((acc, ax) => acc.flatMap(c => ax.map(o => [...c, o])), [[]]);
-/** Nächste freie Nummer HAUPT.n (höchste vorhandene Endung + 1) */
+/** Next free number PARENT.n (highest existing suffix + 1) */
 export function nextSuffix(parentNumber: string, numbers: string[]): number {
   const pre = parentNumber + '.';
   return numbers.reduce((m, n) => (n?.startsWith(pre) && /^\d+$/.test(n.slice(pre.length)) ? Math.max(m, parseInt(n.slice(pre.length), 10)) : m), 0) + 1;
 }
 const comboKey = (ids: string[]) => [...ids].sort().join('|');
 const optLabel = (opts: { groupName: string; name: string }[]) => opts.map(o => `${o.groupName}: ${o.name}`).join(' / ');
-/** Ausprägungen einer Variante, stabil nach Eigenschaft sortiert: „Farbe: Sand“, „Größe: M“ */
+/** Options of a variant, stably sorted by property: "Farbe: Sand", "Größe: M" */
 const optionTexts = (v: SwEntity) => (v.options ?? []).map((o: SwEntity) => `${nameOf(o.group)}: ${nameOf(o)}`).sort((a: string, b: string) => a.localeCompare(b, 'de'));
 const variantLabel = (v: SwEntity) => `${optionTexts(v).join(' / ') || nameOf(v) || 'Variante'} (${v.productNumber})`;
 const priceText = (v: SwEntity, parent: SwEntity) => (v.price ? eur(v.price[0]?.gross) : `${eur(parent.price?.[0]?.gross)} (geerbt)`);
 const activeText = (a: boolean | null | undefined, parentActive: boolean) => (a == null ? `${parentActive ? 'aktiv' : 'inaktiv'} (geerbt)` : a ? 'aktiv' : 'inaktiv');
 
 const VARIANT_ASSOC = { options: { associations: { group: {} } } };
-/** Hauptprodukt + Konfigurator + alle Varianten (paginiert; offset wird auf ein Vielfaches von limit gerundet und so zurückgegeben) über den Lese-Client der KI */
+/** Parent product + configurator + all variants (paginated; offset is rounded to a multiple of limit and returned as such) via the AI's read client */
 export async function loadFamily(ro: ShopReader, productId: string, { limit = 500, offset = 0 } = {}) {
   let parent = await ro.get('product', productId, { associations: { tax: {}, configuratorSettings: { associations: { option: { associations: { group: {} } } } } } });
   if (!parent) throw new Error('Produkt nicht gefunden');
@@ -53,7 +53,7 @@ export async function loadFamily(ro: ShopReader, productId: string, { limit = 50
   return { parent, children: r.data, total: r.total ?? r.data.length, offset: off };
 }
 
-/** Lese-Ansicht für get_variants */
+/** Read view for get_variants */
 export function variantsView(parent: SwEntity, children: SwEntity[], total: number) {
   return {
     parent: { id: parent.id, number: parent.productNumber, name: nameOf(parent), gross: parent.price?.[0]?.gross ?? null, listPriceGross: parent.price?.[0]?.listPrice?.gross ?? null, stock: parent.stock, active: parent.active, taxRate: parent.tax?.taxRate },
@@ -87,7 +87,7 @@ export async function buildVariantsChangeSet(ro: ShopReader, a: VariantsArgs): P
   const byId = Object.fromEntries(children.map(c => [c.id, c]));
   const removeIds = new Set<string>();
 
-  // ---- Neue Varianten ----
+  // ---- New variants ----
   if (a.create?.axes?.length) {
     const axes: Opt[][] = [];
     for (const ax of a.create.axes) {
@@ -134,7 +134,7 @@ export async function buildVariantsChangeSet(ro: ShopReader, a: VariantsArgs): P
         planned.push({ auto: !ov.productNumber?.trim(), combo, nv: { id: newId(), productNumber, optionIds: combo.map(o => o.id), price: price == null ? null : Math.round(price * 100) / 100, listPrice: listPrice == null ? null : Math.round(listPrice * 100) / 100, stock, active } });
       } catch (e) { skipped.push({ id: comboKey(combo.map(o => o.id)), reason: `${optLabel(combo)}: ${errMsg(e)}` }); }
     }
-    // Produktnummern shopweit prüfen; automatisch vergebene bei Kollision weiterzählen
+    // Check product numbers shop-wide; on collision, increment auto-assigned ones
     const taken = new Set<string>();
     for (let round = 0, check = planned.map(p => p.nv.productNumber); check.length && round < 5; round++) {
       const hit = (await ro.search('product', { limit: check.length, filter: [{ type: 'equalsAny', field: 'productNumber', value: check }] })).data.map(p => String(p.productNumber));
@@ -155,7 +155,7 @@ export async function buildVariantsChangeSet(ro: ShopReader, a: VariantsArgs): P
     if (planned.length) items.push({ id: 'cfg', entity: 'info', label: parentName, fieldLabel: 'Varianten-Auswahl', before: `${(parent.configuratorSettings ?? []).length} Ausprägungen`, after: 'fehlende Ausprägungen der neuen Varianten werden ergänzt', warn: [] });
   }
 
-  // ---- Varianten löschen ----
+  // ---- Delete variants ----
   for (const id of [...new Set(a.remove ?? [])]) {
     const v = byId[id];
     if (!v) { skipped.push({ id, reason: 'keine Variante dieses Hauptprodukts' }); continue; }
@@ -164,7 +164,7 @@ export async function buildVariantsChangeSet(ro: ShopReader, a: VariantsArgs): P
   }
   if (removeIds.size) items.push({ id: 'cfg-clean', entity: 'info', label: parentName, fieldLabel: 'Varianten-Auswahl', before: '–', after: 'Ausprägungen ohne verbleibende Variante werden entfernt', warn: [] });
 
-  // ---- Varianten ändern (einzeln + alle) ----
+  // ---- Update variants (single + all) ----
   const changes = new Map<string, VariantChange>();
   if (a.updateAll) for (const c of children) if (!removeIds.has(c.id)) changes.set(c.id, { ...a.updateAll });
   for (const u of a.update ?? []) {
@@ -222,8 +222,8 @@ const KEEP = ['parentId', 'productNumber', 'stock', 'active', 'price', 'purchase
   'deliveryTimeId', 'restockTime', 'releaseDate', 'taxId', 'manufacturerId', 'unitId', 'coverId', 'purchaseUnit', 'referenceUnit', 'cmsPageId', 'featureSetId'];
 const TR_KEEP = ['languageId', 'name', 'keywords', 'description', 'metaTitle', 'metaDescription', 'packUnit', 'packUnitPlural', 'customFields', 'customSearchKeywords', 'slotConfig'];
 const pick = (o: SwEntity, keys: string[]) => Object.fromEntries(keys.filter(k => o?.[k] != null).map(k => [k, o[k]]));
-/** Datensatz, mit dem eine gelöschte Variante exakt wieder angelegt wird (eigene Werte, Zuordnungen, Bilder, Übersetzungen).
- *  Übersetzte Felder (auch customFields) NUR in translations – ein Wert auf oberster Ebene würde die Übersetzung der Systemsprache ersetzen. */
+/** Record used to recreate a deleted variant exactly (own values, assignments, images, translations).
+ *  Translated fields (customFields too) ONLY in translations: a top-level value would replace the system language translation. */
 export function variantSnapshot(v: SwEntity): Record<string, unknown> {
   const ids = (list: SwEntity[] | undefined) => (list ?? []).map(x => ({ id: x.id }));
   const tr = (v.translations ?? []).map((t: SwEntity) => pick(t, TR_KEEP)).filter((t: SwEntity) => Object.keys(t).length > 1);
@@ -240,12 +240,12 @@ export function variantSnapshot(v: SwEntity): Record<string, unknown> {
 
 export async function applyVariants(swW: Shopware, cs: ChangeSet, payload: VariantsPayload, selected: Set<string>, ctx?: ApplyCtx): Promise<ApplyResult> {
   const results: ApplyResult['results'] = [], sel = cs.items.filter(i => selected.has(i.id) && i.entity !== 'info');
-  const undo = trackedUndo(ctx, sel.length, results); // jeder Schritt (Eigenschaft, Konfigurator, Variante) sofort gesichert
+  const undo = trackedUndo(ctx, sel.length, results); // every step (property, configurator, variant) saved immediately
   const creates = sel.filter(i => i.field === 'create'), deletes = sel.filter(i => i.field === 'delete'), updates = sel.filter(i => i.field !== 'create' && i.field !== 'delete');
   const failAll = (its: ChangeItem[], e: unknown) => its.forEach(i => results.push({ itemId: i.id, ok: false, error: errMsg(e) }));
   const parentId = payload.parentId;
 
-  // 1. Neue Eigenschaften/Ausprägungen – nur, was ausgewählte neue Varianten brauchen
+  // 1. New properties/options: only what selected new variants need
   if (creates.length) {
     const need = new Set(creates.flatMap(i => (i.afterRaw as NewVariant).optionIds));
     const opts = payload.newOptions.filter(o => need.has(o.id)), groups = payload.newGroups.filter(g => opts.some(o => o.groupId === g.id));
@@ -253,7 +253,7 @@ export async function applyVariants(swW: Shopware, cs: ChangeSet, payload: Varia
     try {
       for (const g of groups) { await swW.create('property-group', { id: g.id, name: g.name, displayType: 'text', sortingType: 'alphanumeric' }); undo.push({ op: 'delete', entity: 'property-group', id: g.id }); }
       for (const o of opts) { await swW.create('property-group-option', { id: o.id, groupId: o.groupId, name: o.name, position: o.position }); undo.push({ op: 'delete', entity: 'property-group-option', id: o.id }); }
-      // 2. Varianten-Auswahl (Konfigurator) um fehlende Ausprägungen ergänzen
+      // 2. Add missing options to the variant selection (configurator)
       const have = (await swW.search('product-configurator-setting', { limit: 500, filter: [{ type: 'equals', field: 'productId', value: parentId }] })).data;
       let pos = have.reduce((m, s) => Math.max(m, s.position ?? 0), 0);
       for (const optionId of need) {
@@ -261,7 +261,7 @@ export async function applyVariants(swW: Shopware, cs: ChangeSet, payload: Varia
         const id = newId(); await swW.create('product-configurator-setting', { id, productId: parentId, optionId, position: ++pos }); undo.push({ op: 'delete', entity: 'product-configurator-setting', id });
       }
     } catch (e) { ready = false; failAll(creates, e); }
-    // 3. Varianten anlegen
+    // 3. Create variants
     if (ready) await pool(creates, WRITE_CONCURRENCY, async it => {
       const v = it.afterRaw as NewVariant;
       try {
@@ -271,14 +271,14 @@ export async function applyVariants(swW: Shopware, cs: ChangeSet, payload: Varia
     });
   }
 
-  // 4. Werte ändern (je Variante ein PATCH; Rückgängig = alte eigene Werte, null = wieder geerbt)
+  // 4. Update values (one PATCH per variant; undo = old own values, null = inherited again)
   const groups: Record<string, ChangeItem[]> = {};
   for (const it of updates) (groups[it.entityId!] ||= []).push(it);
   await pool(Object.entries(groups), WRITE_CONCURRENCY, async ([id, its]) => {
     try {
       const cur = await swW.get('product', id, { associations: { tax: {} } }); if (!cur) throw new Error('Variante nicht mehr vorhanden');
       const parent = !cur.price ? await swW.get('product', cur.parentId) : null;
-      const taxRate = cur.taxId && cur.tax ? cur.tax.taxRate : payload.taxRate; // eigener Steuersatz der Variante hat Vorrang
+      const taxRate = cur.taxId && cur.tax ? cur.tax.taxRate : payload.taxRate; // the variant's own tax rate takes precedence
       const data: Record<string, unknown> = {}, back: Record<string, unknown> = {};
       for (const it of its) if (it.field === 'stock' || it.field === 'active') { data[it.field] = it.afterRaw; back[it.field] = cur[it.field] ?? null; }
       const pi = its.find(i => i.field === 'price'), li = its.find(i => i.field === 'listPrice');
@@ -297,7 +297,7 @@ export async function applyVariants(swW: Shopware, cs: ChangeSet, payload: Varia
     } catch (e) { failAll(its, e); }
   });
 
-  // 5. Varianten löschen (vorher vollständige Kopie für Rückgängig sichern)
+  // 5. Delete variants (save a full copy for undo first)
   await pool(deletes, WRITE_CONCURRENCY, async it => {
     try {
       const v = (await swW.search('product', { ids: [it.entityId!], limit: 1, associations: { options: {}, properties: {}, categories: {}, tags: {}, media: {}, prices: {}, visibilities: {}, translations: {} } })).data[0];
@@ -307,7 +307,7 @@ export async function applyVariants(swW: Shopware, cs: ChangeSet, payload: Varia
       undo.push({ op: 'create', entity: 'product', id: v.id, data: variantSnapshot(v) }); results.push({ itemId: it.id, ok: true });
     } catch (e) { failAll([it], e); }
   });
-  // 6. Ausprägungen ohne verbleibende Variante aus der Auswahl nehmen
+  // 6. Remove options without a remaining variant from the selection
   if (deletes.length && results.some(r => r.ok && r.itemId.startsWith('del:'))) {
     try {
       const rest = (await swW.search('product', { limit: 500, filter: [{ type: 'equals', field: 'parentId', value: parentId }], associations: { options: {} } })).data;
@@ -317,7 +317,7 @@ export async function applyVariants(swW: Shopware, cs: ChangeSet, payload: Varia
         await swW.req('DELETE', `/product-configurator-setting/${s.id}`);
         undo.push({ op: 'create', entity: 'product-configurator-setting', id: s.id, data: pick(s, ['productId', 'optionId', 'position', 'price', 'mediaId', 'customFields']) });
       }
-    } catch { /* Aufräumen ist optional – Varianten sind gelöscht */ }
+    } catch { /* cleanup is optional; variants are deleted */ }
   }
   return { results, undo };
 }

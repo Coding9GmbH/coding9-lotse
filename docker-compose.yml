@@ -1,5 +1,5 @@
-# Lotse – lokal starten:  make up      (oder: docker compose up -d --build)
-# Mit Demo-Shop:          make demo    (startet zusätzlich dockware/play auf http://localhost:8888)
+# Lotse, run locally:     make up      (or: docker compose up -d --build)
+# With demo shop:         make demo    (also starts dockware/play on http://localhost:8888)
 name: lotse
 
 services:
@@ -16,12 +16,12 @@ services:
         required: false
     environment:
       LOTSE_BIND: 127.0.0.1
-    # Docker veröffentlicht den Port nur auf 127.0.0.1 → Lotse ist nur vom eigenen Rechner erreichbar
+    # Docker publishes the port on 127.0.0.1 only → Lotse is reachable from the local machine only
     ports:
       - "127.0.0.1:${LOTSE_PORT:-3333}:3333"
     volumes:
-      - lotse-data:/data           # SQLite-DB, verschlüsselte Zugangsdaten, Claude-Sitzungen, Bild-Staging
-    # Härtung: schreibgeschütztes Dateisystem, keine Root-Rechte, keine Linux-Capabilities, Ressourcen-Limits
+      - lotse-data:/data           # SQLite DB, encrypted credentials, Claude sessions, image staging
+    # Hardening: read-only file system, no root privileges, no Linux capabilities, resource limits
     read_only: true
     tmpfs:
       - /tmp:size=256m,mode=1777
@@ -33,12 +33,12 @@ services:
     mem_limit: 2g
     cpus: 2
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # Shop auf dem Host erreichbar als http://host.docker.internal:<port>
+      - "host.docker.internal:host-gateway"   # Shop on the host reachable as http://host.docker.internal:<port>
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
-  # Optionaler Demo-Shop (nur mit --profile demo). Nicht für Produktion.
+  # Optional demo shop (only with --profile demo). Not for production.
   shopware:
     profiles: [demo]
     image: dockware/play:latest

@@ -1,9 +1,10 @@
 import 'server-only';
-// Magento: Seitenentwürfe – Vorschau-Daten, Link-Prüfung, Veröffentlichung als Änderungsset mit exaktem Rückgängig.
-// Ziele: landingpage = neue CMS-Seite, category = neuer CMS-Block + Kategorie-Anzeige „Statischer Block und Produkte“,
-// product = Produktbeschreibung (ein Produkt) oder CMS-Block als Widget unter der Beschreibung (mehrere Produkte).
-// Inhalte im Page-Builder-Format (pagebuilder.ts): im Admin weiter bearbeitbar, Produktboxen als Magento-Widget mit Live-Preisen.
+// Magento: page drafts: preview data, link check, publishing as a change set with exact undo.
+// Targets: landingpage = new CMS page, category = new CMS block + category display "Statischer Block und Produkte" (static block and products),
+// product = product description (one product) or CMS block as a widget below the description (several products).
+// Content in Page Builder format (pagebuilder.ts): still editable in the admin, product boxes as a Magento widget with live prices.
 import { z } from 'zod';
+import { esc } from '@/lib/format';
 import type { ChangeAsset, ChangeItem, ChatEvent, PublishedInfo, UndoOp } from '@/lib/protocol';
 import { withScript } from '@/lib/script-scan';
 import { GENERIC_BLOCKS, type BlockSpec, type ImageRef, type PageSpec, type PreviewCtx, type PreviewProduct } from '../../cms';
@@ -21,12 +22,12 @@ import { appendPart, toPageBuilder, type PbPart } from './pagebuilder';
 import type { MagentoReader } from './reader';
 import { getEnt, reg, reqOp, undoMagento, writeScoped } from './write';
 
-/** Was Seiten in Magento können: freie Landingpages (CMS-Seiten), Kategorie-Inhalt (CMS-Block über der Produktliste), Produktbeschreibung */
+/** What pages can do in Magento: free landing pages (CMS pages), category content (CMS block above the product list), product description */
 export const MAGENTO_CAPABILITIES: PlatformCapabilities = { pageTypes: ['landingpage', 'product_list', 'product_detail'], publishTargets: ['landingpage', 'category', 'product'], blocks: GENERIC_BLOCKS, pageFormat: 'html', reuse: false };
 
 const SVG_MAX = 200 * 1024;
 
-// ================= Vorschau =================
+// ================= Preview =================
 export async function previewProducts(ro: MagentoReader, refs: string[]): Promise<Record<string, PreviewProduct>> {
   const ids = refs.filter(r => /^\d+$/.test(r)), skus = refs.filter(r => !/^\d+$/.test(r));
   const list = [...await ro.productsByIds(ids), ...await ro.productsBySkus(skus)];
@@ -36,12 +37,12 @@ export async function previewProducts(ro: MagentoReader, refs: string[]): Promis
   for (const p of list) {
     const s = priceState(p), key = attrStr(p, 'url_key');
     const v: PreviewProduct = { id: String(p.id), sku: p.sku, name: p.name, price: money(s.selling), ...(s.list != null ? { listPrice: money(s.list) } : {}), img: ro.allowed('media') ? await ro.mediaUrl(attrStr(p, 'small_image') ?? attrStr(p, 'image')) : undefined, description: (attr(p, 'description') ?? attr(p, 'short_description')) as string | undefined, active: Number(p.status) === 1, visible: Number(p.visibility) !== 1, url: key && Number(p.visibility) !== 1 ? `${base}/${key}${cfg.product_url_suffix ?? ''}` : undefined };
-    out[String(p.id)] = v; out[p.sku] = v; // Blöcke dürfen ID oder SKU nennen
+    out[String(p.id)] = v; out[p.sku] = v; // blocks may reference ID or SKU
   }
   return out;
 }
 
-/** Bild-Verweise eines Entwurfs: mediaId der Blöcke (image/image2) */
+/** Image references of a draft: mediaId of the blocks (image/image2) */
 function mediaRefs(spec: Partial<PageSpec>): string[] {
   const out = new Set<string>();
   for (const s of spec.sections ?? []) for (const b of s.blocks ?? []) for (const k of ['image', 'image2'] as const) { const im = b?.[k]; if (im && typeof im === 'object' && im.mediaId) out.add(im.mediaId); }
@@ -66,23 +67,22 @@ export async function previewData(ro: MagentoReader, spec: PageSpec): Promise<Pr
   return { products, product: spec.previewProductId ? products[spec.previewProductId] : undefined, imageUrl: (im: ImageRef) => (typeof im === 'string' ? im : im.url ?? urls[im.mediaId ?? '']) };
 }
 
-// ================= Rendern im Page-Builder-Format (rein) =================
+// ================= Rendering in Page Builder format (pure) =================
 export interface RenderCtx {
-  /** ImageRef → endgültige URL (oder data:-URI für vorgemerkte SVG) */
+  /** ImageRef → final URL (or data: URI for staged SVG) */
   imageUrl: (im: ImageRef) => string | null | undefined;
-  /** Produkt-Verweis (ID oder SKU) → SKU; unbekannte fallen weg */
+  /** Product reference (ID or SKU) → SKU; unknown ones are dropped */
   skus: Record<string, string>;
-  /** Wurzel-Klasse der Seite */
+  /** Root class of the page */
   scope: string;
-  /** zusätzliches CSS (z. B. Seitentitel des Themes ausblenden) */
+  /** additional CSS (e.g. hide the theme's page title) */
   extraCss?: string;
 }
 const stripRootStyle = (html: string) => html.replace(/^(<div class="[^"]+">)<style>[\s\S]*?<\/style>/, '$1');
-const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c as '&']));
 
 /**
- * Entwurf → Page-Builder-Teile: zusammenhängende Blöcke ohne Produkte als html-Inhaltstyp (statisches HTML mit begrenztem CSS),
- * product-slider als Magento-Widget „Catalog Products List“ (Preise, Bestand, Warenkorb live; nur aktive, sichtbare Produkte).
+ * Draft → Page Builder parts: contiguous blocks without products as html content type (static HTML with scoped CSS),
+ * product-slider as Magento widget "Catalog Products List" (prices, stock, cart live; only active, visible products).
  */
 export function renderParts(spec: PageSpec, ctx: RenderCtx): PbPart[] {
   const full = expandSpec(spec), parts: PbPart[] = [];
@@ -108,7 +108,7 @@ export function renderParts(spec: PageSpec, ctx: RenderCtx): PbPart[] {
   return parts;
 }
 
-/** H1 im Inhalt einer Kategorie/Produktseite: dort liefert das Theme die H1 (Kategorie-/Produktname) → H2 */
+/** H1 in the content of a category/product page: there the theme provides the H1 (category/product name) → H2 */
 export const demoteH1 = (spec: PageSpec): { spec: PageSpec; n: number } => {
   let n = 0;
   const fix = (h: unknown) => (typeof h === 'string' ? h.replace(/<(\/?)h1\b/gi, (_, sl) => { n++; return `<${sl}h2`; }) : h);
@@ -117,7 +117,7 @@ export const demoteH1 = (spec: PageSpec): { spec: PageSpec; n: number } => {
   return { spec: out, n: n / 2 };
 };
 export const hasH1 = (spec: PageSpec) => /<h1\b/i.test(JSON.stringify(expandSpec(spec).sections));
-/** Text der ersten H1 aus den Block-Inhalten (nicht aus dem JSON-String: keine Escapes), HTML-Entities aufgelöst */
+/** Text of the first H1 from the block contents (not from the JSON string: no escapes), HTML entities decoded */
 export function firstH1Text(spec: PageSpec): string {
   const strings = (v: unknown): string[] => (typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : []);
   for (const s of strings(expandSpec(spec).sections)) {
@@ -126,11 +126,11 @@ export function firstH1Text(spec: PageSpec): string {
   }
   return '';
 }
-/** Seitentitel des Themes ausblenden, wenn die H1 aus dem Inhalt kommt: Luma/Blank (.page-title-wrapper), Hyvä u. a. (h1.page-title ohne Wrapper) */
+/** Hide the theme's page title when the H1 comes from the content: Luma/Blank (.page-title-wrapper), Hyvä etc. (h1.page-title without wrapper) */
 export const hideThemeTitle = (identifier: string) => { const c = `.${cmsBodyClass(identifier)}`; return `${c} .page-title-wrapper,${c} h1.page-title{display:none}`; };
-/** Body-Klasse, die Magento einer CMS-Seite gibt (cms-<identifier>, Sonderzeichen → -) */
+/** Body class Magento gives a CMS page (cms-<identifier>, special characters → -) */
 export const cmsBodyClass = (identifier: string) => `cms-${identifier.replace(/[^a-z0-9-_]+/gi, '-').toLowerCase()}`;
-/** URL-Schlüssel (Identifier) einer CMS-Seite: Pfadsegmente wie URL-Schlüssel, optional .html */
+/** URL key (identifier) of a CMS page: path segments like URL keys, optional .html */
 export function cmsIdentifier(url: string): string {
   const raw = String(url ?? '').trim().replace(/^https?:\/\/[^/]+/i, '').replace(/[?#].*$/, '').replace(/^\/+|\/+$/g, '');
   const html = /\.html?$/i.test(raw);
@@ -141,7 +141,7 @@ export function cmsIdentifier(url: string): string {
   return id;
 }
 
-// ================= Veröffentlichen: Änderungsset =================
+// ================= Publishing: change set =================
 export interface PublishArgs {
   target: 'landingpage' | 'category' | 'product';
   url?: string; title?: string; allStoreViews?: boolean;
@@ -159,7 +159,7 @@ export interface PagePayload {
 
 const cut = (t: unknown, n = 160) => { const s = plain(t); return s ? (s.length > n ? `${s.slice(0, n)}…` : s) : '–'; };
 
-/** Bilder für Magento auflösen: Shop-Produktbilder (mg-…) und URLs direkt, vorgemerkte SVG eingebettet; andere Uploads gehen nicht */
+/** Resolve images for Magento: shop product images (mg-…) and URLs directly, staged SVG inlined; other uploads are not supported */
 async function imageResolver(ro: MagentoReader, spec: PageSpec): Promise<{ imageUrl: RenderCtx['imageUrl']; assets: ChangeAsset[] }> {
   const urls = new Map<string, string>(), assets: ChangeAsset[] = [], bad: string[] = [];
   const staged = (id: string) => {
@@ -178,14 +178,14 @@ async function imageResolver(ro: MagentoReader, spec: PageSpec): Promise<{ image
     const u = await ro.mediaUrl(p?.media_gallery_entries?.find(e => e.id === mid.entryId)?.file);
     if (!u) bad.push(`Medium ${id} nicht gefunden`); else urls.set(id, u);
   }
-  // Muster mit imageUrl: vorgemerkte Bilder (/staged/…) nur als SVG
+  // Patterns with imageUrl: staged images (/staged/…) only as SVG
   const json = JSON.stringify(spec.sections);
   for (const m of json.matchAll(/\/staged\/([a-z0-9]+)\.([a-z]+)/g)) if (!urls.has(`staged:${m[1]}`)) { staged(m[1]); }
   if (bad.length) throw new Error(`Magento hat keine Schnittstelle, um Bilder für CMS-Seiten hochzuladen. Nicht verwendbar: ${[...new Set(bad)].join(', ')}. Verwende Produktbilder des Shops (search_media → mediaId mg-…), öffentliche https-Bild-URLs oder Vektorgrafiken (create_svg_image).`);
   const imageUrl = (im: ImageRef) => (typeof im === 'string' ? im : im.mediaId ? urls.get(im.mediaId) ?? null : im.url ?? null);
   return { imageUrl, assets };
 }
-/** /staged/<id>.svg in Muster-HTML durch die eingebettete Grafik ersetzen */
+/** Replace /staged/<id>.svg in pattern HTML with the inlined graphic */
 const inlineStaged = (spec: PageSpec, imageUrl: RenderCtx['imageUrl']): PageSpec => JSON.parse(JSON.stringify(spec).replace(/\/staged\/([a-z0-9]+)\.svg/g, (all, id) => imageUrl({ mediaId: `staged:${id}` }) ?? all));
 
 export async function buildPagePublish(ro: MagentoReader, spec: PageSpec, a: PublishArgs) {
@@ -194,15 +194,15 @@ export async function buildPagePublish(ro: MagentoReader, spec: PageSpec, a: Pub
   const mt = (a.metaTitle ?? spec.seo?.metaTitle ?? '').trim(), md = (a.metaDescription ?? spec.seo?.metaDescription ?? '').trim();
   const sfBase = await ro.storefrontBase().catch(() => ro.publicUrl), cfg = await ro.storefrontConfig().catch(() => ({ product_url_suffix: '.html', category_url_suffix: '.html' }));
 
-  // Links prüfen und Weiterleitungen direkt verlinken
+  // Check links and link redirects directly
   const links = await checkMagentoLinks(ro, collectLinks(expandSpec(spec).sections));
   let work = links.report.rewrites.size ? rewriteLinks(spec, links.report.rewrites) : spec;
   warn.push(...links.report.findings.filter(f => f.level === 'wichtig').slice(0, 5).map(findingText));
 
-  // Inhalt einer Kategorie/Produktseite: H1 liefert das Theme
+  // Content of a category/product page: the theme provides the H1
   if (a.target !== 'landingpage') { const d = demoteH1(work); if (d.n) { work = d.spec; warn.push(`${d.n} H1-Überschrift(en) im Inhalt als H2 gesetzt: Die H1 liefert Magento (${a.target === 'category' ? 'Kategoriename' : 'Produktname'}).`); } }
 
-  // Produkte der Slider → SKU (Widget braucht SKUs); inaktive/unsichtbare zeigt Magento nicht
+  // Slider products → SKU (widget needs SKUs); Magento doesn't show inactive/invisible ones
   const refs = [...new Set(expandSpec(work).sections.flatMap(s => s.blocks.flatMap(b => (b.type === 'product-slider' ? b.productIds ?? [] : []).map(String))))];
   const prods = refs.length ? await previewProducts(ro, refs) : {}, skus: Record<string, string> = {};
   for (const r of refs) { const p = prods[r]; if (!p) { warn.push(`Produkt ${r} nicht gefunden: fehlt in der Produktliste`); continue; } skus[r] = String(p.sku); if (!p.active || !p.visible) warn.push(`Produkt „${p.name}“ ist ${!p.active ? 'deaktiviert' : 'nicht einzeln sichtbar'} und erscheint im Shop nicht`); }
@@ -255,7 +255,7 @@ export async function buildPagePublish(ro: MagentoReader, spec: PageSpec, a: Pub
     return { cs: { id: newIdSafe(), kind: 'page', title: `Kategorie-Inhalt veröffentlichen: ${name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec) }, payload: { ...base, content, category: { id: String(c.id), displayMode: mode, metas, url }, storefront: url ?? sfBase } satisfies PagePayload };
   }
 
-  // Produkt(e)
+  // Product(s)
   const ids = [...new Set((a.productIds ?? []).map(String))];
   if (!ids.length) throw new Error('productIds fehlt');
   if (ids.length > 50) throw new Error('Maximal 50 Produkte je Veröffentlichung');
@@ -271,13 +271,13 @@ export async function buildPagePublish(ro: MagentoReader, spec: PageSpec, a: Pub
     for (const p of list) info(`Produkt „${p.name}“ (${p.sku})`, 'Beschreibung', cut(attr(p, 'description')), `${spec.name} · ${blocks} Blöcke`, [...warn, 'Ersetzt die bisherige Beschreibung (Rückgängig stellt sie wieder her)'], { before: String(attr(p, 'description') ?? ''), after: renderPreviewHtml(parts) });
     if (list.length > 1) items[0].warn.push(`Alle ${list.length} Produkte bekommen denselben Text`);
   } else {
-    content = toPageBuilder(parts); // Inhalt des CMS-Blocks; die Beschreibungen bekommen ein Widget darauf
+    content = toPageBuilder(parts); // content of the CMS block; the descriptions get a widget pointing to it
     info('Neuer CMS-Block (Produktinhalt)', 'Anlegen', '–', `${spec.name} · ${blocks} Blöcke · Page Builder`, warn);
     for (const p of list) info(`Produkt „${p.name}“ (${p.sku})`, 'Beschreibung', cut(attr(p, 'description'), 80), 'bisheriger Text + Block darunter');
   }
   return { cs: { id: newIdSafe(), kind: 'page', title: `Produktinhalt veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec) }, payload: { ...base, content, products: { mode, items: rows }, storefront: rows.find(r => r.url)?.url ?? sfBase } satisfies PagePayload };
 }
-/** Lesbare Vorschau der Teile für die Änderungskarte (Produkt-Widget als Platzhalter) */
+/** Readable preview of the parts for the change card (product widget as placeholder) */
 const renderPreviewHtml = (parts: PbPart[]) => parts.map(p => (p.kind === 'html' ? p.html : p.kind === 'products' ? `<p><b>Produktliste (Magento-Widget):</b> ${esc(p.skus.join(', '))}</p>` : '')).join('');
 
 // ================= Executor =================
@@ -325,7 +325,7 @@ reg.register('page', async (c, cs, payload, _sel, ctx): Promise<ApplyResult> => 
       Object.assign(out, { ...(mode === 'block' ? { cmsBlockId: content } : {}), storefront: items.map(i => i.url).filter(Boolean), adminUrl: items[0] ? `${admin}/admin/catalog/product/edit/id/${items[0].id}` : undefined });
     } else throw new Error(`Unbekanntes Ziel ${p.target}`);
   } catch (e) {
-    // atomar: bereits Geschriebenes sofort zurücknehmen
+    // atomic: immediately revert what was already written
     const back = await undoMagento(c, undo);
     const failed = back.filter(b => !b.ok);
     return { results: cs.items.map(i => ({ itemId: i.id, ok: false, error: errMsg(e) })), undo: failed.length ? undo : [], error: `${errMsg(e)}${failed.length ? ` (Zurücknehmen unvollständig: ${failed.map(f => f.error).join('; ')})` : ''}` };

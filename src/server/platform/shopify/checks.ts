@@ -1,6 +1,6 @@
 import 'server-only';
-// Shopify: Shop-Check (Startseite). Liest NUR über den geschützten Reader des Durchlaufs (feste Queries), höchstens SCAN_MAX aktive
-// Produkte („mindestens“, wenn der Katalog größer ist). Befunde mit Aufträgen (fixPrompt), die die Shopify-Werkzeuge nennen.
+// Shopify: shop check (home page). Reads ONLY via the run's protected reader (fixed queries), at most SCAN_MAX active
+// products ("at least" if the catalog is larger). Findings with tasks (fixPrompt) that name the Shopify tools.
 import type { NeutralProduct, NeutralScan } from '@/lib/custom-checks';
 import type { CheckFinding } from '@/lib/protocol';
 import { registerPlatformCheck } from '../../checks';
@@ -15,7 +15,7 @@ import type { ShopifyReader } from './reader';
 
 export const SCAN_MAX = 1000, SCAN_PAGE = 20, PAGES_MAX = 100, TR_MAX = 250;
 
-// Abfragekosten je Seite unter 1000: 20 Produkte × (Grunddaten + 10 Varianten + 10 Medien)
+// Query cost per page below 1000: 20 products × (base data + 10 variants + 10 media)
 export const SCAN_SEL = `id title handle status descriptionHtml tracksInventory seo { title description }
   variants(first: 10) { nodes { price compareAtPrice inventoryPolicy inventoryQuantity } }
   media(first: 10) { nodes { id alt ... on MediaImage { image { altText } } } }`;
@@ -87,7 +87,7 @@ export const SHOPIFY_DEFS = {
     fix: n => `Übersetze die aktiven Produkte ohne Übersetzung (betrifft ${n}; list_languages, dann get_translations entity=product mit full=true). Titel, Beschreibung und Meta-Daten, Fachbegriffe und Maße unverändert, Vorschlag mit propose_translations.` },
 } satisfies Record<string, FindingDef>;
 
-/** Auswertung der gelesenen Produktzeilen (rein, testbar) */
+/** Evaluation of the product rows read (pure, testable) */
 export function scanFindings(rows: ShopifyScanRow[], currency = 'EUR') {
   const hit = (r: ShopifyScanRow): Hit => ({ id: r.id, label: r.label });
   const prices = (r: ShopifyScanRow) => r.variants.map(v => v.price).filter((v): v is number => v != null);
@@ -111,7 +111,7 @@ export function scanFindings(rows: ShopifyScanRow[], currency = 'EUR') {
   };
 }
 
-/** interne Links eines HTML-Texts (relativ oder auf eine eigene Domain) → { kind, handle } */
+/** internal links of an HTML text (relative or to an own domain) → { kind, handle } */
 export function internalLinks(html: string, hosts: string[]): { href: string; kind: LinkKind; handle: string }[] {
   const out: { href: string; kind: LinkKind; handle: string }[] = [];
   for (const m of String(html ?? '').matchAll(/<a\s[^>]*href\s*=\s*["']([^"'#]+)[^"']*["']/gi)) {
@@ -124,7 +124,7 @@ export function internalLinks(html: string, hosts: string[]): { href: string; ki
   return out;
 }
 
-// ---------------- Lesen (je Durchlauf über den Reader, zwischengespeichert) ----------------
+// ---------------- Read (per run via the reader, cached) ----------------
 const qOf = (r: ShopifyReader): Q => (d, v) => r.query(d, v);
 const shop = (r: ShopifyReader) => r.memo('shop', () => shopInfo(qOf(r)));
 async function scan(r: ShopifyReader): Promise<{ rows: ShopifyScanRow[]; total: number; capped: boolean }> {
@@ -139,7 +139,7 @@ async function scan(r: ShopifyReader): Promise<{ rows: ShopifyScanRow[]; total: 
     return { rows, total: Math.max(total, rows.length), capped: rows.length < total };
   });
 }
-/** Neutrale Produktzeilen für eigene Prüfungen (aus demselben Scan wie die eingebauten, je Durchlauf einmal gelesen) */
+/** Neutral product rows for custom checks (from the same scan as the built-in ones, read once per run) */
 export async function neutralScan(r: ShopifyReader): Promise<NeutralScan> {
   const s = await scan(r);
   return {
@@ -161,7 +161,7 @@ const fromScan = (key: Exclude<DefKey, 'descLinks' | 'pageLinks' | 'catMeta' | '
   return makeFinding(SHOPIFY_DEFS[key], list.count, s.total, list.sample, { atLeast: s.capped });
 };
 
-/** Links prüfen: Handles je Art gesammelt nachschlagen; Ziel fehlt oder ist nicht sichtbar = kaputt */
+/** Check links: look up handles batched per kind; target missing or not visible = broken */
 async function brokenTargets(r: ShopifyReader, links: { kind: LinkKind; handle: string }[]): Promise<Set<string>> {
   const q = qOf(r), bad = new Set<string>();
   const ROOT: Record<LinkKind, [string, string]> = { product: ['products', 'handle status'], category: ['collections', 'handle'], landing: ['pages', 'handle isPublished'] };
@@ -178,7 +178,7 @@ async function brokenTargets(r: ShopifyReader, links: { kind: LinkKind; handle: 
 }
 const hostsOf = async (r: ShopifyReader) => { const s = await shop(r); return [s.myshopifyDomain, (() => { try { return new URL(s.primaryUrl).host; } catch { return ''; } })()].filter(Boolean).map(h => h.toLowerCase()); };
 
-// ---------------- Registrierung ----------------
+// ---------------- Registration ----------------
 const reg = (id: string, area: string, scopes: ('products' | 'categories' | 'cms' | 'media' | 'shop')[], run: (r: ShopifyReader) => Promise<CheckFinding | CheckFinding[] | null>) =>
   registerPlatformCheck<ShopifyReader>('shopify', { id: `shopify.${id}`, area, scopes, run });
 
@@ -214,7 +214,7 @@ reg('description-links', 'Links', ['products'], async r => {
 
 reg('page-links', 'Links', ['cms', 'categories'], async r => {
   const q = qOf(r), hosts = await hostsOf(r), items: { id: string; label: string; html: string }[] = [];
-  // seitenweise bis 10 × PAGES_MAX; bleibt danach noch etwas, gilt das Ergebnis als „mindestens“
+  // page by page up to 10 × PAGES_MAX; if anything remains after that, the result counts as "at least"
   let capped = false, after: string | null = null;
   for (let i = 0; i < 10; i++) {
     const pg: Json = (await q<Json>('query PagesForLinks($first: Int!, $after: String) { pages(first: $first, after: $after) { nodes { id title body } pageInfo { hasNextPage endCursor } } }', { first: PAGES_MAX, after })).pages;

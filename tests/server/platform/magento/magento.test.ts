@@ -49,20 +49,20 @@ const { PLATFORM_SETTINGS } = await import('@/lib/platforms');
 
 test.after(() => fake.close());
 
-// ================= reine Logik =================
-test('searchCriteria: Gruppen UND, Filter ODER, Seitengröße immer begrenzt, like maskiert', () => {
+// ================= pure logic =================
+test('searchCriteria: groups AND, filters OR, page size always bounded, like escaped', () => {
   const q = decodeURIComponent(criteriaQuery({ filters: [[{ field: 'name', value: likeTerm('50%_x'), condition_type: 'like' }, { field: 'sku', value: 'A' }], [{ field: 'entity_id', value: [1, 2], condition_type: 'in' }]], sort: [{ field: 'entity_id', direction: 'DESC' }] }));
   assert.match(q, /searchCriteria\[filter_groups\]\[0\]\[filters\]\[0\]\[field\]=name/);
   assert.match(q, /\[filter_groups\]\[0\]\[filters\]\[0\]\[value\]=%50\\%\\_x%/);
   assert.match(q, /\[filter_groups\]\[0\]\[filters\]\[1\]\[value\]=A/);
-  assert.doesNotMatch(q, /\[filters\]\[1\]\[condition_type\]/, 'eq ohne condition_type');
+  assert.doesNotMatch(q, /\[filters\]\[1\]\[condition_type\]/, 'eq without condition_type');
   assert.match(q, /\[filter_groups\]\[1\]\[filters\]\[0\]\[value\]=1,2&.*\[condition_type\]=in/);
   assert.match(q, /sortOrders\]\[0\]\[direction\]=DESC/);
   assert.match(decodeURIComponent(criteriaQuery({})), /pageSize\]=20&searchCriteria\[currentPage\]=1$/);
   assert.match(decodeURIComponent(criteriaQuery({ pageSize: 5000 })), /pageSize\]=500/);
 });
 
-test('Preise: Streichpreis ↔ price + special_price, geplanter Sonderpreis bleibt, Fehler bei Streichpreis ≤ Preis', () => {
+test('prices: list price ↔ price + special_price, scheduled special price stays, error when list price ≤ price', () => {
   const today = '2026-10-10';
   const plain = map.priceState({ price: 49 }, today);
   assert.deepEqual([plain.selling, plain.list, plain.active], [49, null, false]);
@@ -70,21 +70,21 @@ test('Preise: Streichpreis ↔ price + special_price, geplanter Sonderpreis blei
   assert.deepEqual([sale.selling, sale.list, sale.active, sale.to], [39, 49, true, '2026-12-31']);
   const planned = map.priceState({ price: 49, custom_attributes: [{ attribute_code: 'special_price', value: '39' }, { attribute_code: 'special_from_date', value: '2026-11-01' }] }, today);
   assert.deepEqual([planned.selling, planned.list, planned.active], [49, null, false]);
-  // Streichpreis setzen: regulärer Preis = Streichpreis, Sonderpreis = Verkaufspreis, Startdatum wird mitgeschrieben
+  // set list price: regular price = list price, special price = sale price, start date is written too
   assert.deepEqual(map.planPrice(plain, { price: 39, listPrice: 49 }).write, { special_price: 39, special_from_date: null });
   assert.deepEqual(map.planPrice(plain, { listPrice: 59 }).write, { price: 59, special_price: 49, special_from_date: null });
-  // Aktion beenden: Sonderpreis + Zeitraum weg, regulärer Preis = bisheriger Verkaufspreis
+  // end promotion: special price + period removed, regular price = previous sale price
   assert.deepEqual(map.planPrice(sale, { listPrice: null }).write, { price: 39, special_price: null, special_to_date: null });
-  // nur Preis bei laufender Aktion: Sonderpreis ändert sich
+  // price only during a running promotion: special price changes
   assert.deepEqual(map.planPrice(sale, { price: 35 }).write, { special_price: 35, special_from_date: null });
-  // nur Preis bei geplanter Aktion: geplanter Sonderpreis bleibt, Hinweis
+  // price only with a scheduled promotion: scheduled special price stays, notice
   const r = map.planPrice(planned, { price: 45 });
   assert.deepEqual(r.write, { price: 45 }); assert.match(r.notes.join(), /bleibt unverändert/);
   assert.throws(() => map.planPrice(plain, { listPrice: 40 }), /muss über dem Preis/);
   assert.throws(() => map.planPrice(plain, { to: '2026-12-31' }), /Zeitraum gilt nur/);
 });
 
-test('Hilfen: URL-Schlüssel, Medien-ID, Gleichheit, Fehlertexte, SEO-Prüfung', () => {
+test('helpers: URL key, media ID, equality, error texts, SEO check', () => {
   assert.equal(map.urlKey('Vase „Kiesel“ Größe Ä/Ö/ü 22 cm'), 'vase-kiesel-groesse-ae-oe-ue-22-cm');
   assert.deepEqual(map.parseMediaId(map.mediaId(12, 7)), { productId: '12', entryId: 7 });
   assert.equal(map.parseMediaId('staged:abc'), null);
@@ -95,8 +95,8 @@ test('Hilfen: URL-Schlüssel, Medien-ID, Gleichheit, Fehlertexte, SEO-Prüfung',
   assert.deepEqual(res.metaTitleDuplicate, ['1', '2']); assert.deepEqual(res.metaDescriptionMissing, ['1']); assert.deepEqual(res.noImage, ['1']); assert.deepEqual(res.imageWithoutAlt, ['2']);
 });
 
-// ================= Datenschutz =================
-test('Guard: Kunden, Bestellungen, Warenkörbe, Integrationen gesperrt; Bereiche schaltbar; Filterfelder nur laut Freigabeliste; Protokoll', async () => {
+// ================= Data protection =================
+test('guard: customers, orders, carts, integrations blocked; scopes switchable; filter fields only per allowlist; log', async () => {
   const events: { op: string; entity: string; denied?: string }[] = [];
   let scopes = { products: true, manufacturers: true, categories: true, cms: true, media: true, marketing: true, shop: true, gsc: true, sistrix: true, web: false };
   const g = createMagentoGuard({ getScopes: () => scopes, onAccess: a => events.push(a) });
@@ -105,22 +105,22 @@ test('Guard: Kunden, Bestellungen, Warenkörbe, Integrationen gesperrt; Bereiche
   assert.throws(() => g.check('POST', '/V1/products'), /nicht erlaubt/);
   assert.throws(() => g.check('GET', '/V1/products', { filters: [[{ field: 'customer_id', value: 1 }]] }), /nicht freigegeben/);
   assert.throws(() => g.check('GET', '/V1/salesRules/search', { filters: [[{ field: 'customer_group_ids', value: 1 }]] }), /nicht freigegeben/);
-  assert.equal(g.check('GET', '/V1/products/ORDER-BOX'), 'product', 'SKU mit „order“ ist ein Produkt');
+  assert.equal(g.check('GET', '/V1/products/ORDER-BOX'), 'product', 'SKU containing "order" is a product');
   assert.equal(g.check('GET', '/V1/salesRules/search', { sort: [{ field: 'sort_order' }] }), 'sales-rule');
   scopes = { ...scopes, marketing: false };
   assert.throws(() => g.check('GET', '/V1/salesRules/1'), /Marketing.*nicht freigegeben/);
   assert.ok(events.filter(e => e.op === 'deny').length >= 15);
 
-  // Reader gegen den Fake: sensible Felder entfernt, Zugriff protokolliert, Fake sieht nie Kunden-Pfade
+  // Reader against the fake: sensitive fields removed, access logged, fake never sees customer paths
   const r = new MagentoReader(new MagentoClient({ url: fake.base, accessToken: fake.token }), createMagentoGuard({ onAccess: a => events.push(a) }));
   const p = await r.product('VASE');
-  assert.ok(p && !JSON.stringify(p).includes('einkauf@holm.test'), 'E-Mail entfernt');
+  assert.ok(p && !JSON.stringify(p).includes('einkauf@holm.test'), 'email removed');
   assert.ok(events.some(e => e.op === 'get' && e.entity === 'product'));
   assert.ok(!fake.log.some(l => /customer|order|cart/.test(l.path)));
-  assert.equal('req' in r, false, 'kein freier API-Zugriff');
+  assert.equal('req' in r, false, 'no free API access');
 });
 
-// ================= Adapter, Werkzeuge =================
+// ================= Adapter, tools =================
 type Res = { isError?: boolean; content: { text: string }[] };
 const s = getSession('chat-magento');
 const events: ChatEvent[] = [];
@@ -133,15 +133,15 @@ async function roundtrip(label: string, run: () => Promise<{ status?: string }>,
   const before = fake.snapshot();
   const r = await run();
   assert.equal(r.status, 'applied', `${label}: ${JSON.stringify(r)}`);
-  assert.notEqual(fake.snapshot(), before, `${label}: geändert`);
+  assert.notEqual(fake.snapshot(), before, `${label}: changed`);
   await check?.();
   const u = await undoChangeSet('chat-magento', lastResult().csId);
-  assert.ok(u?.ok, `${label}: Rückgängig ${JSON.stringify(u)}`);
-  assert.deepEqual(JSON.parse(fake.snapshot()), JSON.parse(before), `${label}: exakt wiederhergestellt`);
+  assert.ok(u?.ok, `${label}: undo ${JSON.stringify(u)}`);
+  assert.deepEqual(JSON.parse(fake.snapshot()), JSON.parse(before), `${label}: exactly restored`);
 }
 const prodVals = (sku: string) => fake.products.find(p => p.sku === sku)!.vals;
 
-test('Adapter: verfügbar, Verbindungstest, Werkzeugnamen = Werkzeuge, Kern-Features, Prompt', async () => {
+test('adapter: available, connection test, tool names = tools, core features, prompt', async () => {
   assert.equal(PLATFORM_SETTINGS.magento.available, true);
   assert.equal(s.platform, 'magento');
   assert.deepEqual(tools.map(t => t.name), toolNamesFor('magento'));
@@ -150,19 +150,19 @@ test('Adapter: verfügbar, Verbindungstest, Werkzeugnamen = Werkzeuge, Kern-Feat
   const t = await magento.testConnection();
   assert.equal(t.ok, true, t.message); assert.match(t.message, /Store-View Default Store View \(default, de_DE, EUR\), 4 Produkte/);
   assert.equal((await magento.health()).ok, true);
-  // Admin-Benutzer statt Token
+  // admin user instead of token
   const c = new MagentoClient({ url: fake.base, user: 'admin', password: 'geheim' }), logins = () => fake.log.filter(l => l.path === '/integration/admin/token').length, n0 = logins();
   const par = await Promise.all(Array.from({ length: 6 }, () => c.req('GET', '/V1/store/websites', undefined, { store: 'all' })));
-  assert.equal(par[0].length, 2); assert.equal(logins() - n0, 1, 'parallele Erstanfragen: eine Anmeldung');
+  assert.equal(par[0].length, 2); assert.equal(logins() - n0, 1, 'parallel first requests: one login');
   await assert.rejects(new MagentoClient({ url: fake.base, user: 'admin', password: 'falsch' }).req('GET', '/V1/store/websites'), /Anmeldung fehlgeschlagen \(401\)/);
   const p = buildBasePrompt('magento');
   assert.doesNotMatch(p, /\{\{\w+\}\}|Shopware|Einkaufswelt|noch nicht verfügbar/);
   assert.match(p, /## Preise in Magento \(Streichpreis\)/); assert.match(p, /## Mehrsprachigkeit \(Store-Views\)/); assert.match(p, /seo_audit, find_image_gaps/);
 });
 
-test('Lese-Werkzeuge: Format, Preise, Bilder, Varianten, Kategorien, Promotionen ohne Kundendaten', async () => {
+test('read tools: format, prices, images, variants, categories, promotions without customer data', async () => {
   const sp = await call('search_products', { term: 'Ki' });
-  assert.equal(sp.total, 1); assert.equal(sp.products[0].number, 'KISSEN'); assert.equal(sp.products[0].price, null, 'Preis aus Varianten');
+  assert.equal(sp.total, 1); assert.equal(sp.products[0].number, 'KISSEN'); assert.equal(sp.products[0].price, null, 'price from variants');
   const gp = await call('get_product', { id: '2' });
   assert.equal(gp.price, '15,00 €'); assert.equal(gp.listPrice, '18,00 €'); assert.equal(gp.priceDetails.specialActive, true);
   assert.equal(gp.stock[0].quantity, 5);
@@ -171,7 +171,7 @@ test('Lese-Werkzeuge: Format, Preise, Bilder, Varianten, Kategorien, Promotionen
   assert.match(vase.images[0].url, /\/media\/catalog\/product\/v\/a\/vase\.jpg$/);
   assert.ok(!JSON.stringify(vase).includes('einkauf@holm.test'));
   const lp = await call('list_products', { limit: 2 });
-  assert.equal(lp.total, 3, 'Einzelprodukt der Variante ausgeblendet'); assert.equal(lp.nextOffset, 2); assert.equal(lp.products[0].stock, 10);
+  assert.equal(lp.total, 3, 'simple product of the variant hidden'); assert.equal(lp.nextOffset, 2); assert.equal(lp.products[0].stock, 10);
   const cat = await call('get_category', { id: '3' });
   assert.equal(cat.url, `${fake.base}/wohnaccessoires.html`); assert.equal(cat.productCount, 1);
   const v = await call('get_variants', { id: 'KISSEN' });
@@ -183,7 +183,7 @@ test('Lese-Werkzeuge: Format, Preise, Bilder, Varianten, Kategorien, Promotionen
   assert.ok(accessList(50).some(a => a.chat === 'chat-magento' && a.entity === 'product'));
 });
 
-test('Lookup (Wissensbasis, Search Console, view_image) und Vorschau-Daten', async () => {
+test('lookup (knowledge base, Search Console, view_image) and preview data', async () => {
   assert.deepEqual(await s.lookup.findProducts({ ids: ['1'], numbers: ['BECHER'] }), [{ id: '1', number: 'VASE', name: 'Vase' }, { id: '2', number: 'BECHER', name: 'Becher' }]);
   assert.deepEqual((await s.lookup.getProduct('1'))?.categoryIds, ['2', '3']);
   assert.match(String(await s.lookup.mediaUrl('mg-1-2')), /vase-2\.jpg$/);
@@ -201,22 +201,22 @@ test('Lookup (Wissensbasis, Search Console, view_image) und Vorschau-Daten', asy
   assert.deepEqual((await magento.context.products({ term: 'Vas' })).map(p => p.number), ['VASE']);
 });
 
-test('Produkte: Texte (global bzw. Store-View mit eigenem Wert), Preis mit Streichpreis, Bestand, Status, Attribut – Rückgängig exakt', async () => {
+test('products: texts (global or store view with own value), price with list price, stock, status, attribute; exact undo', async () => {
   prodVals('VASE')[1] = { meta_description: 'Eigene MD default' };
   await roundtrip('Produkt', () => call('propose_product_changes', { title: 'Test', reason: 'Test', changes: [{ id: '1', fields: { name: 'Vase neu', metaDescription: 'Neue MD', description: '<p>neu</p>', active: false, stock: 7, price: { percent: -10, round: '.99' }, listPrice: 49, attributes: { color: 'Salbei' } } }] }), () => {
     const v = prodVals('VASE');
-    assert.equal(v[0].name, 'Vase neu', 'geerbt → global'); assert.equal(v[1].meta_description, 'Neue MD', 'eigener Wert → Store-View'); assert.notEqual(v[0].meta_description, 'Neue MD');
+    assert.equal(v[0].name, 'Vase neu', 'inherited → global'); assert.equal(v[1].meta_description, 'Neue MD', 'own value → store view'); assert.notEqual(v[0].meta_description, 'Neue MD');
     assert.equal(v[0].price, 49); assert.equal(v[0].special_price, 43.99); assert.equal(v[0].status, 2); assert.equal(v[0].color, '12');
     assert.equal(fake.sourceItems.find(x => x.sku === 'VASE')!.quantity, 7);
     const cs = [...s.events].reverse().find(e => e.t === 'changeset') as Extract<ChatEvent, { t: 'changeset' }>;
-    assert.ok(cs.cs.items.some(i => i.id === 'info:preis'), 'Hinweis zur Magento-Preislogik');
+    assert.ok(cs.cs.items.some(i => i.id === 'info:preis'), 'notice about Magento price logic');
   });
   delete prodVals('VASE')[1];
   const bad = await call('propose_product_changes', { title: 'x', reason: 'x', changes: [{ id: 'KISSEN', fields: { price: 10 } }, { id: 'VASE', fields: { foo: 1, listPrice: 20 } }] });
   assert.match(bad.error, /Keine Änderung nötig bzw\. nichts anwendbar/); assert.match(bad.error, /Einzelprodukten/);
 });
 
-test('Name inzwischen geändert: die Zeile wird nicht geschrieben, der Bestand derselben Entität schon', async () => {
+test('name changed meanwhile: the row is not written, the stock of the same entity is', async () => {
   const { reg, undoMagento } = await import('../../../../src/server/platform/magento/write');
   const before = fake.snapshot(), c = new MagentoClient({ url: fake.base, accessToken: fake.token });
   prodVals('VASE')[0].name = 'Vase fremd';
@@ -236,7 +236,7 @@ test('Name inzwischen geändert: die Zeile wird nicht geschrieben, der Bestand d
   assert.equal(fake.snapshot(), before);
 });
 
-test('Bestand inzwischen geändert: die Zeile wird nicht geschrieben, der Name derselben Entität schon', async () => {
+test('stock changed meanwhile: the row is not written, the name of the same entity is', async () => {
   const { reg, undoMagento } = await import('../../../../src/server/platform/magento/write');
   const before = fake.snapshot(), c = new MagentoClient({ url: fake.base, accessToken: fake.token });
   fake.sourceItems.find(x => x.sku === 'VASE')!.quantity = 3;
@@ -256,7 +256,7 @@ test('Bestand inzwischen geändert: die Zeile wird nicht geschrieben, der Name d
   assert.equal(fake.snapshot(), before);
 });
 
-test('Kategoriename inzwischen geändert: die Zeile wird nicht geschrieben, der Meta-Title schon', async () => {
+test('category name changed meanwhile: the row is not written, the meta title is', async () => {
   const { reg, undoMagento } = await import('../../../../src/server/platform/magento/write');
   const before = fake.snapshot(), c = new MagentoClient({ url: fake.base, accessToken: fake.token });
   const cat = fake.categories.find(x => x.id === 3)!;
@@ -277,7 +277,7 @@ test('Kategoriename inzwischen geändert: die Zeile wird nicht geschrieben, der 
   assert.equal(fake.snapshot(), before);
 });
 
-test('Bestand schlägt fehl: geschriebene Felder bleiben gültig und rückgängig machbar', async () => {
+test('stock fails: written fields stay valid and can be undone', async () => {
   const { reg, undoMagento } = await import('../../../../src/server/platform/magento/write');
   const before = fake.snapshot(), c = new MagentoClient({ url: fake.base, accessToken: fake.token });
   const orig = c.req.bind(c);
@@ -296,12 +296,12 @@ test('Bestand schlägt fehl: geschriebene Felder bleiben gültig und rückgängi
   assert.match(by['1:stock'].error ?? '', /Bestand/);
   assert.equal(prodVals('VASE')[0].name, 'Vase neu');
   assert.equal(fake.sourceItems.find(x => x.sku === 'VASE')!.quantity, 10);
-  assert.ok(r.undo.length > 0, 'geschriebene Felder bleiben rückgängig machbar');
-  assert.ok((await undoMagento(c, r.undo)).every(x => x.ok), 'Rückgängig');
+  assert.ok(r.undo.length > 0, 'written fields can still be undone');
+  assert.ok((await undoMagento(c, r.undo)).every(x => x.ok), 'undo');
   assert.equal(fake.snapshot(), before);
 });
 
-test('writeScoped: ein späterer Store-View-Fehler behält den Undo des ersten PUT', async () => {
+test('writeScoped: a later store view error keeps the undo of the first PUT', async () => {
   const { writeScoped, undoMagento } = await import('../../../../src/server/platform/magento/write');
   const before = fake.snapshot(), c = new MagentoClient({ url: fake.base, accessToken: fake.token, storeCode: 'en' });
   const orig = c.req.bind(c);
@@ -311,28 +311,28 @@ test('writeScoped: ein späterer Store-View-Fehler behält den Undo des ersten P
   }) as typeof c.req;
   const err = await writeScoped(c, 'product', 'VASE', 'en', { name: 'Vase EN' }, { weight: 2 }).then(() => null, (e: Error & { undo?: UndoOp[] }) => e);
   assert.ok(err); assert.match(err.message, /View nicht schreibbar/);
-  assert.equal(prodVals('VASE')[0].weight, 2, 'Gewicht ist geschrieben');
-  assert.equal(prodVals('VASE')[0].name, 'Vase', 'Name der View wurde nicht geschrieben');
-  assert.ok(err.undo?.some(op => String(op.path).includes('/all/')), `Undo fehlt: ${JSON.stringify(err.undo)}`);
+  assert.equal(prodVals('VASE')[0].weight, 2, 'weight is written');
+  assert.equal(prodVals('VASE')[0].name, 'Vase', 'view name was not written');
+  assert.ok(err.undo?.some(op => String(op.path).includes('/all/')), `undo missing: ${JSON.stringify(err.undo)}`);
   assert.ok((await undoMagento(c, err.undo!)).every(x => x.ok));
   assert.equal(fake.snapshot(), before);
 });
 
-test('Andere Store-View als die Haupt-View: geerbte Texte werden dort gespeichert, nicht global; Rückgängig = wieder erben', async () => {
+test('store view other than the main view: inherited texts are stored there, not globally; undo = inherit again', async () => {
   const { reg } = await import('../../../../src/server/platform/magento/write');
   const before = fake.snapshot(), c = new MagentoClient({ url: fake.base, accessToken: fake.token, storeCode: 'en' });
   const cs = { id: 'cs-en', kind: 'products', entity: 'product', title: 't', reason: null, skipped: [], atomic: false, items: [{ id: '1:name', entity: 'product', entityId: '1', label: 'Vase', field: 'name', fieldLabel: 'Name', before: 'Vase', after: 'Vase EN', afterRaw: 'Vase EN', warn: [] }] };
   const partial: { done: number; total: number; undo: number }[] = [];
   const r = await reg.apply(c, cs, { store: 'en', skus: { 1: 'VASE' } }, new Set(['1:name']), { progress: (done, total, p) => partial.push({ done, total, undo: p?.undo.length ?? -1 }) });
   assert.ok(r.results[0].ok, JSON.stringify(r));
-  assert.deepEqual(partial, [{ done: 1, total: 1, undo: r.undo.length }], 'applyGrouped meldet den Zwischenstand je Datensatz (Absturzsicherheit)');
+  assert.deepEqual(partial, [{ done: 1, total: 1, undo: r.undo.length }], 'applyGrouped reports the intermediate state per record (crash safety)');
   assert.equal(prodVals('VASE')[2].name, 'Vase EN'); assert.equal(prodVals('VASE')[0].name, 'Vase');
   const { undoMagento } = await import('../../../../src/server/platform/magento/write');
   assert.ok((await undoMagento(c, r.undo)).every(x => x.ok));
   assert.equal(fake.snapshot(), before);
 });
 
-test('Abgelehnt = nichts geschrieben; Preisänderung zwischen Vorschlag und Freigabe wird erkannt', async () => {
+test('rejected = nothing written; price change between proposal and approval is detected', async () => {
   const before = fake.snapshot();
   allow = false;
   const r = await call('propose_product_changes', { title: 'x', reason: 'x', changes: [{ id: '2', fields: { name: 'Nein' } }] });
@@ -340,7 +340,7 @@ test('Abgelehnt = nichts geschrieben; Preisänderung zwischen Vorschlag und Frei
   assert.equal(r.status, 'rejected'); assert.equal(fake.snapshot(), before);
 });
 
-test('Kategorien, Zuordnung, URL-Schlüssel, Übersetzungen – Rückgängig exakt', async () => {
+test('categories, assignment, URL key, translations; exact undo', async () => {
   await roundtrip('Kategorie', () => call('propose_category_changes', { title: 'K', reason: 'K', changes: [{ id: '3', fields: { name: 'Wohnen', metaTitle: 'Wohnen | Holm', active: false } }] }));
   await roundtrip('Zuordnung', () => call('propose_category_products', { title: 'Z', reason: 'Z', categoryId: '3', add: [{ productId: '2', position: 2 }], remove: ['VASE'] }));
   await roundtrip('URL-Schlüssel', () => call('propose_seo_urls', { title: 'U', reason: 'U', entity: 'product', changes: [{ id: '1', urlKey: 'Vase Kiesel Steinzeug' }] }), () => assert.equal(prodVals('VASE')[0].url_key, 'vase-kiesel-steinzeug'));
@@ -349,17 +349,17 @@ test('Kategorien, Zuordnung, URL-Schlüssel, Übersetzungen – Rückgängig exa
   await roundtrip('Übersetzung Produkt', () => call('propose_translations', { title: 'EN', reason: 'EN', entity: 'product', changes: [{ id: 'VASE', store: 'en_US', fields: { name: 'Vase (EN)', metaTitle: 'Vase EN' } }] }), () => {
     assert.equal(prodVals('VASE')[2].name, 'Vase (EN)'); assert.equal(prodVals('VASE')[0].name, 'Vase');
   });
-  // Kategorienamen: Magento verwirft null → Rückgängig schreibt den globalen Text als Wert der Store-View
+  // category names: Magento discards null → undo writes the global text as the store view's value
   const before = JSON.parse(fake.snapshot());
   const r = await call('propose_translations', { title: 'EN', reason: 'EN', entity: 'category', changes: [{ id: '3', store: 'en', fields: { name: 'Home accessories', description: '<p>Home</p>' } }] });
   assert.equal(r.status, 'applied');
   assert.ok((await undoChangeSet('chat-magento', lastResult().csId))?.ok);
   const cat = fake.categories.find(c => c.id === 3)!;
-  assert.deepEqual(cat.vals[2], { name: 'Wohnaccessoires' }, 'Name = globaler Text, Beschreibung erbt wieder');
+  assert.deepEqual(cat.vals[2], { name: 'Wohnaccessoires' }, 'name = global text, description inherits again');
   delete cat.vals[2]; assert.deepEqual(JSON.parse(fake.snapshot()), before);
 });
 
-test('Bilder (neu als Titelbild, ausblenden, sortieren) und Alt-Texte – Rückgängig exakt', async () => {
+test('images (new as cover, hide, sort) and alt texts; exact undo', async () => {
   const st = stageImage(png, 'image/png', { name: 'blau', alt: 'Blaue Vase' });
   await roundtrip('Bilder', () => call('propose_product_images', { title: 'B', reason: 'B', products: [{ productId: '1', add: [{ image: st.mediaId, cover: true, position: 0 }], remove: ['mg-1-1'] }] }), () => {
     const p = fake.products.find(x => x.sku === 'VASE')!;
@@ -372,7 +372,7 @@ test('Bilder (neu als Titelbild, ausblenden, sortieren) und Alt-Texte – Rückg
   await roundtrip('Alt-Text', () => call('propose_alt_texts', { title: 'A', reason: 'A', images: [{ mediaId: 'mg-1-2', alt: 'Vase von der Seite' }] }), () => assert.equal(fake.products[0].media[1].vals[0].label, 'Vase von der Seite'));
 });
 
-test('Neue Produkte und Varianten: angelegt inaktiv mit Bestand, Rückgängig löscht samt Lagerbestand', async () => {
+test('new products and variants: created inactive with stock, undo deletes including stock item', async () => {
   const st = stageImage(png, 'image/png', { name: 'gelb', alt: 'Gelb' });
   const noPrice = await call('propose_new_products', { title: 'N', reason: 'N', products: [{ name: 'Teller', description: '<p>Teller</p>' }] });
   assert.match(noPrice.error, /Preis fehlt/);
@@ -384,12 +384,12 @@ test('Neue Produkte und Varianten: angelegt inaktiv mit Bestand, Rückgängig l�
   });
   await roundtrip('Variante', () => call('propose_variants', { title: 'V', reason: 'V', productId: 'KISSEN', add: [{ options: { Farbe: 'Salbei' }, stock: 2 }] }), () => {
     const kid = fake.products.find(x => x.sku === 'KISSEN-SALBEI')!;
-    assert.equal(kid.vals[0].price, 39, 'Preis wie die übrigen Varianten'); assert.equal(kid.vals[0].visibility, 1);
+    assert.equal(kid.vals[0].price, 39, 'price like the other variants'); assert.equal(kid.vals[0].visibility, 1);
     assert.ok(fake.products.find(x => x.sku === 'KISSEN')!.children!.includes('KISSEN-SALBEI'));
   });
 });
 
-test('Stapel: Regel auf Filter, Fortschritt, Rückgängig exakt', async () => {
+test('bulk edit: rule on filter, progress, exact undo', async () => {
   const prog: unknown[] = [];
   const emit = s.emit; s.emit = ev => { if (ev.t === 'changeset_progress') prog.push(ev); emit(ev); };
   await roundtrip('Stapel', () => call('propose_bulk_product_change', { title: 'S', reason: 'S', filter: { categoryId: '3' }, change: { price: { percent: -20, round: '.99' }, listPrice: 'currentPrice' } }), () => {
@@ -399,7 +399,7 @@ test('Stapel: Regel auf Filter, Fortschritt, Rückgängig exakt', async () => {
   assert.ok(prog.length >= 2);
 });
 
-test('Promotionen: anlegen (fester Code), Einzelcodes, ändern, beenden – Rückgängig exakt, Kundengruppen nur im Executor', async () => {
+test('promotions: create (fixed code), individual codes, change, end; exact undo, customer groups only in the executor', async () => {
   await roundtrip('Promotion neu', () => call('propose_promotion', { reason: 'R', name: 'Herbst', active: true, validFrom: '2026-11-01', validUntil: '2026-11-30', code: { mode: 'fixed', code: 'herbst20' }, discount: { type: 'percentage', value: 20, categoryIds: ['3'] }, minSubtotal: 50 }), () => {
     const r = fake.rules.find(x => x.name === 'Herbst')!;
     assert.deepEqual(r.customer_group_ids, [0, 1]); assert.equal(r.coupon_type, 'SPECIFIC_COUPON');
@@ -415,7 +415,7 @@ test('Promotionen: anlegen (fester Code), Einzelcodes, ändern, beenden – Rüc
   assert.ok(!fake.log.some(l => l.path.startsWith('/customerGroups') && l.store !== 'all'));
 });
 
-test('Promotion ändern: nur Rabattwert ändert nur den Rabattwert (Einschränkung, Versand, Schritt, Lieferland bleiben), Karte zeigt Ziel', async () => {
+test('change promotion: discount value only changes only the discount value (restriction, shipping, step, delivery country stay), card shows target', async () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rule = () => fake.rules.find(r => r.rule_id === 2)! as Record<string, any>, keep = JSON.parse(JSON.stringify(rule()));
   await roundtrip('Nur Rabatt', () => call('propose_promotion', { id: '2', reason: 'R', discount: { type: 'percentage', value: 20 } }), () => {
@@ -426,7 +426,7 @@ test('Promotion ändern: nur Rabattwert ändert nur den Rabattwert (Einschränku
     assert.match(it.before, /15 % auf Kategorien Wohnaccessoires \(inkl\. Versand\)/); assert.match(it.after, /20 % auf Kategorien Wohnaccessoires \(inkl\. Versand\)/);
     assert.match(it.after, /1 weitere Warenkorb-Bedingung/);
   });
-  // Mindestbestellwert ergänzt die Lieferland-Bedingung statt sie zu ersetzen; Kategorie-Wechsel nur, wenn angegeben
+  // minimum order value adds to the delivery country condition instead of replacing it; category change only if specified
   await roundtrip('Mindestbestellwert + Kategorie', () => call('propose_promotion', { id: '2', reason: 'R', minSubtotal: 40, discount: { type: 'percentage', value: 15, categoryIds: ['4'] } }), () => {
     const r = rule();
     assert.deepEqual(r.condition.conditions.map((c: { attribute_name: string }) => c.attribute_name), ['country_id', 'base_subtotal']);
@@ -436,7 +436,7 @@ test('Promotion ändern: nur Rabattwert ändert nur den Rabattwert (Einschränku
   });
 });
 
-test('Promotion-Bezeichnung: setzen, entfernen (Magento ignoriert []), Rückgängig exakt', async () => {
+test('promotion label: set, remove (Magento ignores []), exact undo', async () => {
   const rule = () => fake.rules.find(r => r.rule_id === 2)! as { store_labels: { store_id: number; store_label: string }[] };
   await roundtrip('Bezeichnung neu', () => call('propose_promotion', { id: '2', reason: 'R', label: 'Wohnwoche' }), () => {
     assert.deepEqual(rule().store_labels, [{ store_id: 0, store_label: 'Wohnwoche' }, { store_id: 1, store_label: 'Wohnrabatt DE' }]);
@@ -448,7 +448,7 @@ test('Promotion-Bezeichnung: setzen, entfernen (Magento ignoriert []), Rückgän
   rule().store_labels.shift();
 });
 
-test('Preisbasis: Ausgabe und Karten nennen brutto/netto; unbekannt = keine Preisänderung', async () => {
+test('price basis: output and cards state gross/net; unknown = no price change', async () => {
   const { buildProductChangeSet } = await import('../../../../src/server/platform/magento/catalog');
   const { bulkChangeSet } = await import('../../../../src/server/platform/magento/bulk');
   const gp = await call('get_product', { id: '2' });
@@ -460,14 +460,14 @@ test('Preisbasis: Ausgabe und Karten nennen brutto/netto; unbekannt = keine Prei
   assert.match(net.cs.items.find(i => i.id === 'info:preis')!.after, /netto.*zusätzlich die MwSt/);
   await assert.rejects(buildProductChangeSet(reader(), { title: 't', reason: 'r', changes: [{ id: '1', fields: { price: 45 } }] }), /Preisbasis unbekannt/);
   const nameOnly = await buildProductChangeSet(reader(), { title: 't', reason: 'r', changes: [{ id: '1', fields: { name: 'Vase X' } }] });
-  assert.equal(nameOnly.cs.items[0].field, 'name', 'Texte gehen ohne Preisbasis');
+  assert.equal(nameOnly.cs.items[0].field, 'name', 'texts work without price basis');
   const p = fake.products.find(x => x.sku === 'VASE')!, mp = { id: 1, sku: 'VASE', type_id: 'simple', price: Number(p.vals[0].price), status: 1 };
   assert.throws(() => bulkChangeSet('t', 'r', { price: { percent: 10 } }, [mp], null), /Preisbasis unbekannt/);
   assert.equal(bulkChangeSet('t', 'r', { active: false }, [mp], null).cs.items.length > 0, true);
   assert.equal(map.parseBasis('Brutto'), 'gross'); assert.equal(map.parseBasis('net'), 'net'); assert.equal(map.parseBasis(''), null);
 });
 
-test('Rückgängig einer fremden Plattform wird nicht ausgeführt; unbekannte Änderungsart wirft', async () => {
+test('undo of a foreign platform is not executed; unknown change kind throws', async () => {
   const { undoWithPlatform } = await import('../../../../src/server/platform/index');
   const r = await undoWithPlatform([{ op: 'req', entity: 'product', id: 'VASE', method: 'PUT', path: '/all/V1/products/VASE', body: {}, platform: 'shopware' }], 'magento');
   assert.equal(r[0].ok, false);

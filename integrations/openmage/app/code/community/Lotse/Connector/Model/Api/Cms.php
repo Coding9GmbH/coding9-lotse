@@ -1,7 +1,7 @@
 <?php
 /**
- * CMS-Seiten und -Blöcke: Liste, Detail, anlegen, ändern, löschen. Store-Zuordnung über "stores"
- * (Codes oder IDs, "admin"/0 = alle Store-Views). Jede Schreibaktion liefert den vollständigen Stand.
+ * CMS pages and blocks: list, detail, create, update, delete. Store assignment via "stores"
+ * (codes or IDs, "admin"/0 = all store views). Every write action returns the complete state.
  */
 class Lotse_Connector_Model_Api_Cms extends Lotse_Connector_Model_Api_Abstract
 {
@@ -12,13 +12,13 @@ class Lotse_Connector_Model_Api_Cms extends Lotse_Connector_Model_Api_Abstract
     ];
     protected const BLOCK_FIELDS = ['title', 'identifier', 'content', 'is_active'];
 
-    // ---------- Seiten ----------
+    // ---------- Pages ----------
 
     public function listPages(array $params)
     {
         $pg = $this->pagination();
         list($sort, $dir) = $this->sorting(['page_id', 'identifier', 'title', 'update_time', 'creation_time', 'sort_order'], 'page_id');
-        // Globaler Scope = alle Seiten (auch nur einem Store zugeordnete); Store-Filter nur bei ?store=
+        // Global scope = all pages (including those assigned to a single store); store filter only with ?store=
         $collection = Mage::getModel('cms/page')->getCollection();
         if ($this->storeId > 0) {
             $collection->addStoreFilter($this->storeId, true);
@@ -160,7 +160,7 @@ class Lotse_Connector_Model_Api_Cms extends Lotse_Connector_Model_Api_Abstract
         }
     }
 
-    // ---------- Blöcke ----------
+    // ---------- Blocks ----------
 
     public function listBlocks(array $params)
     {

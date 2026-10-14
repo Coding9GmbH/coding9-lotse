@@ -1,34 +1,35 @@
 import 'server-only';
-// Shopify: feste GraphQL-Queries und Umformung in Lotse-Daten (kurze IDs, formatierte Preise). Dieselben Funktionen lesen
-// für die KI über den geschützten Reader (reader.query) und im Executor über den privilegierten Client (client.gql).
+// Shopify: fixed GraphQL queries and conversion into Lotse data (short IDs, formatted prices). The same functions read
+// for the AI via the protected reader (reader.query) and in the executor via the privileged client (client.gql).
+import { stripHtml } from '@/lib/format';
 import { noteMedia } from '../../media';
 import { shortId, toGid, type Json } from './client';
 
 export type Q = <T = Json>(doc: string, vars?: Json) => Promise<T>;
 
-// ---- Formatierung ----
+// ---- Formatting ----
 export const toNum = (v: unknown): number | null => (v == null || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 export function fmtMoney(v: unknown, currency = 'EUR'): string | null {
   const n = toNum(v); if (n == null) return null;
   try { return new Intl.NumberFormat('de-DE', { style: 'currency', currency }).format(n).replace(/\u00a0/g, ' '); } catch { return `${n.toFixed(2)} ${currency}`; }
 }
-/** Nachkommastellen einer Währung (EUR 2, JPY 0, KWD 3); unbekannt = 2 */
+/** Decimal places of a currency (EUR 2, JPY 0, KWD 3); unknown = 2 */
 export function currencyDigits(currency?: string): number {
   if (!currency) return 2;
   try { return new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits ?? 2; } catch { return 2; }
 }
-/** Betrag als Shopify-Money-String („49.00“, bei KWD „1.250“, bei JPY „1000“), gerundet auf die Nachkommastellen der Währung (ohne Währung 2) */
+/** Amount as Shopify money string ("49.00", for KWD "1.250", for JPY "1000"), rounded to the currency's decimal places (without currency 2) */
 export const money = (n: number, currency?: string) => { const d = currencyDigits(currency), f = 10 ** d; return (Math.round(n * f) / f).toFixed(d); };
-/** Money-Wert aus Shopify unverändert zurückschreiben (Rückgängig: exakt, ohne Rundung) */
+/** Write back a money value from Shopify unchanged (undo: exact, without rounding) */
 export const moneyRaw = (v: unknown): string | null => (v == null ? null : String(v));
-export const stripHtml = (t: unknown) => String(t ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-/** Freitext für Shopify-Suchsyntax entschärfen (keine Filter-Syntax der KI durchreichen) */
+export { stripHtml };
+/** Defuse free text for Shopify search syntax (don't pass the AI's filter syntax through) */
 export const searchText = (t: string) => t.replace(/[\\"():*]/g, ' ').replace(/\b(AND|OR|NOT)\b/g, ' ').replace(/(^|\s)-/g, '$1').replace(/\s+/g, ' ').trim();
 const quote = (v: string) => `"${v.replace(/[\\"]/g, '')}"`;
-/** Suchfilter feld:"wert" */
+/** Search filter field:"value" */
 export const qField = (field: string, value: string | number) => `${field}:${typeof value === 'number' ? value : quote(value)}`;
 
-// ---- Selektionen ----
+// ---- Selections ----
 const IMG = 'image { url altText width height }';
 export const PRODUCT_LIST = `id title handle status vendor productType tags totalInventory tracksInventory onlineStoreUrl hasOnlyDefaultVariant
   priceRangeV2 { minVariantPrice { amount currencyCode } maxVariantPrice { amount } }
@@ -62,7 +63,7 @@ export async function shopInfo(q: Q): Promise<ShopInfo> {
   return { name: s.name, currency: s.currencyCode ?? 'EUR', primaryUrl: String(s.primaryDomain?.url ?? s.url ?? '').replace(/\/+$/, ''), myshopifyDomain: s.myshopifyDomain, taxesIncluded: !!s.taxesIncluded, timezone: s.ianaTimezone };
 }
 
-// ---- Produkte ----
+// ---- Products ----
 const imgOf = (m: Json | null | undefined) => m?.image?.url as string | undefined;
 export function productBrief(p: Json, currency = 'EUR') {
   const min = toNum(p.priceRangeV2?.minVariantPrice?.amount), max = toNum(p.priceRangeV2?.maxVariantPrice?.amount);
@@ -75,7 +76,7 @@ export function productBrief(p: Json, currency = 'EUR') {
   };
 }
 
-/** Produkte per ID (kurz oder GID) über nodes; chunk so wählen, dass die angefragten Kosten ≤ 1000 bleiben (PRODUCT_CORE ≈ 210 je Produkt) */
+/** Products by ID (short or GID) via nodes; choose chunk so the requested cost stays ≤ 1000 (PRODUCT_CORE ≈ 210 per product) */
 export async function productsByIds(q: Q, ids: string[], sel = PRODUCT_CORE, chunk = 4): Promise<Json[]> {
   const gids = [...new Set(ids.map(i => toGid('Product', i)))], out: Json[] = [];
   for (let i = 0; i < gids.length; i += chunk) {
@@ -84,7 +85,7 @@ export async function productsByIds(q: Q, ids: string[], sel = PRODUCT_CORE, chu
   }
   return out;
 }
-/** alle Varianten eines Produkts (über 100 hinaus nachladen) */
+/** all variants of a product (load more beyond 100) */
 export async function allVariants(q: Q, p: Json): Promise<Json[]> {
   const list: Json[] = [...(p.variants?.nodes ?? [])];
   let page = p.variants?.pageInfo;
@@ -96,7 +97,7 @@ export async function allVariants(q: Q, p: Json): Promise<Json[]> {
 }
 
 export interface ProductFilter { term?: string; collectionId?: string; vendor?: string; productType?: string; tag?: string; status?: string; minPrice?: number; maxPrice?: number; maxStock?: number; minStock?: number; active?: boolean; sku?: string; priceReduced?: boolean }
-/** Filter → Shopify-Suchsyntax (products(query:)) */
+/** Filter → Shopify search syntax (products(query:)) */
 export function productQuery(f: ProductFilter): string {
   const parts: string[] = [];
   if (f.term) { const t = searchText(f.term); if (t) parts.push(t); }
@@ -119,7 +120,7 @@ export async function searchProducts(q: Q, query: string, o: { first?: number; a
     { first: Math.min(250, Math.max(1, o.first ?? 20)), after: o.after ?? null, query: query || null });
   return r.products as { nodes: Json[]; pageInfo: Json };
 }
-/** IDs eines Root-Felds (products, collections, pages, codeDiscountNodes) zu einem Suchfilter, z. B. Titel: Rückgängig für Anlege-Schritte mit unklarem Ausgang (runCreating) */
+/** IDs of a root field (products, collections, pages, codeDiscountNodes) for a search filter, e.g. title: undo for create steps with unclear outcome (runCreating) */
 export async function idsWhere(q: Q, root: string, query: string, first = 25): Promise<string[]> {
   const r = await q<Json>(`query IdsWhere($first: Int!, $query: String) { ${root}(first: $first, query: $query) { nodes { id } } }`, { first, query });
   return ((r[root]?.nodes ?? []) as Json[]).map(n => n.id);
@@ -128,7 +129,7 @@ export async function countProducts(q: Q, query: string): Promise<{ count: numbe
   const r = await q<{ productsCount: Json | null }>('query CountProducts($query: String) { productsCount(query: $query, limit: 10000) { count precision } }', { query: query || null });
   return { count: r.productsCount?.count ?? 0, exact: r.productsCount?.precision !== 'AT_LEAST' };
 }
-/** Cursor nach offset Datensätzen (blättert nur IDs) */
+/** Cursor after offset records (pages through IDs only) */
 export async function cursorAt(q: Q, query: string, offset: number, sortKey = 'TITLE'): Promise<string | null> {
   let after: string | null = null, left = Math.min(offset, 10_000);
   while (left > 0) {
@@ -139,7 +140,7 @@ export async function cursorAt(q: Q, query: string, offset: number, sortKey = 'T
   return after;
 }
 
-// ---- Kollektionen (= Kategorien in Lotse) ----
+// ---- Collections (= categories in Lotse) ----
 export const collectionKind = (c: Json) => (c.ruleSet ? 'smart' : 'manual');
 export function collectionBrief(c: Json) {
   return { id: shortId(c.id), name: c.title, handle: c.handle, type: collectionKind(c), products: c.productsCount?.count ?? null, description: stripHtml(c.descriptionHtml).slice(0, 200), metaTitle: c.seo?.title ?? null, metaDescription: c.seo?.description ?? null };
@@ -158,7 +159,7 @@ export async function searchCollections(q: Q, term: string | undefined, first = 
   return r.collections as { nodes: Json[]; pageInfo: Json };
 }
 
-// ---- Medien ----
+// ---- Media ----
 export function mediaRow(m: Json) {
   const url = imgOf(m), alt = m.image?.altText || m.alt || null;
   return { mediaId: shortId(m.id), url, alt, ...(url && noteMedia({ url, alt }) ? { aiGenerated: true } : {}) };
@@ -172,7 +173,7 @@ export async function mediaByIds(q: Q, ids: string[]): Promise<Json[]> {
   return out;
 }
 
-// ---- Seiten ----
+// ---- Pages ----
 export async function pagesByIds(q: Q, ids: string[]): Promise<Json[]> {
   const gids = [...new Set(ids.map(i => toGid('Page', i)))];
   if (!gids.length) return [];
@@ -181,7 +182,7 @@ export async function pagesByIds(q: Q, ids: string[]): Promise<Json[]> {
   return r.nodes.filter((n): n is Json => !!n?.id);
 }
 
-/** Variante kurz für die KI */
+/** Variant, short form for the AI */
 export const variantRow = (v: Json, currency = 'EUR') => ({
   id: shortId(v.id), title: v.title, options: Object.fromEntries((v.selectedOptions ?? []).map((o: Json) => [o.name, o.value])), sku: v.sku ?? null, barcode: v.barcode ?? null,
   price: toNum(v.price), priceText: fmtMoney(v.price, currency), compareAtPrice: toNum(v.compareAtPrice), stock: v.inventoryQuantity ?? null,

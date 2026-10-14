@@ -1,8 +1,8 @@
 <?php
 /**
- * Warenkorb-Preisregeln (salesrule): Liste, Detail, anlegen, ändern, löschen, Gutscheine (nur Zähler).
- * Bedingungen als Baum (Format von Mage_Rule_Model_Condition_Combine::asArray) oder vereinfacht über
- * "product_filter" {category_ids, skus} + "apply_to_matching". Keine Kundendaten: Nutzung nur als Zähler.
+ * Cart price rules (salesrule): list, detail, create, update, delete, coupons (counts only).
+ * Conditions as a tree (format of Mage_Rule_Model_Condition_Combine::asArray) or simplified via
+ * "product_filter" {category_ids, skus} + "apply_to_matching". No customer data: usage only as counts.
  */
 class Lotse_Connector_Model_Api_Salesrule extends Lotse_Connector_Model_Api_Abstract
 {
@@ -25,7 +25,7 @@ class Lotse_Connector_Model_Api_Salesrule extends Lotse_Connector_Model_Api_Abst
             $collection->addFieldToFilter('name', ['like' => '%' . $this->escapeLike($v) . '%']);
         }
         if (($v = $this->q('coupon_code')) !== null && $v !== '') {
-            // Der Code steht im Primär-Coupon (salesrule_coupon, von der Collection als rule_coupons gejoint), nicht in der Regel
+            // The code lives in the primary coupon (salesrule_coupon, joined by the collection as rule_coupons), not in the rule
             $collection->getSelect()->where('rule_coupons.code = ?', $v);
         }
         if (($v = $this->q('website_id')) !== null && $v !== '') {
@@ -84,7 +84,7 @@ class Lotse_Connector_Model_Api_Salesrule extends Lotse_Connector_Model_Api_Abst
         return $data;
     }
 
-    /** Entfernt interne Felder (is_value_processed) aus dem Bedingungsbaum. */
+    /** Removes internal fields (is_value_processed) from the condition tree. */
     protected function stripConditions(array $tree)
     {
         unset($tree['is_value_processed']);
@@ -217,7 +217,7 @@ class Lotse_Connector_Model_Api_Salesrule extends Lotse_Connector_Model_Api_Abst
             }
             $rule->setData($field, $value);
         }
-        // Gutscheintyp aus dem Code ableiten, wenn nicht explizit gesetzt
+        // Derive the coupon type from the code if not set explicitly
         if (array_key_exists('coupon_code', $body) && !array_key_exists('coupon_type', $body)) {
             $rule->setData('coupon_type', $rule->getData('coupon_code') !== '' ? Mage_SalesRule_Model_Rule::COUPON_TYPE_SPECIFIC : Mage_SalesRule_Model_Rule::COUPON_TYPE_NO_COUPON);
         }
@@ -257,7 +257,7 @@ class Lotse_Connector_Model_Api_Salesrule extends Lotse_Connector_Model_Api_Abst
             $rule->getConditions()->setConditions([])->loadArray($this->validateTree($conditions, 'conditions'));
         }
         if ($actions !== null) {
-            // loadArray erwartet Kinder unter "actions"; die API nutzt ein- wie ausgehend "conditions"
+            // loadArray expects children under "actions"; the API uses "conditions" both inbound and outbound
             $rule->getActions()->setActions([])->loadArray($this->childrenKey($this->validateTree($actions, 'actions'), 'actions'), 'actions');
         }
     }
@@ -273,7 +273,7 @@ class Lotse_Connector_Model_Api_Salesrule extends Lotse_Connector_Model_Api_Abst
         return $tree;
     }
 
-    /** Nur salesrule-Bedingungsklassen zulassen (keine beliebigen Modell-Aliase). */
+    /** Allow only salesrule condition classes (no arbitrary model aliases). */
     protected function validateTree($tree, $what)
     {
         if (!is_array($tree) || empty($tree['type'])) {

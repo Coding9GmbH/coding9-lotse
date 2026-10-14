@@ -1,6 +1,6 @@
 <?php
 /**
- * API-Fehler mit HTTP-Status und stabilem Fehlercode (z. B. not_found, validation).
+ * API error with HTTP status and stable error code (e.g. not_found, validation).
  */
 class Lotse_Connector_Model_Exception extends Exception
 {

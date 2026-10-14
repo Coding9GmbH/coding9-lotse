@@ -1,14 +1,14 @@
 import 'server-only';
-// Wissensbasis: Text aus Dateien holen (PDF, Word, Excel, CSV, Text) und in zitierbare Abschnitte teilen.
+// Knowledge base: extract text from files (PDF, Word, Excel, CSV, text) and split it into citable chunks.
 import ExcelJS from 'exceljs';
 import { assertSafeZip } from './zip-guard';
 
-/** Textabschnitt einer Quelle: page = PDF-Seite, label = z. B. Tabellenblatt. */
+/** Text chunk of a source: page = PDF page, label = e.g. worksheet. */
 export interface Segment { text: string; page?: number; label?: string }
 export interface Chunk { idx: number; text: string; page?: number; label?: string }
 
 export const MAX_TEXT = 2_000_000, MAX_CHUNKS = 4000;
-/** Obergrenzen beim Lesen (Speicher): Tabellenzeilen über alle Blätter, PDF-Seiten */
+/** Limits when reading (memory): table rows across all sheets, PDF pages */
 export const MAX_SHEET_ROWS = 100_000, MAX_PDF_PAGES = 1000;
 export const CHUNK = { min: 800, target: 1100, max: 1200, overlap: 150 };
 
@@ -32,7 +32,7 @@ export function parseDelimited(text: string): string[][] {
   return rows.filter(r => r.some(c => c.trim()));
 }
 
-/** Tabellenzeilen als lesbarer Text: „Spalte: Wert; Spalte: Wert“ (Kopfzeile = erste Zeile). */
+/** Table rows as readable text: "Column: value; Column: value" (header = first row). */
 export function rowsToText(rows: string[][]): string {
   if (!rows.length) return '';
   const head = rows[0].map((h, i) => h.trim() || `Spalte ${i + 1}`);
@@ -53,7 +53,7 @@ function cellText(v: ExcelJS.CellValue): string {
   return String(v);
 }
 
-/** Text aus einer Datei (nach Endung). Wirft verständliche Fehler, z. B. bei gescannten PDFs. */
+/** Text from a file (by extension). Throws understandable errors, e.g. for scanned PDFs. */
 export async function extractSegments(buf: Buffer, name: string): Promise<{ segments: Segment[]; pages?: number }> {
   const e = ext(name);
   if (['txt', 'md', 'json'].includes(e)) return { segments: [{ text: clean(buf.toString('utf8')) }] };
@@ -64,7 +64,7 @@ export async function extractSegments(buf: Buffer, name: string): Promise<{ segm
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf as unknown as ArrayBuffer);
     const segments: Segment[] = [];
-    let left = MAX_SHEET_ROWS; // Zeilen über alle Blätter
+    let left = MAX_SHEET_ROWS; // rows across all sheets
     wb.eachSheet(ws => {
       const rows: string[][] = [];
       ws.eachRow({ includeEmpty: false }, r => { if (left-- <= 0) return; const vals: string[] = []; r.eachCell({ includeEmpty: true }, (c, col) => { vals[col - 1] = cellText(c.value); }); rows.push(Array.from(vals, v => v ?? '')); });
@@ -77,7 +77,7 @@ export async function extractSegments(buf: Buffer, name: string): Promise<{ segm
     const { getDocumentProxy } = await import('unpdf');
     const pdf = await getDocumentProxy(new Uint8Array(buf));
     const segments: Segment[] = [];
-    try { // Seiten einzeln und begrenzt (Seitenzahl, Textmenge) statt alle auf einmal
+    try { // pages one by one and limited (page count, text amount) instead of all at once
       for (let p = 1, len = 0; p <= Math.min(pdf.numPages, MAX_PDF_PAGES) && len <= MAX_TEXT; p++) {
         const items = (await (await pdf.getPage(p)).getTextContent()).items as { str?: string; hasEOL?: boolean }[];
         const text = clean(items.filter(i => i.str != null).map(i => i.str + (i.hasEOL ? '\n' : '')).join(''));
@@ -96,8 +96,8 @@ export async function extractSegments(buf: Buffer, name: string): Promise<{ segm
   throw new Error(`Dateityp .${e || '?'} wird für die Wissensbasis nicht unterstützt.`);
 }
 
-// ---------- Abschnitte ----------
-/** Zerlegt Text in Einheiten (Absätze, zu lange Absätze in Sätze, zu lange Sätze in Wortgruppen). */
+// ---------- Chunks ----------
+/** Splits text into units (paragraphs, overlong paragraphs into sentences, overlong sentences into word groups). */
 function units(text: string): string[] {
   const out: string[] = [];
   for (const para of text.split(/\n{2,}/)) {
@@ -116,19 +116,19 @@ function units(text: string): string[] {
   return out;
 }
 
-/** Ende eines Abschnitts als Überlappung für den nächsten (an Wortgrenze). */
+/** End of a chunk as overlap for the next one (at a word boundary). */
 function tail(s: string, n = CHUNK.overlap): string {
   if (s.length <= n) return s;
   const t = s.slice(-n); const sp = t.indexOf(' ');
   return (sp >= 0 && sp < n - 20 ? t.slice(sp + 1) : t).trim();
 }
 
-/** Abschnitte von ca. 800 bis 1200 Zeichen mit Überlappung; Seiten/Blätter werden nie gemischt (Zitat bleibt korrekt). */
+/** Chunks of about 800 to 1200 characters with overlap; pages/sheets are never mixed (citation stays correct). */
 export function chunkSegments(segments: Segment[]): Chunk[] {
   const chunks: Chunk[] = [];
   for (const seg of segments) {
     const us = units(seg.text);
-    let cur = '', fresh = false; // fresh = cur enthält neuen Text (nicht nur Überlappung)
+    let cur = '', fresh = false; // fresh = cur contains new text (not just overlap)
     const push = () => { if (fresh && cur.trim()) chunks.push({ idx: chunks.length, text: cur.trim(), ...(seg.page ? { page: seg.page } : {}), ...(seg.label ? { label: seg.label } : {}) }); };
     for (const u of us) {
       if (cur && fresh && cur.length + 2 + u.length > CHUNK.max) {
@@ -143,6 +143,6 @@ export function chunkSegments(segments: Segment[]): Chunk[] {
   return chunks.slice(0, MAX_CHUNKS);
 }
 
-/** Zitierbare Quelle: „Datenblatt.pdf, S. 2“ bzw. „Preise.xlsx, Blatt Preise“. */
+/** Citable source: "Datenblatt.pdf, S. 2" or "Preise.xlsx, Blatt Preise". */
 export const citation = (title: string, c: { page?: number | null; label?: string | null }) =>
   `${title}${c.page ? `, S. ${c.page}` : c.label ? `, ${c.label}` : ''}`;

@@ -1,12 +1,12 @@
 import 'server-only';
-// OpenMage: plattform-neutrale Lesefunktionen (ShopLookup) über den geschützten Lese-Client – Wissensbasis, Search Console, view_image.
+// OpenMage: platform-neutral read functions (ShopLookup) via the guarded read client: knowledge base, Search Console, view_image.
 import type { PageRef } from '../../features/gsc-map';
 import type { ShopLookup } from '../types';
 import { relPath } from '../magento/lookup';
 import { categoryPath, isActive, omStr, parseMediaId, productPath, type OmRecord } from './map';
 import type { OmReader } from './reader';
 
-/** Kategorien-IDs inkl. Eltern (ohne Wurzel 1) aus den Pfaden der Kategorien eines Produkts */
+/** Category IDs including parents (without root 1) from the paths of a product's categories */
 export async function categoryIdsWithParents(ro: OmReader, cats: { id: number; path?: string | null }[]): Promise<string[]> {
   const out = new Set<string>();
   for (const c of cats.slice(0, 30)) { const path = c.path ?? (await ro.category(c.id, 'admin').catch(() => null))?.path ?? String(c.id); for (const x of String(path).split('/')) if (x && x !== '1') out.add(x); }

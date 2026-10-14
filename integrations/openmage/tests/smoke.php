@@ -1,13 +1,13 @@
 <?php
 /**
- * Smoke-Test des Lotse Connectors gegen eine laufende OpenMage-Instanz mit den „Haus Holm“-Demodaten.
- * Liest alle Endpunkte, schreibt und macht jede Änderung exakt rückgängig; prüft am Ende, dass der
- * Stand (Produkte in Store 0 und en, Kategorien, CMS, Preisregeln, URL-Rewrites) dem Anfangsstand entspricht.
+ * Smoke test of the Lotse Connector against a running OpenMage instance with the "Haus Holm" demo data.
+ * Reads all endpoints, writes and undoes every change exactly; at the end it checks that the
+ * state (products in store 0 and en, categories, CMS, price rules, URL rewrites) matches the initial state.
  *
  *   LOTSE_OPENMAGE_URL=http://127.0.0.1:8891 LOTSE_OPENMAGE_TOKEN=<token> php integrations/openmage/tests/smoke.php
  *
- * Erwartet: SKU HH-VASE-KIESEL (id 1, Kategorie 3), Kategorie 4, Store-Views default + en,
- * Kinder HH-KISSEN-WELLE-SAND/-SALBEI (für den Configurable-Test), Attribut color.
+ * Expects: SKU HH-VASE-KIESEL (id 1, category 3), category 4, store views default + en,
+ * children HH-KISSEN-WELLE-SAND/-SALBEI (for the configurable test), attribute color.
  */
 declare(strict_types=1);
 
@@ -38,7 +38,7 @@ function ok(string $name, bool $cond, $detail = null): void
     fwrite(STDERR, end($log) . "\n");
 }
 
-/** @return array{0:int,1:array|null,2:array} [Status, JSON, Header] */
+/** @return array{0:int,1:array|null,2:array} [status, JSON, headers] */
 function call(string $method, string $path, $body = null, array $headers = [], ?string $tokenOverride = null): array
 {
     global $baseUrl, $token;
@@ -80,7 +80,7 @@ function data(array $r)
     return $r[1]['data'] ?? null;
 }
 
-/** Produkt-Snapshot ohne flüchtige Felder. */
+/** Product snapshot without volatile fields. */
 function productSnapshot(array $p): array
 {
     unset($p['updated_at'], $p['attributes']['updated_at'], $p['_write']);
@@ -95,7 +95,7 @@ function categorySnapshot(array $c): array
 
 echo "Smoke-Test gegen $baseUrl\n";
 
-// ---------- Auth / Datenschutz ----------
+// ---------- Auth / privacy ----------
 [$s] = call('GET', 'v1/info', null, [], '');
 ok('ohne Token → 401', $s === 401);
 [$s, $j, $h] = call('GET', 'v1/info', null, [], 'falsch-' . $token);
@@ -118,7 +118,7 @@ ok('PATCH ohne Body → 400', $s === 400);
 [$s] = call('GET', 'v1/produkte');
 ok('unbekannter Pfad → 404', $s === 404);
 
-// ---------- Lesen ----------
+// ---------- Read ----------
 [$s, $j] = call('GET', 'v1/products?limit=2&page=1&sort=sku&dir=desc');
 ok('products: Paginierung + Sortierung', $s === 200 && count($j['data']) === 2 && $j['meta']['total'] >= 9 && $j['meta']['limit'] === 2 && strcmp($j['data'][0]['sku'], $j['data'][1]['sku']) > 0, $j['meta'] ?? $j);
 [$s, $j] = call('GET', 'v1/products?limit=500');
@@ -202,7 +202,7 @@ ok('urlrewrites per sku', $s === 200 && count($rewrites0) >= 1 && $rewrites0[0][
 [$s, $j] = call('GET', 'v1/urlrewrites');
 ok('urlrewrites ohne Filter → 400', $s === 400);
 
-// ---------- Schreiben + Rückgängig: Produktattribute global ----------
+// ---------- Write + undo: product attributes global ----------
 $origName = $p0['name'];
 $origMetaTitle = $p0['attributes']['meta_title'];
 [$s, $j] = call('PATCH', 'v1/products/' . rawurlencode($sku), ['attributes' => ['name' => $origName . ' TEST', 'meta_title' => 'Smoke-Titel']]);
@@ -233,7 +233,7 @@ ok('Query-Array → 400 statt 500', $s === 400 && ($j['error']['code'] ?? '') ==
 [$s, $j] = call('GET', 'v1/products?sku=' . rawurlencode('%'));
 ok('products: LIKE-Wildcard aus Eingabe wird escaped', $s === 200 && $j['meta']['total'] === 0, $j['meta'] ?? $j);
 
-// ---------- Produktattribute Store-View: eigener Wert ändern + „Standardwert verwenden“ ----------
+// ---------- Product attributes store view: change own value + "Use Default Value" ----------
 $enName = $pEn['name'];
 [$s, $j] = call('PATCH', 'v1/products/' . rawurlencode($sku) . '?store=' . $storeView, ['attributes' => ['name' => $enName . ' EN-TEST']]);
 ok('PATCH product (store view)', $s === 200 && data([$s, $j])['name'] === $enName . ' EN-TEST' && data([$s, $j])['store_id'] === $pEn['store_id']);
@@ -241,7 +241,7 @@ ok('PATCH product (store view)', $s === 200 && data([$s, $j])['name'] === $enNam
 ok('global unverändert', data([$s, $j])['name'] === $origName);
 [$s, $j] = call('PATCH', 'v1/products/' . rawurlencode($sku) . '?store=' . $storeView, ['attributes' => ['name' => $enName]]);
 ok('Revert product (store view)', $s === 200 && data([$s, $j])['name'] === $enName);
-// Attribut ohne Store-Wert: setzen, dann null → Store-Wert weg
+// Attribute without a store value: set it, then null → store value gone
 $noOverride = null;
 foreach (['meta_keyword', 'meta_description', 'short_description'] as $cand) {
     if (!in_array($cand, $pEn['store_overrides'], true)) {
@@ -271,7 +271,7 @@ ok('url_key zurück: _write.rewrites_added gemeldet', is_array(data([$s, $j])['_
 $initialIds = array_column($rewrites0, 'id');
 foreach ($j['data'] ?? [] as $r) {
     if (!in_array($r['id'], $initialIds, true)) {
-        call('DELETE', 'v1/urlrewrites/' . $r['id'] . '?force=1'); // 301-Historie des Testlaufs entfernen (wie Lotse beim Rückgängig)
+        call('DELETE', 'v1/urlrewrites/' . $r['id'] . '?force=1'); // remove the test run's 301 history (like Lotse does on undo)
     }
 }
 [$s, $j] = call('POST', 'v1/urlrewrites', ['request_path' => 'smoke-test-vase.html', 'sku' => $sku, 'store' => $storeView, 'options' => 'RP']);
@@ -286,14 +286,14 @@ ok('urlrewrite weg', $s === 404);
 [$s, $j] = call('GET', 'v1/urlrewrites?sku=' . rawurlencode($sku));
 ok('urlrewrites = Ausgangszustand', ($j['data'] ?? null) === $rewrites0, ['now' => $j['data'] ?? null, 'before' => $rewrites0]);
 
-// ---------- Bestand ----------
+// ---------- Stock ----------
 $origQty = $p0['stock']['qty'];
 [$s, $j] = call('PUT', 'v1/products/' . rawurlencode($sku) . '/stock', ['qty' => $origQty - 1, 'is_in_stock' => true]);
 ok('stock setzen', $s === 200 && data([$s, $j])['qty'] === $origQty - 1, $j);
 [$s, $j] = call('PUT', 'v1/products/' . rawurlencode($sku) . '/stock', ['qty' => $origQty, 'is_in_stock' => $p0['stock']['is_in_stock']]);
 ok('stock zurück', $s === 200 && data([$s, $j]) === $p0['stock'], $j);
 
-// ---------- Bild-Label / Position / Rollen ----------
+// ---------- Image label / position / roles ----------
 $img = $images0[0];
 [$s, $j] = call('PATCH', 'v1/products/' . rawurlencode($sku) . '/images/' . $img['id'], ['label' => 'Smoke-Alt-Text', 'position' => 5]);
 $u = data([$s, $j])['image'] ?? null;
@@ -305,7 +305,7 @@ $imagesEn0 = data([$s, $j]);
 [$s, $j] = call('PATCH', 'v1/products/' . rawurlencode($sku) . '/images/' . $img['id'] . '?store=' . $storeView, ['label' => 'EN alt text']);
 $u = data([$s, $j])['image'] ?? null;
 ok('image label (store view)', $s === 200 && $u['label'] === 'EN alt text' && $u['has_store_values'] === true && $u['label_use_default'] === false, $j);
-// ein Store-Save würde in Magento 1 alle Produktattribute und alle Bilder als Store-Werte kopieren: genau eine Galerie-Zeile, keine neuen Attribut-Werte
+// a store save in Magento 1 would copy all product attributes and all images as store values: exactly one gallery row, no new attribute values
 ok('image label (store view): nur dieses Bild hat eine Store-Zeile', count(array_filter(data([$s, $j])['images'], fn($i) => $i['has_store_values'])) === 1, data([$s, $j])['images']);
 [$s, $j] = call('GET', 'v1/products/' . rawurlencode($sku) . '?store=' . $storeView);
 ok('image label (store view): store_overrides des Produkts unverändert', data([$s, $j])['store_overrides'] === $pEn['store_overrides'], [data([$s, $j])['store_overrides'], $pEn['store_overrides']]);
@@ -323,18 +323,18 @@ ok('image types zurück', $s === 200 && data([$s, $j])['image']['types'] === $im
 ok('image deaktivieren', $s === 200 && data([$s, $j])['mode'] === 'disable' && data([$s, $j])['images'][0]['disabled'] === true, $j);
 [$s, $j] = call('PATCH', 'v1/products/' . rawurlencode($sku) . '/images/' . $img['id'], ['disabled' => false]);
 ok('image wieder aktiv', $s === 200 && data([$s, $j])['image']['disabled'] === false);
-// Bild hinzufügen (1x1 PNG) und wieder löschen
+// Add an image (1x1 PNG) and delete it again
 $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
 [$s, $j] = call('POST', 'v1/products/' . rawurlencode($sku) . '/images', ['base64' => base64_encode($png), 'filename' => 'smoke-pixel.png', 'label' => 'Smoke Pixel', 'position' => 9, 'disabled' => true]);
 $added = data([$s, $j])['image'] ?? null;
 ok('image hinzufügen (base64)', $s === 201 && $added !== null && $added['label'] === 'Smoke Pixel' && $added['position'] === 9 && $added['disabled'] === true && $added['types'] === [] && strpos($added['url'], '/media/catalog/product/') !== false, $j);
 if ($added) {
-    // URL-Upload nur von öffentlichen Adressen (SSRF-Schutz): private, Loopback- und Link-Local-Ziele → 400
+    // URL upload only from public addresses (SSRF protection): private, loopback and link-local targets → 400
     foreach (['http://127.0.0.1/pixel.png', 'http://localhost/media/x.png', 'http://169.254.169.254/latest/meta-data', 'http://10.0.0.1/a.png', 'http://[::1]/a.png', 'http://[::ffff:127.0.0.1]/a.png', 'ftp://example.com/a.png'] as $bad) {
         [$s, $j] = call('POST', 'v1/products/' . rawurlencode($sku) . '/images', ['url' => $bad]);
         ok("image url privat/ungültig → 400: $bad", $s === 400 && ($j['error']['code'] ?? '') === 'validation', $j);
     }
-    // Erfolgreicher URL-Upload braucht eine aus Sicht des Shop-Servers erreichbare öffentliche Bild-URL (LOTSE_SMOKE_IMAGE_URL)
+    // A successful URL upload needs a public image URL reachable from the shop server (LOTSE_SMOKE_IMAGE_URL)
     if (getenv('LOTSE_SMOKE_IMAGE_URL')) {
         [$s, $j] = call('POST', 'v1/products/' . rawurlencode($sku) . '/images', ['url' => getenv('LOTSE_SMOKE_IMAGE_URL'), 'label' => 'Smoke URL']);
         $added2 = data([$s, $j])['image'] ?? null;
@@ -345,7 +345,7 @@ if ($added) {
     } else {
         $log[] = 'skip image hinzufügen (url): LOTSE_SMOKE_IMAGE_URL nicht gesetzt';
     }
-    // Weiterleitungen: auf ein öffentliches Bild folgen (LOTSE_SMOKE_REDIRECT_URL), auf private Adressen blocken (LOTSE_SMOKE_PRIVATE_REDIRECT_URL)
+    // Redirects: follow to a public image (LOTSE_SMOKE_REDIRECT_URL), block to private addresses (LOTSE_SMOKE_PRIVATE_REDIRECT_URL)
     if (getenv('LOTSE_SMOKE_REDIRECT_URL')) {
         [$s, $j] = call('POST', 'v1/products/' . rawurlencode($sku) . '/images', ['url' => getenv('LOTSE_SMOKE_REDIRECT_URL'), 'label' => 'Smoke Redirect']);
         $added3 = data([$s, $j])['image'] ?? null;
@@ -366,7 +366,7 @@ ok('ungültiges Bild → 400', $s === 400);
 [$s, $j] = call('GET', 'v1/products/' . rawurlencode($sku) . '/images');
 ok('images = Ausgangszustand', data([$s, $j]) === $images0, [data([$s, $j]), $images0]);
 
-// ---------- Kategoriezuordnung ----------
+// ---------- Category assignment ----------
 $cats0 = $p0['categories'];
 [$s, $j] = call('PUT', 'v1/products/' . rawurlencode($sku) . '/categories', ['add' => [['id' => $categoryB, 'position' => 7]]]);
 $cats = data([$s, $j]);
@@ -380,7 +380,7 @@ ok('category remove = Ausgangszustand', $s === 200 && data([$s, $j]) === $cats0,
 [$s, $j] = call('PUT', 'v1/products/' . rawurlencode($sku) . '/categories', ['add' => [999999]]);
 ok('category unbekannt → 404', $s === 404);
 
-// ---------- Kategorie-Attribute ----------
+// ---------- Category attributes ----------
 [$s, $j] = call('PATCH', 'v1/categories/' . $categoryA, ['attributes' => ['meta_title' => 'Smoke Kategorie', 'description' => '<p>Smoke</p>']]);
 ok('PATCH category (global)', $s === 200 && data([$s, $j])['meta_title'] === 'Smoke Kategorie' && data([$s, $j])['description'] === '<p>Smoke</p>', $j);
 [$s, $j] = call('PATCH', 'v1/categories/' . $categoryA, ['attributes' => ['meta_title' => $cat0['meta_title'] ?? '', 'description' => $cat0['description'] ?? '']]);
@@ -399,7 +399,7 @@ ok('category global unverändert', data([$s, $j])['attributes'][$catCand] === $c
 ok('category Store-Wert entfernt', $s === 200 && !in_array($catCand, data([$s, $j])['store_overrides'], true), $j);
 [$s, $j] = call('GET', 'v1/categories/' . $categoryA . '?store=' . $storeView);
 ok('category store view = Ausgangszustand', categorySnapshot(data([$s, $j])) === categorySnapshot($catEn), array_diff_assoc(array_map('json_encode', categorySnapshot(data([$s, $j]))), array_map('json_encode', categorySnapshot($catEn))));
-// Standard-Store-View (dort erben meist alle Attribute): der Save im Store-Scope darf keine Kopien anlegen
+// Default store view (where usually all attributes inherit): the save in store scope must not create copies
 $defaultStore = getenv('LOTSE_SMOKE_DEFAULT_STORE') ?: 'default';
 [$s, $j] = call('GET', 'v1/categories/' . $categoryB . '?store=' . $defaultStore);
 $catDe = data([$s, $j]);
@@ -417,7 +417,7 @@ ok('category custom_layout_update mit ../ → 400', $s === 400 && ($j['error']['
 [$s, $j] = call('GET', 'v1/categories/' . $categoryA);
 ok('category: ungültiges Layout-XML nicht gespeichert', ($j['data']['attributes']['custom_layout_update'] ?? null) === ($cat0['attributes']['custom_layout_update'] ?? null));
 
-// ---------- CMS Seite ----------
+// ---------- CMS page ----------
 [$s, $j] = call('POST', 'v1/cms/pages', ['title' => 'Smoke-Seite', 'identifier' => 'smoke-seite', 'content' => '<h1>Smoke</h1>', 'stores' => [$storeView], 'is_active' => true, 'meta_description' => 'Meta']);
 $page = data([$s, $j]);
 ok('cms page anlegen', $s === 201 && $page['identifier'] === 'smoke-seite' && $page['content'] === '<h1>Smoke</h1>' && $page['store_ids'] === [$pEn['store_id']] && $page['root_template'] === 'one_column' && $page['meta_description'] === 'Meta', $j);
@@ -427,7 +427,7 @@ ok('cms page identifier doppelt → 422', $s === 422, $j);
 ok('cms page ändern', $s === 200 && data([$s, $j])['title'] === 'Smoke-Seite neu' && data([$s, $j])['store_ids'] === [0] && data([$s, $j])['root_template'] === 'two_columns_left' && data([$s, $j])['is_active'] === false, $j);
 [$s, $j] = call('PATCH', 'v1/cms/pages/' . $page['id'], ['root_template' => 'gibt_es_nicht']);
 ok('cms page root_template ungültig → 400', $s === 400);
-// Layout-XML wie im Admin validiert: Template-Pfade mit "../", helper=-Attribute, setTemplate, gesperrte Blöcke → 400
+// Layout XML validated like in the admin: template paths with "../", helper= attributes, setTemplate, blocked blocks → 400
 $badLayouts = [
     'template ../' => '<reference name="content"><block type="core/template" name="smoke.bad" template="../../../../../../../etc/passwd"/></reference>',
     'setTemplate' => '<reference name="content"><block type="core/template" name="smoke.bad2"><action method="setTemplate"><t>../../../etc/passwd</t></action></block></reference>',
@@ -446,7 +446,7 @@ ok('cms page: ungültiges Layout-XML nicht gespeichert', ($j['data']['layout_upd
 $goodLayout = '<reference name="content"><block type="core/text" name="smoke.text"><action method="setText"><text>Smoke</text></action></block></reference>';
 [$s, $j] = call('PATCH', 'v1/cms/pages/' . $page['id'], ['layout_update_xml' => $goodLayout, 'custom_layout_update_xml' => '']);
 ok('cms page erlaubtes Layout-XML → 200', $s === 200 && data([$s, $j])['layout_update_xml'] === $goodLayout, $j);
-// Globale Liste zeigt auch nur einem Store zugeordnete Seiten; mit ?store nur die passenden
+// Global list also shows pages assigned to a single store only; with ?store only the matching ones
 [$s, $j] = call('PATCH', 'v1/cms/pages/' . $page['id'], ['stores' => [$storeView]]);
 ok('cms page nur Store-View zuordnen', $s === 200 && data([$s, $j])['store_ids'] === [$pEn['store_id']], $j);
 [$s, $j] = call('GET', 'v1/cms/pages?identifier=smoke-seite');
@@ -475,7 +475,7 @@ ok('cms block löschen', $s === 200 && data([$s, $j])['deleted'] === true);
 [$s] = call('GET', 'v1/cms/blocks/' . $block['id']);
 ok('cms block weg', $s === 404);
 
-// ---------- Preisregel ----------
+// ---------- Price rule ----------
 [$s, $j] = call('POST', 'v1/salesrules', [
     'name' => 'Smoke 15', 'description' => 'Test', 'is_active' => true, 'from_date' => '2026-01-01', 'to_date' => '2026-12-31',
     'coupon_code' => 'SMOKE15', 'uses_per_coupon' => 100, 'uses_per_customer' => 1,
@@ -501,7 +501,7 @@ ok('salesrule weg', $s === 404);
 [$s, $j] = call('GET', 'v1/salesrules');
 ok('salesrules = Ausgangszustand', ($j['data'] ?? null) === $rules0);
 
-// ---------- Produkt anlegen / löschen ----------
+// ---------- Create / delete product ----------
 [$s, $j] = call('POST', 'v1/products', [
     'sku' => 'SMOKE-SIMPLE', 'attributes' => ['name' => 'Smoke Simple', 'price' => 12.5, 'weight' => 0.5, 'description' => 'Test', 'tax_class_id' => 2, 'color' => 'Sand'],
     'stock' => ['qty' => 3, 'is_in_stock' => true], 'categories' => [['id' => $categoryB, 'position' => 2]],
@@ -531,7 +531,7 @@ ok('bestehendes configurable unverändert', count(data([$s, $j])['configurable']
 [$s, $j] = call('GET', 'v1/products/HH-KISSEN-WELLE-SAND');
 ok('Kind hängt nur noch am Original', data([$s, $j])['parent_ids'] === [$conf['id']], data([$s, $j])['parent_ids']);
 
-// ---------- Endzustand ----------
+// ---------- Final state ----------
 [$s, $j] = call('GET', 'v1/products/' . rawurlencode($sku));
 ok('Ende: product global = Anfang', productSnapshot(data([$s, $j])) === productSnapshot($p0), array_diff_assoc(array_map('json_encode', productSnapshot(data([$s, $j]))), array_map('json_encode', productSnapshot($p0))));
 [$s, $j] = call('GET', 'v1/products/' . rawurlencode($sku) . '?store=' . $storeView);

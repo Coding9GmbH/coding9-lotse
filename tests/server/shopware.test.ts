@@ -4,8 +4,8 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Shopware } from '../../src/server/shopware';
 
-// Docker-Fall: Shop intern unter anderer Adresse erreichbar als die Verkaufskanal-Domain → Host-Header muss die Domain tragen
-test('storefrontFetch: interne Adresse mit Host der Verkaufskanal-Domain', async () => {
+// Docker case: shop reachable internally under a different address than the sales channel domain → Host header must carry the domain
+test('storefrontFetch: internal address with the host of the sales channel domain', async () => {
   const srv = http.createServer((q, r) => { r.setHeader('content-type', 'text/plain'); r.end(`${q.headers.host} ${q.url}`); });
   await new Promise<void>(res => srv.listen(0, '127.0.0.1', res));
   try {

@@ -2,17 +2,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { targetHint } from '../../src/server/target-hint';
 
-const HTML_CAPABILITIES = { pageTypes: ['landingpage', 'product_list'], publishTargets: ['landingpage', 'category'], pageFormat: 'html' } as const; // wie HTML_CAPABILITIES (stub.ts)
+const HTML_CAPABILITIES = { pageTypes: ['landingpage', 'product_list'], publishTargets: ['landingpage', 'category'], pageFormat: 'html' } as const; // like HTML_CAPABILITIES (stub.ts)
 const SW = { pageTypes: ['landingpage', 'product_list', 'product_detail'], publishTargets: ['category', 'product', 'landingpage'], pageFormat: 'cms' } as const;
 
-test('targetHint: Shopware unverändert (product_list/product_detail mit Vorschau-ID)', () => {
+test('targetHint: Shopware unchanged (product_list/product_detail with preview ID)', () => {
   assert.equal(targetHint({ kind: 'category', id: 'c1', name: 'Vasen' }, SW), '[Ziel: Kategorie "Vasen" (categoryId=c1) – Layout-Typ product_list, previewCategoryId=c1]');
   assert.equal(targetHint({ kind: 'product', id: 'p1', name: 'Vase' }, SW), '[Ziel: Produkt "Vase" (productId=p1) – Layout-Typ product_detail, previewProductId=p1]');
   assert.equal(targetHint({ kind: 'landing' }, SW), '[Ziel: neue freie Landingpage (landingpage)]');
   assert.equal(targetHint(null, SW), '');
 });
 
-test('targetHint: HTML-Plattform schlägt nie product_detail vor, Kategorie als Inhalt ohne product-listing', () => {
+test('targetHint: HTML platform never suggests product_detail, category as content without product-listing', () => {
   const p = targetHint({ kind: 'product', id: 'p1', name: 'Vase' }, HTML_CAPABILITIES);
   assert.doesNotMatch(p, /previewProductId|Layout-Typ product_detail/);
   assert.match(p, /Landingpage \(landingpage\)/); assert.match(p, /productIds=\["p1"\]/);
@@ -23,14 +23,14 @@ test('targetHint: HTML-Plattform schlägt nie product_detail vor, Kategorie als 
   for (const h of [p, c, noList]) assert.doesNotMatch(h, /[–—]/);
 });
 
-test('targetHint: HTML-Plattform mit Produktinhalt (Magento) nennt product_detail ohne pdp-Blöcke', () => {
+test('targetHint: HTML platform with product content (Magento) names product_detail without pdp blocks', () => {
   const MG = { pageTypes: ['landingpage', 'product_list', 'product_detail'], publishTargets: ['landingpage', 'category', 'product'], pageFormat: 'html' } as const;
   const p = targetHint({ kind: 'product', id: '7', name: 'Vase' }, MG);
   assert.match(p, /product_detail/); assert.match(p, /previewProductId=7/); assert.match(p, /keine pdp-Blöcke/); assert.match(p, /target=product/);
   assert.doesNotMatch(p, /[–—]/);
 });
 
-test('targetHint: Shopify (theme-main) und Magento (ohne) unterscheiden sich bei Kategorie und Produkt', () => {
+test('targetHint: Shopify (theme-main) and Magento (without) differ for category and product', () => {
   const caps = { pageTypes: ['landingpage', 'product_list', 'product_detail'], publishTargets: ['landingpage', 'category', 'product'], pageFormat: 'html' } as const;
   const SH = { ...caps, blocks: ['text', 'theme-main'] }, MG = { ...caps, blocks: ['text'] };
   assert.match(targetHint({ kind: 'product', id: '1', name: 'Vase' }, SH), /genau ein theme-main-Block markiert Galerie/);

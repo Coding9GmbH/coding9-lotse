@@ -1,5 +1,5 @@
 import 'server-only';
-// Privilegierter Shopware-Client (einziger Schreiber, nie bei der KI) + Storefront-Basis/Theme-CSS-Cache.
+// Privileged Shopware client (the only writer, never given to the AI) + storefront base/theme CSS cache.
 import { setFetcher, setImageConfig, setTrustedOrigins } from './media';
 import { getSettings } from './settings';
 import { Shopware, type SwEntity } from './shopware';
@@ -15,14 +15,14 @@ const rt = () => singleton<Runtime>('runtime', () => {
 function configureMedia(sw: Shopware) {
   const g = getSettings();
   setImageConfig({ key: g.image.openaiKey, model: g.image.model }); setFetcher((u, i) => sw.storefrontFetch(u, i));
-  // Domains der Verkaufskanäle gelten als eigener Shop (Bild-Download darf dort interne Docker-Adressen erreichen, Cloud-Metadaten/Link-local nie – s. media.ts)
+  // Sales channel domains count as the own shop (image download may reach internal Docker addresses there, cloud metadata/link-local never; see media.ts)
   setTrustedOrigins(async () => (getSettings().platform !== 'shopware' ? [] : (await sw.salesChannels().catch(() => [] as SwEntity[])).flatMap(c => (c.domains ?? []).map((d: SwEntity) => String(d.url)))));
 }
 
-/** Privilegierter Client: bleibt im Server, wird NIE an die KI gegeben. */
+/** Privileged client: stays in the server, is NEVER given to the AI. */
 export const shop = () => rt().sw;
 
-// Nach Änderung der Einstellungen neu konfigurieren
+// Reconfigure after the settings change
 export function applyRuntime() {
   const r = rt(), g = getSettings();
   r.sw.configure(g.shopware); r.sfBase = null; r.sw.sfDomain = null; r.themeCssP = null;
@@ -31,12 +31,12 @@ export function applyRuntime() {
 
 export const storefrontFetch = (u: string, i?: RequestInit) => shop().storefrontFetch(u, i);
 
-// ---- Storefront-Proxy (Shopware sendet X-Frame-Options: deny → direkt nicht einbettbar) ----
+// ---- Storefront proxy (Shopware sends X-Frame-Options: deny → can't be embedded directly) ----
 const STOREFRONT_TYPE = '8a243080f92e4c719546314b577cf82b';
 export async function storefrontBase(): Promise<string> {
   const r = rt();
   if (!r.sfBase) {
-    // aktiver Storefront-Kanal zuerst (nicht ein Headless-/API-Kanal oder ein inaktiver, der zufällig vorn steht)
+    // active storefront channel first (not a headless/API channel or an inactive one that happens to come first)
     const withDomain = (await r.sw.salesChannels()).filter(c => c.domains?.length);
     const c = withDomain.find(c => c.typeId === STOREFRONT_TYPE && c.active !== false) ?? withDomain.find(c => c.typeId === STOREFRONT_TYPE) ?? withDomain[0];
     r.sfBase = (c?.domains[0].url ?? r.sw.publicUrl).replace(/\/$/, ''); r.sw.sfDomain = r.sfBase;
@@ -44,7 +44,7 @@ export async function storefrontBase(): Promise<string> {
   return r.sfBase!;
 }
 const hostVariants = (b: string) => [b, b.replace(/\//g, '\\/')];
-/** Ersetzt die Storefront-Basis-URL (auch JSON-escaped) durch den lokalen Präfix /shop. */
+/** Replaces the storefront base URL (also JSON-escaped) with the local prefix /shop. */
 export const storefrontRewrite = (txt: string, b: string) => hostVariants(b).reduce((t, v) => t.split(v).join(v.includes('\\') ? '\\/shop' : '/shop'), txt);
 
 export function themeCss(): Promise<string | null> {

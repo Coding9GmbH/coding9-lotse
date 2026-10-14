@@ -1,5 +1,5 @@
 import 'server-only';
-// Feature „Varianten & Stapelverarbeitung“: Varianten lesen/anlegen/ändern/löschen und Regeländerungen für beliebig viele Produkte.
+// Feature "Varianten & Stapelverarbeitung" (variants & bulk edit): read/create/update/delete variants and rule-based changes for any number of products.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { MAX_ITEMS, registerApplier } from '../changes';
@@ -7,8 +7,8 @@ import type { ChangeOutcome, Session } from '../sessions';
 import type { SwEntity } from '../shopware';
 import { ok, guard, type AnyTool } from '../tool-kit';
 import type { Feature } from './types';
-import { VARIANTS_KIND, applyVariants, buildVariantsChangeSet, loadFamily, variantsView, type VariantsPayload } from './varianten-variants';
-import { BULK_KIND, BULK_MAX, applyBulk, bulkChangeSet, describeChange, effective, resolveProducts, validateChange, type BulkChange, type BulkFilter, type BulkPayload } from './varianten-bulk';
+import { VARIANTS_KIND, applyVariants, buildVariantsChangeSet, loadFamily, variantsView, type VariantsPayload } from './variant-matrix';
+import { BULK_KIND, BULK_MAX, applyBulk, bulkChangeSet, describeChange, effective, resolveProducts, validateChange, type BulkChange, type BulkFilter, type BulkPayload } from './bulk-edit';
 
 registerApplier(VARIANTS_KIND, (swW, cs, payload, selected, ctx) => applyVariants(swW, cs, payload as VariantsPayload, selected, ctx));
 registerApplier(BULK_KIND, (swW, cs, payload, selected, ctx) => applyBulk(swW, cs, payload as BulkPayload, selected, ctx));
@@ -24,15 +24,15 @@ const filterShape = {
   includeVariants: z.boolean().optional().describe('true = Varianten der passenden Hauptprodukte mit einbeziehen'),
   variantOptions: z.array(z.string()).optional().describe('Nur Varianten mit einer dieser Ausprägungen (ids, z. B. Größe XL) – Hauptprodukte selbst dann nicht'),
 };
-/** Ergebnis für die KI kompakt halten (bei Tausenden Produkten keine Fehlerliste mit Tausenden Zeilen) */
+/** Keep the result compact for the AI (no error list with thousands of lines for thousands of products) */
 const compact = (o: ChangeOutcome) => (o.failed && o.failed.length > 20 ? { ...o, failed: o.failed.slice(0, 20), failedTotal: o.failedTotal ?? o.failed.length } : o);
 
 async function deliveryTimes(session: Session) {
   return (await session.sw.search('delivery-time', { limit: 100 })).data;
 }
 
-export const varianten: Feature = {
-  key: 'varianten',
+export const variants: Feature = {
+  key: 'variants',
   platforms: ['shopware'],
   toolNames: ['get_variants', 'list_variant_properties', 'propose_variants', 'preview_bulk_filter', 'propose_bulk_product_change'],
   tools: session => {

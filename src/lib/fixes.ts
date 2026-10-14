@@ -1,5 +1,5 @@
-// Shop-Check-Befunde, die über „Als Auftrag ins Feld“ in einem Chat bearbeitet werden (je Browser, nur Komfort).
-// Befund-IDs sind stabil (z. B. 'seo.meta-description-missing'); verschwindet der Befund, ist der Eintrag egal.
+// Shop check findings being worked on in a chat via "Als Auftrag ins Feld" (per browser, convenience only).
+// Finding IDs are stable (e.g. 'seo.meta-description-missing'); if the finding disappears, the entry doesn't matter.
 
 export interface FixLink { chatId: string; title: string; at: string }
 export type FixMap = Record<string, FixLink>;
@@ -14,18 +14,18 @@ export function loadFixes(): FixMap {
   } catch { return {}; }
 }
 
-/** Befund ↔ Chat merken (neueste zuerst, höchstens MAX Einträge). */
+/** Remember finding ↔ chat (newest first, at most MAX entries). */
 export function rememberFix(map: FixMap, findingId: string, link: FixLink): FixMap {
   const next = Object.fromEntries([[findingId, link] as const, ...Object.entries(map).filter(([id]) => id !== findingId)].slice(0, MAX));
-  try { window.localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* privates Fenster: nur für diese Sitzung */ }
+  try { window.localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* private window: only for this session */ }
   return next;
 }
 
-/** Zu welchem Befund gehört dieser Chat? */
+/** Which finding does this chat belong to? */
 export const fixForChat = (map: FixMap, chatId: string | null): FixLink | null =>
   (chatId && Object.values(map).find(l => l.chatId === chatId)) || null;
 
-/** Geht die gesendete Nachricht auf den Auftrag aus dem Shop-Check zurück? (Er darf ergänzt oder gekürzt sein, der Anfang bleibt.) */
+/** Does the sent message stem from the shop check's task? (It may be extended or shortened, the beginning stays.) */
 export const sentFix = (prompt: string, message: string): boolean => {
   const head = prompt.trim().slice(0, 40);
   return !!head && message.includes(head);

@@ -9,7 +9,7 @@ const { buildBasePrompt, promptRoot } = await import('../../src/server/prompt');
 
 const read = (rel: string) => fs.readFileSync(path.join(promptRoot(), rel), 'utf8');
 
-test('Gemeinsame Fähigkeiten nennen keine Felder, die nicht jede Plattform speichert', () => {
+test('shared capabilities name no fields that not every platform stores', () => {
   for (const rel of ['common/01-3-faehigkeiten.md', 'common/07-produkte.md']) {
     const t = read(rel);
     assert.doesNotMatch(t, /EAN/, rel);
@@ -35,7 +35,7 @@ test('Gemeinsame Fähigkeiten nennen keine Felder, die nicht jede Plattform spei
   }
 });
 
-test('save_styleguide verspricht kein Shopware-Onboarding und keinen reuse-Block', () => {
+test('save_styleguide promises no Shopware onboarding and no reuse block', () => {
   const src = fs.readFileSync(path.join(process.cwd(), 'src/server/tools.ts'), 'utf8');
   const start = src.indexOf("tool('save_styleguide'");
   const end = src.indexOf("tool('draft_page'", start);

@@ -1,5 +1,5 @@
 import 'server-only';
-// Shopware: Seiten-Entwürfe (Einkaufswelten) – Vorschau-Daten, reuse-Blöcke + SEO-Links vorbereiten, Veröffentlichung als Änderungsset.
+// Shopware: page drafts (Shopping Experiences): preview data, preparing reuse blocks + SEO links, publishing as a change set.
 import { z } from 'zod';
 import type { ChatEvent } from '@/lib/protocol';
 import { buildPublishChangeSet, type PublishArgs } from '../../changes';
@@ -10,14 +10,14 @@ import { extractBlocks, findDivByClass, REAL_BLOCK_TYPES, stripScripts } from '.
 import { storefrontBase, storefrontRewrite } from '../../runtime';
 import { findingText, prepareSpecLinks } from '../../seo-links';
 import type { Session } from '../../sessions';
+import { chunks } from '../../util';
 import type { PlatformPages } from '../types';
 import { brief, loadRawBlocks } from './tools';
 
-const chunks = <T>(xs: T[], n: number): T[][] => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, (i + 1) * n));
 
 /**
- * Echte Daten statt Platzhalter: nennt der Entwurf kein Beispielprodukt bzw. keine Beispielkategorie, wird ein aktives Produkt mit Titelbild
- * (bei product_list dessen Kategorie) aus dem Shop gewählt. Die Wahl steht danach in der Spec, damit die Oberfläche das Ziel anzeigt.
+ * Real data instead of placeholders: if the draft names no sample product or sample category, an active product with a cover image
+ * (for product_list its category) is picked from the shop. The choice is then stored in the spec so the UI shows the target.
  */
 export async function withPreviewDefaults(sw: ShopReader, spec: PageSpec): Promise<PageSpec> {
   try {
@@ -33,16 +33,16 @@ export async function withPreviewDefaults(sw: ShopReader, spec: PageSpec): Promi
     if (needProduct) return { ...spec, previewProductId: p.id };
     const cat = (p.categoryIds as string[] | undefined)?.[0];
     return cat ? { ...spec, previewCategoryId: cat } : spec;
-  } catch { return spec; } // Vorschau-Komfort: bei Fehlern bleibt es bei den Platzhaltern
+  } catch { return spec; } // preview convenience: on errors the placeholders stay
 }
 
-// Die echte Zielseite kurz zwischenspeichern: jede Überarbeitung des Entwurfs rendert neu, die Seite selbst ändert sich dabei nicht
+// Briefly cache the real target page: each revision of the draft re-renders, but the page itself doesn't change
 const REAL_PAGE_TTL = 60_000, REAL_PAGE_MAX = 1_500_000, REAL_PAGE_HOPS = 2;
 const realPages = new Map<string, { at: number; html: string | null }>();
 
 /**
- * HTML der echten Zielseite (Produkt- bzw. Kategorieseite des Shops) für „Entwurf auf der echten Seite“: Skripte entfernt, Shop-URLs auf /shop.
- * null = nicht verfügbar (kein Ziel, Fehler, Seite ohne CMS-Bereich); die Vorschau fällt dann auf die einfache Darstellung zurück.
+ * HTML of the real target page (the shop's product or category page) for "draft on the real page": scripts removed, shop URLs to /shop.
+ * null = not available (no target, error, page without CMS area); the preview then falls back to the simple rendering.
  */
 async function realPageHtml(session: Session, spec: PageSpec): Promise<string | null> {
   const id = spec.type === 'product_detail' ? spec.previewProductId : spec.type === 'product_list' ? spec.previewCategoryId : null;
@@ -59,7 +59,7 @@ async function realPageHtml(session: Session, spec: PageSpec): Promise<string | 
       const loc = r.status >= 300 && r.status < 400 ? r.headers.get('location') : null;
       if (!loc) break;
       const next = new URL(loc, url);
-      if (next.origin !== origin) { r = null; break; } // nur innerhalb des Shops
+      if (next.origin !== origin) { r = null; break; } // only within the shop
       url = next.href;
     }
     if (r?.ok && /text\/html/i.test(r.headers.get('content-type') ?? '')) {
@@ -89,21 +89,21 @@ async function previewData(session: Session, spec: PageSpec): Promise<PreviewCtx
     const r = await sw.search('product', { limit: 8, filter: [{ type: 'equals', field: 'categoriesRo.id', value: spec.previewCategoryId }, { type: 'equals', field: 'active', value: true }], associations: { cover: { associations: { media: {} } } } });
     r.data.forEach(p => ids.add(p.id));
   }
-  // Produktseite: weitere echte Produkte aus derselben Kategorie für das Cross-Selling der Vorschau
+  // Product page: more real products from the same category for the preview's cross-selling
   if (spec.type === 'product_detail' && spec.previewProductId && !spec.previewCategoryId) {
     try {
       const cat = ((await sw.get('product', spec.previewProductId))?.categoryIds as string[] | undefined)?.[0];
       if (cat) (await sw.search('product', { limit: 5, filter: [{ type: 'equals', field: 'categoriesRo.id', value: cat }, { type: 'equals', field: 'active', value: true }, { type: 'equals', field: 'parentId', value: null }] })).data.forEach(r => ids.add(r.id));
-    } catch { /* nur Vorschau */ }
+    } catch { /* preview only */ }
   }
   const products: Record<string, PreviewProduct> = {};
-  for (const chunk of chunks([...ids], 50)) { // mehrere Slider: alle Produkte, in 50er-Blöcken
+  for (const chunk of chunks([...ids], 50)) { // several sliders: all products, in blocks of 50
     const r = await sw.search('product', { ids: chunk, limit: chunk.length, associations: { cover: { associations: { media: {} } } } });
     for (const p of r.data) products[p.id] = { ...brief(p), img: p.cover?.media?.url, description: p.translated?.description ?? p.description, faqHtml: p.customFields?.aicb_blocks?.faq_html };
   }
   const media: Record<string, string | null | undefined> = {};
   const shopMedia = [...mediaIds].filter(id => !id.startsWith('staged:'));
-  for (const chunk of chunks(shopMedia, 50)) { // eine Suche statt je Bild ein Abruf
+  for (const chunk of chunks(shopMedia, 50)) { // one search instead of one fetch per image
     const r = await sw.search('media', { ids: chunk, limit: chunk.length }).catch(() => ({ data: [] as { id: string; url?: string }[] }));
     for (const id of chunk) media[id] = r.data.find(m => m.id === id)?.url ?? null;
   }
@@ -112,17 +112,17 @@ async function previewData(session: Session, spec: PageSpec): Promise<PreviewCtx
   return {
     products, product: spec.previewProductId ? products[spec.previewProductId] : undefined,
     imageUrl: (im: ImageRef) => (typeof im === 'string' ? im : im.url ?? media[im.mediaId ?? '']),
-    // nur Blöcke, die zum Seitentyp gehören (Produktkarten der Listen tragen Kaufbox-Markup)
+    // only blocks belonging to the page type (product cards in lists carry buy box markup)
     ...(realPage ? { realPage, realBlocks: extractBlocks(realPage, Object.fromEntries(Object.entries(REAL_BLOCK_TYPES).filter(([k]) => (spec.type === 'product_detail') === k.startsWith('pdp-')))) } : {}),
   };
 }
 
-/** Höchstzahl Seiten je Layout-Veröffentlichung (größere Mengen vorher eingrenzen) */
+/** Maximum number of pages per layout publication (narrow down larger sets beforehand) */
 const SCOPE_MAX = 1000;
 
 const PUBLISH_DESCRIPTION = 'BEANTRAGT die Veröffentlichung des aktuellen Entwurfs (neues CMS-Layout + Zuweisung + Meta-Daten + vorgemerkte Bilder). Es wird nichts geschrieben, bis der Nutzer die Übersicht freigibt; der Aufruf wartet auf die Entscheidung. target: category (Entwurfstyp product_list ODER landingpage; nur Kategorien vom Typ Listing/page, nie Strukturelement oder Link; die STARTSEITE eines Verkaufskanals ist dessen Einstiegskategorie (navigationCategoryId aus list_sales_channels) und bekommt ein landingpage-Layout), product (product_detail), landingpage (eigene URL: landingpage, url + salesChannelId). GELTUNGSBEREICH (Layout für mehrere Seiten): category = categoryId, categoryIds[] ODER allCategories=true (alle Kategorien); product = productIds[], productsInCategoryId (alle Produkte dieser Kategorie inkl. Unterkategorien) ODER allProducts=true. Genau eine Angabe je Aufruf; bis max. ' + SCOPE_MAX + ' Seiten. Der Server zählt und zeigt die Zahl in der Übersicht. Meta-Title/-Description nur bei einer einzelnen Kategorie. Frage den Nutzer vorher nach dem Bereich, wenn er ihn nicht eindeutig genannt hat.';
 
-/** Geltungsbereich (alle Produkte/Kategorien, einer Kategorie …) in feste ID-Listen auflösen; so schreibt die Freigabe genau das Gezeigte. */
+/** Resolve the scope (all products/categories, of one category …) into fixed ID lists; this way the approval writes exactly what was shown. */
 export async function resolvePublishScope(sw: ShopReader, a: PublishArgs): Promise<PublishArgs> {
   const kinds = [a.allCategories, a.categoryIds?.length, a.allProducts, a.productsInCategoryId, a.productIds?.length].filter(Boolean).length;
   if (kinds > 1) throw new Error('Geltungsbereich mehrdeutig: nur eine Angabe (categoryIds, allCategories, productIds, productsInCategoryId oder allProducts).');
@@ -145,7 +145,7 @@ export async function resolvePublishScope(sw: ShopReader, a: PublishArgs): Promi
     return { ...a, categoryIds: ids, scopeLabel: `${ids.length} ausgewählte Kategorie${ids.length === 1 ? '' : 'n'}` };
   }
   if (a.target === 'product' && (a.allProducts || a.productsInCategoryId)) {
-    // Varianten erben das Layout vom Hauptprodukt
+    // Variants inherit the layout from the parent product
     const base: Record<string, unknown>[] = [{ type: 'equals', field: 'parentId', value: null }];
     let label = 'Alle Produkte';
     if (a.productsInCategoryId) {
@@ -165,10 +165,10 @@ export const shopwarePages: PlatformPages = {
   previewData,
 
   async prepareDraft(session, input) {
-    const reuseErrs = await resolveReuse(input, id => loadRawBlocks(session.sw, id)); // kopiert Quellblöcke in die Spec (bleibt im Entwurf für die Veröffentlichung)
+    const reuseErrs = await resolveReuse(input, id => loadRawBlocks(session.sw, id)); // copies source blocks into the spec (stays in the draft for publishing)
     if (reuseErrs.length) return { spec: input, errors: reuseErrs };
-    const withDefaults = await withPreviewDefaults(session.sw, input); // echtes Beispielprodukt/-kategorie, falls keins genannt
-    const { spec, report } = await prepareSpecLinks(session.sw, withDefaults); // technische Links → SEO-URL, Ziele prüfen
+    const withDefaults = await withPreviewDefaults(session.sw, input); // real sample product/category if none is named
+    const { spec, report } = await prepareSpecLinks(session.sw, withDefaults); // technical links → SEO URL, check targets
     return { spec, links: report };
   },
 
@@ -195,7 +195,7 @@ export const shopwarePages: PlatformPages = {
     if (a.target === 'category' && !a.categoryId && !a.categoryIds?.length) throw new Error('categoryId fehlt (oder categoryIds / allCategories)');
     if (a.target === 'product' && !a.productIds?.length) throw new Error('productIds fehlt (oder productsInCategoryId / allProducts)');
     if (a.target === 'landingpage' && (!a.url || !a.salesChannelId)) throw new Error('url und salesChannelId fehlen');
-    const { spec: fixed, report } = await prepareSpecLinks(session.sw, spec, a.target === 'landingpage' ? a.salesChannelId : undefined); // SEO-URLs aktuell halten
+    const { spec: fixed, report } = await prepareSpecLinks(session.sw, spec, a.target === 'landingpage' ? a.salesChannelId : undefined); // keep SEO URLs up to date
     const cs = await buildPublishChangeSet(session.sw, fixed, a);
     cs.items[0]?.warn.push(...(report?.findings ?? []).filter(f => f.level === 'wichtig').slice(0, 5).map(findingText));
     return { cs, payload: { spec: fixed, args: a } };

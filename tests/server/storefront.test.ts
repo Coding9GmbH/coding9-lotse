@@ -16,7 +16,7 @@ const HTML = `<!doctype html><html><head><title>Gartenduschen &amp; Co | Shop</t
   <a class="btn btn-outline-primary" href="https://other.test/x">Extern</a></div></div></div>
 </main><footer><h2>Footer</h2><a href="/impressum">Impressum</a></footer></body></html>`;
 
-test('Storefront: Aufbau der Einkaufswelt aus dem Markup (Sections → Blöcke → Elemente, Plugin-Blöcke)', () => {
+test('storefront: Shopping Experience structure from the markup (sections → blocks → elements, plugin blocks)', () => {
   const { sections, componentClasses } = cmsOutline(HTML);
   assert.deepEqual(sections.map(s => s.section), ['default', 'sidebar']);
   assert.deepEqual(sections[0].blocks.map(b => b.block), ['text-hero', 'acme-trust-bar']);
@@ -27,12 +27,12 @@ test('Storefront: Aufbau der Einkaufswelt aus dem Markup (Sections → Blöcke �
   assert.equal(pageKind(HTML), 'Produktseite');
 });
 
-test('Storefront: Text, Überschriften, Bilder und nur interne Links aus dem Hauptbereich', () => {
+test('storefront: text, headings, images and only internal links from the main area', () => {
   const p = parseStorefront(HTML, 'https://shop.test/gartenduschen/');
   assert.equal(p.title, 'Gartenduschen & Co | Shop');
   assert.equal(p.metaDescription, 'Gartenduschen für Terrasse und Pool');
   assert.equal(p.canonical, 'https://shop.test/gartenduschen/');
-  assert.deepEqual(p.headings, [{ level: 1, text: 'Solar-Gartenduschen' }]); // Footer-H2 gehört nicht dazu
+  assert.deepEqual(p.headings, [{ level: 1, text: 'Solar-Gartenduschen' }]); // footer H2 is not included
   assert.match(p.text, /Warmes Wasser ohne Stromanschluss/);
   assert.doesNotMatch(p.text, /Impressum/);
   assert.deepEqual(p.images, [{ src: 'https://shop.test/media/a.jpg', alt: 'Gartendusche' }]);
@@ -40,7 +40,7 @@ test('Storefront: Text, Überschriften, Bilder und nur interne Links aus dem Hau
   assert.deepEqual(p.blockSequence, ['text-hero', 'acme-trust-bar', 'product-listing']);
 });
 
-test('resolveCmsTarget: prozent-kodierter Pfad (Umlaute aus dem Browser) findet die dekodiert gespeicherte SEO-URL', async () => {
+test('resolveCmsTarget: percent-encoded path (umlauts from the browser) finds the SEO URL stored decoded', async () => {
   const seen: unknown[] = [];
   const sw: ShopReader = {
     base: 'http://shop',
@@ -55,14 +55,14 @@ test('resolveCmsTarget: prozent-kodierter Pfad (Umlaute aus dem Browser) findet 
   const t = await resolveCmsTarget(sw, 'https://shop.test/K%C3%BCchen/');
   assert.deepEqual(t, { kind: 'category', id: 'cat1', name: 'Küchen', cmsPage: { id: 'cms1', name: 'Layout', type: 'product_list' } });
   const vals = (seen[0] as { field: string; value: string[] }[]).find(f => f.field === 'seoPathInfo')!.value;
-  assert.ok(vals.includes('Küchen') && vals.includes('K%C3%BCchen/'), 'beide Varianten werden gesucht');
-  assert.equal(await resolveCmsTarget(sw, 'https://shop.test/%E0%A4%A/'), null, 'ungültige Kodierung: Rohwert, kein Absturz');
-  // technische Pfade brauchen keine SEO-Suche
+  assert.ok(vals.includes('Küchen') && vals.includes('K%C3%BCchen/'), 'both variants are searched');
+  assert.equal(await resolveCmsTarget(sw, 'https://shop.test/%E0%A4%A/'), null, 'invalid encoding: raw value, no crash');
+  // technical paths need no SEO lookup
   const direct = await resolveCmsTarget(sw, 'https://shop.test/navigation/' + 'c'.repeat(32));
   assert.equal(direct, null); assert.equal(seen.length, 2);
 });
 
-test('read_page: nur Domains des eigenen Shops', () => {
+test('read_page: only domains of the own shop', () => {
   const allowed = ['https://shop.test/', 'http://shopware'];
   assert.equal(assertShopUrl('https://shop.test/gartenduschen/?x=1', allowed).pathname, '/gartenduschen/');
   assert.equal(assertShopUrl('http://shopware/navigation/abc', allowed).host, 'shopware');
@@ -71,27 +71,27 @@ test('read_page: nur Domains des eigenen Shops', () => {
   assert.throws(() => assertShopUrl('kaputt', allowed), /gültige URL/);
 });
 
-test('mapPublicToInternal: Pfad unter dem öffentlichen Prefix geht auf die interne Basis, Host-Tricks nicht', () => {
+test('mapPublicToInternal: path under the public prefix maps to the internal base, host tricks do not', () => {
   const pub = 'https://mein-shop.de/de', base = 'http://172.17.0.2';
   assert.equal(mapPublicToInternal(pub, base, 'https://mein-shop.de/de/produkt'), 'http://172.17.0.2/produkt');
   assert.equal(mapPublicToInternal(`${pub}/`, `${base}/`, 'https://mein-shop.de/de/produkt'), 'http://172.17.0.2/produkt');
   assert.equal(mapPublicToInternal(pub, base, pub), 'http://172.17.0.2/');
   assert.equal(mapPublicToInternal(pub, base, `${pub}?x=1`), 'http://172.17.0.2/?x=1');
   assert.equal(mapPublicToInternal(pub, base, `${pub}#oben`), 'http://172.17.0.2/#oben');
-  // Rest beginnt nicht mit /, ? oder #: die öffentliche URL bleibt, der interne Host wird nicht umgeschrieben
+  // Remainder does not start with /, ? or #: the public URL stays, the internal host is not rewritten
   const at = mapPublicToInternal(pub, base, 'https://mein-shop.de/de@169.254.169.254/latest/meta-data');
   assert.equal(new URL(at).hostname, 'mein-shop.de');
   assert.equal(at, 'https://mein-shop.de/de@169.254.169.254/latest/meta-data');
   const dot = mapPublicToInternal(pub, base, 'https://mein-shop.de/de.evil.example/x');
   assert.equal(new URL(dot).hostname, 'mein-shop.de');
-  // //evil darf durch das Zusammensetzen keinen neuen Host werden
+  // //evil must not become a new host through concatenation
   assert.equal(new URL(mapPublicToInternal(pub, base, 'https://mein-shop.de/de//evil.example/x')).hostname, '172.17.0.2');
   assert.equal(mapPublicToInternal(base, base, `${base}/x`), `${base}/x`);
   assert.equal(mapPublicToInternal(pub, base, 'https://other.test/x'), 'https://other.test/x');
   assert.equal(mapPublicToInternal(pub, 'http://user:pass@172.17.0.2', `${pub}/produkt`), `${pub}/produkt`);
 });
 
-test('fetchShopPage: nur erlaubte Hosts, jede Weiterleitung einzeln, öffentliches Ziel wieder intern', async () => {
+test('fetchShopPage: only allowed hosts, each redirect separately, public target mapped back to internal', async () => {
   const seen: { url: string; redirect?: RequestRedirect }[] = [];
   const fetchImpl: typeof fetch = async (url, init) => {
     const u = String(url);
@@ -115,7 +115,7 @@ test('fetchShopPage: nur erlaubte Hosts, jede Weiterleitung einzeln, öffentlich
   assert.deepEqual(seen.map(s => s.url), ['http://172.17.0.2/relativ', 'http://172.17.0.2/anderes']);
   seen.length = 0;
   await assert.rejects(() => fetchShopPage('https://mein-shop.de/de/weg', allowed, opts), /169\.254\.169\.254|eigenen Shops/);
-  assert.deepEqual(seen.map(s => s.url), ['http://172.17.0.2/weg'], 'die Metadaten-Adresse wird nicht abgerufen');
+  assert.deepEqual(seen.map(s => s.url), ['http://172.17.0.2/weg'], 'the metadata address is not fetched');
   seen.length = 0;
   await assert.rejects(() => fetchShopPage('https://evil.test/x', allowed, opts), /eigenen Shops/);
   assert.equal(seen.length, 0);
@@ -124,4 +124,19 @@ test('fetchShopPage: nur erlaubte Hosts, jede Weiterleitung einzeln, öffentlich
   assert.equal(kept.status, 200);
   assert.equal(new URL(seen[0].url).hostname, 'mein-shop.de');
   assert.equal(seen[0].url, attack);
+});
+
+test('storefront: entities decoded in one pass (&amp;lt; stays literal &lt;)', () => {
+  const o = parseStorefront('<title>A &amp;lt;b&amp;gt; &amp; C&#39;s</title><main><h1>x &amp;amp; y</h1></main>', 'https://shop.test/');
+  assert.equal(o.title, 'A &lt;b&gt; & C’s');
+  assert.deepEqual(o.headings, [{ level: 1, text: 'x &amp; y' }]);
+});
+
+test('storefront: unclosed tags do not freeze the parser (ReDoS) and keep the old fallbacks', () => {
+  for (const bad of ['<script', '<main', '<header', '<nav>', '<h1>', '<a href="/x">', '<meta ', '<link ', '<']) {
+    const t = Date.now(); parseStorefront(bad.repeat(80_000), 'https://shop.test/'); const d = Date.now() - t;
+    assert.ok(d < 1000, `${bad}: ${d} ms`);
+  }
+  const o = parseStorefront('<header><h2>Kopf</h2></header><main><h1>Inhalt</h1>', 'https://shop.test/');
+  assert.deepEqual(o.headings, [{ level: 1, text: 'Inhalt' }], 'unclosed <main>: header stripped as before');
 });

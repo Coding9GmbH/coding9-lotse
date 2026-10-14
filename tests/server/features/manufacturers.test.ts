@@ -6,18 +6,18 @@ import path from 'node:path';
 import type { Shopware, ShopReader, SwEntity } from '../../../src/server/shopware';
 
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-hersteller-'));
-const { buildManufacturerChangeSet } = await import('../../../src/server/features/hersteller');
+const { buildManufacturerChangeSet } = await import('../../../src/server/features/manufacturers');
 const { applyChangeSet, undoOps } = await import('../../../src/server/changes');
 
 const M1 = 'a'.repeat(32), MEDIA = 'b'.repeat(32);
-/** Fake-Shop: product-manufacturer + media in Speicher, Lesen und Schreiben über dieselbe Tabelle */
+/** Fake shop: product-manufacturer + media in memory, reading and writing via the same table */
 function fake(db: Record<string, SwEntity[]>) {
   const search = async (entity: string, c: { ids?: string[]; filter?: { type: string; field: string; value: unknown }[] } = {}) => {
     let rows = db[entity] ?? [];
     if (c.ids) rows = rows.filter(r => c.ids!.includes(r.id));
     for (const f of c.filter ?? []) {
       if (f.type === 'equals') rows = rows.filter(r => r[f.field] === f.value);
-      // MySQL vergleicht Texte ohne Beachtung der Groß-/Kleinschreibung (wie Shopware)
+      // MySQL compares texts case-insensitively (like Shopware)
       if (f.type === 'equalsAny') rows = rows.filter(r => (f.value as unknown[]).some(v => String(v).toLowerCase() === String(r[f.field]).toLowerCase()));
     }
     return { data: rows, total: rows.length };
@@ -30,7 +30,7 @@ function fake(db: Record<string, SwEntity[]>) {
 }
 const base = () => ({ 'product-manufacturer': [{ id: M1, name: '3M', translated: { name: '3M', description: 'Alt' }, description: 'Alt', link: null }] as SwEntity[], media: [{ id: MEDIA }] as SwEntity[] });
 
-test('Neu anlegen: Vorschau, Anwenden mit Wunsch-ID, Rückgängig löscht wieder; vorhandene und doppelte Namen werden übersprungen', async () => {
+test('create: preview, apply with requested ID, undo deletes again; existing and duplicate names are skipped', async () => {
   const db = base(), f = fake(db);
   const { cs } = await buildManufacturerChangeSet(f.ro, { title: 't', reason: 'r', create: [{ name: '3M Peltor', description: '<p>Gehörschutz</p>', link: 'https://www.3m.de/peltor', mediaId: MEDIA }, { name: '3m' }, { name: '3M Peltor' }] });
   assert.equal(cs.items.length, 1); assert.equal(cs.items[0].label, 'Hersteller „3M Peltor“'); assert.match(cs.items[0].after, /Beschreibung, Webseite https:\/\/www\.3m\.de\/peltor, Logo/);
@@ -43,23 +43,23 @@ test('Neu anlegen: Vorschau, Anwenden mit Wunsch-ID, Rückgängig löscht wieder
   assert.equal(db['product-manufacturer'].length, 1);
 });
 
-test('Bearbeiten: nur geänderte Felder, null entfernt, Rückgängig stellt her, zwischenzeitliche Änderung wird nicht überschrieben', async () => {
+test('edit: only changed fields, null removes, undo restores, an intermediate change is not overwritten', async () => {
   const db = base(), f = fake(db);
   const { cs } = await buildManufacturerChangeSet(f.ro, { title: 't', reason: 'r', update: [{ id: M1, name: '3M', description: 'Neu', link: 'https://www.3m.de', mediaId: null }] });
-  assert.deepEqual(cs.items.map(i => i.field), ['description', 'link'], 'Name gleich, Logo war leer: kein Eintrag');
+  assert.deepEqual(cs.items.map(i => i.field), ['description', 'link'], 'name unchanged, logo was empty: no entry');
   const r = await applyChangeSet(f.sw, cs, null, new Set(cs.items.map(i => i.id)));
   assert.deepEqual(r.results.map(x => x.ok), [true, true]);
   assert.equal(db['product-manufacturer'][0].description, 'Neu'); assert.equal(db['product-manufacturer'][0].link, 'https://www.3m.de');
   await undoOps(f.sw, r.undo);
   assert.equal(db['product-manufacturer'][0].description, 'Alt'); assert.equal(db['product-manufacturer'][0].link, null);
-  // Shop hat sich nach dem Vorschlag geändert → nicht überschreiben
+  // Shop changed after the proposal → don't overwrite
   const { cs: cs2 } = await buildManufacturerChangeSet(f.ro, { title: 't', reason: 'r', update: [{ id: M1, link: 'https://www.3m.com' }] });
   db['product-manufacturer'][0].link = 'https://anders.de';
   const r2 = await applyChangeSet(f.sw, cs2, null, new Set(cs2.items.map(i => i.id)));
   assert.equal(r2.results[0].ok, false); assert.equal(db['product-manufacturer'][0].link, 'https://anders.de');
 });
 
-test('Eingaben: ungültiger Link, unbekanntes Logo, unbekannter Hersteller, leeres Set', async () => {
+test('input: invalid link, unknown logo, unknown manufacturer, empty set', async () => {
   const f = fake(base());
   await assert.rejects(buildManufacturerChangeSet(f.ro, { title: 't', reason: 'r', create: [{ name: 'X', link: 'www.x.de' }] }), /Link „www\.x\.de“ ungültig/);
   await assert.rejects(buildManufacturerChangeSet(f.ro, { title: 't', reason: 'r', create: [{ name: 'X', mediaId: 'c'.repeat(32) }] }), /Medium .* nicht gefunden/);

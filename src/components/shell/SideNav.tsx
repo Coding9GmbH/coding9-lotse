@@ -37,8 +37,8 @@ function status(h: Health | null, healthFailed: boolean, t: Messages['nav']['sta
   return { shop, ai, flags };
 }
 
-/** Linke Navigation: Neuer Chat (+ mit Kontext), Bereiche, Verlauf, Einstellungen mit Status. Einklappbar (Strg/⌘ + B), mobil als Schublade.
- * Solange Shop oder KI fehlen, ist nur die Einrichtung erreichbar: alles, was beides braucht, bleibt gesperrt. */
+/** Left navigation: new chat (+ with context), areas, history, settings with status. Collapsible (Ctrl/⌘ + B), a drawer on mobile.
+ * While the shop or AI is missing, only the setup is reachable: everything that needs both stays locked. */
 export function SideNav() {
   const s = useShell();
   const path = usePathname();
@@ -46,7 +46,7 @@ export function SideNav() {
   const t = all.nav;
   const [filter, setFilter] = useState('');
   const [confirmId, setConfirmId] = useState<string | null>(null);
-  const [ctx, setCtx] = useState<string | null>(null); // Verlauf nur für einen Kontext
+  const [ctx, setCtx] = useState<string | null>(null); // history for one context only
   const collapsed = s.collapsed && !s.mobileOpen;
   const tip = (label: string) => (collapsed ? label : undefined);
   const st = status(s.health, s.healthFailed, t.status);
@@ -59,7 +59,7 @@ export function SideNav() {
   const activeCtx = ctx && contexts.includes(ctx) ? ctx : null;
   const groups = useMemo(() => groupByDay(filterHistory(s.chats ?? [], filter, activeCtx), new Date(), locale), [s.chats, filter, activeCtx, locale]);
 
-  // Eingeklappt: ein Punkt am Verlauf-Symbol – wartet (wichtigster) > läuft > fertig
+  // Collapsed: a dot on the history icon: waiting (most important) > running > done
   const live = s.chats?.filter(c => c.status) ?? [];
   const railState: RowState | null = live.some(c => c.status === 'waiting') ? 'waiting' : live.length ? 'running' : s.doneIds.size ? 'done' : null;
   const railTip = t.railTip(s.chats?.length ?? 0, live.length, s.doneIds.size);
@@ -72,7 +72,7 @@ export function SideNav() {
     <nav className={cx(styles.nav, collapsed && styles.collapsed, s.mobileOpen && styles.drawerOpen)} aria-label={t.main} id="lotse-nav">
       <div className={styles.top}>
         <Link href="/" className={styles.brand} onClick={close} aria-label={t.brand}>
-          {/* eslint-disable-next-line @next/next/no-img-element -- kleines SVG-Logo */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- small SVG logo */}
           <img src="/lotse-mark.svg" alt="" width={28} height={28} />
           <span className={styles.word}>Lotse</span>
         </Link>
@@ -120,7 +120,7 @@ export function SideNav() {
             ) : s.styleguide === null && <span className={styles.hint}>{t.styleguideCreate}</span>)}
           </button>
         </li>
-        {ready && ( // immer: der Technik-Check der Shop-Seiten braucht keine Anbindung
+        {ready && ( // always: the technical check of the shop pages needs no connection
           <li>
             <Link href="/seo" className={styles.item} aria-current={path === '/seo' ? 'page' : undefined} onClick={close} aria-label={tip(t.seo)} data-tip={tip(t.seo)}>
               <IconTarget size={18} /><span className={styles.label}>{t.seo}</span>

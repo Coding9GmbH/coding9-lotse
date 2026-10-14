@@ -11,7 +11,7 @@ import styles from './Settings.module.css';
 
 type Which = 'access' | 'audit';
 
-/** Zugriffsprotokoll (was die KI gelesen hat) und Änderungsprotokoll (was geschrieben wurde). */
+/** Access log (what the AI read) and change log (what was written). */
 export function LogsPanel() {
   const { t: all, locale } = useI18n();
   const t = all.settings.logs;

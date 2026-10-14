@@ -1,6 +1,6 @@
 import 'server-only';
-// Magento-Stapelverarbeitung: EINE Regel auf alle Produkte eines Filters (auch Tausende). Lesen seitenweise über den geschützten
-// Lese-Client, Karte mit Gruppen + Stichprobe, Schreiben in Blöcken mit Fortschritt; Rückgängig je Produkt exakt.
+// Magento bulk edit: ONE rule applied to all products of a filter (even thousands). Reading page by page via the guarded
+// read client, card with groups + sample, writing in chunks with progress; undo exact per product.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { errMsg, newIdSafe, pool, resolvePrice, WRITE_CONCURRENCY, type ApplyCtx, type ApplyResult, type PriceSpec } from './kit';
 import type { MagentoClient } from './client';
@@ -14,9 +14,9 @@ export const BULK_KIND = 'bulk-products';
 export const BULK_MAX = 5_000;
 export const BULK_SCAN = 10_000;
 const PAGE = 200, CHUNK = 50, SAMPLE = 50;
-/** Nur die Felder, die Plan und Vorschau brauchen (keine Galerie, keine extension_attributes) */
+/** Only the fields plan and preview need (no gallery, no extension_attributes) */
 const BULK_FIELDS = 'items[id,sku,name,type_id,status,visibility,price,custom_attributes],total_count';
-/** Hinweis der Karte, wenn der Filter mehr Produkte trifft, als gelesen werden (BULK_SCAN) */
+/** Card note when the filter matches more products than are read (BULK_SCAN) */
 export const scanHint = (scanned: number, total: number) => scanned < total ? [`Nur die ersten ${scanned.toLocaleString('de-DE')} von ${total.toLocaleString('de-DE')} Produkten geprüft. Filter enger fassen.`] : [];
 
 export interface BulkFilter { categoryId?: string; term?: string; minPrice?: number; maxPrice?: number; active?: boolean; typeId?: string; skus?: string[] }
@@ -32,7 +32,7 @@ const filtersOf = (f: BulkFilter): Filter[][] => {
   if (f.skus?.length) out.push([{ field: 'sku', value: f.skus, condition_type: 'in' }]);
   return out;
 };
-/** Alle Produkte des Filters (seitenweise); Preisspanne auf den Verkaufspreis (Sonderpreis berücksichtigt) */
+/** All products of the filter (paged); price range on the selling price (special price taken into account) */
 export async function resolveBulk(ro: MagentoReader, f: BulkFilter): Promise<{ rows: MProduct[]; scanned: number; total: number }> {
   const filters = filtersOf(f), rows: MProduct[] = [];
   let page = 1, total = 0, scanned = 0;
@@ -111,7 +111,7 @@ reg.register(BULK_KIND, async (c, cs, payload, selected, ctx?: ApplyCtx): Promis
   const chunks = Array.from({ length: Math.ceil(plans.length / CHUNK) }, (_, i) => plans.slice(i * CHUNK, (i + 1) * CHUNK));
   for (const list of chunks) {
     await pool(list, WRITE_CONCURRENCY, async pl => {
-      try { undo.push(...await applyPlan(c, store ?? c.storeCode, pl)); all.push({ itemId: pl.id, ok: true }); } // Store-View des Vorschlags (ältere Karten: Einstellung)
+      try { undo.push(...await applyPlan(c, store ?? c.storeCode, pl)); all.push({ itemId: pl.id, ok: true }); } // store view of the proposal (older cards: setting)
       catch (e) { undo.push(...((e as { undo?: UndoOp[] }).undo ?? [])); all.push({ itemId: pl.id, ok: false, error: errMsg(e) }); }
     });
     done += list.length; ctx?.progress?.(done, plans.length, { results: all, undo });

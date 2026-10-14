@@ -1,4 +1,4 @@
-# Dependabot: wöchentliche Update-PRs für npm, GitHub Actions und das Docker-Basis-Image.
+# Dependabot: weekly update PRs for npm, GitHub Actions and the Docker base image.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -8,7 +8,7 @@ updates:
       day: monday
     open-pull-requests-limit: 5
     groups:
-      # Minor/Patch gesammelt in einem PR, Major-Updates einzeln (brauchen meist Handarbeit)
+      # Minor/patch grouped into one PR, major updates separately (they usually need manual work)
       npm-minor-patch:
         update-types: [minor, patch]
     commit-message:
@@ -26,8 +26,8 @@ updates:
     commit-message:
       prefix: 'chore(ci)'
 
-  # Dockerfile (Basis-Image node:*-bookworm-slim). Hinweis: Dependabot wertet nur feste
-  # FROM-Angaben aus; über ARG zusammengesetzte Images werden ggf. nicht erkannt.
+  # Dockerfile (base image node:*-bookworm-slim). Note: Dependabot only evaluates fixed
+  # FROM lines; images assembled via ARG may not be detected.
   - package-ecosystem: docker
     directory: /
     schedule:

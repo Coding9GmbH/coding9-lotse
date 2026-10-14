@@ -1,5 +1,5 @@
-// Shopify-Adapter gegen den lokalen Admin-GraphQL-Fake (tests/support/shopify-fake): Client, geschützter Reader, Werkzeuge,
-// Änderungssets (anwenden + Rückgängig stellt den Fake-Zustand exakt wieder her), Lookup.
+// Shopify adapter against the local Admin GraphQL fake (tests/support/shopify-fake): client, protected reader, tools,
+// change sets (apply + undo restores the fake state exactly), lookup.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -41,7 +41,7 @@ session.emit = ev => {
 };
 const tools = buildTools(session);
 const call = async (name: string, args: Record<string, unknown>) => {
-  const t = tools.find(x => x.name === name); assert.ok(t, `Werkzeug ${name} fehlt`);
+  const t = tools.find(x => x.name === name); assert.ok(t, `tool ${name} missing`);
   return (await t.handler(args, {})) as Res;
 };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -49,7 +49,7 @@ const json = (r: Res): any => { assert.equal(r.isError ?? false, false, r.conten
 const lastResult = () => [...events].reverse().find((e): e is Extract<ChatEvent, { t: 'changeset_result' }> => e.t === 'changeset_result')!;
 const lastSet = () => [...events].reverse().find((e): e is Extract<ChatEvent, { t: 'changeset' }> => e.t === 'changeset')!.cs;
 
-/** Fake-Zustand ohne Zeitstempel/Zähler (für Deep-Equal vor/nach Rückgängig) */
+/** Fake state without timestamps/counters (for deep-equal before/after undo) */
 function snap() {
   const s = JSON.parse(JSON.stringify(fake.state.snapshot()));
   const strip = (x: unknown): unknown => Array.isArray(x) ? x.map(strip) : x && typeof x === 'object' ? Object.fromEntries(Object.entries(x).filter(([k]) => !['updatedAt', 'createdInRequest'].includes(k)).map(([k, v]) => [k, strip(v)])) : x;
@@ -58,21 +58,21 @@ function snap() {
   return strip(s);
 }
 const undo = async (ops: UndoOp[]) => { const r = await shopify.undo(ops); assert.ok(r.every(x => x.ok), JSON.stringify(r)); };
-/** Vorschlag → Freigabe → Ergebnis prüfen → Rückgängig → Zustand exakt wie vorher */
+/** Proposal → approval → check result → undo → state exactly as before */
 async function roundtrip(name: string, args: Record<string, unknown>, check: () => void | Promise<void>) {
   const before = snap();
   const out = json(await call(name, args));
   assert.equal(out.status, 'applied', JSON.stringify(out));
-  const res = lastResult(); assert.ok(res.undo?.length, 'Rückgängig-Schritte vorhanden');
+  const res = lastResult(); assert.ok(res.undo?.length, 'undo steps present');
   assert.ok(res.undo!.every(o => o.platform === 'shopify'));
   await check();
-  assert.notDeepEqual(snap(), before, 'Änderung sichtbar');
+  assert.notDeepEqual(snap(), before, 'change visible');
   await undo(res.undo!);
-  assert.deepEqual(snap(), before, `${name}: Rückgängig stellt den Zustand exakt wieder her`);
+  assert.deepEqual(snap(), before, `${name}: undo restores the state exactly`);
   return out;
 }
 
-test('Einstellungen: Domain-Prüfung, IDs, Werkzeugnamen passen', () => {
+test('settings: domain check, IDs, tool names match', () => {
   assert.equal(shopifyOrigin('mein-shop.myshopify.com'), 'https://mein-shop.myshopify.com');
   assert.equal(shopifyOrigin('https://Mein-Shop.myshopify.com/admin'), 'https://mein-shop.myshopify.com');
   assert.equal(shopifyOrigin('http://127.0.0.1:3601'), 'http://127.0.0.1:3601');
@@ -86,22 +86,22 @@ test('Einstellungen: Domain-Prüfung, IDs, Werkzeugnamen passen', () => {
   for (const n of shopify.toolNames) assert.ok(tools.some(t => t.name === n), n);
 });
 
-test('Prompts: Shopify-Abschnitte nennen nur Werkzeuge, die es gibt; keine offenen Platzhalter, keine fremden Plattformbegriffe', async () => {
+test('prompts: Shopify sections only name tools that exist; no open placeholders, no foreign platform terms', async () => {
   const { buildBasePrompt, promptRoot } = await import('../../../../src/server/prompt');
   const names = new Set(toolNamesFor('shopify')), dir = path.join(promptRoot(), 'shopify');
   for (const f of fs.readdirSync(dir)) {
     const t = fs.readFileSync(path.join(dir, f), 'utf8');
-    for (const m of t.matchAll(/\b((?:propose|get|list|search|find|preview|read|run|gsc|add|remove)_[a-z_]+|seo_audit|view_image|ask_user|draft_page|publish_page|import_image|generate_image|create_svg_image)\b/g)) assert.ok(names.has(m[1]), `${f}: ${m[1]} gibt es auf Shopify nicht`);
+    for (const m of t.matchAll(/\b((?:propose|get|list|search|find|preview|read|run|gsc|add|remove)_[a-z_]+|seo_audit|view_image|ask_user|draft_page|publish_page|import_image|generate_image|create_svg_image)\b/g)) assert.ok(names.has(m[1]), `${f}: ${m[1]} does not exist on Shopify`);
     assert.doesNotMatch(t, /Shopware|Einkaufswelt|Verkaufskanal|product-listing-Block nutzen/, f);
   }
   const p = buildBasePrompt('shopify');
   assert.doesNotMatch(p, /\{\{\w+\}\}/); assert.match(p, /## So funktioniert Shopify/); assert.match(p, /seo_audit, find_image_gaps, get_product_images/);
-  // auch die Werkzeugbeschreibungen sprechen Shopify (keine Shopware-Begriffe wie Produktstreams)
+  // the tool descriptions speak Shopify too (no Shopware terms like product streams)
   for (const t of tools) assert.doesNotMatch(String(t.description), /Produktstream|Shopware|Einkaufswelt|Verkaufskanal/, t.name);
   assert.doesNotMatch(p, /Produktstream/);
 });
 
-test('Verbindungstest, Health, URLs, Kontext-Auswahl', async () => {
+test('connection test, health, URLs, context selection', async () => {
   const t = await shopify.testConnection();
   assert.equal(t.ok, true); assert.match(t.message, /Verbunden mit Shopify \(Haus Holm, API 2026-10\)/);
   assert.ok(!t.message.includes(fake.token));
@@ -116,26 +116,26 @@ test('Verbindungstest, Health, URLs, Kontext-Auswahl', async () => {
   assert.equal((await shopify.context.products({ categoryId: C.keramik })).length, 2);
 });
 
-test('Client: 429 mit Retry-After und THROTTLED werden abgewartet und wiederholt', async () => {
+test('client: 429 with Retry-After and THROTTLED are waited out and retried', async () => {
   const waits: number[] = [];
   const c = new ShopifyClient(() => ({ origin: fake.url, domain: '127.0.0.1', apiVersion: '2026-10', token: fake.token, publicUrl: '', endpoint: `${fake.url}/admin/api/2026-10/graphql.json` }), { sleep: async ms => { waits.push(ms); } });
   fake.failNext({ status: 429, retryAfter: 2 });
   assert.equal((await c.gql<{ shop: { name: string } }>('{ shop { name } }')).shop.name, 'Haus Holm');
-  assert.ok(waits.includes(2000), `Retry-After abgewartet: ${waits}`);
+  assert.ok(waits.includes(2000), `Retry-After waited out: ${waits}`);
   fake.throttle.currentlyAvailable = 0;
   let tries = 0; const orig = fake.throttle.tryConsume.bind(fake.throttle);
   fake.throttle.tryConsume = (n: number) => { tries++; if (tries === 1) return false; return orig(n); };
   assert.equal((await c.gql<{ shop: { name: string } }>('{ shop { name } }')).shop.name, 'Haus Holm');
-  assert.ok(tries >= 2, 'nach THROTTLED wiederholt');
+  assert.ok(tries >= 2, 'retried after THROTTLED');
   fake.throttle.tryConsume = orig; fake.throttle.currentlyAvailable = fake.throttle.maximumAvailable;
   const bad = new ShopifyClient(() => ({ origin: fake.url, domain: '127.0.0.1', apiVersion: '2026-10', token: 'shpat_falsch_0000000000', publicUrl: '', endpoint: `${fake.url}/admin/api/2026-10/graphql.json` }));
   await assert.rejects(bad.gql('{ shop { name } }'), (e: Error) => /HTTP 401/.test(e.message) && !e.message.includes('shpat_falsch'));
 });
 
-test('Reader: Kunden, Bestellungen, Mutationen, E-Mail und fremde IDs gesperrt; Bereiche wirken; Zugriffe protokolliert', async () => {
+test('reader: customers, orders, mutations, email and foreign IDs blocked; scopes take effect; access logged', async () => {
   const reader = session.reader as InstanceType<typeof ShopifyReader>;
   assert.ok(reader instanceof ShopifyReader);
-  assert.ok(!Object.keys(reader).some(k => /client|token/i.test(k)), 'kein Client/Token als Eigenschaft');
+  assert.ok(!Object.keys(reader).some(k => /client|token/i.test(k)), 'no client/token as a property');
   assert.ok(!JSON.stringify(reader).includes(fake.token));
   for (const doc of ['{ customers(first: 5) { nodes { id } } }', 'query { orders(first: 1) { nodes { id } } }', '{ draftOrders(first: 1) { nodes { id } } }', '{ abandonedCheckouts(first: 1) { nodes { id } } }',
     '{ staffMembers(first: 1) { nodes { id } } }', '{ shop { email } }', '{ shop { name contactEmail } }', 'mutation { productDelete(input: {id: "gid://shopify/Product/1"}) { deletedProductId } }',
@@ -144,18 +144,18 @@ test('Reader: Kunden, Bestellungen, Mutationen, E-Mail und fremde IDs gesperrt; 
   await assert.rejects(reader.query('query N($ids: [ID!]!) { nodes(ids: $ids) { id } }', { ids: ['gid://shopify/Customer/1'] }), DeniedError);
   await assert.rejects(reader.query('query N($ids: [ID!]!) { nodes(ids: $ids) { id } }', { ids: ['gid://shopify/Order/1'] }), DeniedError);
   assert.deepEqual(rootFields('query Q($a: Int) { p: products(first: $a) { nodes { id } } shop { name } }'), ['products', 'shop']);
-  // Bereich „Medienbibliothek“ aus: Dateien und Produktbilder gesperrt, Produkte ohne Bilder lesbar
+  // Scope "Medienbibliothek" (media library) off: files and product images blocked, products readable without images
   updateSettings({ scopes: { media: false } });
   await assert.rejects(reader.query('{ files(first: 1) { nodes { id } } }'), /Medienbibliothek/);
   await assert.rejects(reader.query('{ products(first: 1) { nodes { id media(first: 1) { nodes { id } } } } }'), /Medienbibliothek/);
   assert.ok((await reader.query<{ products: { nodes: unknown[] } }>('{ products(first: 1) { nodes { id } } }')).products.nodes.length);
   updateSettings({ scopes: { media: true } });
   const log = accessList(200);
-  assert.ok(log.some(l => l.op === 'deny' && /customers/.test(l.entity)), 'Ablehnung protokolliert');
-  assert.ok(log.some(l => l.op === 'read' && l.entity === 'products' && l.chat === 'chat-shopify'), 'Lesen protokolliert');
+  assert.ok(log.some(l => l.op === 'deny' && /customers/.test(l.entity)), 'denial logged');
+  assert.ok(log.some(l => l.op === 'read' && l.entity === 'products' && l.chat === 'chat-shopify'), 'read logged');
 });
 
-test('Lese-Werkzeuge: Produkte, Kollektionen, Medien, Varianten, Sprachen, Rabatte, SEO', async () => {
+test('read tools: products, collections, media, variants, languages, discounts, SEO', async () => {
   const s = json(await call('search_products', { term: 'Becher' }));
   assert.equal(s.total, 1); assert.equal(s.products[0].id, P.becher); assert.equal(s.products[0].price, '18,00 €'); assert.equal(s.products[0].manufacturer, 'Haus Holm');
   const p = json(await call('get_product', { id: P.becher }));
@@ -194,7 +194,7 @@ test('Lese-Werkzeuge: Produkte, Kollektionen, Medien, Varianten, Sprachen, Rabat
   assert.equal(json(await call('preview_bulk_filter', { collectionId: C.wohn, maxPrice: 50 })).count, 2);
 });
 
-test('Lookup: Produkte per ID/SKU, URLs der Search Console, Pfade, aktueller Stand', async () => {
+test('lookup: products by ID/SKU, Search Console URLs, paths, current state', async () => {
   const lk = session.lookup;
   assert.deepEqual(await lk.findProducts({ ids: [P.vase], numbers: ['HH-PLAID-DUENE'] }), [{ id: P.vase, number: 'HH-VASE-KIESEL', name: 'Vase „Kiesel“' }, { id: P.plaid, number: 'HH-PLAID-DUENE', name: 'Plaid „Düne“' }]);
   assert.deepEqual(await lk.findCategories([C.wohn]), [{ id: C.wohn, name: 'Wohnaccessoires' }]);
@@ -212,19 +212,19 @@ test('Lookup: Produkte per ID/SKU, URLs der Search Console, Pfade, aktueller Sta
   assert.equal((await lk.current('product', P.becher))?.metaTitle, 'Becher Morgen – Steinzeug | Haus Holm');
 });
 
-test('Vorschau-Daten: Produkte aus Blöcken und Kollektion, Bilder per mediaId', async () => {
+test('preview data: products from blocks and collection, images via mediaId', async () => {
   const ctx = await shopify.pages.previewData(session, { name: 'x', type: 'product_list', previewCategoryId: C.keramik, sections: [{ blocks: [{ type: 'product-slider', productIds: [P.plaid] }, { type: 'image-cover', image: { mediaId: '32600000000001', alt: 'Vase' } }] }] });
   assert.equal(ctx.products?.[P.plaid]?.price, '89,00 €');
-  assert.equal(ctx.products?.[P.becher]?.name, 'Becher „Morgen“', 'Produkte der Kollektion');
+  assert.equal(ctx.products?.[P.becher]?.name, 'Becher „Morgen“', 'products of the collection');
   assert.match(String(ctx.imageUrl?.({ mediaId: '32600000000001' })), /vase-kiesel\.jpg/);
   const r = await call('draft_page', { name: 'Keramik', type: 'product_list', previewCategoryId: C.keramik, sections: [{ blocks: [{ type: 'text', html: '<h2>Keramik</h2>' }, { type: 'theme-main' }, { type: 'product-slider', productIds: [P.vase] }] }] });
   assert.equal(r.isError ?? false, false, r.content[0].text);
   const ev = events.filter(e => e.t === 'draft').at(-1) as Extract<ChatEvent, { t: 'draft' }>;
   assert.match(String(ev.html), /Vase „Kiesel“/); assert.match(String(ev.html), /49,00 €/);
-  assert.match(String(ev.html), /Produktliste des Themes/, 'theme-main zeigt die echte Produktliste der Kollektion');
+  assert.match(String(ev.html), /Produktliste des Themes/, 'theme-main shows the real product list of the collection');
 });
 
-test('Produktfelder: Name, SEO, Preisregel je Variante, Streichpreis, Tags, Status, FAQ: anwenden + exakt rückgängig', async () => {
+test('product fields: name, SEO, price rule per variant, list price, tags, status, FAQ: apply + exact undo', async () => {
   await roundtrip('propose_product_changes', { title: 'Test', reason: 'Test', changes: [
     { id: P.becher, fields: { price: { percent: -10, round: '.99' }, listPrice: null, metaDescription: 'Neu', tags: { add: ['Sale'] } } },
     { id: P.vase, fields: { name: 'Vase Kiesel', description: '<p>Neu</p>', metaTitle: 'Vase Kiesel | Haus Holm', active: false, faq: { items: [{ q: 'Spülmaschine?', a: 'Nein.' }, { q: 'Wasserdicht?', a: 'Ja.' }] }, ean: '4260000000000', sku: 'HH-VK' } },
@@ -240,12 +240,12 @@ test('Produktfelder: Name, SEO, Preisregel je Variante, Streichpreis, Tags, Stat
   });
   const cs = lastSet();
   assert.ok(cs.items.some(i => i.field === 'price' && i.before === '18,00 € (4 Varianten)' && i.after === '15,99 € (4 Varianten)'), JSON.stringify(cs.items.map(i => [i.field, i.before, i.after])));
-  // gesperrte/unbekannte Felder werden übersprungen, nicht geschrieben
+  // blocked/unknown fields are skipped, not written
   const bad = await call('propose_product_changes', { title: 'x', reason: 'x', changes: [{ id: P.vase, fields: { stock: 3, keywords: 'a' } }] });
   assert.equal(bad.isError, true); assert.match(bad.content[0].text, /nur lesbar/);
 });
 
-test('Teilfreigabe: nur ausgewählte Zeilen werden geschrieben', async () => {
+test('partial approval: only selected rows are written', async () => {
   decide = cs => [cs.items.find(i => i.field === 'metaTitle')!.id];
   const before = fake.state.products.get(Number(P.plaid))!.title;
   const out = json(await call('propose_product_changes', { title: 't', reason: 'r', changes: [{ id: P.plaid, fields: { name: 'Plaid X', metaTitle: 'Plaid Düne | Haus Holm' } }] }));
@@ -257,14 +257,14 @@ test('Teilfreigabe: nur ausgewählte Zeilen werden geschrieben', async () => {
   assert.equal(fake.state.products.get(Number(P.plaid))!.seo.title, null);
 });
 
-test('Abgelehnt: nichts wird geschrieben', async () => {
+test('rejected: nothing is written', async () => {
   decide = false; const before = snap();
   const out = json(await call('propose_product_changes', { title: 't', reason: 'r', changes: [{ id: P.plaid, fields: { name: 'Nein' } }] }));
   decide = true;
   assert.equal(out.status, 'rejected'); assert.deepEqual(snap(), before);
 });
 
-test('Neue Produkte (Entwurf, Preis, SKU, Bild aus Upload, Kollektion): anlegen + rückgängig', async () => {
+test('new products (draft, price, SKU, image from upload, collection): create + undo', async () => {
   const png = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex');
   const st = stageImage(Buffer.concat([png, Buffer.alloc(40)]), 'image/png', { name: 'kanne', alt: 'Kanne in Sand' });
   await roundtrip('propose_new_products', { title: 'Neu', reason: 'Fotos', products: [{ name: 'Kanne „Ebbe“', description: '<p>Steinzeugkanne.</p>', price: 39, sku: 'HH-KANNE', images: [st.mediaId, '32600000000001'], collectionIds: [C.wohn], tags: ['Keramik'] }] }, () => {
@@ -274,13 +274,13 @@ test('Neue Produkte (Entwurf, Preis, SKU, Bild aus Upload, Kollektion): anlegen 
     assert.equal(v.price, '39.00'); assert.equal(v.sku, 'HH-KANNE');
     assert.ok(fake.state.collections.get(Number(C.wohn))!.productIds.includes(p.id));
   });
-  // Bild der Vase wurde nur verknüpft, nicht dupliziert; nach dem Rückgängig gibt es es noch
+  // The vase image was only linked, not duplicated; it still exists after undo
   assert.ok(fake.state.media.has(32600000000001));
   const noPrice = await call('propose_new_products', { title: 'x', reason: 'x', products: [{ name: 'X', description: '<p>x</p>', price: -1 }] });
   assert.equal(noPrice.isError, true); assert.match(noPrice.content[0].text, /nicht schätzen/);
 });
 
-test('Varianten: Preis je Variante, SKU, neue Variante: anwenden + rückgängig', async () => {
+test('variants: price per variant, SKU, new variant: apply + undo', async () => {
   await roundtrip('propose_variants', { title: 'V', reason: 'V', productId: P.becher, update: [{ id: '51200000000005', price: 24, listPrice: null, sku: 'HH-B-N' }], create: [{ options: { Farbe: 'Salbei', Größe: '350 ml' }, price: 19 }] }, () => {
     const v = fake.state.variants.get(51200000000005)!;
     assert.equal(v.price, '24.00'); assert.equal(v.compareAtPrice, null); assert.equal(v.sku, 'HH-B-N');
@@ -290,14 +290,14 @@ test('Varianten: Preis je Variante, SKU, neue Variante: anwenden + rückgängig'
   assert.equal(def.isError, true); assert.match(def.content[0].text, /Optionen/);
 });
 
-test('Kollektionen: Texte, SEO, Sichtbarkeit, Sortierung: anwenden + rückgängig', async () => {
+test('collections: texts, SEO, visibility, sorting: apply + undo', async () => {
   await roundtrip('propose_category_changes', { title: 'K', reason: 'K', changes: [{ id: C.wohn, fields: { description: '<p>Neu</p>', metaTitle: 'Wohnaccessoires | Haus Holm', active: false, sortOrder: 'PRICE_ASC' } }] }, () => {
     const c = fake.state.collections.get(Number(C.wohn))!;
     assert.equal(c.descriptionHtml, '<p>Neu</p>'); assert.equal(c.published, false); assert.equal(c.sortOrder, 'PRICE_ASC'); assert.equal(c.seo.title, 'Wohnaccessoires | Haus Holm');
   });
 });
 
-test('Automatische Kollektion (Produktstream) anlegen, Regel ändern, Produkte zuordnen: rückgängig', async () => {
+test('create automated collection (product stream), change rule, assign products: undo', async () => {
   await roundtrip('propose_collection', { title: 'S', reason: 'S', collections: [{ name: 'Wohnen bis 60 €', rules: [{ column: 'TAG', relation: 'EQUALS', condition: 'Wohnen' }, { column: 'VARIANT_PRICE', relation: 'LESS_THAN', condition: '60' }], publish: true }] }, () => {
     const c = [...fake.state.collections.values()].find(x => x.title === 'Wohnen bis 60 €')!;
     assert.equal(c.ruleSet?.rules.length, 2); assert.equal(c.published, true);
@@ -314,15 +314,15 @@ test('Automatische Kollektion (Produktstream) anlegen, Regel ändern, Produkte z
   assert.equal(smart.isError, true); assert.match(smart.content[0].text, /automatische Kollektion/);
 });
 
-test('Produktbilder (neu hochladen, verknüpfen, entfernen, Titelbild) und Alt-Texte: rückgängig', async () => {
+test('product images (upload new, link, remove, cover image) and alt texts: undo', async () => {
   const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000020000000208060000', 'hex');
   const st = stageImage(Buffer.concat([png, Buffer.alloc(40)]), 'image/png', { name: 'becher-salbei', alt: 'Becher in Salbei' });
   await roundtrip('propose_product_images', { title: 'B', reason: 'B', products: [{ productId: P.becher, add: [{ image: st.mediaId }, { image: '32600000000001' }], remove: ['32600000000002'], cover: '32600000000003' }] }, () => {
     const ids = fake.state.products.get(Number(P.becher))!.mediaIds;
-    assert.equal(ids[0], 32600000000003, 'Titelbild'); assert.equal(ids.length, 3); assert.ok(!ids.includes(32600000000002)); assert.ok(ids.includes(32600000000001));
-    assert.ok(fake.state.media.has(32600000000002), 'entferntes Bild bleibt als Datei');
+    assert.equal(ids[0], 32600000000003, 'cover image'); assert.equal(ids.length, 3); assert.ok(!ids.includes(32600000000002)); assert.ok(ids.includes(32600000000001));
+    assert.ok(fake.state.media.has(32600000000002), 'removed image remains as a file');
   });
-  // Alt-Text nur für angesehene Bilder
+  // Alt text only for viewed images
   const notSeen = await call('propose_alt_texts', { title: 'A', reason: 'A', images: [{ mediaId: '32600000000001', alt: 'Bauchige Vase aus hellem Steinzeug' }] });
   assert.equal(notSeen.isError, true); assert.match(notSeen.content[0].text, /view_image/);
   session.events.push({ t: 'tool', name: 'mcp__shop__view_image', input: { mediaId: '32600000000001' } } as unknown as ChatEvent);
@@ -331,7 +331,7 @@ test('Produktbilder (neu hochladen, verknüpfen, entfernen, Titelbild) und Alt-T
   });
 });
 
-test('Übersetzungen (neu + vorhandene überschreiben): rückgängig stellt beides wieder her', async () => {
+test('translations (new + overwriting existing): undo restores both', async () => {
   await roundtrip('propose_translations', { title: 'T', reason: 'T', entity: 'product', changes: [{ id: P.becher, language: 'en', fields: { name: 'Mug “Morning” (stoneware)', metaTitle: 'Morning mug | Haus Holm', handle: 'morning-mug' } }] }, () => {
     const t = fake.state.translations.filter(x => x.resourceId === toGid('Product', P.becher) && x.locale === 'en');
     assert.equal(t.find(x => x.key === 'title')?.value, 'Mug “Morning” (stoneware)'); assert.equal(t.find(x => x.key === 'handle')?.value, 'morning-mug');
@@ -340,12 +340,12 @@ test('Übersetzungen (neu + vorhandene überschreiben): rückgängig stellt beid
   assert.equal(main.isError, true); assert.match(main.content[0].text, /Hauptsprache/);
 });
 
-test('Rabattcode anlegen, ändern, beenden/aktivieren: jeweils exakt rückgängig', async () => {
+test('create, change, end/activate discount code: each exactly undone', async () => {
   await roundtrip('propose_promotion', { reason: 'Herbst', title: 'Herbst 20 % Keramik', code: 'HERBST20', type: 'percentage', value: 20, collectionIds: [C.keramik], startsAt: '2026-10-01', endsAt: '2026-10-31', oncePerCustomer: true }, () => {
     const d = [...fake.state.discounts.values()][0];
     assert.equal(d.codes[0].code, 'HERBST20'); assert.deepEqual(d.value, { kind: 'percentage', percentage: 0.2 }); assert.equal(d.items.kind, 'collections'); assert.equal(d.appliesOncePerCustomer, true);
   });
-  // dauerhaft anlegen (ohne Rückgängig) für Ändern/Status
+  // create permanently (without undo) for change/status
   json(await call('propose_promotion', { reason: 'x', title: 'Sommer', code: 'SOMMER10', type: 'amount', value: 10, startsAt: '2026-01-01' }));
   const id = String([...fake.state.discounts.values()].find(d => d.title === 'Sommer')!.id);
   const list = json(await call('list_promotions', { status: 'active' }));
@@ -358,7 +358,7 @@ test('Rabattcode anlegen, ändern, beenden/aktivieren: jeweils exakt rückgängi
   });
 });
 
-test('Rabatt ändern: nur angehakte Felder werden geschrieben, der Rest bleibt und gilt nicht als erledigt', async () => {
+test('change discount: only checked fields are written, the rest stays and does not count as done', async () => {
   const prev = decide, before = snap();
   let createdUndo: UndoOp[] | undefined, partialUndo: UndoOp[] | undefined;
   try {
@@ -372,16 +372,16 @@ test('Rabatt ändern: nur angehakte Felder werden geschrieben, der Rest bleibt u
     partialUndo = lastResult().undo;
     assert.equal(d.title, 'Auswahl neu');
     assert.equal(d.appliesOncePerCustomer, true);
-    assert.equal(d.usageLimit, prior.usageLimit, 'nicht angehaktes Limit bleibt');
-    assert.deepEqual(d.value, prior.value, 'nicht angehakter Rabattwert bleibt');
+    assert.equal(d.usageLimit, prior.usageLimit, 'unchecked limit stays');
+    assert.deepEqual(d.value, prior.value, 'unchecked discount value stays');
     const lines = lastResult().results ?? [];
     assert.deepEqual(lines.map(r => r.itemId).sort(), ['f:oncePerCustomer', 'f:title']);
-    assert.ok(lines.every(r => r.ok), 'nur angehakte Zeilen sind erledigt');
+    assert.ok(lines.every(r => r.ok), 'only checked rows are done');
     assert.equal(out.status, 'applied');
     decide = () => [];
     const n = fake.state.discounts.size;
     json(await call('propose_promotion', { reason: 'x', title: 'Nicht angehakt', code: 'NEIN1', type: 'percentage', value: 5 }));
-    assert.equal(fake.state.discounts.size, n, 'ohne Haken wird nichts angelegt');
+    assert.equal(fake.state.discounts.size, n, 'nothing is created without a check');
     assert.deepEqual(lastResult().results ?? [], []);
   } finally {
     decide = prev;
@@ -391,7 +391,7 @@ test('Rabatt ändern: nur angehakte Felder werden geschrieben, der Rest bleibt u
   assert.deepEqual(snap(), before);
 });
 
-test('SEO-URL (Handle) ändern legt Weiterleitung an; Rückgängig entfernt sie und stellt den Handle wieder her', async () => {
+test('changing the SEO URL (handle) creates a redirect; undo removes it and restores the handle', async () => {
   await roundtrip('propose_seo_urls', { title: 'U', reason: 'U', changes: [{ entity: 'product', id: P.plaid, slug: 'Plaid Düne Wolle' }, { entity: 'category', id: C.keramik, slug: 'keramik-steinzeug' }, { entity: 'page', id: '129000000001', slug: 'ueber-haus-holm' }] }, () => {
     assert.equal(fake.state.products.get(Number(P.plaid))!.handle, 'plaid-duene-wolle');
     assert.ok([...fake.state.redirects.values()].some(r => r.path === '/products/plaid-duene' && r.target === '/products/plaid-duene-wolle'));
@@ -401,7 +401,7 @@ test('SEO-URL (Handle) ändern legt Weiterleitung an; Rückgängig entfernt sie 
   assert.equal(taken.isError, true); assert.match(taken.content[0].text, /vergeben/);
 });
 
-test('Stapel: Regel für alle Produkte eines Filters, Fortschritt, rückgängig', async () => {
+test('bulk edit: rule for all products of a filter, progress, undo', async () => {
   const progress: [number, number][] = [];
   const prevEmit = session.emit;
   session.emit = ev => { if (ev.t === 'changeset_progress') progress.push([ev.done, ev.total]); prevEmit(ev); };
@@ -417,26 +417,26 @@ test('Stapel: Regel für alle Produkte eines Filters, Fortschritt, rückgängig'
   assert.equal(empty.isError, true);
 });
 
-test('Rückgängig: nur erlaubte Mutationen, gelöschtes Objekt gilt als erledigt', async () => {
+test('undo: only allowed mutations, a deleted object counts as done', async () => {
   const r = await shopify.undo([{ op: 'req', entity: 'x', id: '1', method: 'POST', path: 'graphql', body: { query: 'mutation { customerCreate(input: {}) { customer { id } } }', variables: {} }, platform: 'shopify' }]);
   assert.equal(r[0].ok, false); assert.match(String(r[0].error), /Ungültiger Rückgängig-Schritt/);
   assert.deepEqual(await shopify.undo([{ op: 'delete', entity: 'product', id: 'gid://shopify/Product/1', platform: 'shopify' }]), [{ ok: true }]);
 });
 
-test('Abfragekosten: Werkzeuge mit Höchstwerten bleiben unter 1000 (Shopify-Grenze je Abfrage)', async () => {
+test('query cost: tools with maximum values stay below 1000 (Shopify limit per query)', async () => {
   const runs: [string, Record<string, unknown>][] = [['list_products', { limit: 500 }], ['list_products', { limit: 500, details: true }], ['search_products', { limit: 500 }], ['search_categories', { limit: 500 }],
     ['seo_audit', { entity: 'product', limit: 500 }], ['seo_audit', { entity: 'category', limit: 500 }], ['find_image_gaps', { missing: 'alt' }], ['list_promotions', { limit: 500 }], ['get_product', { id: P.becher }],
     ['get_category', { id: C.wohn }], ['get_product_images', { productIds: Array.from({ length: 50 }, (_, i) => String(9100000000001 + i)) }], ['search_media', { limit: 500 }]];
   for (const [name, args] of runs) { const r = await call(name, args); assert.equal(r.isError ?? false, false, `${name}: ${r.content[0].text.slice(0, 200)}`); }
-  // viele IDs: Abfragen werden in Pakete geteilt (Vorschlag wird abgelehnt)
+  // many IDs: queries are split into batches (proposal is rejected)
   decide = false;
   const r = json(await call('propose_product_changes', { title: 't', reason: 'r', changes: Array.from({ length: 30 }, (_, i) => ({ id: String(9100000000001 + i), fields: { name: 'X' } })) }));
   decide = true;
   assert.equal(r.status, 'rejected');
 });
 
-test('Großer Katalog: Stapel über viele Seiten (Paginierung), Fortschritt, exakt rückgängig', async () => {
-  fake.throttle.restoreRate = 1000; // Shopify Plus (Standard 100/s: gleicher Ablauf, nur langsamer)
+test('large catalog: bulk edit across many pages (pagination), progress, exact undo', async () => {
+  fake.throttle.restoreRate = 1000; // Shopify Plus (standard 100/s: same flow, just slower)
   for (let i = 0; i < 140; i++) fake.state.addProduct({ title: `Serie ${i}`, tags: ['Serie'], vendor: 'Haus Holm', variants: [{ price: String(10 + (i % 7)), sku: `S-${i}` }] });
   assert.equal(json(await call('preview_bulk_filter', { tag: 'Serie' })).count, 140);
   const l = json(await call('list_products', { tag: 'Serie', limit: 50, offset: 100 }));
@@ -453,7 +453,7 @@ test('Großer Katalog: Stapel über viele Seiten (Paginierung), Fortschritt, exa
   fake.throttle.restoreRate = 100;
 });
 
-test('Drosselung: leerer Kosten-Bucket, Lesen und viele Schreibzugriffe parallel: alles kommt an (warten statt scheitern)', async () => {
+test('throttling: empty cost bucket, reads and many writes in parallel: everything arrives (wait instead of fail)', async () => {
   Object.assign(fake.throttle, { maximumAvailable: 1000, restoreRate: 500 }); fake.throttle.currentlyAvailable = 0;
   await roundtrip('propose_product_changes', { title: 't', reason: 'r', changes: [P.vase, P.becher, P.plaid].map(id => ({ id, fields: { price: { add: 1 }, metaTitle: 'Titel für Drosseltest', tags: { add: ['Drossel'] } } })) }, () => {
     assert.ok([...fake.state.products.values()].filter(p => p.tags.includes('Drossel')).length === 3);
@@ -461,11 +461,11 @@ test('Drosselung: leerer Kosten-Bucket, Lesen und viele Schreibzugriffe parallel
   Object.assign(fake.throttle, { maximumAvailable: 2000, currentlyAvailable: 2000, restoreRate: 100 });
 });
 
-// ---- Exaktes Rückgängig auch bei Teilfehlern, App-Zugang (Client-Credentials-Grant), veraltete Stapel, Kleinigkeiten ----
+// ---- Exact undo even on partial failures, app access (client credentials grant), stale bulk edits, small things ----
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type J = Record<string, any>;
 const conf = () => ({ origin: fake.url, domain: '127.0.0.1', apiVersion: '2026-10', token: fake.token, publicUrl: '', endpoint: `${fake.url}/admin/api/2026-10/graphql.json` });
-/** Client, dessen fetch bei einer Mutation (Root-Feld) dazwischenfunkt: 'user' = userErrors (nichts geändert), 'lost' = ausgeführt, Antwort geht verloren */
+/** Client whose fetch interferes with a mutation (root field): 'user' = userErrors (nothing changed), 'lost' = executed, response gets lost */
 function faultyClient(root: string, mode: 'user' | 'lost') {
   return new ShopifyClient(conf, { fetch: async (u, i) => {
     if (typeof i?.body === 'string' && new RegExp(`\\b${root}\\(`).test(JSON.parse(i.body).query)) {
@@ -477,7 +477,7 @@ function faultyClient(root: string, mode: 'user' | 'lost') {
 }
 const withPlatform = (ops: UndoOp[]) => ops.map(o => ({ ...o, platform: 'shopify' as const }));
 
-test('Neues Produkt: scheitert ein Schritt nach dem Anlegen (Preis, Datei, Veröffentlichen), entfernt Rückgängig das Produkt trotzdem', async () => {
+test('new product: if a step after creation fails (price, file, publishing), undo still removes the product', async () => {
   const { createProduct } = await import('../../../../src/server/platform/shopify/products');
   const base = { name: 'Teilfehler', description: '<p>x</p>', price: 12, images: [] as string[], collectionIds: [C.wohn], tags: [] as string[], active: false };
   const cases: [string, Partial<typeof base>][] = [['productVariantsBulkUpdate', {}], ['fileUpdate', { images: ['32600000000001'] }], ['publishablePublish', { active: true }]];
@@ -485,34 +485,34 @@ test('Neues Produkt: scheitert ein Schritt nach dem Anlegen (Preis, Datei, Verö
     for (const mode of ['user', 'lost'] as const) {
       const before = snap(), undoOps: UndoOp[] = [];
       await assert.rejects(createProduct(faultyClient(root, mode), { ...base, ...extra }, undoOps), new RegExp(mode === 'user' ? 'Testfehler' : 'Zeitlimit'));
-      assert.ok([...fake.state.products.values()].some(p => p.title === 'Teilfehler'), `${root}/${mode}: Produkt existiert`);
-      assert.ok(undoOps.some(o => o.op === 'delete' && o.entity === 'product'), `${root}/${mode}: Löschschritt vermerkt`);
+      assert.ok([...fake.state.products.values()].some(p => p.title === 'Teilfehler'), `${root}/${mode}: product exists`);
+      assert.ok(undoOps.some(o => o.op === 'delete' && o.entity === 'product'), `${root}/${mode}: delete step recorded`);
       await undo(withPlatform(undoOps));
-      assert.deepEqual(snap(), before, `${root}/${mode}: Rückgängig exakt`);
-      assert.ok(fake.state.media.has(32600000000001), 'verknüpfte Datei bleibt erhalten');
+      assert.deepEqual(snap(), before, `${root}/${mode}: exact undo`);
+      assert.ok(fake.state.media.has(32600000000001), 'linked file is kept');
     }
   }
 });
 
-test('Produktbilder: scheitert ein Schritt nach dem Hinzufügen, löscht Rückgängig die neuen Medien und stellt die Reihenfolge wieder her', async () => {
+test('product images: if a step after adding fails, undo deletes the new media and restores the order', async () => {
   const { applyImages } = await import('../../../../src/server/platform/shopify/catalog');
   const pid = `gid://shopify/Product/${P.becher}`;
   const cases: [string, 'user' | 'lost'][] = [['fileUpdate', 'user'], ['fileUpdate', 'lost'], ['productUpdate', 'lost'], ['productReorderMedia', 'user']];
   for (const [root, mode] of cases) {
     const before = snap(), undoOps: UndoOp[] = [];
     await assert.rejects(applyImages(faultyClient(root, mode), { productId: pid, add: [{ image: 'https://example.com/neu.png', alt: 'Neu' }, { image: '32600000000001' }], remove: [], order: ['32600000000001'] }, undoOps));
-    assert.notDeepEqual(snap(), before, `${root}/${mode}: etwas wurde geschrieben`);
+    assert.notDeepEqual(snap(), before, `${root}/${mode}: something was written`);
     await undo(withPlatform(undoOps));
-    assert.deepEqual(snap(), before, `${root}/${mode}: Rückgängig exakt`);
+    assert.deepEqual(snap(), before, `${root}/${mode}: exact undo`);
   }
 });
 
-test('App-Zugang (Dev Dashboard): Token per Client-Credentials-Grant, Zwischenspeicher, Erneuern bei 401 und vor Ablauf, Fehler ohne Secret', async () => {
+test('app access (Dev Dashboard): token via client credentials grant, cache, renewal on 401 and before expiry, errors without secret', async () => {
   const { shopifyConf } = await import('../../../../src/server/platform/shopify/client');
   const { activeAuthMode, platformConfigured } = await import('@/lib/platforms');
   const vals = { storeDomain: fake.url, clientId: fake.clientId, clientSecret: fake.clientSecret };
   assert.equal(platformConfigured('shopify', vals), true); assert.equal(activeAuthMode('shopify', vals), 'app');
-  assert.equal(activeAuthMode('shopify', { storeDomain: 'x', accessToken: 'shpat_x' }), 'token', 'bestehende Token-Apps bleiben beim Token');
+  assert.equal(activeAuthMode('shopify', { storeDomain: 'x', accessToken: 'shpat_x' }), 'token', 'existing token apps stay on the token');
   const c0 = shopifyConf({ shopify: vals });
   assert.equal(c0.auth, 'app'); assert.equal(c0.token, undefined);
   assert.throws(() => shopifyConf({ shopify: { storeDomain: fake.url } }), /Client-ID und Client-Secret/);
@@ -526,20 +526,20 @@ test('App-Zugang (Dev Dashboard): Token per Client-Credentials-Grant, Zwischensp
   const c = new ShopifyClient(() => c0, { fetch: f });
   assert.equal((await c.gql<J>('{ shop { name } }')).shop.name, 'Haus Holm');
   await Promise.all([c.gql('{ shop { name } }'), c.gql('{ shop { name } }')]);
-  assert.equal(oauth, 1, 'Token wird zwischengespeichert'); assert.ok(sent.every(t => fake.appTokens.has(t)), 'App-Token im Kopf, nicht Client-Secret');
+  assert.equal(oauth, 1, 'token is cached'); assert.ok(sent.every(t => fake.appTokens.has(t)), 'app token in the header, not the client secret');
   fake.expireAppTokens();
   const m = await c.gql<J>(`mutation { productUpdate(product: { id: "gid://shopify/Product/${P.plaid}" }) { product { id } userErrors { message } } }`);
   assert.equal(m.productUpdate.product.id, `gid://shopify/Product/${P.plaid}`);
-  assert.equal(oauth, 2, 'nach 401 einmal neu geholt und wiederholt');
-  // kurze Laufzeit: vor Ablauf erneuern
+  assert.equal(oauth, 2, 'refetched once after 401 and retried');
+  // short lifetime: renew before expiry
   const short = await startFakeShopify({ port: 0, seed: false, clientCredentials: { expiresIn: 2 } });
   try {
     let n = 0;
     const sc = new ShopifyClient(() => ({ ...c0, origin: short.url, endpoint: `${short.url}/admin/api/2026-10/graphql.json` }), { fetch: async (u, i) => { if (String(u).includes('/oauth/')) n++; return fetch(u, i); } });
     await sc.gql('{ shop { name } }'); await new Promise(r => setTimeout(r, 1100)); await sc.gql('{ shop { name } }');
-    assert.equal(n, 2, 'vor Ablauf neu geholt');
+    assert.equal(n, 2, 'refetched before expiry');
   } finally { await short.close(); }
-  // falsches Secret, fremde Organisation: verständlich, ohne Secret
+  // wrong secret, foreign organization: understandable, without secret
   const bad = new ShopifyClient(() => ({ ...c0, clientSecret: 'geheimes-falsches-secret-123' }));
   await assert.rejects(bad.gql('{ shop { name } }'), (e: Error) => /Client-ID oder Client-Secret ungültig/.test(e.message) && !e.message.includes('geheimes-falsches'));
   const other = await startFakeShopify({ port: 0, seed: false, clientCredentials: { shopPermitted: false } });
@@ -548,17 +548,17 @@ test('App-Zugang (Dev Dashboard): Token per Client-Credentials-Grant, Zwischensp
     await assert.rejects(oc.gql('{ shop { name } }'), /selben Shopify-Organisation/);
   } finally { await other.close(); }
   const dump = JSON.stringify(c);
-  assert.ok(!dump.includes(fake.clientSecret) && ![...fake.appTokens.keys()].some(t => dump.includes(t)), 'kein Secret/Token im Objekt');
+  assert.ok(!dump.includes(fake.clientSecret) && ![...fake.appTokens.keys()].some(t => dump.includes(t)), 'no secret/token in the object');
 });
 
-test('Stapel: inzwischen geänderte Produkte werden nicht überschrieben; Money-Werte exakt rückgängig', async () => {
+test('bulk edit: products changed meanwhile are not overwritten; money values undone exactly', async () => {
   const { bulkStale, planBulk } = await import('../../../../src/server/platform/shopify/products');
   const { money, moneyRaw, currencyDigits } = await import('../../../../src/server/platform/shopify/data');
   assert.equal(money(49, 'EUR'), '49.00'); assert.equal(money(1.2345, 'KWD'), '1.235'); assert.equal(money(1000, 'JPY'), '1000'); assert.equal(money(904.5, 'JPY'), '905'); assert.equal(money(7.1), '7.10'); assert.equal(currencyDigits('KWD'), 3);
   assert.equal(moneyRaw('1.250'), '1.250'); assert.equal(moneyRaw(null), null);
   const p = { id: 'gid://shopify/Product/1', status: 'ACTIVE', tags: ['A'], variants: { nodes: [{ id: 'v1', price: '10.00', compareAtPrice: null }] } };
   const { plan } = planBulk(p, { price: { add: 1 }, tags: { add: ['B'] } }, 'EUR');
-  // Mehrere Varianten: Anzahl steht in der Zusammenfassung (vorher immer wie eine Einzelpreisänderung)
+  // Multiple variants: the count appears in the summary (previously always like a single price change)
   const multi = planBulk({ ...p, variants: { nodes: [{ id: 'v1', price: '18.00', compareAtPrice: null }, { id: 'v2', price: '18.00', compareAtPrice: '22.00' }] } }, { price: { percent: -10, round: '.90' } }, 'EUR');
   assert.deepEqual([multi.before, multi.after], [['Preis 18,00 € (2 Varianten)'], ['Preis 15,90 € (2 Varianten)']]);
   assert.deepEqual([planBulk(p, { price: { add: 1 } }, 'EUR').before, planBulk(p, { price: { add: 1 } }, 'EUR').after], [['Preis 10,00 €'], ['Preis 11,00 €']]);
@@ -566,24 +566,24 @@ test('Stapel: inzwischen geänderte Produkte werden nicht überschrieben; Money-
   assert.equal(bulkStale(plan!, p, vs('10.0')), null);
   assert.equal(bulkStale(plan!, p, vs('12.00')), 'Preis');
   assert.equal(bulkStale(plan!, { ...p, tags: ['A', 'C'] }, vs('10.00')), 'Tags');
-  // echt: zwischen Vorschlag und Freigabe ändert jemand den Preis der Vase
+  // real: between proposal and approval someone changes the vase's price
   const v = fake.state.variants.get(51200000000001)!, orig = v.price;
   const before = snap();
   decide = () => { v.price = '55.00'; return true; };
   json(await call('propose_bulk_product_change', { title: 'x', reason: 'x', filter: { collectionId: C.wohn }, change: { price: { add: 1 } } }));
   decide = true;
   const res = lastResult();
-  assert.equal(v.price, '55.00', 'neuere Änderung nicht überschrieben');
+  assert.equal(v.price, '55.00', 'newer change not overwritten');
   assert.equal(res.counts?.failed, 1); assert.match(JSON.stringify(res.results), /Seit dem Vorschlag im Shop geändert \(Preis\)/);
   await undo(res.undo!);
   v.price = orig; assert.deepEqual(snap(), before);
-  // Rückgängig schreibt den gelesenen Money-String unverändert zurück (keine Rundung; der Fake liefert immer 2 Stellen, Shopify je nach Währung)
+  // Undo writes back the read money string unchanged (no rounding; the fake always returns 2 digits, Shopify depending on currency)
   await roundtrip('propose_product_changes', { title: 't', reason: 'r', changes: [{ id: P.vase, fields: { price: 20 } }] }, () => assert.equal(fake.state.variants.get(51200000000001)!.price, '20.00'));
   const back = lastResult().undo!.find(o => o.op === 'req' && o.entity === 'variants')!.body as J;
   assert.equal(back.variables.variants[0].price, '49.00');
 });
 
-test('Steuer: Produkt-Werkzeuge sagen, ob Preise die Steuer enthalten; Rückgängig nimmt nur wortgleiche Mutationen', async () => {
+test('tax: product tools say whether prices include tax; undo only accepts verbatim mutations', async () => {
   assert.equal(json(await call('get_product', { id: P.vase })).pricesIncludeTax, true);
   assert.equal(json(await call('list_products', { limit: 1 })).pricesIncludeTax, true);
   const { M } = await import('../../../../src/server/platform/shopify/ops');
@@ -592,7 +592,7 @@ test('Steuer: Produkt-Werkzeuge sagen, ob Preise die Steuer enthalten; Rückgän
   assert.equal(r[0].ok, false); assert.match(String(r[0].error), /Ungültiger Rückgängig-Schritt/);
 });
 
-test('Kollektion mit mehr als 250 Produkten: Rückgängig stellt die manuelle Position auch hinter Platz 250 wieder her', async () => {
+test('collection with more than 250 products: undo restores the manual position even beyond position 250', async () => {
   const wohn = fake.state.collections.get(Number(C.wohn))!;
   const added = Array.from({ length: 260 }, (_, i) => fake.state.addProduct({ title: `Lang ${i}`, tags: ['Lang'], variants: [{ price: '5', sku: `L-${i}` }] }).id);
   const start = wohn.productIds.length;
@@ -601,16 +601,16 @@ test('Kollektion mit mehr als 250 Produkten: Rückgängig stellt die manuelle Po
   await roundtrip('propose_collection_products', { title: 'P', reason: 'P', collectionId: C.wohn, remove: [target] }, () => {
     assert.ok(!fake.state.collections.get(Number(C.wohn))!.productIds.includes(Number(target)));
   });
-  assert.equal(wohn.productIds.indexOf(Number(target)), start + 255, 'wieder an alter Position');
+  assert.equal(wohn.productIds.indexOf(Number(target)), start + 255, 'back at the old position');
   wohn.productIds = wohn.productIds.filter(id => !added.includes(id));
   for (const id of added) fake.state.products.delete(id);
 });
 
-// ---- Verlorene Antworten, Varianten mit updateAll, Sommerzeit, 5xx, Bereiche, Stapel-Grenzen, gebündelte Abfragen ----
+// ---- Lost responses, variants with updateAll, daylight saving time, 5xx, scopes, bulk limits, batched queries ----
 const rq: Q = (d, v) => (session.reader as InstanceType<typeof ShopifyReader>).query(d, v);
 const allOf = (cs: { items: { id: string }[] }) => new Set(cs.items.map(i => i.id));
 
-test('Name inzwischen geändert: die Zeile wird nicht geschrieben, der Hersteller derselben Entität schon', async () => {
+test('name changed meanwhile: the row is not written, the manufacturer of the same entity is', async () => {
   const { applyProducts, buildProductChangeSet } = await import('../../../../src/server/platform/shopify/products');
   const { applyCollections, buildCollectionChangeSet } = await import('../../../../src/server/platform/shopify/catalog');
   const product = fake.state.products.get(Number(P.vase))!;
@@ -643,10 +643,10 @@ test('Name inzwischen geändert: die Zeile wird nicht geschrieben, der Herstelle
   col.title = 'Wohnaccessoires';
   assert.deepEqual(snap(), beforeC);
 });
-/** Anfragen im Fake-Protokoll, deren Query den Text enthält (seit Index from) */
+/** Requests in the fake log whose query contains the text (since index from) */
 const requestsLike = (from: number, re: RegExp) => fake.state.requestLog.slice(from).filter(r => re.test(r.query)).length;
 
-test('Verlorene Antwort nach dem Senden: jede Schreibung vermerkt ihr Rückgängig, die Zeile meldet den Fehler, Rückgängig ist exakt', async () => {
+test('lost response after sending: every write records its undo, the row reports the error, undo is exact', async () => {
   const { applyProducts, buildProductChangeSet, applyBulk, bulkChangeSet, scanProducts, applyVariants, buildVariantsChangeSet } = await import('../../../../src/server/platform/shopify/products');
   const { applyCollections, buildCollectionChangeSet, applyNewCollections, buildNewCollectionsChangeSet, applyCollectionProducts, buildCollectionProductsChangeSet, applyAltTexts, buildAltTextChangeSet, applyHandles, buildHandlesChangeSet } = await import('../../../../src/server/platform/shopify/catalog');
   const { applyTranslations, buildTranslationChangeSet, applyPromotion, buildPromotionChangeSet, applyPromotionStatus, buildPromotionStatusChangeSet } = await import('../../../../src/server/platform/shopify/content');
@@ -674,32 +674,32 @@ test('Verlorene Antwort nach dem Senden: jede Schreibung vermerkt ihr Rückgäng
   for (const [root, label, run] of cases) {
     const before = snap();
     const r = await run(faultyClient(root, 'lost'));
-    assert.ok(r.results.length && r.results.every(x => !x.ok), `${label}: Zeile meldet den Fehler (${JSON.stringify(r.results)})`);
-    assert.notDeepEqual(snap(), before, `${label}: die Mutation hat trotz verlorener Antwort gewirkt`);
-    assert.ok(r.undo.length, `${label}: Rückgängig vermerkt`);
+    assert.ok(r.results.length && r.results.every(x => !x.ok), `${label}: row reports the error (${JSON.stringify(r.results)})`);
+    assert.notDeepEqual(snap(), before, `${label}: the mutation took effect despite the lost response`);
+    assert.ok(r.undo.length, `${label}: undo recorded`);
     await undo(withPlatform(r.undo));
-    assert.deepEqual(snap(), before, `${label}: Rückgängig exakt`);
+    assert.deepEqual(snap(), before, `${label}: exact undo`);
   }
-  // Anlegen mit verlorener Antwort: Produkt per Titel nachgelesen und zum Löschen vorgemerkt
+  // Create with lost response: product looked up by title and marked for deletion
   const { createProduct } = await import('../../../../src/server/platform/shopify/products');
   const before = snap(), ops: UndoOp[] = [];
   await assert.rejects(createProduct(faultyClient('productCreate', 'lost'), { name: 'Verlorene Kanne', description: '<p>x</p>', price: 5, images: [], collectionIds: [], tags: [], active: false }, ops), /Zeitlimit/);
   assert.ok([...fake.state.products.values()].some(p => p.title === 'Verlorene Kanne'));
-  assert.ok(ops.some(o => o.op === 'delete' && o.entity === 'product'), 'Löschschritt vermerkt');
+  assert.ok(ops.some(o => o.op === 'delete' && o.entity === 'product'), 'delete step recorded');
   await undo(withPlatform(ops));
   assert.deepEqual(snap(), before);
-  // bei userErrors hat Shopify nichts geändert: kein Rückgängig-Schritt
+  // with userErrors Shopify changed nothing: no undo step
   const r = await (async () => { const cs = await buildCollectionChangeSet(rq, { title: 't', reason: 'r', changes: [{ id: C.wohn, fields: { metaTitle: 'Nie' } }] }); return applyCollections(faultyClient('collectionUpdate', 'user'), cs, allOf(cs)); })();
   assert.equal(r.undo.length, 0); assert.deepEqual(snap(), before);
 });
 
-test('Zwischenstand (B1): Executor ohne applyEach melden Rückgängig-Schritte, bevor das Ergebnis steht (Rabatt anlegen, Kollektion, Varianten)', async () => {
+test('interim state (B1): executors without applyEach report undo steps before the result is final (create discount, collection, variants)', async () => {
   const { applyCollections, buildCollectionChangeSet } = await import('../../../../src/server/platform/shopify/catalog');
   const { applyPromotion, buildPromotionChangeSet } = await import('../../../../src/server/platform/shopify/content');
   const { applyVariants, buildVariantsChangeSet } = await import('../../../../src/server/platform/shopify/products');
   const shop = { currency: 'EUR', timezone: 'Europe/Berlin' }, before = snap();
   const ticks: { done: number; total: number; undo: number }[] = [], ctx = { progress: (done: number, total: number, p?: { undo: UndoOp[] }) => ticks.push({ done, total, undo: p?.undo.length ?? -1 }) };
-  // Rabatt anlegen mit verlorener Antwort: der Löschschritt steht schon im Zwischenstand, obwohl die Zeile am Ende „fehlgeschlagen“ meldet
+  // Create discount with lost response: the delete step is already in the interim state, although the row reports "fehlgeschlagen" (failed) at the end
   const { cs: pcs, payload } = await buildPromotionChangeSet(rq, { reason: 'r', title: 'Zwischen', code: 'ZWISCH1', type: 'percentage', value: 5 }, shop);
   const pr = await applyPromotion(faultyClient('discountCodeBasicCreate', 'lost'), pcs, payload as { id?: string; input: J }, allOf(pcs), ctx);
   assert.ok(pr.results.every(x => !x.ok) && pr.undo.length);
@@ -709,33 +709,33 @@ test('Zwischenstand (B1): Executor ohne applyEach melden Rückgängig-Schritte, 
   const ccs = await buildCollectionChangeSet(rq, { title: 't', reason: 'r', changes: [{ id: C.wohn, fields: { metaTitle: 'Zwischen', active: false } }] });
   const cr = await applyCollections(new ShopifyClient(conf), ccs, allOf(ccs), ctx);
   assert.ok(cr.results.every(x => x.ok));
-  assert.deepEqual(ticks.at(-1), { done: 2, total: 2, undo: cr.undo.length }, 'ein Tick je Kollektion mit allen Zeilen');
+  assert.deepEqual(ticks.at(-1), { done: 2, total: 2, undo: cr.undo.length }, 'one tick per collection with all rows');
   await undo(withPlatform(cr.undo)); assert.deepEqual(snap(), before);
   ticks.length = 0;
   const vcs = await buildVariantsChangeSet(rq, { title: 't', reason: 'r', productId: P.becher, create: [{ options: { Farbe: 'Salbei', Größe: '350 ml' }, price: 11 }] }, 'EUR');
   const vr = await applyVariants(new ShopifyClient(conf), vcs, allOf(vcs), ctx);
   assert.ok(vr.results.every(x => x.ok) && vr.undo.length);
-  assert.ok(ticks.some(t => t.undo === vr.undo.length), 'Löschschritt der neuen Variante gemeldet');
+  assert.ok(ticks.some(t => t.undo === vr.undo.length), 'delete step of the new variant reported');
   await undo(withPlatform(vr.undo)); assert.deepEqual(snap(), before);
 });
 
-test('Varianten: updateAll gilt für alle Varianten, update derselben Variante ergänzt feldweise (SKU + Preisregel): rückgängig', async () => {
+test('variants: updateAll applies to all variants, update of the same variant adds per field (SKU + price rule): undo', async () => {
   await roundtrip('propose_variants', { title: 'V', reason: 'V', productId: P.becher, update: [{ id: '51200000000005', sku: 'HH-B-N' }, { id: '51200000000001', sku: 'FREMD' }], updateAll: { price: { percent: -10 } } }, () => {
     const b = [...fake.state.variants.values()].filter(v => String(v.productId) === P.becher);
-    assert.deepEqual(b.map(v => v.price), ['16.20', '16.20', '16.20', '16.20'], 'Preisregel wirkt auch auf die Variante mit eigener SKU-Änderung');
+    assert.deepEqual(b.map(v => v.price), ['16.20', '16.20', '16.20', '16.20'], 'price rule also applies to the variant with its own SKU change');
     assert.equal(fake.state.variants.get(51200000000005)!.sku, 'HH-B-N');
   });
   const cs = lastSet();
   assert.equal(cs.items.filter(i => i.field === 'price').length, 4); assert.equal(cs.items.filter(i => i.field === 'sku').length, 1);
-  assert.ok(cs.skipped.some(s => s.id === '51200000000001' && /gehört nicht/.test(s.reason)), 'fremde Variante bleibt übersprungen');
-  // update hat feldweise Vorrang vor updateAll
+  assert.ok(cs.skipped.some(s => s.id === '51200000000001' && /gehört nicht/.test(s.reason)), 'foreign variant stays skipped');
+  // update takes precedence over updateAll per field
   decide = false;
   json(await call('propose_variants', { title: 'V', reason: 'V', productId: P.becher, update: [{ id: '51200000000005', price: 30 }], updateAll: { price: { percent: -10 } } }));
   decide = true;
   assert.equal(lastSet().items.find(i => i.id === '51200000000005:price')?.after, '30,00 €');
 });
 
-test('Rabatte: Tagesdaten gelten in der Shop-Zeitzone (Sommerzeit), Karte zeigt den eingegebenen Tag; aktivieren stellt beim Rückgängig das Enddatum wieder her', async () => {
+test('discounts: day dates apply in the shop time zone (DST), card shows the entered day; activating restores the end date on undo', async () => {
   const { toIso } = await import('../../../../src/server/platform/shopify/content');
   const berlin = (iso: string) => new Date(iso).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
   assert.equal(berlin(toIso('2026-07-31', true)), '31.7.2026, 23:59:59'); assert.equal(berlin(toIso('2026-07-01')), '1.7.2026, 00:00:00');
@@ -747,7 +747,7 @@ test('Rabatte: Tagesdaten gelten in der Shop-Zeitzone (Sommerzeit), Karte zeigt 
     assert.equal(berlin(d.startsAt), '1.7.2026, 00:00:00'); assert.equal(berlin(d.endsAt!), '31.7.2026, 23:59:59');
   });
   assert.match(lastSet().items[0].after, /1\.7\.2026 bis 31\.7\.2026/);
-  // abgelaufener Rabatt wieder aktivieren: Enddatum entfällt, Rückgängig stellt es wieder her
+  // reactivate an expired discount: end date is removed, undo restores it
   json(await call('propose_promotion', { reason: 'x', title: 'Winter', code: 'WINTER5', type: 'percentage', value: 5, startsAt: '2026-01-01', endsAt: '2026-02-01' }));
   const id = String([...fake.state.discounts.values()].find(d => d.title === 'Winter')!.id);
   assert.equal(json(await call('get_promotion', { id })).status, 'abgelaufen');
@@ -757,20 +757,20 @@ test('Rabatte: Tagesdaten gelten in der Shop-Zeitzone (Sommerzeit), Karte zeigt 
   assert.equal(berlin(fake.state.discounts.get(Number(id))!.endsAt!), '1.2.2026, 23:59:59');
 });
 
-test('Client: 5xx wird nur beim Lesen wiederholt; eine Mutation geht genau einmal raus und schreibt nicht doppelt', async () => {
+test('client: 5xx is retried only for reads; a mutation is sent exactly once and does not write twice', async () => {
   let sent = 0;
   const c = new ShopifyClient(conf, { sleep: async () => {}, fetch: async (u, i) => { sent++; return fetch(u, i); } });
   fake.failNext({ status: 503 });
-  assert.equal((await c.gql<J>('{ shop { name } }')).shop.name, 'Haus Holm'); assert.equal(sent, 2, 'Lesen: ein Fehlversuch, dann wiederholt');
+  assert.equal((await c.gql<J>('{ shop { name } }')).shop.name, 'Haus Holm'); assert.equal(sent, 2, 'read: one failed attempt, then retried');
   const title = fake.state.products.get(Number(P.plaid))!.title, n0 = fake.state.requestLog.length;
   sent = 0; fake.failNext({ status: 502 });
   await assert.rejects(c.gql(`mutation { productUpdate(product: { id: "gid://shopify/Product/${P.plaid}", title: "Doppelt" }) { product { id } userErrors { message } } }`), /HTTP 502/);
-  assert.equal(sent, 1, 'Mutation nicht wiederholt'); assert.equal(fake.state.products.get(Number(P.plaid))!.title, title);
-  assert.equal(requestsLike(n0, /productUpdate/), 0, 'die abgewiesene Mutation wurde nie ausgeführt');
-  assert.equal((await c.gql<J>('{ shop { name } }')).shop.name, 'Haus Holm', 'Fehlerwarteschlange ist verbraucht');
+  assert.equal(sent, 1, 'mutation not retried'); assert.equal(fake.state.products.get(Number(P.plaid))!.title, title);
+  assert.equal(requestsLike(n0, /productUpdate/), 0, 'the rejected mutation was never executed');
+  assert.equal((await c.gql<J>('{ shop { name } }')).shop.name, 'Haus Holm', 'error queue is used up');
 });
 
-test('Reader-Bereiche: Kategorien sperren Kollektionen auch verschachtelt, Marketing sperrt Rabatte; Produkte bleiben lesbar', async () => {
+test('reader scopes: categories block collections even nested, marketing blocks discounts; products stay readable', async () => {
   const reader = session.reader as InstanceType<typeof ShopifyReader>;
   updateSettings({ scopes: { categories: false } });
   try {
@@ -787,22 +787,22 @@ test('Reader-Bereiche: Kategorien sperren Kollektionen auch verschachtelt, Marke
   } finally { updateSettings({ scopes: { marketing: true } }); }
 });
 
-test('Stapel: nur die Gruppe „ohne Auffälligkeiten“ freigeben lässt die Warn-Gruppe unangetastet; Obergrenze bricht vor dem Änderungsset ab', async () => {
+test('bulk edit: approving only the "ohne Auffälligkeiten" (no issues) group leaves the warning group untouched; the upper limit aborts before the change set', async () => {
   const { scanProducts } = await import('../../../../src/server/platform/shopify/products');
   await assert.rejects(scanProducts(rq, { tag: 'Serie' }, 5), /Mehr als 5 Produkte/);
   decide = cs => { assert.deepEqual(cs.items.map(i => i.id), ['grp:ok', 'grp:warn']); return ['grp:ok']; };
   const before = snap(), vase = fake.state.variants.get(51200000000001)!.compareAtPrice, plaid = fake.state.variants.get(51200000000006)!.compareAtPrice;
-  // Streichpreis 30: Becher (18 €) ohne Auffälligkeit, Vase (49 €) und Plaid (89 €) mit Warnung „Streichpreis ≤ Preis“
+  // List price 30: mug (18 €) without issues, vase (49 €) and plaid (89 €) with warning "Streichpreis ≤ Preis"
   const out = json(await call('propose_bulk_product_change', { title: 'x', reason: 'x', filter: { collectionId: C.wohn }, change: { listPrice: { set: 30 } } }));
   decide = true;
   assert.equal(out.status, 'applied'); assert.equal(lastResult().counts?.applied, 1);
   assert.equal(fake.state.variants.get(51200000000002)!.compareAtPrice, '30.00');
-  assert.equal(fake.state.variants.get(51200000000001)!.compareAtPrice, vase, 'Warn-Gruppe unangetastet'); assert.equal(fake.state.variants.get(51200000000006)!.compareAtPrice, plaid);
+  assert.equal(fake.state.variants.get(51200000000001)!.compareAtPrice, vase, 'warning group untouched'); assert.equal(fake.state.variants.get(51200000000006)!.compareAtPrice, plaid);
   await undo(lastResult().undo!);
   assert.deepEqual(snap(), before);
 });
 
-test('Rückgängig: Anlege-Mutationen sind keine erlaubten Rückgängig-Schritte', async () => {
+test('undo: create mutations are not allowed undo steps', async () => {
   const { M } = await import('../../../../src/server/platform/shopify/ops');
   for (const q of [M.productCreate, M.collectionCreate, M.discountCreate, M.variantsCreate, M.pageCreate, M.fileCreate]) {
     const r = await shopify.undo([{ op: 'req', entity: 'x', id: '1', method: 'POST', path: 'graphql', body: { query: q, variables: {} }, platform: 'shopify' }]);
@@ -810,27 +810,27 @@ test('Rückgängig: Anlege-Mutationen sind keine erlaubten Rückgängig-Schritte
   }
 });
 
-test('Gebündelte Abfragen: Rabatte per nodes, Weiterleitungen und Handle-Prüfung je Abfrage statt je Zeile; Stapel-Scan mit 50 je Seite', async () => {
+test('batched queries: discounts via nodes, redirects and handle check per query instead of per row; bulk scan with 50 per page', async () => {
   const { discountsByIds } = await import('../../../../src/server/platform/shopify/content');
   const { scanProducts, BULK_PAGE } = await import('../../../../src/server/platform/shopify/products');
   const ids = [...fake.state.discounts.values()].map(d => String(d.id)); assert.ok(ids.length >= 2);
   let n = fake.state.requestLog.length;
   const rows = await discountsByIds(rq, [...ids, '1']);
-  assert.equal(rows.length, ids.length); assert.equal(fake.state.requestLog.length - n, 1, 'eine Abfrage für alle Rabatte');
+  assert.equal(rows.length, ids.length); assert.equal(fake.state.requestLog.length - n, 1, 'one query for all discounts');
   n = fake.state.requestLog.length;
   const seo = json(await call('get_seo_urls', { productIds: [P.vase, P.becher], categoryIds: [C.wohn], pageIds: ['129000000001'] }));
-  assert.equal(seo.length, 4); assert.equal(requestsLike(n, /Redirects/), 1, 'eine Abfrage für alle Weiterleitungen');
+  assert.equal(seo.length, 4); assert.equal(requestsLike(n, /Redirects/), 1, 'one query for all redirects');
   n = fake.state.requestLog.length; decide = false;
   json(await call('propose_seo_urls', { title: 'U', reason: 'U', changes: [{ entity: 'product', id: P.vase, slug: 'a-1' }, { entity: 'product', id: P.becher, slug: 'vase-kiesel' }, { entity: 'product', id: P.plaid, slug: 'a-3' }, { entity: 'category', id: C.wohn, slug: 'keramik' }] }));
   decide = true;
-  assert.equal(requestsLike(n, /Taken/), 2, 'je Art eine Abfrage');
+  assert.equal(requestsLike(n, /Taken/), 2, 'one query per kind');
   assert.deepEqual(lastSet().skipped.map(s => s.reason).sort(), ['/collections/keramik ist schon vergeben', '/products/vase-kiesel ist schon vergeben']);
   n = fake.state.requestLog.length;
   assert.equal((await scanProducts(rq, { tag: 'Serie' })).length, 140);
-  assert.equal(requestsLike(n, /SearchProducts/), Math.ceil(140 / BULK_PAGE), 'Seiten zu je BULK_PAGE Produkten');
+  assert.equal(requestsLike(n, /SearchProducts/), Math.ceil(140 / BULK_PAGE), 'pages of BULK_PAGE products each');
 });
 
-test('Karte: Bildänderungen zeigen Dateinamen statt Markup, Alt-Texte ohne leeren Vergleich', async () => {
+test('card: image changes show file names instead of markup, alt texts without empty comparison', async () => {
   decide = false;
   json(await call('propose_product_images', { title: 'B', reason: 'B', products: [{ productId: P.becher, cover: '32600000000003' }] }));
   const im = lastSet().items[0];

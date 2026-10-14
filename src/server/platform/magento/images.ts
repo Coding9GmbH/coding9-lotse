@@ -1,12 +1,12 @@
 import 'server-only';
-// Magento: Produktbilder (Galerie: hinzufügen, ausblenden, sortieren, Titelbild), Alt-Texte (Galerie-Label) und neue Produkte.
-// Galerie-Rollen (image/small_image/thumbnail/swatch_image) sind Produktattribute mit dem Dateipfad – Rückgängig setzt sie exakt zurück.
-// „Entfernen“ blendet ein Bild aus (disabled = „Auf Produktseite ausblenden“) statt die Datei zu löschen: so ist Rückgängig exakt.
+// Magento: product images (gallery: add, hide, sort, cover image), alt texts (gallery label) and new products.
+// Gallery roles (image/small_image/thumbnail/swatch_image) are product attributes holding the file path; undo restores them exactly.
+// "Remove" hides an image (disabled = "Hide from Product Page") instead of deleting the file, so undo is exact.
 import type { ChangeAsset, ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { downloadImage, readStaged, stagedMeta } from '../../media';
 import { applyEach, errMsg, MAX_ITEMS, newIdSafe, partialTicker, pool, WRITE_CONCURRENCY, type ApplyResult } from './kit';
 import { skuPath, type MagentoClient } from './client';
-import { attr, attrStr, basisWord, coverEntry, IMAGE_ROLES, COVER_TYPES, mediaId, money, needBasis, parseMediaId, plain, sameValue, urlKey, type MGalleryEntry, type MProduct, type MRecord } from './map';
+import { attrStr, basisWord, coverEntry, IMAGE_ROLES, COVER_TYPES, mediaId, money, needBasis, parseMediaId, plain, sameValue, urlKey, type MGalleryEntry, type MProduct, type MRecord } from './map';
 import type { MagentoReader } from './reader';
 import { productLabel, stockSource } from './catalog';
 import { getEnt, mainStoreCode, reg, reqOp } from './write';
@@ -15,7 +15,7 @@ export const ALT_MAX = 125;
 const IMG_MIME = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 const fileName = (e: MGalleryEntry) => String(e.file ?? '').split('/').pop() || `Bild ${e.id}`;
 
-/** Bild-Inhalt für die REST-Galerie (base64): vorgemerkt (staged:…), Magento-Medium (mg-…) oder https-URL */
+/** Image content for the REST gallery (base64): staged (staged:…), Magento media (mg-…) or https URL */
 async function imageContent(c: MagentoClient, ref: string, name: string): Promise<{ base64_encoded_data: string; type: string; name: string }> {
   let buf: Buffer, mime: string, base = urlKey(name) || 'bild';
   if (ref.startsWith('staged:')) {
@@ -35,7 +35,7 @@ async function imageContent(c: MagentoClient, ref: string, name: string): Promis
   if (!IMG_MIME.has(mime)) throw new Error(`Bildtyp ${mime} wird von der Magento-Galerie nicht unterstützt (JPG, PNG, GIF, WebP)`);
   return { base64_encoded_data: buf.toString('base64'), type: mime, name: `${base}.${mime.split('/')[1].replace('jpeg', 'jpg')}` };
 }
-/** Prüft eine Bildquelle beim Bauen (ohne zu laden) und liefert eine Vorschau-URL */
+/** Checks an image source while building (without loading it) and returns a preview URL */
 async function imagePreview(ro: MagentoReader, ref: string): Promise<string> {
   if (ref.startsWith('staged:')) { const m = stagedMeta(ref.slice(7)); if (!m) throw new Error(`Vorgemerktes Bild ${ref} nicht gefunden`); return `/staged/${m.file}`; }
   const mid = parseMediaId(ref);
@@ -44,9 +44,9 @@ async function imagePreview(ro: MagentoReader, ref: string): Promise<string> {
   throw new Error(`Bildquelle ${ref}: mediaId (mg-…), staged:… oder https-URL erwartet`);
 }
 
-// ================= Produktbilder =================
+// ================= Product images =================
 export interface ImagesArgs { title: string; reason: string; products: { productId: string; add?: { image: string; position?: number; cover?: boolean; alt?: string }[]; remove?: string[]; order?: string[]; cover?: string }[] }
-/** Plan je Produkt: Zielzustand der vorhandenen Einträge + neue Bilder; cover = Eintrag-ID oder „new:<index>“ */
+/** Plan per product: target state of the existing entries + new images; cover = entry ID or "new:<index>" */
 export interface ImagesPlan { sku: string; adds: { ref: string; label: string; position: number }[]; entries: { id: number; position: number; disabled: boolean }[]; cover: string | null }
 
 export async function buildProductImagesChangeSet(ro: MagentoReader, a: ImagesArgs): Promise<{ cs: ChangeSet; payload: { plans: Record<string, ImagesPlan>; store: string } }> {
@@ -61,7 +61,7 @@ export async function buildProductImagesChangeSet(ro: MagentoReader, a: ImagesAr
       const find = (ref: string) => { const mid = parseMediaId(ref); const eid = mid && mid.productId === id ? mid.entryId : /^\d+$/.test(ref) ? Number(ref) : null; return entries.find(e => e.id === eid) ?? null; };
       const hide = new Set<number>();
       for (const r of x.remove ?? []) { const e = find(r); if (!e) throw new Error(`Bild ${r} gehört nicht zu diesem Produkt`); hide.add(e.id); }
-      // Reihenfolge: sichtbare Bilder in aktueller Reihenfolge, neue Bilder an ihrer Position bzw. hinten
+      // Order: visible images in current order, new images at their position or at the end
       type Slot = { kind: 'old'; e: MGalleryEntry } | { kind: 'new'; i: number };
       const slots: Slot[] = entries.filter(e => !e.disabled && !hide.has(e.id)).map(e => ({ kind: 'old', e }));
       const adds: ImagesPlan['adds'] = [];
@@ -86,7 +86,7 @@ export async function buildProductImagesChangeSet(ro: MagentoReader, a: ImagesAr
       if (!cover && curCover && hide.has(curCover.id)) { const first = slots[0]; cover = first ? (first.kind === 'old' ? String(first.e.id) : `new:${first.i}`) : null; }
       if (!cover && !curCover && slots.length) { const first = slots[0]; cover = first.kind === 'old' ? String(first.e.id) : `new:${first.i}`; }
       if (cover && curCover && cover === String(curCover.id)) cover = null;
-      // Positionen 1..n für sichtbare, ausgeblendete dahinter
+      // Positions 1..n for visible ones, hidden ones after them
       const planEntries: ImagesPlan['entries'] = [];
       slots.forEach((s, k) => { if (s.kind === 'old') planEntries.push({ id: s.e.id, position: k + 1, disabled: false }); else adds[s.i].position = k + 1; });
       entries.filter(e => e.disabled || hide.has(e.id)).forEach((e, k) => planEntries.push({ id: e.id, position: slots.length + k + 1, disabled: true }));
@@ -114,10 +114,10 @@ const roleBody = (sku: string, roles: Record<string, unknown>) => ({ product: { 
 const ROLE_LABELS = ['image_label', 'small_image_label', 'thumbnail_label'] as const;
 
 /**
- * Store-View mit eigenen Galeriewerten (im Admin in der View gespeichert: label/position/disabled je Store): die globale Änderung
- * kommt dort nicht an. Darum Position, Sichtbarkeit und Titelbild-Rollen der geplanten Einträge in der View nachziehen und prüfen.
- * Ein Galerie-PUT in der View schreibt alle Galeriewerte und Rollen als Werte der View (Magento hat dafür kein „Standardwert
- * verwenden“ per REST); Rückgängig: Vorher-Werte der Einträge, Rollen der View bzw. null = wieder geerbt (gleich wie global).
+ * Store view with its own gallery values (saved in the admin in the view: label/position/disabled per store): the global change
+ * doesn't reach it. So apply and verify position, visibility and cover image roles of the planned entries in the view as well.
+ * A gallery PUT in the view writes all gallery values and roles as values of the view (Magento has no "Use Default
+ * Value" for this via REST); undo: previous values of the entries, roles of the view or null = inherited again (same as global).
  */
 async function fixStoreView(c: MagentoClient, plan: ImagesPlan, store: string, coverId: number | null): Promise<UndoOp[]> {
   if (store === 'all') return [];
@@ -132,7 +132,7 @@ async function fixStoreView(c: MagentoClient, plan: ImagesPlan, store: string, c
   }
   if (coverId != null && !plan.entries.some(pe => pe.id === coverId)) { const e = entries.find(x => x.id === coverId); if (e && !e.types?.includes('image')) fixes.push({ e, over: { types: withCover(e) } }); }
   if (!fixes.length) return [];
-  // Rollen plus die davon abgeleiteten Bildtitel (image_label …), die Magento beim Galerie-Save je Store neu setzt (live geprüft)
+  // Roles plus the image titles derived from them (image_label …) that Magento resets per store on gallery save (verified live)
   const roles = Object.fromEntries([...IMAGE_ROLES, ...ROLE_LABELS].map(r => { const v = attrStr(view, r), g = attrStr(glob, r); return [r, sameValue(v, g) ? null : v]; }));
   const path = `/${store}/V1/products/${skuPath(plan.sku)}`, undo: UndoOp[] = [reqOp('product', plan.sku, 'PUT', path, roleBody(plan.sku, roles))];
   for (const { e, over } of fixes) {
@@ -172,10 +172,10 @@ export async function applyImages(c: MagentoClient, plan: ImagesPlan, store = c.
     const coverId = plan.cover ? (plan.cover.startsWith('new:') ? newIds[Number(plan.cover.slice(4))] ?? null : Number(plan.cover)) : null;
     viewUndo.push(...await fixStoreView(c, plan, store, coverId));
   } catch (err) {
-    // Teilweise geschrieben: Rückgängig-Schritte trotzdem liefern, damit nichts verwaist
+    // Partially written: still return undo steps so nothing is orphaned
     throw Object.assign(new Error(errMsg(err)), { undo: [...deletes, roleRestore, ...restores, ...viewUndo, ...((err as { undo?: UndoOp[] }).undo ?? [])] });
   }
-  // Ausführung rückwärts: Store-View zurück → Einträge zurücksetzen → Rollen exakt wiederherstellen → neue Einträge löschen
+  // Executed in reverse: restore store view → reset entries → restore roles exactly → delete new entries
   return [...deletes, roleRestore, ...restores, ...viewUndo];
 }
 reg.register('product-media', async (c, cs, payload, selected, ctx) => {
@@ -189,7 +189,7 @@ reg.register('product-media', async (c, cs, payload, selected, ctx) => {
   return { results, undo };
 });
 
-// ================= Alt-Texte (Galerie-Label) =================
+// ================= Alt texts (gallery label) =================
 export interface AltArgs { title: string; reason: string; images: { mediaId: string; alt: string }[] }
 export async function buildAltTextChangeSet(ro: MagentoReader, a: AltArgs, viewed: Set<string>): Promise<{ cs: ChangeSet; payload: { skus: Record<string, string>; store: string } }> {
   if (!a.images?.length) throw new Error('images ist leer');
@@ -221,19 +221,19 @@ reg.register('media-alt', async (c, cs, payload, selected, ctx) => {
     const [inView, glob] = await Promise.all([getEnt(c, 'product', sku, store), getEnt(c, 'product', sku, 'all')]) as (MProduct | null)[];
     const ev = inView?.media_gallery_entries?.find(x => x.id === entryId), eg = glob?.media_gallery_entries?.find(x => x.id === entryId);
     if (!ev || !eg) throw new Error('Bild nicht mehr vorhanden');
-    // Eigener Text der Store-View → dort ändern; nicht die Haupt-Store-View (z. B. Sprach-View) → nur dort, nie global (Regel wie writeScoped)
+    // Store view has its own text → change it there; not the main store view (e.g. language view) → only there, never global (same rule as writeScoped)
     const scope = store !== 'all' && (store !== main || !sameValue(ev.label, eg.label)) ? store : 'all', e = scope === 'all' ? eg : ev;
-    // Ein Galerie-Save in der View setzt dort auch die abgeleiteten Bildtitel (image_label …) als eigene Werte: Rückgängig stellt sie her (null = wieder geerbt)
+    // A gallery save in the view also sets the derived image titles (image_label …) there as its own values: undo restores them (null = inherited again)
     const labels = scope === 'all' ? null : Object.fromEntries(ROLE_LABELS.map(r => { const v = attrStr(inView, r), g = attrStr(glob, r); return [r, sameValue(v, g) ? null : v]; }));
     await c.req('PUT', `/V1/products/${skuPath(sku)}/media/${entryId}`, entryBody(e, { label: String(it.afterRaw) }), { store: scope });
-    // Galeriewerte einer View kennen per REST kein „Standardwert verwenden“: Rückgängig schreibt den bisherigen (ggf. geerbten) Text als Wert der View
+    // A view's gallery values have no "Use Default Value" via REST: undo writes the previous (possibly inherited) text as the view's value
     return [...(labels ? [reqOp('product', sku, 'PUT', `/${scope}/V1/products/${skuPath(sku)}`, roleBody(sku, labels))] : []), reqOp('product-media', sku, 'PUT', `/${scope}/V1/products/${skuPath(sku)}/media/${entryId}`, entryBody(e))];
   }, ctx);
 });
 
-// ================= Neue Produkte =================
+// ================= New products =================
 export interface NewProductInput { name: string; description: string; price: number; sku?: string; stock?: number; active?: boolean; shortDescription?: string; metaTitle?: string; metaDescription?: string; keywords?: string; weight?: number; categoryIds?: string[]; images?: string[]; taxClass?: string }
-export interface NewProductPlan extends Omit<NewProductInput, 'taxClass'> { sku: string; urlKey: string; attributeSetId: number; websiteIds: number[]; taxClassId: string; images: string[]; categoryIds: string[]; stock: number; active: boolean; source: string | null; /** weitere Attribute (Import: Sonderpreis, Einkaufspreis, Hersteller, Eigenschaften) */ extra?: Record<string, unknown> }
+export interface NewProductPlan extends Omit<NewProductInput, 'taxClass'> { sku: string; urlKey: string; attributeSetId: number; websiteIds: number[]; taxClassId: string; images: string[]; categoryIds: string[]; stock: number; active: boolean; source: string | null; /** further attributes (import: special price, purchase price, manufacturer, properties) */ extra?: Record<string, unknown> }
 const skuOf = (name: string) => `${name.normalize('NFKD').replace(/[^\w\s-]/g, '').trim().split(/\s+/).slice(0, 3).map(w => w.slice(0, 4).toUpperCase()).join('-') || 'NEU'}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
 export async function buildNewProductsChangeSet(ro: MagentoReader, { title, reason, products }: { title: string; reason: string; products: NewProductInput[] }): Promise<{ cs: ChangeSet; payload: null }> {
@@ -300,11 +300,11 @@ export async function createProduct(c: MagentoClient, p: NewProductPlan): Promis
   } catch (e) { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo }); }
   if (p.source) {
     await c.req('POST', '/V1/inventory/source-items', { sourceItems: [{ sku: p.sku, source_code: p.source, quantity: p.stock, status: p.stock > 0 ? 1 : 0 }] }, { store: 'all' }).catch(e => { throw Object.assign(new Error(`Angelegt, aber Bestand nicht gesetzt: ${errMsg(e)}`), { undo }); });
-    undo.unshift(sourceItemDelete(p.sku, p.source)); // MSI löscht Lagerbestände gelöschter Produkte nicht selbst
+    undo.unshift(sourceItemDelete(p.sku, p.source)); // MSI doesn't delete stock of deleted products by itself
   }
   return undo;
 }
-/** Rückgängig: Lagerbestand (MSI) eines wieder gelöschten Produkts entfernen */
+/** Undo: remove the stock (MSI) of a product that was deleted again */
 export const sourceItemDelete = (sku: string, source: string) => reqOp('source-item', sku, 'POST', '/all/V1/inventory/source-items-delete', { sourceItems: [{ sku, source_code: source }] });
 reg.register('new-products', async (c, cs, _payload, selected, ctx) => {
   const results: ApplyResult['results'] = [], undo: UndoOp[] = [], list = cs.items.filter(i => selected.has(i.id) && i.entity !== 'info'), tick = partialTicker(ctx, list.length, { results, undo });
@@ -316,7 +316,7 @@ reg.register('new-products', async (c, cs, _payload, selected, ctx) => {
   return { results, undo };
 });
 
-/** Bilder eines Produkts für Werkzeuge (mediaId, URL, Alt-Text, Position, Titelbild, ausgeblendet) */
+/** Images of a product for tools (mediaId, URL, alt text, position, cover image, hidden) */
 export async function imageRows(ro: MagentoReader, p: MProduct) {
   const cover = coverEntry(p);
   return Promise.all([...(p.media_gallery_entries ?? [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map(async e => {
@@ -324,4 +324,3 @@ export async function imageRows(ro: MagentoReader, p: MProduct) {
     return { mediaId: mediaId(p.id, e.id), url, file: fileName(e), alt: label || null, position: e.position ?? 0, cover: e.id === cover?.id, roles: e.types ?? [], ...(e.disabled ? { hidden: true } : {}), ...(!label ? { altMissing: true } : {}), ...(/ki-generiert/i.test(String(e.file)) ? { aiGenerated: true } : {}) };
   }));
 }
-export const productAttr = attr;

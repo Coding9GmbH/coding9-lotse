@@ -1,10 +1,10 @@
 import 'server-only';
-// Shopify: Änderungssets für Kollektionen (Texte/SEO/Sichtbarkeit, neue Kollektionen und Regeln = automatische Kollektionen, Produktzuordnung),
-// Produktbilder, Alt-Texte und Handles (SEO-URLs mit Weiterleitung) – jeweils mit exakten Rückgängig-Schritten.
+// Shopify: change sets for collections (texts/SEO/visibility, new collections and rules = automated collections, product assignment),
+// product images, alt texts and handles (SEO URLs with redirect), each with exact undo steps.
 import type { ChangeAsset, ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { slugify as slug } from '@/lib/text';
 import { MAX_ITEMS, WRITE_CONCURRENCY, assertFresh, cut, errMsg, partialTicker, pool, type ApplyCtx, type ApplyResult } from '../../changes';
-import { checkAlt } from '../../features/bilder';
+import { checkAlt } from '../../features/product-images';
 import { stagedMeta } from '../../media';
 import { newId } from '../../shopware';
 import { shortId, toGid, type Json, type ShopifyClient } from './client';
@@ -16,7 +16,7 @@ import { uploadStagedImage } from './upload';
 const SORT_ORDERS = ['MANUAL', 'BEST_SELLING', 'ALPHA_ASC', 'ALPHA_DESC', 'PRICE_ASC', 'PRICE_DESC', 'CREATED', 'CREATED_DESC'] as const;
 const SORT_DE: Record<string, string> = { MANUAL: 'manuell', BEST_SELLING: 'Bestseller', ALPHA_ASC: 'A bis Z', ALPHA_DESC: 'Z bis A', PRICE_ASC: 'Preis aufsteigend', PRICE_DESC: 'Preis absteigend', CREATED: 'älteste zuerst', CREATED_DESC: 'neueste zuerst' };
 
-// =============== Kollektionen: Texte, SEO, Sichtbarkeit, Sortierung ===============
+// =============== Collections: texts, SEO, visibility, sorting ===============
 export const COLLECTION_FIELDS: Record<string, { label: string; kind: 'str' | 'html' | 'bool' | 'sort' }> = {
   name: { label: 'Name', kind: 'str' }, description: { label: 'Beschreibung', kind: 'html' }, metaTitle: { label: 'Meta-Title (SEO)', kind: 'str' },
   metaDescription: { label: 'Meta-Description (SEO)', kind: 'str' }, active: { label: 'Im Online Store sichtbar', kind: 'bool' }, sortOrder: { label: 'Sortierung', kind: 'sort' },
@@ -103,7 +103,7 @@ export async function applyCollections(client: ShopifyClient, cs: ChangeSet, sel
   return { results, undo };
 }
 
-// =============== Neue Kollektionen / Regeln (automatische Kollektionen = Smart Collections mit Regel) ===============
+// =============== New collections / rules (automated collections = smart collections with a rule) ===============
 export const RULE_COLUMNS = ['TAG', 'TITLE', 'TYPE', 'VENDOR', 'VARIANT_PRICE', 'VARIANT_COMPARE_AT_PRICE', 'VARIANT_INVENTORY', 'VARIANT_TITLE', 'IS_PRICE_REDUCED', 'VARIANT_WEIGHT'] as const;
 export const RULE_RELATIONS = ['EQUALS', 'NOT_EQUALS', 'CONTAINS', 'NOT_CONTAINS', 'STARTS_WITH', 'ENDS_WITH', 'GREATER_THAN', 'LESS_THAN', 'IS_SET', 'IS_NOT_SET'] as const;
 export interface Rule { column: string; relation: string; condition: string }
@@ -121,7 +121,7 @@ export function checkRules(rules: Rule[]): Rule[] {
     return { column, relation, condition: condition.replace(',', '.') };
   });
 }
-/** Regel → Produktsuche (für die Trefferzählung); null = nicht abbildbar */
+/** Rule → product search (for the match count); null = cannot be mapped */
 export function rulesQuery(rules: Rule[], disjunctive: boolean): string | null {
   const parts: string[] = [];
   for (const r of rules) {
@@ -197,7 +197,7 @@ export async function applyNewCollections(client: ShopifyClient, cs: ChangeSet, 
   return { results, undo };
 }
 
-// =============== Produkte einer manuellen Kollektion ===============
+// =============== Products of a manual collection ===============
 export async function buildCollectionProductsChangeSet(q: Q, a: { title: string; reason: string; collectionId: string; add?: string[]; remove?: string[] }): Promise<ChangeSet> {
   const [c] = await collectionsByIds(q, [a.collectionId]);
   if (!c) throw new Error('Kollektion nicht gefunden');
@@ -218,7 +218,7 @@ export async function buildCollectionProductsChangeSet(q: Q, a: { title: string;
   return { id: newId(), kind: 'collection-products', entity: 'category', title: a.title, reason: a.reason, items, skipped, atomic: false };
 }
 const COLL_ORDER = 'query CollectionOrder($id: ID!, $after: String) { collection(id: $id) { sortOrder products(first: 250, after: $after, sortKey: MANUAL) { nodes { id } pageInfo { hasNextPage endCursor } } } }';
-/** Positionen der gesuchten Produkte in einer manuell sortierten Kollektion (seitenweise, bis alle gefunden sind); null = nicht manuell */
+/** Positions of the requested products in a manually sorted collection (paged until all are found); null = not manual */
 async function manualPositions(client: ShopifyClient, cid: string, ids: string[]): Promise<{ id: string; newPosition: string }[] | null> {
   const want = new Set(ids), out: { id: string; newPosition: string }[] = []; let after: string | null = null, pos = 0;
   for (;;) {
@@ -236,7 +236,7 @@ export async function applyCollectionProducts(client: ShopifyClient, cs: ChangeS
     const list = its.filter(i => i.field === op); if (!list.length) continue;
     const ids = list.map(i => String(i.afterRaw));
     try {
-      if (op === 'remove') { // manuelle Sortierung: Positionen merken; beim Rückgängig nach dem Wiederaufnehmen zurückschieben
+      if (op === 'remove') { // manual sorting: remember positions; on undo move them back after re-adding
         const moves = await manualPositions(client, cid, ids);
         if (moves?.length) undo.push(reqOp('collection', cid, M.collectionReorder, { id: cid, moves }));
       }
@@ -248,7 +248,7 @@ export async function applyCollectionProducts(client: ShopifyClient, cs: ChangeS
   return { results, undo };
 }
 
-// =============== Produktbilder ===============
+// =============== Product images ===============
 export interface ImagesArgs { title: string; reason: string; products: { productId: string; add?: { image: string; position?: number; alt?: string }[]; remove?: string[]; order?: string[]; cover?: string }[] }
 interface ImagesPlan { productId: string; add: { image: string; alt?: string }[]; remove: string[]; order: string[] }
 const MEDIA_SEL = 'id title media(first: 100) { nodes { id alt status ... on MediaImage { image { url altText } } } }';
@@ -273,7 +273,7 @@ export async function buildImagesChangeSet(q: Q, a: ImagesArgs): Promise<ChangeS
         else { const id = shortId(toGid('MediaImage', x.image)), f = files.get(id); if (!f) throw new Error(`Medium ${x.image} nicht gefunden`); if (cur.includes(id)) { warn.push(`Medium ${id} ist schon am Produkt`); continue; } add.push({ image: id }); urlOf.set(id, f.image?.url); }
       }
       for (const r of req.remove ?? []) { const id = shortId(toGid('MediaImage', r)); if (!cur.includes(id)) throw new Error(`Medium ${r} ist nicht am Produkt`); remove.push(id); }
-      // Ziel-Reihenfolge: neue Bilder an position bzw. hinten, dann order, dann cover nach vorn
+      // target order: new images at position or at the end, then order, then cover to the front
       let order = cur.filter(id => !remove.includes(id));
       for (const x of add) { const pos = req.add?.find(y => y.image === x.image || shortId(y.image) === x.image)?.position; order.splice(pos != null ? Math.max(0, Math.min(pos, order.length)) : order.length, 0, x.image); }
       const norm = (x: string) => (isStaged(x) || isUrl(x) ? x : shortId(toGid('MediaImage', x)));
@@ -282,7 +282,7 @@ export async function buildImagesChangeSet(q: Q, a: ImagesArgs): Promise<ChangeS
       if (!add.length && !remove.length && order.join() === cur.join()) { skipped.push({ id: pid, reason: 'keine Änderung' }); continue; }
       if (remove.includes(cur[0]) || (order[0] !== cur[0] && cur.length)) warn.push('Titelbild ändert sich');
       if (!order.length) warn.push('Produkt hat danach kein Bild');
-      // „Text vergleichen“ zeigt Text, kein Markup: Dateinamen in Reihenfolge (neue Bilder stehen zusätzlich als assets in der Karte)
+      // "Text vergleichen" (compare text) shows text, no markup: file names in order (new images also appear as assets in the card)
       const show = (ids: string[]) => ids.map((id, i) => `${i + 1}. ${fileName(urlOf.get(id)) ?? id}`).join('\n');
       items.push({ id: pid, entity: 'product', entityId: pid, label: p.title, field: 'images', fieldLabel: 'Bilder', before: `${cur.length} Bilder`, after: `${order.length} Bilder (${[add.length && `+${add.length}`, remove.length && `−${remove.length}`].filter(Boolean).join(', ') || 'neu sortiert'})`,
         afterRaw: { productId: p.id, add, remove, order } satisfies ImagesPlan, html: { before: show(cur), after: show(order) }, warn });
@@ -300,11 +300,11 @@ async function mediaIdsOf(client: ShopifyClient, productId: string): Promise<str
 }
 const moves = (ids: string[]) => ids.map((id, i) => ({ id, newPosition: String(i) }));
 
-/** Bilder eines Produkts ändern. Rückgängig-Schritte landen SOFORT nach jedem Schritt in undo (auch wenn ein späterer scheitert). */
+/** Change a product's images. Undo steps land in undo IMMEDIATELY after each step (even if a later one fails). */
 export async function applyImages(client: ShopifyClient, plan: ImagesPlan, undo: UndoOp[]): Promise<void> {
   const pid = plan.productId, before = await mediaIdsOf(client, pid);
-  undo.push(reqOp('product-media', pid, M.reorderMedia, { id: pid, moves: moves(before) })); // läuft beim Rückgängig zuletzt
-  const created = new Map<string, string>(); // image-Schlüssel → neue Medien-GID
+  undo.push(reqOp('product-media', pid, M.reorderMedia, { id: pid, moves: moves(before) })); // runs last on undo
+  const created = new Map<string, string>(); // image key → new media GID
   const toCreate = plan.add.filter(x => isStaged(x.image) || isUrl(x.image)), refs = plan.add.filter(x => !isStaged(x.image) && !isUrl(x.image));
   if (toCreate.length) {
     const media: Json[] = [];
@@ -315,8 +315,8 @@ export async function applyImages(client: ShopifyClient, plan: ImagesPlan, undo:
     const note = (ids: string[]) => { const fresh = ids.filter(id => !before.includes(id)); toCreate.forEach((x, i) => { if (fresh[i]) created.set(x.image, fresh[i]); }); fresh.forEach(id => undo.push(deleteOp('file', id))); };
     let r: Json;
     try { r = await run<Json>(client, M.productMediaAdd, { product: { id: pid }, media }); }
-    catch (e) { // Ausgang unklar (Netz, Zeitlimit): neu angelegte Medien trotzdem zum Löschen vormerken
-      if (!isUserError(e)) { try { note(await mediaIdsOf(client, pid)); } catch { /* nicht lesbar */ } }
+    catch (e) { // outcome unclear (network, timeout): still mark newly created media for deletion
+      if (!isUserError(e)) { try { note(await mediaIdsOf(client, pid)); } catch { /* not readable */ } }
       throw e;
     }
     note((r.product?.media?.nodes ?? []).map((m: Json) => m.id));
@@ -337,7 +337,7 @@ export async function applyImages(client: ShopifyClient, plan: ImagesPlan, undo:
 export async function applyImagesSet(client: ShopifyClient, cs: ChangeSet, selected: Set<string>, ctx?: ApplyCtx): Promise<ApplyResult> {
   const results: ApplyResult['results'] = [], undo: UndoOp[] = [], list = cs.items.filter(i => selected.has(i.id)), tick = partialTicker(ctx, list.length, { results, undo });
   await pool(list, WRITE_CONCURRENCY, async it => {
-    // je Produkt eigene Liste (parallel), danach am Stück anhängen: Reihenfolge der Schritte eines Produkts bleibt zusammen
+    // a separate list per product (parallel), then append in one go: a product's steps stay together in order
     const mine: UndoOp[] = [];
     try { await applyImages(client, it.afterRaw as ImagesPlan, mine); results.push({ itemId: it.id, ok: true }); }
     catch (e) { results.push({ itemId: it.id, ok: false, error: errMsg(e) }); }
@@ -346,7 +346,7 @@ export async function applyImagesSet(client: ShopifyClient, cs: ChangeSet, selec
   return { results, undo };
 }
 
-// =============== Alt-Texte ===============
+// =============== Alt texts ===============
 const pathKey = (u: string) => { try { return new URL(u, 'http://x').pathname; } catch { return u; } };
 export async function buildAltTextChangeSet(q: Q, a: { title: string; reason: string; images: { mediaId: string; alt: string }[] }, viewed: Set<string> | null): Promise<ChangeSet> {
   if (!a.images?.length) throw new Error('images ist leer');
@@ -386,8 +386,8 @@ export async function applyAltTexts(client: ShopifyClient, cs: ChangeSet, select
   return { results, undo };
 }
 
-// =============== Handles (SEO-URLs) mit Weiterleitung ===============
-/** Handle aus Freitext oder Pfad (/products/<handle>) */
+// =============== Handles (SEO URLs) with redirect ===============
+/** Handle from free text or path (/products/<handle>) */
 export const slugify = (s: string) => slug(String(s ?? '').replace(/^.*\/(products|collections|pages)\//i, ''), 255);
 type HandleEntity = 'product' | 'category' | 'page';
 const PREFIX: Record<HandleEntity, string> = { product: 'products', category: 'collections', page: 'pages' };
@@ -402,7 +402,7 @@ export async function buildHandlesChangeSet(q: Q, a: { title: string; reason: st
     const rows = e === 'product' ? await productsByIds(q, ids, 'id title handle status', 50) : e === 'category' ? await collectionsByIds(q, ids, 'id title handle') : await pagesByIds(q, ids);
     for (const r of rows) cur.set(`${e}:${shortId(r.id)}`, r);
   }
-  // vergebene Handles je Art gebündelt prüfen (50 je Abfrage statt eine Abfrage je Zeile)
+  // check taken handles per type in batches (50 per query instead of one query per row)
   const taken = new Map<string, string>();
   for (const e of ['product', 'category', 'page'] as HandleEntity[]) {
     const slugs = [...new Set(a.changes.filter(c => c.entity === e).map(c => slugify(c.slug)).filter(Boolean))];
@@ -430,7 +430,7 @@ export async function buildHandlesChangeSet(q: Q, a: { title: string; reason: st
   return { id: newId(), kind: 'handles', entity: 'seo-url', title: a.title, reason: a.reason, items, skipped, atomic: false, noun: { one: 'URL', many: 'URLs' } };
 }
 const REDIRECTS = 'query Redirects($query: String) { urlRedirects(first: 50, query: $query) { nodes { id path target } } }';
-/** Handle setzen (Shopify legt die Weiterleitung alt → neu an). Rückgängig-Schritte landen in undo, auch wenn die Antwort verloren geht. */
+/** Set the handle (Shopify creates the redirect old → new). Undo steps land in undo even if the response gets lost. */
 export async function applyHandle(client: ShopifyClient, raw: { entity: HandleEntity; id: string; handle: string }, undo: UndoOp[]): Promise<void> {
   const e = raw.entity, q: Q = (d, v) => client.gql(d, v);
   const [r] = e === 'product' ? await productsByIds(q, [raw.id], 'id handle', 1) : e === 'category' ? await collectionsByIds(q, [raw.id], 'id handle') : await pagesByIds(q, [raw.id]);
@@ -440,10 +440,10 @@ export async function applyHandle(client: ShopifyClient, raw: { entity: HandleEn
   const set = (h: string, redirect: boolean): [string, Json] => e === 'product' ? [M.productUpdate, { product: { id: r.id, handle: h, redirectNewHandle: redirect } }]
     : e === 'category' ? [M.collectionUpdate, { input: { id: r.id, handle: h, redirectNewHandle: redirect } }] : [M.pageUpdate, { id: r.id, page: { handle: h, redirectNewHandle: redirect } }];
   const [mq, mv] = set(raw.handle, true), [bq, bv] = set(r.handle, false);
-  // neu angelegte Weiterleitung(en) alt → neu: beim Rückgängig zuerst löschen, dann Handle zurück
+  // newly created redirect(s) old → new: on undo delete them first, then restore the handle
   const noteRedirects = async () => { for (const x of await redirects()) if (!pre.has(x.id) && x.path === oldPath) undo.push(deleteOp('redirect', x.id)); };
   try { await runRecording(client, mq, mv, undo, reqOp(e, r.id, bq, bv)); }
-  catch (err) { if (!isUserError(err)) { try { await noteRedirects(); } catch { /* nicht lesbar */ } } throw err; }
+  catch (err) { if (!isUserError(err)) { try { await noteRedirects(); } catch { /* not readable */ } } throw err; }
   await noteRedirects();
 }
 export async function applyHandles(client: ShopifyClient, cs: ChangeSet, selected: Set<string>, ctx?: ApplyCtx): Promise<ApplyResult> {

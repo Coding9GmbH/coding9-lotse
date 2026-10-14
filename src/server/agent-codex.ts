@@ -1,5 +1,5 @@
 import 'server-only';
-// Codex-Laufzeit (ChatGPT-Abo): gleiche Shop-Tools wie bei Claude, aber über einen MCP-Endpunkt von Lotse (/api/mcp/<chatId>).
+// Codex runtime (ChatGPT subscription): same shop tools as with Claude, but via a Lotse MCP endpoint (/api/mcp/<chatId>).
 import { Codex, type ThreadItem, type ThreadOptions } from '@openai/codex-sdk';
 import type { ChatEvent } from '@/lib/protocol';
 import { bindRoundToken, codexConfig, codexEnv, codexLoggedIn, mcpTokenFor } from './codex';
@@ -12,12 +12,12 @@ import type { RunEnd, RunUsage } from './agent';
 import { getSettings, redact } from './settings';
 import { errMsg } from './util';
 
-// Ergänzung zum System-Prompt: Codex kennt sonst seine Rolle als Programmier-Agent
+// Addition to the system prompt: otherwise Codex assumes its role as a coding agent
 const CODEX_NOTE = `\n\n## Laufzeit
 Du läufst in Lotse, nicht als Programmier-Assistent. Du hast ausschließlich die Werkzeuge des MCP-Servers „shop“ (z. B. search_products, draft_page, ask_user, propose_product_changes). Führe keine Befehle aus, lies oder schreibe keine Dateien und frage nicht nach solchen Rechten. Das ist hier technisch gesperrt.`;
 const CODEX_WEB_NOTE = ' Zusätzlich darfst du die Websuche verwenden (Internetrecherche ist eingeschaltet).';
 
-/** Interne Adresse, unter der der Codex-Prozess Lotse erreicht (gleicher Rechner/Container). */
+/** Internal address at which the Codex process reaches Lotse (same machine/container). */
 const internalUrl = () => (process.env.LOTSE_INTERNAL_URL || `http://127.0.0.1:${process.env.PORT || 3333}`).replace(/\/$/, '');
 
 function client(chatId: string, platform?: PlatformKind, locale?: Locale, web = false) {
@@ -27,7 +27,7 @@ function client(chatId: string, platform?: PlatformKind, locale?: Locale, web = 
   return { codex, opts };
 }
 
-/** Thread-Optionen jedes Laufs. Sandbox nur lesend, kein Netz für Befehle, keine Freigabe-Rückfrage; Websuche nur mit `web` (Internetrecherche). */
+/** Thread options for every run. Read-only sandbox, no network for commands, no approval prompt; web search only with `web` (web research). */
 export function codexThreadOptions(workingDirectory: string, model?: string, web = false): ThreadOptions {
   return {
     workingDirectory, skipGitRepoCheck: true, sandboxMode: 'read-only', approvalPolicy: 'never',
@@ -40,7 +40,7 @@ const resultText = (item: Extract<ThreadItem, { type: 'mcp_tool_call' }>) =>
 
 
 
-/** Ein Ereignis der Codex-Runde. Befehl, Dateiänderung und (ohne Internetrecherche) Websuche beenden die Runde. Neue SDK-Typen müssen hier eingeordnet werden. */
+/** One event of the Codex turn. Command, file change and (without web research) web search end the turn. New SDK types must be classified here. */
 export function onCodexItem(
   item: ThreadItem,
   evType: 'item.started' | 'item.updated' | 'item.completed',
@@ -78,14 +78,14 @@ export function onCodexItem(
   }
 }
 
-/** Eine Chat-Runde mit Codex. Abbruch über `signal` (Client weg). Das MCP-Token gilt bis zum Ende, auch während einer Freigabe. */
+/** One chat turn with Codex. Abort via `signal` (client gone). The MCP token stays valid until the end, including during an approval. */
 export async function runCodex(s: Session, prompt: string, signal: AbortSignal, emit: (ev: ChatEvent) => void): Promise<RunEnd> {
   return bindRoundToken(s.id, async () => {
     const t = messages(s.locale).server;
     if (!codexLoggedIn()) return { error: t.codexNotLoggedIn };
     const ac = new AbortController();
     if (signal.aborted) ac.abort(); else signal.addEventListener('abort', () => ac.abort(), { once: true });
-    const texts = new Map<string, number>(); // agent_message-ID → bereits gesendete Zeichen
+    const texts = new Map<string, number>(); // agent_message ID → characters already sent
     const tools = new Set<string>();
     let failed: string | null = null, usage: RunUsage | undefined;
     const model = getSettings().ai.codexModel || undefined, web = getSettings().scopes.web;
@@ -111,7 +111,7 @@ export async function runCodex(s: Session, prompt: string, signal: AbortSignal, 
   });
 }
 
-/** Verbindungstest: kurze Runde ohne Werkzeuge. */
+/** Connection test: short turn without tools. */
 export async function pingCodex(): Promise<string> {
   return bindRoundToken('ping', async () => {
     if (!codexLoggedIn()) throw new Error('Nicht mit ChatGPT angemeldet. Zuerst „Mit ChatGPT anmelden“ (Einstellungen).');

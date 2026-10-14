@@ -1,6 +1,6 @@
 <?php
 /**
- * Kategorien: Baum (Store-Scope), Detail, Attribute schreiben (Store-Scope, null = Standardwert verwenden).
+ * Categories: tree (store scope), detail, write attributes (store scope, null = use default value).
  */
 class Lotse_Connector_Model_Api_Category extends Lotse_Connector_Model_Api_Abstract
 {
@@ -12,8 +12,8 @@ class Lotse_Connector_Model_Api_Category extends Lotse_Connector_Model_Api_Abstr
     protected const TREE_ATTRIBUTES = ['name', 'is_active', 'include_in_menu', 'url_key', 'url_path', 'display_mode', 'is_anchor', 'landing_page', 'image', 'updated_at'];
 
     /**
-     * GET /v1/categories?root=<id>&depth=<n>&flat=1: Baum ab Root (Standard: Root-Kategorie des Stores
-     * bzw. alle Root-Kategorien im globalen Scope). flat=1 liefert eine Liste statt des Baums.
+     * GET /v1/categories?root=<id>&depth=<n>&flat=1: tree from root (default: the store's root category,
+     * or all root categories in the global scope). flat=1 returns a list instead of the tree.
      */
     public function listCategories(array $params)
     {
@@ -65,7 +65,7 @@ class Lotse_Connector_Model_Api_Category extends Lotse_Connector_Model_Api_Abstr
         return ['data' => $tree, 'meta' => ['total' => count($nodes)]];
     }
 
-    /** Direkte Produktzuordnungen je Kategorie (ohne Anker-Vererbung). */
+    /** Direct product assignments per category (without anchor inheritance). */
     protected function productCounts()
     {
         $resource = Mage::getSingleton('core/resource');
@@ -174,8 +174,8 @@ class Lotse_Connector_Model_Api_Category extends Lotse_Connector_Model_Api_Abstr
     }
 
     /**
-     * PATCH /v1/categories/{id} mit {"attributes": {code: wert|null}} im Store-Scope.
-     * Schreibt über das Kategoriemodell (Store-Scope), null löscht den Store-Wert.
+     * PATCH /v1/categories/{id} with {"attributes": {code: value|null}} in store scope.
+     * Writes via the category model (store scope), null deletes the store value.
      */
     public function updateCategory(array $params)
     {
@@ -249,8 +249,8 @@ class Lotse_Connector_Model_Api_Category extends Lotse_Connector_Model_Api_Abstr
         }
         $rewritesAdded = [];
         if ($urlKeyChanged) {
-            // Mit „Save Rewrites History“ legt OpenMage 301-Weiterleitungen an (Kategorie, Unterkategorien, Produkt-URLs mit
-            // Kategoriepfad); Lotse löscht sie beim Rückgängig. System-Rewrites (neu angelegt mit neuer ID) zählen nicht dazu.
+            // With "Save Rewrites History" OpenMage creates 301 redirects (category, subcategories, product URLs with
+            // category path); Lotse deletes them on undo. System rewrites (recreated with a new ID) don't count.
             $rewritesAdded = array_values(array_diff($this->rewriteIds($category, true), $rewritesBefore));
         }
         $fresh = $this->loadCategory($category->getId());
@@ -260,7 +260,7 @@ class Lotse_Connector_Model_Api_Category extends Lotse_Connector_Model_Api_Abstr
     }
 
     /**
-     * IDs aller URL-Rewrites der Kategorie und ihrer Unterkategorien (auch Produkt-Rewrites mit Kategoriepfad).
+     * IDs of all URL rewrites of the category and its subcategories (including product rewrites with category path).
      * @return int[]
      */
     protected function rewriteIds(Mage_Catalog_Model_Category $category, $onlyHistory = false)
@@ -281,10 +281,10 @@ class Lotse_Connector_Model_Api_Category extends Lotse_Connector_Model_Api_Abstr
     }
 
     /**
-     * Ein Kategorie-Save im Store-Scope schreibt in Magento 1 JEDES geladene Attribut als Store-Wert, auch die geerbten.
-     * Wie der Admin („Standardwert verwenden“) setzen wir alle Store-Attribute, die weder angefragt sind noch schon
-     * einen eigenen Wert in dieser View haben, auf false: der Resource-Save überspringt sie dann (kein Store-Wert,
-     * keine Backend-Hooks), die Vererbung bleibt intakt und store_overrides wächst nur um die angefragten Codes.
+     * In Magento 1 a category save in store scope writes EVERY loaded attribute as a store value, inherited ones too.
+     * Like the admin ("Use Default Value") we set all store attributes that are neither requested nor already have
+     * their own value in this view to false: the resource save then skips them (no store value,
+     * no backend hooks), inheritance stays intact and store_overrides only grows by the requested codes.
      */
     protected function useDefaultExcept(Mage_Catalog_Model_Category $category, array $keep)
     {

@@ -10,21 +10,21 @@ for (const k of Object.keys(process.env)) if (/^(SHOPWARE_|SHOPIFY_|MAGENTO_|OPE
 const { getSettings, publicSettings, updateSettings, redact, aiEnv, shopConfigured, platformConfig } = await import('../../src/server/settings');
 const { kvGet } = await import('../../src/server/db');
 
-test('Plattform: Standard Shopware, Umgebung SHOP_PLATFORM, gespeicherte Wahl hat Vorrang, Unbekanntes wird ignoriert', () => {
+test('Platform: default Shopware, environment SHOP_PLATFORM, stored choice takes precedence, unknown values are ignored', () => {
   assert.equal(getSettings().platform, 'shopware');
   process.env.SHOP_PLATFORM = 'magento';
   assert.equal(getSettings().platform, 'magento');
   updateSettings({ platform: 'shopify' });
   assert.equal(getSettings().platform, 'shopify');
   updateSettings({ platform: 'woocommerce' as never });
-  assert.equal(getSettings().platform, 'shopify', 'ungültige Plattform ändert nichts');
+  assert.equal(getSettings().platform, 'shopify', 'invalid platform changes nothing');
   process.env.SHOP_PLATFORM = 'quatsch';
   updateSettings({ platform: 'shopware' });
   assert.equal(getSettings().platform, 'shopware');
   delete process.env.SHOP_PLATFORM;
 });
 
-test('Shopify-Zugang: Geheimnis verschlüsselt, maskiert in der Oberfläche, eingerichtet erst mit Domain + Token', () => {
+test('Shopify access: secret encrypted, masked in the UI, configured only with domain + token', () => {
   updateSettings({ shopify: { storeDomain: ' haus-holm.myshopify.com ', accessToken: 'shpat_geheimes_token_123' } });
   const raw = kvGet<{ shopify: Record<string, string> }>('settings')!;
   assert.match(raw.shopify.accessToken, /^enc:v1:/);
@@ -39,10 +39,10 @@ test('Shopify-Zugang: Geheimnis verschlüsselt, maskiert in der Oberfläche, ein
   assert.equal(pub.platforms?.magento?.available, true);
   assert.equal(shopConfigured('shopify'), true);
   updateSettings({ shopify: { accessToken: '' } });
-  assert.equal(getSettings().shopify.accessToken, 'shpat_geheimes_token_123', 'leer = unverändert');
+  assert.equal(getSettings().shopify.accessToken, 'shpat_geheimes_token_123', 'empty = unchanged');
   updateSettings({ shopify: { accessToken: null } });
-  assert.equal(shopConfigured('shopify'), false, 'null = gelöscht');
-  // App aus dem Dev Dashboard: Client-ID + Client-Secret genügen ebenfalls; das Secret wird verschlüsselt und geschwärzt
+  assert.equal(shopConfigured('shopify'), false, 'null = deleted');
+  // App from the Dev Dashboard: client ID + client secret are also sufficient; the secret is encrypted and redacted
   updateSettings({ shopify: { clientId: 'abc123clientid', clientSecret: 'geheimes_client_secret_789' } });
   assert.equal(shopConfigured('shopify'), true);
   assert.match(kvGet<{ shopify: Record<string, string> }>('settings')!.shopify.clientSecret, /^enc:v1:/);
@@ -52,7 +52,7 @@ test('Shopify-Zugang: Geheimnis verschlüsselt, maskiert in der Oberfläche, ein
   assert.equal(shopConfigured('shopify'), false);
 });
 
-test('Magento: eine vollständige Zugangsart genügt (Token ODER Benutzer + Passwort), Umgebung als Rückfall', () => {
+test('Magento: one complete access method is enough (token OR user + password), environment as fallback', () => {
   updateSettings({ magento: { url: 'https://magento.test' } });
   assert.equal(shopConfigured('magento'), false);
   updateSettings({ magento: { user: 'admin', password: 'mage-passwort' } });
@@ -64,7 +64,7 @@ test('Magento: eine vollständige Zugangsart genügt (Token ODER Benutzer + Pass
   delete process.env.MAGENTO_ACCESS_TOKEN;
 });
 
-test('OpenMage: Shop-URL + API-Token des Lotse-Moduls, Token verschlüsselt und geschwärzt, Umgebung als Rückfall', () => {
+test('OpenMage: shop URL + API token of the Lotse module, token encrypted and redacted, environment as fallback', () => {
   updateSettings({ openmage: { url: 'https://om.test' } });
   assert.equal(shopConfigured('openmage'), false);
   updateSettings({ openmage: { token: 'lotse_geheimer_token_abc' } });
@@ -80,7 +80,7 @@ test('OpenMage: Shop-URL + API-Token des Lotse-Moduls, Token verschlüsselt und 
   assert.equal(aiEnv().OPENMAGE_URL, undefined);
 });
 
-test('Geheimnisse aller Plattformen werden geschwärzt und gehen nie in den KI-Prozess', () => {
+test('Secrets of all platforms are redacted and never reach the AI process', () => {
   updateSettings({ shopify: { accessToken: 'shpat_nochmal_geheim_456' }, magento: { password: 'mage-passwort-2' } });
   const out = redact('Fehler: shpat_nochmal_geheim_456 / mage-passwort-2');
   assert.ok(!out.includes('shpat_nochmal_geheim_456') && !out.includes('mage-passwort-2'));
@@ -90,7 +90,7 @@ test('Geheimnisse aller Plattformen werden geschwärzt und gehen nie in den KI-P
   delete process.env.SHOPIFY_ACCESS_TOKEN; delete process.env.MAGENTO_PASSWORD; delete process.env.SHOP_PLATFORM;
 });
 
-test('API: Plattform und Felder werden geprüft (unbekannte Plattform → 400, fremde Felder werden verworfen)', async () => {
+test('API: platform and fields are validated (unknown platform → 400, foreign fields are discarded)', async () => {
   const { PUT } = await import('../../src/app/api/settings/route');
   const put = (body: unknown) => PUT(new Request('http://x/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
   assert.equal((await put({ platform: 'woocommerce' })).status, 400);

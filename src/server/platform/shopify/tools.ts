@@ -1,10 +1,10 @@
 import 'server-only';
-// Shopify-Werkzeuge der KI: lesen NUR über den geschützten Reader (session.reader), schreiben NUR über Änderungssets (session.requestChange).
-// Namen und Argumente wie bei Shopware, wo die Bedeutung passt (gemeinsame Prompts, Shop-Check-Aufträge); Shopify-eigene nur, wo nötig.
+// The AI's Shopify tools: read ONLY via the protected reader (session.reader), write ONLY via change sets (session.requestChange).
+// Names and arguments as in Shopware where the meaning fits (shared prompts, shop check tasks); Shopify-specific ones only where needed.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { MAX_ITEMS } from '../../changes';
-import { viewedImages } from '../../features/bilder';
+import { viewedImages } from '../../features/product-images';
 import type { Session } from '../../sessions';
 import { fail, guard, ok, type AnyTool } from '../../tool-kit';
 import { shortId, toGid, type Json } from './client';
@@ -56,7 +56,7 @@ export function shopifyTools(session: Session): AnyTool[] {
     tool('get_product', 'Produktdetails: Beschreibung (HTML), SEO (seo.title/description), Status, Hersteller, Produkttyp, Tags, Optionen und Varianten (Preis, Vergleichspreis = Streichpreis, SKU, Barcode, Bestand), Bilder (mediaId, URL, Alt-Text), Kollektionen, FAQ-Metafeld, Shop-URL.',
       { id: z.string() }, guard(async ({ id }) => {
         const [p] = await productsByIds(q, [id], PRODUCT_DETAIL, 1); if (!p) return fail('Produkt nicht gefunden');
-        const c = await cur(); let faq: unknown = null; try { faq = p.faq?.value ? JSON.parse(p.faq.value) : null; } catch { /* kein JSON */ }
+        const c = await cur(); let faq: unknown = null; try { faq = p.faq?.value ? JSON.parse(p.faq.value) : null; } catch { /* not JSON */ }
         return ok({
           ...productBrief({ ...p, featuredMedia: p.media?.nodes?.[0] }, c), description: p.descriptionHtml, metaTitle: p.seo?.title ?? null, metaDescription: p.seo?.description ?? null,
           productType: p.productType || null, tags: p.tags, url: p.onlineStoreUrl ?? null, publishedOnline: !!p.onlineStoreUrl, stock: p.tracksInventory ? p.totalInventory : null, stockTracked: !!p.tracksInventory,
@@ -159,7 +159,7 @@ export function shopifyTools(session: Session): AnyTool[] {
         if (a.productIds?.length) add('product', 'products', await productsByIds(q, a.productIds, 'id title handle', 50));
         if (a.categoryIds?.length) add('category', 'collections', await collectionsByIds(q, a.categoryIds, 'id title handle'));
         if (a.pageIds?.length) add('page', 'pages', await pagesByIds(q, a.pageIds));
-        // Weiterleitungen auf diese Pfade: eine Abfrage je 50 Pfade, clientseitig zugeordnet
+        // Redirects to these paths: one query per 50 paths, matched client-side
         const rows = out.slice(0, 50), hits = new Map<string, string[]>();
         for (let i = 0; i < rows.length; i += 50) {
           const chunk = rows.slice(i, i + 50);
@@ -202,7 +202,7 @@ export function shopifyTools(session: Session): AnyTool[] {
         return ok({ count: n.count, exact: n.exact, query, sample: s.nodes.map(p => productBrief(p, c)) });
       })),
 
-    // ---------------- Vorschläge (Änderungssets) ----------------
+    // ---------------- Proposals (change sets) ----------------
     tool('propose_product_changes', `SCHLÄGT Änderungen an einem oder vielen Produkten vor (max. ${MAX_ITEMS}). Es wird NICHTS geschrieben: Der Nutzer sieht Alt und Neu, wählt aus und gibt frei; erst dann schreibt der Server. Der Aufruf wartet auf die Entscheidung. Felder: ${Object.keys(PRODUCT_FIELDS).join(', ')}. Preise gelten bei Shopify je Variante: price/listPrice ändern ALLE Varianten des Produkts (einzelne Varianten: propose_variants). Preis als Zahl ODER Regel (der Server rechnet je Variante): {percent:-10, round:".99"} | {add:2.5} | {set:19.99}; listPrice = Vergleichspreis (Streichpreis), null entfernt ihn. active true/false = Status aktiv/Entwurf; status ACTIVE|DRAFT|ARCHIVED. tags = Liste (ersetzt) oder {add:[], remove:[]}. sku/barcode nur bei Produkten ohne Varianten. faq = {title?, items:[{q,a}]} (2 bis 10 Paare, Metafeld lotse.faq). Bestand ist nur lesbar.`,
       { title: z.string().describe('Kurzer Titel, z. B. "Sommerpreise Keramik −10 %"'), reason: z.string(), changes: z.array(z.object({ id: z.string().describe('Produkt-ID'), fields: z.record(z.string(), z.any()) })) },
       guard(async a => propose(cur().then(c => buildProductChangeSet(q, a, c))))),

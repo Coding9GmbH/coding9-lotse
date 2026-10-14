@@ -1,15 +1,15 @@
 import 'server-only';
-// Produkt-Stammdaten: Executor (schreibt nur nach Freigabe, mit dem privilegierten Client) + exakte Rückgängig-Schritte.
+// Product data: executor (writes only after approval, with the privileged client) + exact undo steps.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { assertFresh, errMsg, partialTicker, pool, registerApplier, WRITE_CONCURRENCY, type ApplyCtx, type ApplyResult } from '../changes';
 import { newId, type Shopware, type SwEntity } from '../shopware';
-import { cleanPrices, KIND_STAMMDATEN, snapshot, type ItemRaw, type NewEntity } from './stammdaten-plan';
+import { cleanPrices, KIND_PRODUCT_DATA, snapshot, type ItemRaw, type NewEntity } from './product-data-plan';
 
-export interface StammdatenPayload { creates: NewEntity[] }
+export interface ProductDataPayload { creates: NewEntity[] }
 const CREATE_ORDER: NewEntity['entity'][] = ['property-group', 'property-group-option', 'product-manufacturer', 'tag'];
 export const APPLY_ASSOC = { properties: {}, categories: {}, tags: {}, visibilities: {}, prices: {}, crossSellings: { associations: { assignedProducts: {}, translations: {} } } };
 
-/** Welche vorgemerkten Neuanlagen die ausgewählten Items brauchen (inkl. Gruppe einer neuen Option), in Anlage-Reihenfolge */
+/** Which staged creations the selected items need (incl. the group of a new option), in creation order */
 export function neededCreates(items: ChangeItem[], creates: NewEntity[]): NewEntity[] {
   const used = new Set(items.flatMap(i => (i.afterRaw as ItemRaw).uses ?? []));
   for (const c of creates) if (used.has(c.id) && c.needs) used.add(c.needs);
@@ -19,7 +19,7 @@ export function neededCreates(items: ChangeItem[], creates: NewEntity[]): NewEnt
 const del = (entity: string, id: string): UndoOp => ({ op: 'delete', entity, id });
 const patch = (entity: string, id: string, data: Record<string, unknown>): UndoOp => ({ op: 'patch', entity, id, data });
 
-/** Undo-Daten zum Wiederanlegen eines gelöschten Cross-Sellings (gleiche IDs, Übersetzungen, Zuordnungen) */
+/** Undo data for recreating a deleted cross-selling (same IDs, translations, assignments) */
 export function crossRecreate(productId: string, c: SwEntity): Record<string, unknown> {
   const tr = (c.translations ?? []).filter((t: SwEntity) => t.name).map((t: SwEntity) => ({ languageId: t.languageId, name: t.name }));
   return {
@@ -29,7 +29,7 @@ export function crossRecreate(productId: string, c: SwEntity): Record<string, un
   };
 }
 
-// Schreibt ein Item; Rückgängig-Schritte werden sofort nach jedem Schreibzugriff gesammelt (auch bei Teilfehlern vollständig)
+// Writes one item; undo steps are collected right after each write (complete even on partial failures)
 export async function applyItem(swW: Shopware, cur: SwEntity, raw: ItemRaw, undo: UndoOp[]) {
   const pid = cur.id as string;
   switch (raw.kind) {
@@ -49,7 +49,7 @@ export async function applyItem(swW: Shopware, cur: SwEntity, raw: ItemRaw, undo
       return;
     }
     case 'tax': {
-      // Brutto bleibt, Netto neu: am Produkt, an erweiterten Preisen und an Varianten mit eigenem Preis, die den Steuersatz erben
+      // Gross stays, net is recalculated: on the product, on advanced prices and on variants with their own price that inherit the tax rate
       const retax = async (p: SwEntity, taxId?: string) => {
         const data: Record<string, unknown> = taxId ? { taxId } : {}, old: Record<string, unknown> = taxId ? { taxId: p.taxId ?? null } : {};
         if (p.price) { data.price = cleanPrices(p.price, raw.taxRate); old.price = cleanPrices(p.price); }
@@ -58,7 +58,7 @@ export async function applyItem(swW: Shopware, cur: SwEntity, raw: ItemRaw, undo
         await swW.update('product', p.id, data); undo.push(patch('product', p.id, old));
       };
       await retax(cur, raw.taxId);
-      for (let page = 1; ; page++) { // alle Varianten, seitenweise
+      for (let page = 1; ; page++) { // all variants, page by page
         const kids = (await swW.search('product', { limit: 500, page, filter: [{ type: 'equals', field: 'parentId', value: pid }, { type: 'equals', field: 'taxId', value: null }], associations: { prices: {} }, includes: { product: ['id', 'price', 'prices', 'taxId'] } })).data;
         for (const k of kids) await retax(k);
         if (kids.length < 500) break;
@@ -123,15 +123,15 @@ export async function applyItem(swW: Shopware, cur: SwEntity, raw: ItemRaw, undo
   }
 }
 
-export async function applyProductData(swW: Shopware, cs: ChangeSet, payload: StammdatenPayload, selected: Set<string>, ctx?: ApplyCtx): Promise<ApplyResult> {
+export async function applyProductData(swW: Shopware, cs: ChangeSet, payload: ProductDataPayload, selected: Set<string>, ctx?: ApplyCtx): Promise<ApplyResult> {
   const items = cs.items.filter(i => selected.has(i.id) && i.entity !== 'info');
   const results: ApplyResult['results'] = [], undo: UndoOp[] = [], tick = partialTicker(ctx, items.length, { results, undo });
-  // 1) Gemeinsame Neuanlagen (Eigenschaften, Hersteller, Tags), nur was ausgewählte Items brauchen
+  // 1) Shared creations (properties, manufacturers, tags), only what selected items need
   for (const c of neededCreates(items, payload?.creates ?? [])) {
     try { await swW.create(c.entity, { id: c.id, ...c.data }); undo.push(del(c.entity, c.id)); tick(); }
     catch (e) { return { results, undo, error: `${c.label} konnte nicht angelegt werden: ${errMsg(e)}` }; }
   }
-  // 2) Je Produkt: frischer Stand, Items nacheinander (Produkte schonend parallel)
+  // 2) Per product: fresh state, items one after another (products gently in parallel)
   const groups = new Map<string, ChangeItem[]>();
   for (const it of items) groups.set(it.entityId!, [...(groups.get(it.entityId!) ?? []), it]);
   await pool([...groups], WRITE_CONCURRENCY, async ([pid, its]) => {
@@ -140,7 +140,7 @@ export async function applyProductData(swW: Shopware, cs: ChangeSet, payload: St
     if (!cur) { its.forEach(i => results.push({ itemId: i.id, ok: false, error: 'Produkt nicht mehr vorhanden' })); tick(); return; }
     for (const it of its) {
       const u: UndoOp[] = [], raw = it.afterRaw as ItemRaw;
-      // inzwischen geändert (anderer Chat, Admin): dieses Item nicht schreiben, die übrigen laufen weiter
+      // changed in the meantime (other chat, admin): skip this item, the others continue
       try { assertFresh(it.fieldLabel, snapshot(cur, raw), it.beforeRaw); await applyItem(swW, cur, raw, u); results.push({ itemId: it.id, ok: true }); }
       catch (e) { results.push({ itemId: it.id, ok: false, error: errMsg(e) }); }
       undo.push(...u); tick();
@@ -149,4 +149,4 @@ export async function applyProductData(swW: Shopware, cs: ChangeSet, payload: St
   return { results, undo };
 }
 
-registerApplier(KIND_STAMMDATEN, (swW, cs, payload, selected, ctx) => applyProductData(swW, cs, payload as StammdatenPayload, selected, ctx));
+registerApplier(KIND_PRODUCT_DATA, (swW, cs, payload, selected, ctx) => applyProductData(swW, cs, payload as ProductDataPayload, selected, ctx));

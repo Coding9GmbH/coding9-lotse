@@ -1,5 +1,5 @@
 import 'server-only';
-// Parst unvollständiges JSON (Tool-Input während des Streamings) so weit wie möglich
+// Parses incomplete JSON (tool input during streaming) as far as possible
 export function parsePartial(src: string): unknown {
   let t = src;
   for (let i = 0; i < 60 && t.length; i++) {

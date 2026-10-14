@@ -1,7 +1,7 @@
 import 'server-only';
-// Magento: CMS-Seiten und CMS-Blöcke lesen (Werkzeuge) und vorhandene CMS-Seiten ändern (Titel, Inhalt, Metas, aktiv) als
-// Änderungsset mit exaktem Rückgängig. Blöcke werden nur gelesen: Magento setzt beim Speichern eines Blocks über REST die
-// Store-View-Zuordnung neu, das wäre nicht exakt umkehrbar.
+// Magento: read CMS pages and CMS blocks (tools) and change existing CMS pages (title, content, metas, active) as a
+// change set with exact undo. Blocks are read-only: when saving a block via REST, Magento resets the
+// store view assignment, which would not be exactly reversible.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { errMsg, newIdSafe, partialTicker, pool, WRITE_CONCURRENCY, type ApplyResult } from './kit';
 import { plain, sameValue, type MRecord } from './map';
@@ -10,12 +10,12 @@ import type { MagentoReader } from './reader';
 import { reg, reqOp } from './write';
 
 const DIRECTIVE = /\{\{[\s\S]*?\}\}/g;
-/** Neue Direktiven ({{widget}}, {{config}} …) entschärfen wie beim Veröffentlichen; solche, die schon im Inhalt standen, bleiben erhalten */
+/** Defuse new directives ({{widget}}, {{config}} …) as when publishing; those already in the content are kept */
 export function directiveGuard(cur: unknown): (html: string) => string {
   const known = new Set([...(String(cur ?? '').match(DIRECTIVE) ?? []), ...(readableHtml(String(cur ?? '')).match(DIRECTIVE) ?? [])]);
   return html => html.replace(DIRECTIVE, d => (known.has(d) ? d : noDirectives(d)));
 }
-/** Neuer Seiteninhalt im Speicherformat der Seite: Page-Builder-Seiten bleiben Page Builder (html-Elemente kodiert, freies HTML als html-Inhaltstyp) */
+/** New page content in the page's storage format: Page Builder pages stay Page Builder (html elements encoded, free HTML as html content type) */
 export function cmsContent(cur: unknown, next: string): string {
   const guard = directiveGuard(cur);
   if (!isPageBuilder(String(cur ?? ''))) return guard(next);
@@ -24,12 +24,12 @@ export function cmsContent(cur: unknown, next: string): string {
 
 const cut = (t: unknown, n = 200) => { const s = plain(t); return s.length > n ? `${s.slice(0, n)}…` : s || '–'; };
 const HTML_MAX = 60_000;
-/** HTML für die KI und die Karte begrenzen: eingebettete data-URIs (z. B. SVG von Lotse-Seiten) durch Platzhalter ersetzen, lange Inhalte kürzen */
+/** Limit HTML for the AI and the card: replace embedded data URIs (e.g. SVG from Lotse pages) with placeholders, truncate long content */
 export function limitHtml(html: string, max = HTML_MAX): { html: string; truncated: boolean } {
   const s = html.replace(/data:([a-z0-9.+-]+\/[a-z0-9.+-]+)[^"')\s]{64,}/gi, (m, t: string) => `data:${t};… [eingebettet, ${Math.max(1, Math.round(m.length / 1024))} KB]`);
   return s.length > max ? { html: `${s.slice(0, max)}…`, truncated: true } : { html: s, truncated: false };
 }
-/** Seiten, die Magento selbst braucht (404, Cookie-Hinweis): nicht ändern */
+/** Pages Magento itself needs (404, cookie notice): don't change */
 const SYSTEM_PAGES = new Set(['no-route', 'enable-cookies', 'privacy-policy-cookie-restriction-mode']);
 
 export async function listCms(ro: MagentoReader, a: { entity: 'page' | 'block'; term?: string; limit?: number; offset?: number }) {
@@ -51,7 +51,7 @@ export async function getCms(ro: MagentoReader, entity: 'page' | 'block', id: st
   return { id: String(x.id), identifier: x.identifier, title: x.title, active: !!x.active, ...(entity === 'page' ? { url: `${base}/${x.identifier === 'home' ? '' : x.identifier}`, metaTitle: x.meta_title ?? null, metaDescription: x.meta_description ?? null, contentHeading: x.content_heading ?? null, layout: x.page_layout ?? null } : {}), pageBuilder: isPageBuilder(x.content), html: h.html, ...(h.truncated ? { truncated: true, hint: `HTML auf ${HTML_MAX.toLocaleString('de-DE')} Zeichen gekürzt; Abschnitte gezielt mit read_page prüfen, beim Ändern nur Felder außer content vorschlagen` } : {}), text: cut(readableHtml(x.content), 4000) };
 }
 
-// ================= Seiten ändern =================
+// ================= Change pages =================
 const FIELDS: Record<string, { key: string; label: string }> = { title: { key: 'title', label: 'Seitentitel' }, content: { key: 'content', label: 'Inhalt' }, metaTitle: { key: 'meta_title', label: 'Meta-Title' }, metaDescription: { key: 'meta_description', label: 'Meta-Description' }, active: { key: 'active', label: 'Aktiv' } };
 export const CMS_FIELDS = Object.keys(FIELDS);
 export interface CmsChangeArgs { title: string; reason: string; changes: { id: string; fields: Record<string, unknown> }[] }
@@ -85,11 +85,11 @@ export async function buildCmsPageChangeSet(ro: MagentoReader, a: CmsChangeArgs)
   return { cs: { id: newIdSafe(), kind: 'cms-pages', entity: 'landing-page', noun: { one: 'Seite', many: 'Seiten' }, title: a.title, reason: a.reason, items, skipped, atomic: false }, payload: { plans } };
 }
 
-/** Vollständiger Stand einer Seite für PUT (Felder, die Magento beim Speichern sonst neu setzt oder leert) */
+/** Full state of a page for PUT (fields that Magento would otherwise reset or clear on save) */
 const PAGE_KEYS = ['identifier', 'title', 'page_layout', 'meta_title', 'meta_keywords', 'meta_description', 'content_heading', 'content', 'sort_order', 'active'];
 const pageBody = (cur: MRecord) => ({ id: Number(cur.id), ...Object.fromEntries(PAGE_KEYS.filter(k => k in cur).map(k => [k, cur[k]])) });
 
-// Je Seite EIN Speichern mit allen gewählten Feldern (Magento speichert immer die ganze Seite: parallele Aufrufe überschrieben sich)
+// ONE save per page with all selected fields (Magento always saves the whole page: parallel calls would overwrite each other)
 reg.register('cms-pages', async (c, cs, payload, selected, ctx) => {
   const plans = (payload as { plans: Record<string, CmsPlan> }).plans, results: ApplyResult['results'] = [], undo: UndoOp[] = [];
   const byPage = new Map<string, ChangeItem[]>();
@@ -103,7 +103,7 @@ reg.register('cms-pages', async (c, cs, payload, selected, ctx) => {
       const cur = await c.req('GET', `/V1/cmsPage/${id}`, undefined, { store: 'all' }) as MRecord;
       const moved = its.filter((it, i) => !same(keys[i], cur[keys[i]], pl.expect[keys[i]]));
       if (moved.length) throw new Error(`${moved.map(m => m.fieldLabel).join(', ')} wurde inzwischen geändert, bitte neu vorschlagen`);
-      // Magento speichert immer die ganze Seite und bildet einen fehlenden URL-Schlüssel neu aus dem Titel: darum stets den vollständigen Stand senden
+      // Magento always saves the whole page and rebuilds a missing URL key from the title: so always send the full state
       const data = Object.fromEntries(its.map((it, i) => [keys[i], it.afterRaw]));
       await c.req('PUT', `/V1/cmsPage/${id}`, { page: { ...pageBody(cur), ...data } }, { store: 'all' });
       undo.push(reqOp('cms-page', id, 'PUT', `/all/V1/cmsPage/${id}`, { page: { ...pageBody(cur), ...Object.fromEntries(keys.map(k => [k, cur[k] ?? (k === 'active' ? false : null)])) } }));

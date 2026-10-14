@@ -1,6 +1,6 @@
 import 'server-only';
-// Wer hat angewendet / rückgängig gemacht? Benutzername aus dem Browser-Login (Basic Auth, nur wenn LOTSE_PASSWORD gesetzt ist).
-// Das Passwort prüft proxy.ts; hier zählt nur der Name vor dem ':'. Ohne Login: null.
+// Who applied / undid it? Username from the browser login (Basic Auth, only when LOTSE_PASSWORD is set).
+// proxy.ts checks the password; only the name before the ':' matters here. Without login: null.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { singleton } from './state';
 
@@ -14,8 +14,8 @@ export function actorFromAuth(header: string | null | undefined): string | null 
 }
 export const actorFromRequest = (req: Request) => actorFromAuth(req.headers.get('authorization'));
 
-// Rückgängig läuft innerhalb der Anfrage (AsyncLocalStorage). Anwenden läuft in der Runde der KI weiter, die auf die Freigabe wartet –
-// dafür merkt sich die Freigabe-Route den Namen je Chat; die folgenden Audit-Einträge dieses Chats tragen ihn.
+// Undo runs within the request (AsyncLocalStorage). Applying continues in the AI's turn that waits for approval,
+// so the approval route remembers the name per chat; the following audit entries of this chat carry it.
 const store = () => singleton('actorStore', () => new AsyncLocalStorage<string | null>());
 const byChat = () => singleton('actorByChat', () => new Map<string, string | null>());
 export const withActor = <T>(actor: string | null, fn: () => T): T => store().run(actor, fn);

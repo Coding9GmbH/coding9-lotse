@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { ShopifyClient } from '../../../../src/server/platform/shopify/client';
 import type { UndoOp } from '@/lib/protocol';
 
-test('Shopify: verlorene fileCreate-Antwort merkt die neue Datei zum Löschen vor', async () => {
+test('Shopify: lost fileCreate response marks the new file for deletion', async () => {
   const { createShopFile } = await import('../../../../src/server/platform/shopify/publish');
   const files = new Map<string, { id: string }>();
   let n = 0;

@@ -3,13 +3,13 @@
 .form textarea:focus { border-color: var(--green); }
 .attach { height: 44px; width: 44px; padding: 0; font-size: 18px; flex: none; }
 .send { height: 44px; flex: none; }
-/* Zeile unter dem Textfeld (Kontext): beginnt bündig mit dem Textfeld, nicht mit dem Anhängen-Knopf */
+/* Row below the text field (context): aligned with the text field, not with the attach button */
 .extra { flex: 1 0 100%; display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 52px; }
 .home .extra { margin-top: -2px; }
 
 .home { margin: 0 16px; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-pop); padding: 12px; }
 .home textarea { min-height: 56px; height: 56px; padding-block: 16px; background: var(--panel); border: 0; }
-/* Startbildschirm: Knöpfe bleiben auf Höhe der ersten Zeile, der Text wächst nach unten */
+/* Start screen: buttons stay level with the first line, the text grows downward */
 .home { align-items: flex-start; }
 .home .attach, .home .send { margin-top: 6px; }
 .home textarea:focus { border: 1px solid var(--green); }
@@ -20,7 +20,7 @@
 .up { opacity: .5; }
 .att button { position: absolute; top: 1px; right: 1px; padding: 0 5px; border-radius: 50%; line-height: 16px; font-size: 12px; background: #fffd; }
 
-/* Platzhalter einzeilig mit … (das leere Feld wächst nicht mit) */
+/* Placeholder on one line with … (the empty field does not grow with it) */
 .form textarea:placeholder-shown { white-space: nowrap; overflow: hidden; }
 .form textarea::placeholder { text-overflow: ellipsis; }
 .doc { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; font-size: 20px; }

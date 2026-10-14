@@ -1,4 +1,4 @@
-/* Hülle: Navigation (--nav-w) + Inhalt. Die Seite selbst scrollt nicht; jede Ansicht regelt ihr Scrollen. */
+/* Shell: navigation (--nav-w) + content. The page itself does not scroll; each view handles its own scrolling. */
 .shell {
   --nav-w: 264px;
   display: grid;
@@ -6,7 +6,7 @@
   grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
-  overflow: clip; /* clip statt hidden: Sprungmarken (#…) dürfen die Hülle nicht verschieben */
+  overflow: clip; /* clip instead of hidden: anchors (#…) must not shift the shell */
   transition: grid-template-columns .22s cubic-bezier(.2, .8, .2, 1);
 }
 .shell[data-collapsed] { --nav-w: 68px; }

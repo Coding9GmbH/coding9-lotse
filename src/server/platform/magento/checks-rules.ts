@@ -1,5 +1,5 @@
-// Magento-Shop-Check (rein → testbar): Befund-Definitionen mit Aufträgen (fixPrompt) für die Magento-Werkzeuge
-// und Auswertung gelesener Produkte/Kategorien.
+// Magento shop check (pure → testable): finding definitions with tasks (fixPrompt) for the Magento tools
+// and evaluation of the products/categories read.
 import type { FindingDef, Hit } from '../../features/shopcheck-rules';
 import { duplicates, META, wordCount } from '../../features/seo-rules';
 import { attr, attrStr, isActive, money, plain, priceState, type MRecord } from './map';
@@ -56,7 +56,7 @@ export const M_DEFS = {
 export const productLabel = (p: MRecord) => `${plain(p.name) || p.sku} (${p.sku})`;
 const SIMPLE = new Set(['simple', 'virtual', 'downloadable']);
 
-/** Auswertung der gelesenen aktiven, sichtbaren Produkte (Store-View der Einstellungen) */
+/** Evaluation of the active, visible products read (store view from settings) */
 export function productHits(rows: MRecord[], stock?: Map<string, { qty: number; inStock: boolean }>) {
   const hit = (p: MRecord): Hit => ({ id: String(p.id), label: productLabel(p) });
   const mt = (p: MRecord) => plain(attrStr(p, 'meta_title'));
@@ -77,13 +77,13 @@ export function productHits(rows: MRecord[], stock?: Map<string, { qty: number; 
   };
 }
 
-/** Kategorien (aktiv, ab Ebene 2) ohne Meta-Description bzw. Beschreibung (Inhalt aus einem CMS-Block zählt als Beschreibung) */
+/** Categories (active, level 2 and below) without meta description or description (content from a CMS block counts as description) */
 export function categoryHits(rows: MRecord[]) {
   const hit = (c: MRecord): Hit => ({ id: String(c.id), label: plain(c.name) || String(c.id) });
   return { meta: rows.filter(c => !plain(attrStr(c, 'meta_description'))).map(hit), desc: rows.filter(c => !plain(attr(c, 'description')) && !(attrStr(c, 'landing_page') && ['PAGE', 'PRODUCTS_AND_PAGE'].includes(attrStr(c, 'display_mode') ?? ''))).map(hit) };
 }
 
-/** Produkte ohne eigene Übersetzung: Name UND Beschreibung der Store-View gleich den globalen Werten */
+/** Products without their own translation: store view name AND description equal the global values */
 export function untranslated(global: MRecord[], view: MRecord[]): Hit[] {
   const g = new Map(global.map(p => [String(p.id), p]));
   return view.filter(p => { const o = g.get(String(p.id)); return o && plain(p.name) === plain(o.name) && plain(attr(p, 'description')) === plain(attr(o, 'description')); }).map(p => ({ id: String(p.id), label: productLabel(p) }));

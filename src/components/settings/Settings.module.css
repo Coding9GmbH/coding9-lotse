@@ -48,7 +48,7 @@
 .alert { background: var(--coral-bg); color: var(--warn); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; font-size: 13px; }
 .authHead { display: flex; align-items: center; gap: 14px; margin: 6px 0 10px; flex-wrap: wrap; }
 .authSeg { width: min(380px, 100%); }
-/* lange Bezeichnungen (Shopify: Dev Dashboard / Admin-API-Token): umbrechen statt über den Rand laufen */
+/* long labels (Shopify: Dev Dashboard / Admin API token): wrap instead of overflowing */
 .authSegLong { width: min(560px, 100%); }
 .authSegLong button { white-space: normal; line-height: 1.3; padding: 6px 10px; }
 
@@ -70,7 +70,7 @@
 .scope input:focus-visible + .switch { outline: 2px solid var(--coral); outline-offset: 2px; }
 .locked { margin: 0; font-size: 13px; background: var(--cream); border-radius: 8px; padding: 8px 12px; }
 
-/* Speicherstand: oben neben der Überschrift, bleibt beim Scrollen sichtbar */
+/* save status: at the top next to the heading, stays visible while scrolling */
 .titleRow { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: -28px 0 4px; padding: 28px 0 8px; background: var(--bg); }
 .titleRow .h1 { margin: 0; }
 .saveState { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--mute); }
@@ -126,7 +126,7 @@
   .grid { grid-template-columns: 1fr; }
 }
 
-/* ChatGPT-Anmeldung (Codex) */
+/* ChatGPT sign-in (Codex) */
 .codexBox { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin: 14px 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
 .codexBox p { margin: 0; }
 .codexSteps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }

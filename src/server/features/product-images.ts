@@ -1,5 +1,5 @@
 import 'server-only';
-// Produktbilder & Alt-Texte: Bilder bestehender Produkte hinzufügen/entfernen/sortieren, Titelbild setzen, Alt-Texte/Titel der Medien pflegen.
+// Product images & alt texts: add/remove/sort images of existing products, set the cover image, maintain media alt texts/titles.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { ChangeAsset, ChangeItem, ChangeSet, ChatEvent, UndoOp } from '@/lib/protocol';
@@ -18,9 +18,9 @@ const fileOf = (m: SwEntity | null | undefined) => (m?.fileName ? `${m.fileName}
 const nameOfProduct = (p: SwEntity, parent?: SwEntity | null) => p.translated?.name ?? p.name ?? parent?.translated?.name ?? parent?.name ?? null;
 const productLabel = (p: SwEntity, parent?: SwEntity | null) => `${nameOfProduct(p, parent) ?? p.productNumber}${p.productNumber ? ` (${p.productNumber})` : ''}`;
 const plainText = stripTags;
-// wie slug() in media.ts; Uploads heißen „<slug>-xxxxx“ (Zufallsendung)
+// like slug() in media.ts; uploads are named "<slug>-xxxxx" (random suffix)
 const slugish = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-/** Alt-Text ist nur der Dateiname (z. B. Upload „IMG_1234“, „Vase_Kiesel_front“): zählt als fehlend */
+/** Alt text is just the file name (e.g. upload "IMG_1234", "Vase_Kiesel_front"): counts as missing */
 export const altIsFileName = (alt: string | null | undefined, fileName: string | null | undefined) => {
   const a = plainText(alt).toLowerCase();
   if (!a) return false;
@@ -28,11 +28,11 @@ export const altIsFileName = (alt: string | null | undefined, fileName: string |
   return (!!s && (s === f || s === f.replace(/-[a-z0-9]{5}$/, ''))) || /^(img|dsc|dscn|pxl|photo|foto|bild|image|upload)[-_ ]?\d*$/.test(a) || /\.(jpe?g|png|webp|gif|avif)$/.test(a);
 };
 
-// ---- Bildliste eines Produkts planen (rein, testbar) ----
+// ---- Plan a product's image list (pure, testable) ----
 export interface PmRow { id: string; mediaId: string; position: number }
 export interface AddSpec { image: string; position?: number; cover?: boolean; alt?: string }
 export interface ImageOps { add?: AddSpec[]; remove?: string[]; order?: string[]; cover?: string }
-/** Eintrag der Ziel-Bildliste: vorhandene Produkt-Bild-Zuordnung (id) oder neue (isNew, ref = mediaId | staged:… | URL) */
+/** Entry of the target image list: existing product-image assignment (id) or a new one (isNew, ref = mediaId | staged:… | URL) */
 export interface PlanEntry { id: string; ref: string; isNew: boolean; alt?: string }
 export interface ImagePlan { entries: PlanEntry[]; removed: PmRow[]; coverId: string | null; changed: boolean; errors: string[] }
 
@@ -62,20 +62,20 @@ export function planImages(cur: PmRow[], curCover: string | null, ops: ImageOps,
   if (ops.cover) { const e = find(ops.cover); if (e) coverId = e.id; else errors.push(`Titelbild: ${ops.cover} ist nicht am Produkt`); }
   if (!coverId) coverId = curCover && list.some(e => e.id === curCover) ? curCover : list[0]?.id ?? null;
   const changed = removed.length > 0 || list.some(e => e.isNew) || coverId !== (curCover ?? null)
-    || list.length !== sorted.length || list.some((e, i) => sorted[i].id !== e.id); // nur Positionswerte normalisieren (z. B. 1 statt 0) zählt nicht als Änderung
+    || list.length !== sorted.length || list.some((e, i) => sorted[i].id !== e.id); // merely normalizing position values (e.g. 1 instead of 0) does not count as a change
   return { entries: list, removed, coverId, changed, errors };
 }
 
-/** „3 Bilder, Titelbild: a.jpg“ */
+/** "3 Bilder, Titelbild: a.jpg" */
 export const imagesSummary = (names: string[], coverName: string | null, inherited = false) => (names.length ? `${names.length} ${names.length === 1 ? 'Bild' : 'Bilder'}${inherited ? ' (geerbt vom Hauptprodukt)' : ''}, Titelbild: ${coverName ?? '–'}` : 'keine Bilder');
 export const INHERIT_WARN = 'Variante bekommt eigene Bilder. Die geerbten Bilder des Hauptprodukts werden dann nicht mehr angezeigt';
 
-/** Varianten ohne eigene Bilder erben die Bilder (und das Titelbild) des Hauptprodukts: Hauptprodukte dazu laden */
+/** Variants without their own images inherit the images (and cover) of the parent product: load the parent products too */
 async function inheritedFrom(ro: ShopReader, rows: SwEntity[], associations: Record<string, unknown>): Promise<Record<string, SwEntity>> {
   const pids = [...new Set(rows.filter(r => r.parentId && !(r.media ?? []).length).map(r => r.parentId as string))];
   return pids.length ? Object.fromEntries((await ro.search('product', { ids: pids, limit: pids.length, associations: associations as never })).data.map(p => [p.id, p])) : {};
 }
-/** Mehrfach genannte Produkte zusammenführen (sonst zwei parallele Schreibvorgänge auf dasselbe Produkt) */
+/** Merge products named more than once (otherwise two parallel writes to the same product) */
 export function mergeProductOps<T extends ImageOps & { productId: string }>(products: T[]): T[] {
   const by = new Map<string, T>();
   for (const p of products) {
@@ -86,7 +86,7 @@ export function mergeProductOps<T extends ImageOps & { productId: string }>(prod
   return [...by.values()];
 }
 
-/** Payload je Produkt (afterRaw): der Executor prüft den Stand (snapshot = Zuordnungs-IDs, snapshotCover = Titelbild) und schreibt danach */
+/** Payload per product (afterRaw): the executor checks the state (snapshot = assignment IDs, snapshotCover = cover image) and then writes */
 export interface ImagesPayload { productId: string; snapshot: string[]; snapshotCover?: string | null; entries: PlanEntry[]; removed: PmRow[]; coverId: string | null }
 
 export interface ProductImagesArgs { title: string; reason: string; products: (ImageOps & { productId: string })[] }
@@ -97,7 +97,7 @@ async function refInfos(ro: ShopReader, refs: string[]): Promise<Record<string, 
   const media = ids.length ? (await ro.search('media', { ids, limit: ids.length })).data : [];
   for (const r of refs) {
     if (r.startsWith('staged:')) { const m = stagedMeta(r.slice(7)); out[r] = m ? { name: m.name, url: `/staged/${m.file}`, ai: !!m.ai } : { name: r, ai: false, error: 'vorgemerktes Bild nicht gefunden' }; }
-    else if (/^https?:\/\//i.test(r)) { let name = r; try { name = decodeURIComponent(new URL(r).pathname.split('/').pop() || r); } catch { /* bleibt URL */ } out[r] = { name, url: r, ai: false }; }
+    else if (/^https?:\/\//i.test(r)) { let name = r; try { name = decodeURIComponent(new URL(r).pathname.split('/').pop() || r); } catch { /* stays URL */ } out[r] = { name, url: r, ai: false }; }
     else if (HEX32.test(r)) {
       const m = media.find(x => x.id === r);
       out[r] = !m ? { name: r, ai: false, error: 'Medium nicht gefunden' } : !String(m.mimeType ?? '').startsWith('image/') ? { name: fileOf(m), ai: false, error: 'Medium ist kein Bild' } : { name: fileOf(m), url: m.url, ai: noteMedia(m) };
@@ -123,7 +123,7 @@ export async function buildProductImagesChangeSet(ro: ShopReader, args: ProductI
     const cur = by[ch.productId];
     if (!cur) { skipped.push({ id: ch.productId, reason: 'Produkt nicht gefunden' }); continue; }
     const parent = parents[cur.parentId] ?? null, label = productLabel(cur, parent);
-    const inh: SwEntity[] = parent && !(cur.media ?? []).length ? parent.media ?? [] : []; // geerbte Bilder (nur Anzeige)
+    const inh: SwEntity[] = parent && !(cur.media ?? []).length ? parent.media ?? [] : []; // inherited images (display only)
     const add: AddSpec[] = [];
     for (const a of ch.add ?? []) {
       const ref = String(a.image ?? '').trim(), i = info[ref];
@@ -158,7 +158,7 @@ export async function buildProductImagesChangeSet(ro: ShopReader, args: ProductI
   return { id: newId(), kind: KIND_IMAGES, entity: 'product', noun: { one: 'Produkt', many: 'Produkte' }, applyLabel: 'Bilder übernehmen', title, reason, items, assets: [...assets.values()], skipped, unchanged, atomic: false };
 }
 
-/** Rückgängig-Schritte in Schreibreihenfolge; undoOps läuft rückwärts: entfernte neu anlegen → Positionen/Titelbild → neue löschen */
+/** Undo steps in write order; undoOps runs backwards: recreate removed → positions/cover → delete new */
 export function imagesUndo(productId: string, cur: { coverId: string | null; media: PmRow[] }, p: ImagesPayload): UndoOp[] {
   const kept = p.entries.filter(e => !e.isNew).map(e => cur.media.find(m => m.id === e.id)!).filter(Boolean);
   return [
@@ -174,7 +174,7 @@ async function resolveRef(swW: Shopware, e: PlanEntry): Promise<string> {
   return e.ref;
 }
 
-/** Jedes Bild (staged/URL) nur einmal je Änderungsset hochladen/importieren, auch wenn es an mehrere Produkte geht */
+/** Upload/import each image (staged/URL) only once per change set, even if it goes to several products */
 export type Resolver = (e: PlanEntry) => Promise<string>;
 export const resolverFor = (swW: Shopware, one: (swW: Shopware, e: PlanEntry) => Promise<string> = resolveRef): Resolver => { const m = new Map<string, Promise<string>>(); return e => { let r = m.get(e.ref); if (!r) m.set(e.ref, r = one(swW, e)); return r; }; };
 
@@ -184,21 +184,21 @@ export async function applyImages(swW: Shopware, p: ImagesPayload, resolve: Reso
   if (!cur) throw new Error('Produkt nicht mehr vorhanden');
   const media: PmRow[] = (cur.media ?? []).map((m: SwEntity) => ({ id: m.id, mediaId: m.mediaId, position: m.position ?? 0 }));
   if (media.map(m => m.id).sort().join() !== [...p.snapshot].sort().join()) throw new Error(CHANGED);
-  if (p.snapshotCover !== undefined && (cur.coverId ?? null) !== p.snapshotCover) throw new Error(CHANGED); // Titelbild inzwischen geändert: der Vorschlag zeigte ein anderes „vorher“
+  if (p.snapshotCover !== undefined && (cur.coverId ?? null) !== p.snapshotCover) throw new Error(CHANGED); // cover changed in the meantime: the proposal showed a different "before"
   const rows = [];
   try { for (const [i, e] of p.entries.entries()) rows.push(e.isNew ? { id: e.id, mediaId: await resolve(e), position: i } : { id: e.id, position: i }); }
   catch (e) { throw new Error(`${errMsg(e)}. Produkt unverändert; bereits hochgeladene Bilder bleiben in der Medienverwaltung`); }
   const undo = imagesUndo(p.productId, { coverId: cur.coverId ?? null, media }, p);
   await swW.update('product', p.productId, { coverId: p.coverId, media: rows });
   try { for (const r of p.removed) await swW.req('DELETE', `/product-media/${r.id}`); }
-  catch (e) { await undoOps(swW, undo); throw e; } // halb gelöscht: Ausgangszustand wiederherstellen (Anlegen noch vorhandener Zuordnungen schlägt harmlos fehl)
+  catch (e) { await undoOps(swW, undo); throw e; } // half deleted: restore the initial state (recreating still existing assignments fails harmlessly)
   return undo;
 }
 registerApplier(KIND_IMAGES, (swW, cs, _payload, selected, ctx) => { const resolve = resolverFor(swW); return applyEach(cs, selected, it => applyImages(swW, it.afterRaw as ImagesPayload, resolve), ctx); });
 
-// ---- Alt-Texte / Titel von Medien ----
+// ---- Alt texts / titles of media ----
 export interface AltArgs { title: string; reason: string; images: { mediaId: string; alt: string; title?: string }[] }
-/** Bilder, die die KI in diesem Chat mit view_image angesehen hat (mediaIds und URL-Pfade) */
+/** Images the AI viewed with view_image in this chat (mediaIds and URL paths) */
 export function viewedImages(events: ChatEvent[]): Set<string> {
   const out = new Set<string>();
   for (const e of events) if (e.t === 'tool' && e.name.replace(/^mcp__shop__/, '') === 'view_image') {
@@ -207,7 +207,7 @@ export function viewedImages(events: ChatEvent[]): Set<string> {
   }
   return out;
 }
-const urlKey = (u: string) => { let p = u; try { p = new URL(u, 'http://x').pathname; } catch { /* relativ */ } const i = p.indexOf('/media/'); return i >= 0 ? p.slice(i) : p; };
+const urlKey = (u: string) => { let p = u; try { p = new URL(u, 'http://x').pathname; } catch { /* relative */ } const i = p.indexOf('/media/'); return i >= 0 ? p.slice(i) : p; };
 
 export function checkAlt(raw: unknown): { alt: string; warn: string[] } {
   const alt = plainText(raw), warn: string[] = [];
@@ -224,12 +224,12 @@ export async function buildAltTextChangeSet(ro: ShopReader, { title, reason, ima
   const ids = [...new Set(images.map(i => i.mediaId))].filter(id => HEX32.test(id));
   const media = ids.length ? (await ro.search('media', { ids, limit: ids.length })).data : [];
   const by: Record<string, SwEntity> = Object.fromEntries(media.map(m => [m.id, m]));
-  // Wo wird das Bild verwendet? (Alt-Text gilt überall, wo das Medium eingebunden ist)
+  // Where is the image used? (alt text applies everywhere the media is embedded)
   const users = ids.length ? (await ro.search('product', { limit: 500, filter: [{ type: 'equalsAny', field: 'media.mediaId', value: ids }], associations: { media: {} } })).data : [];
   const usedBy = (id: string) => users.filter(p => (p.media ?? []).some((m: SwEntity) => m.mediaId === id));
   const items: ChangeItem[] = [], skipped: ChangeSet['skipped'] = [], assets: ChangeAsset[] = []; let unchanged = 0;
   const seen = new Set<string>();
-  // Texte werden in der Standardsprache (API-Kontext) geschrieben; weitere Sprachen behalten ihren Text
+  // Texts are written in the default language (API context); other languages keep their text
   const langs = (await ro.search('language', { limit: 1, 'total-count-mode': 1 }).catch(() => null))?.total ?? 1;
   const langWarn = langs > 1 ? [`Gilt nur für die Standardsprache; ${langs - 1} weitere ${langs === 2 ? 'Sprache behält' : 'Sprachen behalten'} ihren bisherigen Text`] : [];
   for (const im of images) {
@@ -246,11 +246,11 @@ export async function buildAltTextChangeSet(ro: ShopReader, { title, reason, ima
       if (alt === (m.alt ?? '')) unchanged++;
       else { items.push({ id: `${m.id}:alt`, entity: 'media', entityId: m.id, label, field: 'alt', fieldLabel: 'Alt-Text', before: plainText(m.alt) || '–', after: alt, afterRaw: alt, warn: [...warn, ...shared, ...langWarn] }); n++; }
     } catch (e) { skipped.push({ id: m.id, reason: `${fileOf(m)}: ${errMsg(e)}` }); }
-    // KI-Bild, dessen Kennzeichnung nur im Alt-Text steckt: beim Ersetzen des Alt-Texts in den Titel übernehmen
+    // AI image whose label lives only in the alt text: move it into the title when replacing the alt text
     const keepMark = im.title == null && n > 0 && noteMedia(m) && !AI_MARK.test(`${m.title ?? ''} ${m.fileName ?? ''}`);
     if (im.title != null || keepMark) {
       let t = plainText(im.title ?? (plainText(m.title) || items[items.length - 1].after)).slice(0, 255);
-      if (noteMedia(m) && !AI_MARK.test(t)) t = `KI-generiert: ${t}`; // Kennzeichnung bleibt erhalten
+      if (noteMedia(m) && !AI_MARK.test(t)) t = `KI-generiert: ${t}`; // label is preserved
       if (!t) skipped.push({ id: m.id, reason: `${fileOf(m)}: Titel ist leer` });
       else if (t === (m.title ?? '')) unchanged++;
       else { items.push({ id: `${m.id}:title`, entity: 'media', entityId: m.id, label, field: 'title', fieldLabel: 'Titel', before: plainText(m.title) || '–', after: t, afterRaw: t, warn: [...shared, ...langWarn, ...(keepMark ? ['KI-Kennzeichnung wird in den Titel übernommen'] : [])] }); n++; }
@@ -268,7 +268,7 @@ registerApplier(KIND_ALT, (swW, cs, _payload, selected, ctx) => applyEach(cs, se
   return { op: 'patch', entity: 'media', id: cur.id, data: { [field]: cur[field] ?? null } };
 }, ctx));
 
-// ---- Lesen ----
+// ---- Read ----
 const mediaAssoc = { media: { sort: [{ field: 'position' }], associations: { media: {} } } };
 const imageRow = (pm: SwEntity, coverId: string | null) => {
   const m = pm.media ?? {};
@@ -282,18 +282,18 @@ export const productFilter = (a: { categoryId?: string; active?: boolean; includ
   ...(a.active != null ? [{ type: 'equals', field: 'active', value: a.active }] : []),
 ];
 
-// Produkte mit mindestens einem Bild bzw. mit einem Bild ohne Alt-Text (auch vom Shop-Check genutzt, damit die Zahlen übereinstimmen)
+// Products with at least one image or with an image without alt text (also used by the shop check so the numbers match)
 export const HAS_MEDIA = { type: 'not', operator: 'and', queries: [{ type: 'equals', field: 'media.id', value: null }] };
 export const ALT_GAP = [HAS_MEDIA, { type: 'multi', operator: 'or', queries: [{ type: 'equals', field: 'media.media.alt', value: null }, { type: 'equals', field: 'media.media.alt', value: '' }] }];
 
-/** Filter für Bildlücken (auch vom Shop-Check genutzt): ohne Bild bzw. mindestens ein Bild ohne Alt-Text */
+/** Filters for image gaps (also used by the shop check): no image or at least one image without alt text */
 export const GAP_FILTER = {
-  images: [{ type: 'equals', field: 'media.id', value: null }, { type: 'multi', operator: 'or', queries: [{ type: 'equals', field: 'parentId', value: null }, { type: 'equals', field: 'parent.media.id', value: null }] }], // Varianten mit geerbten Bildern haben Bilder
-  alt: ALT_GAP, // Produkte ganz ohne Bild zählen nicht (Join liefert sonst alt = null)
+  images: [{ type: 'equals', field: 'media.id', value: null }, { type: 'multi', operator: 'or', queries: [{ type: 'equals', field: 'parentId', value: null }, { type: 'equals', field: 'parent.media.id', value: null }] }], // variants with inherited images have images
+  alt: ALT_GAP, // products without any image do not count (otherwise the join yields alt = null)
 };
 
-export const bilder: Feature = {
-  key: 'bilder',
+export const productImages: Feature = {
+  key: 'product-images',
   platforms: ['shopware'],
   toolNames: ['get_product_images', 'find_image_gaps', 'propose_product_images', 'propose_alt_texts'],
   tools: session => {
@@ -318,7 +318,7 @@ export const bilder: Feature = {
       tool('find_image_gaps', 'Findet Produkte mit Bildlücken (paginiert, mit Gesamtzahl): missing="images" = Produkte ganz ohne Bild; missing="alt" = Produkte mit mindestens einem Bild ohne Alt-Text (liefert diese Bilder mit mediaId/URL). Filter: Kategorie, aktiv, Varianten (Varianten, die Bilder vom Hauptprodukt erben, gelten als bebildert). Blättern mit nextOffset. Ändert nichts.',
         { missing: z.enum(['images', 'alt']), categoryId: z.string().optional(), active: z.boolean().optional(), includeVariants: z.boolean().optional(), limit: z.number().optional().describe('max. 100 (bei alt max. 50)'), offset: z.number().optional() },
         guard(async a => {
-          const { limit, page, offset, note } = pageOf(a.offset, Math.max(1, Math.min(Math.floor(a.limit ?? 25), a.missing === 'alt' ? 50 : 100))); // Shopware blättert seitenweise
+          const { limit, page, offset, note } = pageOf(a.offset, Math.max(1, Math.min(Math.floor(a.limit ?? 25), a.missing === 'alt' ? 50 : 100))); // Shopware paginates by page
           const base = productFilter(a);
           const gap = GAP_FILTER[a.missing];
           const [r, all] = await Promise.all([

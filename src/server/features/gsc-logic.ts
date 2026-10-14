@@ -1,16 +1,17 @@
-// Search Console: reine Auswertung (ohne Netz) – Zeiträume, CTR-Kurve, Chancen, Inhaltslücken, Erfolgsmessung.
+// Search Console: pure evaluation (no network): periods, CTR curve, opportunities, content gaps, success measurement.
+import { escapeRe } from '@/lib/platforms';
 import type { Row } from './gsc-google';
 
-export const LAG_DAYS = 3;          // Search-Console-Daten sind ca. 2–3 Tage alt
-export const MIN_IMPRESSIONS = 100; // darunter keine Aussagen über Klickraten
-export const MIN_DAYS = 14;         // frühestens nach 14 Tagen messen
+export const LAG_DAYS = 3;          // Search Console data is about 2-3 days old
+export const MIN_IMPRESSIONS = 100; // below this, no statements about click rates
+export const MIN_DAYS = 14;         // measure after 14 days at the earliest
 export const BASE_DAYS = 28;
 
-// ---- Tage (JJJJ-MM-TT, UTC) ----
+// ---- Days (YYYY-MM-DD, UTC) ----
 export const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 export const addDays = (day: string, n: number) => isoDay(new Date(Date.parse(day + 'T00:00:00Z') + n * 86_400_000));
 export const daysBetween = (a: string, b: string) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86_400_000);
-/** Letzter Tag mit (endgültigen) Daten */
+/** Last day with (final) data */
 export const lastDataDay = (now = new Date()) => addDays(isoDay(now), -LAG_DAYS);
 export function range(days = BASE_DAYS, now = new Date(), endDate?: string, startDate?: string) {
   const end = endDate ?? lastDataDay(now), start = startDate ?? addDays(end, -(Math.max(1, days) - 1));
@@ -19,7 +20,7 @@ export function range(days = BASE_DAYS, now = new Date(), endDate?: string, star
   return { startDate: start, endDate: end, days: daysBetween(start, end) + 1 };
 }
 
-// ---- Erwartete Klickrate je Position (grobe Branchenkurve organischer Ergebnisse, Desktop+Mobil) ----
+// ---- Expected click rate per position (rough industry curve of organic results, desktop+mobile) ----
 const CURVE = [0, 0.28, 0.15, 0.10, 0.07, 0.05, 0.04, 0.03, 0.025, 0.02, 0.018];
 export function expectedCtr(position: number): number {
   const p = Math.max(1, position);
@@ -29,7 +30,7 @@ export function expectedCtr(position: number): number {
 }
 
 export interface Metrics { clicks: number; impressions: number; ctr: number; position: number }
-/** Summe mehrerer Zeilen: Klickrate neu berechnet, Position nach Impressionen gewichtet */
+/** Sum of several rows: click rate recalculated, position weighted by impressions */
 export function aggregate(rows: Pick<Row, 'clicks' | 'impressions' | 'position'>[]): Metrics {
   const clicks = rows.reduce((s, r) => s + r.clicks, 0), impressions = rows.reduce((s, r) => s + r.impressions, 0);
   const position = impressions ? rows.reduce((s, r) => s + r.position * r.impressions, 0) / impressions : 0;
@@ -40,7 +41,7 @@ export const pct = (x: number, d = 1) => `${(x * 100).toFixed(d).replace('.', ',
 export const round = (x: number, d = 1) => Math.round(x * 10 ** d) / 10 ** d;
 export const view = (m: Metrics) => ({ clicks: m.clicks, impressions: m.impressions, ctr: pct(m.ctr, 2), position: round(m.position) });
 
-// ---- Chancen: viele Impressionen, Klickrate deutlich unter Erwartung für die Position ----
+// ---- Opportunities: many impressions, click rate clearly below expectation for the position ----
 export interface Opportunity extends Metrics { page: string; expectedCtr: number; potentialClicks: number }
 export function opportunities(rows: Row[], o: { minImpressions?: number; maxPosition?: number; factor?: number } = {}): Opportunity[] {
   const min = o.minImpressions ?? MIN_IMPRESSIONS, maxPos = o.maxPosition ?? 20, factor = o.factor ?? 0.7;
@@ -51,21 +52,21 @@ export function opportunities(rows: Row[], o: { minImpressions?: number; maxPosi
   }).sort((a, b) => b.potentialClicks - a.potentialClicks);
 }
 
-// ---- Relevanz Suchanfrage ↔ Seite (Wörter der Anfrage im URL-Pfad) ----
+// ---- Relevance search query ↔ page (words of the query in the URL path) ----
 const STOP = new Set('der die das und oder mit für fuer von aus auf in im am an zu zum zur ein eine einen kaufen online shop günstig guenstig bestellen the and for with to of a an'.split(' '));
 export const tokens = (s: string) => s.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
   .split(/[^a-z0-9]+/).filter(w => w.length > 1 && !STOP.has(w));
-/** Anteil der Suchwörter (ohne Füllwörter), die im Pfad vorkommen; Wortstamm ab 4 Zeichen genügt („vasen“ ~ „vase“). */
+/** Share of search words (without filler words) that occur in the path; a word stem of 4+ characters suffices ("vasen" ~ "vase"). */
 export function relevance(query: string, url: string): number {
   const q = tokens(query); if (!q.length) return 1;
-  let path = url; try { path = decodeURIComponent(new URL(url).pathname); } catch { /* relativer Pfad */ }
+  let path = url; try { path = decodeURIComponent(new URL(url).pathname); } catch { /* relative path */ }
   const p = tokens(path);
   const hit = (w: string) => p.some(x => x === w || (Math.min(x.length, w.length) >= 4 && (x.startsWith(w.slice(0, Math.max(4, w.length - 2))) || w.startsWith(x.slice(0, Math.max(4, x.length - 2))))));
   return q.filter(hit).length / q.length;
 }
 
 export interface Gap { query: string; impressions: number; clicks: number; bestPosition: number; bestPage: string; pages: number; relevance: number; reason: 'keine Seite auf Seite 1' | 'beste Seite passt nicht' }
-/** Inhaltslücken aus Zeilen mit dimensions [query, page]: Anfragen mit Impressionen, für die keine Seite gut rankt oder die beste Seite thematisch nicht passt. */
+/** Content gaps from rows with dimensions [query, page]: queries with impressions for which no page ranks well or the best page doesn't match the topic. */
 export function contentGaps(rows: Row[], o: { minImpressions?: number; goodPosition?: number; minRelevance?: number } = {}): Gap[] {
   const min = o.minImpressions ?? 50, good = o.goodPosition ?? 10, minRel = o.minRelevance ?? 0.5;
   const by = new Map<string, Row[]>();
@@ -78,16 +79,16 @@ export function contentGaps(rows: Row[], o: { minImpressions?: number; goodPosit
     const reason = best.position > good ? 'keine Seite auf Seite 1' : rel < minRel ? 'beste Seite passt nicht' : null;
     if (reason) out.push({ query, impressions: m.impressions, clicks: m.clicks, bestPosition: best.position, bestPage: best.keys[1] ?? '', pages: rs.length, relevance: round(rel, 2), reason });
   }
-  return out.sort((a, b) => b.impressions - a.impressions || a.bestPosition - b.bestPosition); // Nachfrage zuerst
+  return out.sort((a, b) => b.impressions - a.impressions || a.bestPosition - b.bestPosition); // demand first
 }
 
-// ---- Rankings: kurz vor Seite 1, Kannibalisierung, Verluste ----
-/** Seiten-URL ohne Parameter, Anker und Schrägstrich am Ende: so zählt /vasen/?p=2 zur selben Seite wie /vasen */
+// ---- Rankings: just short of page 1, cannibalization, losses ----
+/** Page URL without parameters, anchor and trailing slash: so /vasen/?p=2 counts as the same page as /vasen */
 export const pageKey = (u: string) => u.replace(/[?#].*$/, '').replace(/\/+$/, '');
 
 export interface Striking { page: string; impressions: number; clicks: number; potentialClicks: number; queries: (Metrics & { query: string })[] }
-/** Kurz vor Seite 1 bzw. vor den Top 3: Anfragen auf Position 4 bis 15 mit Nachfrage, je Seite gebündelt.
- *  Potenzial = Klicks, wenn die Anfrage auf Position 3 stünde, abzüglich der heutigen. Zeilen mit dimensions [query, page]. */
+/** Just short of page 1 or the top 3: queries at positions 4 to 15 with demand, grouped per page.
+ *  Potential = clicks if the query were at position 3, minus today's. Rows with dimensions [query, page]. */
 export function strikingDistance(rows: Row[], o: { minImpressions?: number; from?: number; to?: number } = {}): Striking[] {
   const min = o.minImpressions ?? 50, from = o.from ?? 4, to = o.to ?? 15, target = expectedCtr(3);
   const by = new Map<string, Striking>();
@@ -103,8 +104,8 @@ export function strikingDistance(rows: Row[], o: { minImpressions?: number; from
 }
 
 export interface Cannibal { query: string; impressions: number; clicks: number; bestPosition: number; pages: (Metrics & { page: string; share: number })[] }
-/** Kannibalisierung: Für eine Anfrage teilen sich mindestens zwei eigene Seiten nennenswert die Impressionen (je ≥ 15 %, Position ≤ 30)
- *  und keine steht schon klar oben (beste Position > 3). Google weiß dann nicht, welche Seite gemeint ist; beide ranken schwächer. */
+/** Cannibalization: for one query at least two own pages share the impressions significantly (each ≥ 15 %, position ≤ 30)
+ *  and none is already clearly on top (best position > 3). Google then doesn't know which page is meant; both rank weaker. */
 export function cannibalization(rows: Row[], o: { minImpressions?: number; minShare?: number } = {}): Cannibal[] {
   const min = o.minImpressions ?? 100, minShare = o.minShare ?? 0.15;
   const by = new Map<string, Map<string, Row[]>>();
@@ -126,8 +127,8 @@ export function cannibalization(rows: Row[], o: { minImpressions?: number; minSh
 }
 
 export interface Decline { page: string; before: Metrics; after: Metrics; change: number; vsSite: number }
-/** Verluste: Seiten, die im aktuellen Zeitraum deutlich weniger Klicks haben als im gleich langen Zeitraum davor,
- *  stärker als der ganze Shop (Saison, Updates herausgerechnet). Zeilen mit dimensions [page]. */
+/** Losses: pages with clearly fewer clicks in the current period than in the equally long period before,
+ *  more than the whole shop (season, updates factored out). Rows with dimensions [page]. */
 export function declines(before: Row[], after: Row[], o: { minClicks?: number; minDrop?: number; minLost?: number } = {}): Decline[] {
   const minClicks = o.minClicks ?? 20, minDrop = o.minDrop ?? 0.3, minLost = o.minLost ?? 10;
   const group = (rows: Row[]) => { const m = new Map<string, Row[]>(); for (const r of rows) { const k = pageKey(r.keys[0] ?? ''); if (k) m.set(k, [...(m.get(k) ?? []), r]); } return m; };
@@ -144,7 +145,7 @@ export function declines(before: Row[], after: Row[], o: { minClicks?: number; m
   return out.sort((x, y) => (y.before.clicks - y.after.clicks) - (x.before.clicks - x.after.clicks));
 }
 
-// ---- Erfolgsmessung ----
+// ---- Success measurement ----
 export interface Baseline {
   id: string; entity: 'product' | 'category' | 'landing-page'; entityId: string; label: string; urls: string[]; pathRegex: string;
   fields: { field: string; before: string; after: string; afterRaw?: unknown }[];
@@ -154,7 +155,7 @@ export interface Baseline {
   measured?: { at: string; verdict: string };
 }
 
-/** Messzeitraum nach der Änderung: ab dem Folgetag, gleiche Länge wie die Basis; vorläufig ab 14 Tagen Daten. */
+/** Measurement period after the change: from the following day, same length as the baseline; preliminary from 14 days of data. */
 export function measureWindow(b: Pick<Baseline, 'changedAt' | 'before'>, now = new Date()) {
   const start = addDays(b.changedAt.slice(0, 10), 1), fullEnd = addDays(start, b.before.days - 1), last = lastDataDay(now);
   const avail = daysBetween(start, last) + 1;
@@ -163,7 +164,7 @@ export function measureWindow(b: Pick<Baseline, 'changedAt' | 'before'>, now = n
   return { status: (end === fullEnd ? 'vollständig' : 'vorläufig') as 'vollständig' | 'vorläufig', startDate: start, endDate: end, days: daysBetween(start, end) + 1, measurableFrom: addDays(start, MIN_DAYS - 1 + LAG_DAYS), completeFrom: addDays(fullEnd, LAG_DAYS) };
 }
 
-/** Zweiseitiger Test auf Unterschied zweier Klickraten (z-Wert) */
+/** Two-sided test for a difference between two click rates (z-score) */
 export function ctrZ(c1: number, i1: number, c2: number, i2: number): number {
   if (!i1 || !i2) return 0;
   const p = (c1 + c2) / (i1 + i2), se = Math.sqrt(p * (1 - p) * (1 / i1 + 1 / i2));
@@ -199,7 +200,6 @@ export function compareEffect(before: Metrics & { days: number }, after: Metrics
 const fmtPp = (d: number) => `${d >= 0 ? '+' : ''}${round(d * 100, 2).toString().replace('.', ',')} Prozentpunkte`;
 const fmtRel = (x: number | null) => (x == null ? 'n/a' : `${x >= 0 ? '+' : ''}${Math.round(x * 100)} %`);
 
-/** RE2-Muster für Seiten-URLs mit diesen Pfaden (beliebiges Schema/Host, Pfad exakt).
- *  Die Search Console liefert URLs percent-kodiert (küche → k%C3%BCche); je Pfad gelten deshalb die rohe und die kodierte Form. */
-export const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** RE2 pattern for page URLs with these paths (any scheme/host, exact path).
+ *  Search Console returns URLs percent-encoded (küche → k%C3%BCche); so per path both the raw and the encoded form apply. */
 export const pathRegex = (paths: string[]) => `^https?://[^/]+/(${[...new Set(paths.flatMap(p => { const c = p.replace(/^\/+/, ''); return [c, encodeURI(c)]; }))].map(escapeRe).join('|')})$`;

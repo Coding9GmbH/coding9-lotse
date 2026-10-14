@@ -1,9 +1,9 @@
 import 'server-only';
-// OpenMage: Produktbilder (Galerie: hinzufügen, ausblenden, sortieren, Titelbild), Alt-Texte (Bild-Label) und neue Produkte.
-// Rollen (image/small_image/thumbnail) sind Store-scoped Produktattribute; PATCH …/images/{id} mit types setzt sie exakt.
-// „Entfernen“ blendet ein Bild aus (disabled); Rückgängig blendet es wieder ein. Neue Bilder löscht Rückgängig (?mode=delete).
+// OpenMage: product images (gallery: add, hide, sort, cover image), alt texts (image label) and new products.
+// Roles (image/small_image/thumbnail) are store-scoped product attributes; PATCH …/images/{id} with types sets them exactly.
+// "Entfernen" (remove) hides an image (disabled); undo shows it again. Undo deletes new images (?mode=delete).
 import type { ChangeAsset, ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
-import { downloadImage, readStaged, stagedMeta } from '../../media';
+import { downloadImage, IMAGE_TOO_LARGE, MAX_IMAGE_BYTES, readCapped, readStaged, stagedMeta } from '../../media';
 import { fetchShopPage } from '../../storefront';
 import { applyEach, errMsg, MAX_ITEMS, newIdSafe, partialTicker, pool, WRITE_CONCURRENCY, type ApplyResult } from './kit';
 import { isGlobal, skuPath, type OmClient } from './client';
@@ -14,7 +14,7 @@ import { getProduct, reg, reqOp, storePath, writeStore } from './write';
 export const ALT_MAX = 125;
 const IMG_MIME = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
-/** Bild-Inhalt für POST …/images (base64): vorgemerkt (staged:…), Shop-Bild (om-…) oder https-URL (Lotse lädt, nicht der Shop-Server) */
+/** Image content for POST …/images (base64): staged (staged:…), shop image (om-…) or https URL (Lotse downloads, not the shop server) */
 export async function imageContent(c: OmClient, ref: string, name: string): Promise<{ base64: string; filename: string }> {
   let buf: Buffer, mime: string, base = urlKey(name) || 'bild';
   if (ref.startsWith('staged:')) {
@@ -28,15 +28,15 @@ export async function imageContent(c: OmClient, ref: string, name: string): Prom
     const allowed = [c.publicUrl, c.base, e.url].filter(Boolean);
     const res = await fetchShopPage(e.url, allowed, { publicUrl: c.publicUrl, internalBase: c.base, fetchImpl: (href, init) => c.storefrontFetch(href, init) });
     if (!res.ok) throw new Error(`Medium ${ref} nicht ladbar (HTTP ${res.status})`);
-    buf = Buffer.from(await res.arrayBuffer()); mime = (res.headers.get('content-type') ?? '').split(';')[0] || 'image/jpeg';
+    buf = await readCapped(res); mime = (res.headers.get('content-type') ?? '').split(';')[0] || 'image/jpeg';
     base = fileName(e).replace(/\.[a-z0-9]+$/i, '');
   } else if (/^https:\/\//.test(ref)) ({ buf, mime } = await downloadImage(ref));
   else throw new Error(`Unbekannte Bildquelle ${ref}`);
   if (!IMG_MIME.has(mime)) throw new Error(`Bildtyp ${mime} wird von der OpenMage-Galerie nicht unterstützt (JPG, PNG, GIF, WebP)`);
-  if (buf.length > 20 * 1024 * 1024) throw new Error('Bild größer als 20 MB');
+  if (buf.length > MAX_IMAGE_BYTES) throw new Error(IMAGE_TOO_LARGE);
   return { base64: buf.toString('base64'), filename: `${base}.${mime.split('/')[1].replace('jpeg', 'jpg')}` };
 }
-/** Prüft eine Bildquelle beim Bauen (ohne zu laden) und liefert eine Vorschau-URL */
+/** Checks an image source while building (without downloading) and returns a preview URL */
 export async function imagePreview(ro: OmReader, ref: string): Promise<string> {
   if (ref.startsWith('staged:')) { const m = stagedMeta(ref.slice(7)); if (!m) throw new Error(`Vorgemerktes Bild ${ref} nicht gefunden`); return `/staged/${m.file}`; }
   const mid = parseMediaId(ref);
@@ -45,9 +45,9 @@ export async function imagePreview(ro: OmReader, ref: string): Promise<string> {
   throw new Error(`Bildquelle ${ref}: mediaId (om-…), staged:… oder https-URL erwartet`);
 }
 
-// ================= Produktbilder =================
+// ================= Product images =================
 export interface ImagesArgs { title: string; reason: string; products: { productId: string; add?: { image: string; position?: number; cover?: boolean; alt?: string }[]; remove?: string[]; order?: string[]; cover?: string }[] }
-/** Plan je Produkt: Zielzustand der vorhandenen Einträge + neue Bilder; cover = Bild-ID oder „new:<index>“ */
+/** Plan per product: target state of existing entries + new images; cover = image ID or "new:<index>" */
 export interface ImagesPlan { sku: string; adds: { ref: string; label: string; position: number }[]; entries: { id: number; position: number; disabled: boolean }[]; cover: string | null }
 
 export async function buildProductImagesChangeSet(ro: OmReader, a: ImagesArgs): Promise<{ cs: ChangeSet; payload: { plans: Record<string, ImagesPlan>; store: string } }> {
@@ -108,13 +108,13 @@ export async function buildProductImagesChangeSet(ro: OmReader, a: ImagesArgs): 
 }
 
 const imgPath = (sku: string, id?: number) => `/v1/products/${skuPath(sku)}/images${id != null ? `/${id}` : ''}`;
-/** Rückgängig eines PATCH auf ein Bild: Position, Sichtbarkeit und exakte Rollenliste von vorher */
+/** Undo of a PATCH on an image: position, visibility and exact role list from before */
 const restoreOp = (sku: string, e: OmImage) => reqOp('product-image', sku, 'PATCH', imgPath(sku, e.id), { position: e.position, disabled: !!e.disabled, types: e.types ?? [] });
 
 /**
- * Galerie und Rollen werden global (Store 0) geschrieben. Hat die Store-View eigene Galerie-Zeilen (Position/Sichtbarkeit je View,
- * entsteht in Magento 1 bei jedem Produkt-Save im Store-Scope) oder eigene Rollen-Attribute, verdecken die den globalen Stand: dann
- * wird dort nachgezogen. Rückgängig je View: Galerie-Zeile mit den Vorher-Werten (Position null = Standardwert), Rollen über writeStore.
+ * Gallery and roles are written globally (store 0). If the store view has its own gallery rows (position/visibility per view,
+ * created in Magento 1 by every product save in store scope) or its own role attributes, those mask the global state: then
+ * they are updated there as well. Undo per view: gallery row with the previous values (position null = default), roles via writeStore.
  */
 async function fixStoreView(c: OmClient, plan: ImagesPlan, store: string, coverFile: string | null, hiddenIds: Set<number>): Promise<UndoOp[]> {
   if (isGlobal(store)) return [];
@@ -129,7 +129,7 @@ async function fixStoreView(c: OmClient, plan: ImagesPlan, store: string, coverF
     await c.req('PATCH', imgPath(plan.sku, pe.id), fix, { store });
     undo.push(reqOp('product-image', plan.sku, 'PATCH', storePath(imgPath(plan.sku, pe.id), store), back));
   }
-  // Rollen: Titelbild trägt alle, ausgeblendete Bilder keine; alles andere bleibt, wie es in der View ist
+  // Roles: the cover image carries all, hidden images none; everything else stays as it is in the view
   const want: Record<string, string> = {};
   if (coverFile) for (const r of COVER_TYPES) want[r] = coverFile;
   for (const v of view) if (hiddenIds.has(v.id)) for (const r of v.types ?? []) want[r] ??= 'no_selection';
@@ -151,7 +151,7 @@ export async function applyImages(c: OmClient, plan: ImagesPlan, store = 'admin'
   const cur = await getProduct(c, plan.sku, 'admin');
   if (!cur) throw new Error('Produkt nicht mehr vorhanden');
   const entries = cur.images ?? [], deletes: UndoOp[] = [], restores: UndoOp[] = [];
-  // Rollen, die ein neues Titelbild übernimmt, liegen danach bei keinem alten Bild mehr: alte Rollen exakt zurück
+  // Roles taken over by a new cover image no longer sit on any old image: restore old roles exactly
   const prevCover = coverImage(cur);
   let coverFile: string | null = null;
   try {
@@ -177,7 +177,7 @@ export async function applyImages(c: OmClient, plan: ImagesPlan, store = 'admin'
     }
     restores.push(...await fixStoreView(c, plan, store, coverFile, new Set(plan.entries.filter(pe => pe.disabled).map(pe => pe.id))));
   } catch (err) { throw Object.assign(new Error(errMsg(err)), { undo: [...deletes, ...restores, ...((err as { undo?: UndoOp[] }).undo ?? [])] }); }
-  // Ausführung rückwärts: Store-View zurück → Einträge zurücksetzen (Rollen exakt) → neue Einträge löschen
+  // Executed in reverse: revert store view → reset entries (roles exactly) → delete new entries
   return [...deletes, ...restores];
 }
 reg.register('product-media', async (c, cs, payload, selected, ctx) => {
@@ -191,7 +191,7 @@ reg.register('product-media', async (c, cs, payload, selected, ctx) => {
   return { results, undo };
 });
 
-// ================= Alt-Texte (Bild-Label) =================
+// ================= Alt texts (image label) =================
 export interface AltArgs { title: string; reason: string; images: { mediaId: string; alt: string }[] }
 export async function buildAltTextChangeSet(ro: OmReader, a: AltArgs, viewed: Set<string>): Promise<{ cs: ChangeSet; payload: { skus: Record<string, string>; store: string } }> {
   if (!a.images?.length) throw new Error('images ist leer');
@@ -223,7 +223,7 @@ reg.register('media-alt', (c, cs, payload, selected, ctx) => {
     const sku = skus[it.id], { imageId } = parseMediaId(it.id)!;
     const inView = (await c.req('GET', imgPath(sku), undefined, { store }) as OmImage[]).find(x => x.id === imageId);
     if (!inView) throw new Error('Bild nicht mehr vorhanden');
-    // eigener Store-Text → dort ändern (Rückgängig: alter Text); sonst global (Rückgängig: alter globaler Text)
+    // own store text → change it there (undo: old text); otherwise globally (undo: old global text)
     const own = inView.label_use_default === false, scope = own ? store : 'admin';
     const before = own ? inView.label : (await c.req('GET', imgPath(sku)) as OmImage[]).find(x => x.id === imageId)?.label ?? '';
     await c.req('PATCH', imgPath(sku, imageId), { label: String(it.afterRaw) }, { store: scope });
@@ -231,12 +231,12 @@ reg.register('media-alt', (c, cs, payload, selected, ctx) => {
   }, ctx);
 });
 
-// ================= Neue Produkte =================
+// ================= New products =================
 export interface NewProductInput { name: string; description: string; price: number; sku?: string; stock?: number; active?: boolean; shortDescription?: string; metaTitle?: string; metaDescription?: string; keywords?: string; weight?: number; categoryIds?: string[]; images?: string[]; taxClass?: string }
-export interface NewProductPlan extends Omit<NewProductInput, 'taxClass'> { sku: string; urlKey: string; attributeSetId: number; websiteIds: number[]; taxClassId: number | null; images: string[]; categoryIds: string[]; stock: number; active: boolean; /** weitere Attribute (Import: Sonderpreis, Einkaufspreis, Hersteller, Eigenschaften) */ extra?: Record<string, unknown> }
+export interface NewProductPlan extends Omit<NewProductInput, 'taxClass'> { sku: string; urlKey: string; attributeSetId: number; websiteIds: number[]; taxClassId: number | null; images: string[]; categoryIds: string[]; stock: number; active: boolean; /** further attributes (import: special price, purchase price, manufacturer, properties) */ extra?: Record<string, unknown> }
 const skuOf = (name: string) => `${name.normalize('NFKD').replace(/[^\w\s-]/g, '').trim().split(/\s+/).slice(0, 3).map(w => w.slice(0, 4).toUpperCase()).join('-') || 'NEU'}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
-/** Stammdaten für neue Produkte: Attributset, Websites, Steuerklassen */
+/** Product data for new products: attribute set, websites, tax classes */
 export async function newProductDefaults(ro: OmReader) {
   const [attrs, info] = await Promise.all([ro.attributes(), ro.info()]);
   const set = attrs.attribute_sets.find(s => s.is_default) ?? attrs.attribute_sets[0];
@@ -290,8 +290,8 @@ export async function buildNewProductsChangeSet(ro: OmReader, { title, reason, p
 }
 
 /**
- * Produkt anlegen (global, inaktiv als Entwurf) samt Bestand, Kategorien und Bildern. Rückgängig löscht erst die Bilddateien
- * (Schritte von applyImages, mode=delete; das Löschen des Produkts allein ließe die Dateien unter media/catalog/product liegen), dann das Produkt.
+ * Create a product (global, inactive as draft) with stock, categories and images. Undo first deletes the image files
+ * (steps of applyImages, mode=delete; deleting the product alone would leave the files under media/catalog/product), then the product.
  */
 export async function createProduct(c: OmClient, p: NewProductPlan): Promise<UndoOp[]> {
   if (await getProduct(c, p.sku)) throw new Error(`SKU ${p.sku} ist schon vergeben`);
@@ -317,7 +317,7 @@ reg.register('new-products', async (c, cs, _payload, selected, ctx) => {
   return { results, undo };
 });
 
-/** Bilder eines Produkts für Werkzeuge (mediaId, URL, Alt-Text, Position, Titelbild, ausgeblendet) */
+/** Images of a product for tools (mediaId, URL, alt text, position, cover image, hidden) */
 export async function imageRows(ro: OmReader, p: OmProduct) {
   const cover = coverImage(p);
   return Promise.all([...(p.images ?? [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map(async e => {

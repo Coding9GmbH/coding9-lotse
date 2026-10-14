@@ -12,7 +12,7 @@ export function UserMessage({ text, attachments, files = [] }: { text: string; a
       {text}
       {attachments.length > 0 && (
         <div className={styles.thumbs}>
-          {/* eslint-disable-next-line @next/next/no-img-element -- lokale, vorgemerkte Bilder */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- local, staged images */}
           {attachments.map(a => <img key={a.mediaId + a.url} src={a.url} alt={a.name} />)}
         </div>
       )}
@@ -25,7 +25,7 @@ export function UserMessage({ text, attachments, files = [] }: { text: string; a
   );
 }
 
-/** Antwort der KI: Markdown-lite. markdown() maskiert jeden Text, bevor es die wenigen erlaubten Tags erzeugt. */
+/** AI reply: Markdown-lite. markdown() escapes all text before it generates the few allowed tags. */
 export function AiMessage({ text }: { text: string }) {
   const html = useMemo(() => markdown(text), [text]);
   return (
@@ -40,7 +40,7 @@ export function ErrorMessage({ text }: { text: string }) {
   return <div className={`${styles.msg} ${styles.ai}`} role="alert">⚠️ {text}</div>;
 }
 
-/** Markdown-Block ohne Blase (für Rückfragen). */
+/** Markdown block without a bubble (for follow-up questions). */
 export function Markdown({ text, className }: { text: string; className?: string }) {
   const html = useMemo(() => markdown(text), [text]);
   return <div className={[styles.md, className].filter(Boolean).join(' ')} dangerouslySetInnerHTML={{ __html: html }} />;

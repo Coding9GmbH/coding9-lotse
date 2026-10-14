@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ChangeSet, ChatEvent } from '@/lib/protocol';
 
-// Freigabe-Workflow (Kern des Sicherheitsmodells): Mensch entscheidet, Auswahl zählt, Abbruch = Ablehnung, Audit-Log, Rückgängig nur mit passender Plattform.
+// Approval workflow (core of the security model): human decides, selection counts, abort = rejection, audit log, undo only with matching platform.
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-sessions-'));
 delete process.env.SHOP_PLATFORM;
 
@@ -25,7 +25,7 @@ sw.undo = async ops => { undone.push(ops); return ops.map(() => ({ ok: true }));
 
 const cs = (id: string, platform?: string): ChangeSet => ({ id, kind: 'products', entity: 'product', title: 'Test', reason: null, atomic: false, skipped: [], ...(platform ? { platform: platform as ChangeSet['platform'] } : {}),
   items: ['a', 'b'].map(i => ({ id: i, entity: 'product', entityId: 'p1', label: 'P', field: 'name', fieldLabel: 'Name', before: 'alt', after: 'neu', afterRaw: 'neu', warn: [] })) });
-// wie startChat: Ereignisse sammeln, speichern, Runde läuft
+// like startChat: collect events, save, turn running
 const start = (id: string) => {
   const s = getSession(id); s.running = true; s.abort = new AbortController();
   s.emit = ev => { s.events.push({ ...ev }); if (ev.t === 'changeset' || ev.t === 'changeset_result' || ev.t === 'question') persist(s); };
@@ -35,27 +35,27 @@ const start = (id: string) => {
 const approvalIdOf = (events: ChatEvent[]) => (events.findLast(e => e.t === 'changeset') as { approvalId: string }).approvalId;
 const tick = () => new Promise(r => setTimeout(r, 5));
 
-test('requestChange: Freigabe mit Auswahl → Executor bekommt nur die gewählten Elemente, Ergebnis + Audit „approved“', async () => {
+test('requestChange: approval with selection → executor gets only the selected items, result + audit "approved"', async () => {
   const s = start('c-approve');
   const pending = s.requestChange(cs('cs1'), { x: 1 });
   await tick();
   assert.equal(s.approvals.size, 1);
-  assert.equal(decideChange('c-approve', 'falsch', true), false, 'unbekannte Freigabe');
+  assert.equal(decideChange('c-approve', 'falsch', true), false, 'unknown approval');
   assert.ok(decideChange('c-approve', approvalIdOf(s.events), true, ['a']));
   const out = await pending;
   assert.equal(out.status, 'applied'); assert.equal(out.applied, 1);
   assert.deepEqual(applied.at(-1)?.selected, ['a']);
-  assert.equal(applied.at(-1)?.cs.platform, 'shopware', 'Set trägt die Plattform der Session');
+  assert.equal(applied.at(-1)?.cs.platform, 'shopware', 'set carries the session platform');
   const res = s.events.findLast(e => e.t === 'changeset_result');
   assert.equal(res?.t === 'changeset_result' && res.status, 'applied');
-  assert.deepEqual(res?.t === 'changeset_result' && res.undo?.[0], { op: 'patch', entity: 'product', id: 'p1', data: { name: 'alt' }, platform: 'shopware' }, 'Rückgängig-Schritt bekommt die Plattform');
+  assert.deepEqual(res?.t === 'changeset_result' && res.undo?.[0], { op: 'patch', entity: 'product', id: 'p1', data: { name: 'alt' }, platform: 'shopware' }, 'undo step gets the platform');
   const audit = auditList(5).find(a => a.changeSet === 'cs1');
   assert.equal(audit?.decision, 'approved'); assert.equal(audit?.applied, 1); assert.equal((audit?.items as unknown[]).length, 1);
   assert.equal(s.approvals.size, 0);
-  assert.equal(chatGet('c-approve')?.events.some(e => e.t === 'changeset_result'), true, 'gespeichert');
+  assert.equal(chatGet('c-approve')?.events.some(e => e.t === 'changeset_result'), true, 'saved');
 });
 
-test('requestChange: Ablehnung schreibt nichts, Audit „rejected“; stopChat während offener Freigabe = Ablehnung + Abbruch', async () => {
+test('requestChange: rejection writes nothing, audit "rejected"; stopChat during pending approval = rejection + abort', async () => {
   const n = applied.length;
   const s = start('c-reject');
   const p1 = s.requestChange(cs('cs2')); await tick();
@@ -69,12 +69,12 @@ test('requestChange: Ablehnung schreibt nichts, Audit „rejected“; stopChat w
   const r2 = await p2;
   assert.equal(r2.status, 'rejected');
   assert.equal(s.abort?.signal.aborted, true);
-  assert.equal(applied.length, n, 'Executor nie aufgerufen');
+  assert.equal(applied.length, n, 'executor never called');
   assert.equal(stopChat('c-reject-unbekannt'), false);
   s.running = false;
 });
 
-test('Fehler im Executor → Status failed mit Fehlertext, Rückfrage liefert die Antwort des Menschen', async () => {
+test('error in executor → status failed with error text, question returns the human answer', async () => {
   const s = start('c-fail');
   applyResult = async () => { throw new Error('Shop nicht erreichbar'); };
   const p = s.requestChange(cs('cs4')); await tick();
@@ -86,7 +86,7 @@ test('Fehler im Executor → Status failed mit Fehlertext, Rückfrage liefert di
   const q = s.askUser({ question: 'Weiter?', options: [{ label: 'Ja' }, { label: 'Nein', description: 'abbrechen' }] }); await tick();
   const qe = s.events.findLast(e => e.t === 'question');
   assert.ok(qe?.t === 'question' && qe.optionHints?.[1] === 'abbrechen');
-  assert.equal(answerQuestion('c-fail-unbekannt', 'x', 'Ja'), false, 'unbekannter Chat legt keine Session an');
+  assert.equal(answerQuestion('c-fail-unbekannt', 'x', 'Ja'), false, 'unknown chat does not create a session');
   assert.equal(peekSession('c-fail-unbekannt'), null);
   assert.ok(answerQuestion('c-fail', (qe as { approvalId: string }).approvalId, 'Ja'));
   assert.equal(await q, 'Ja');
@@ -94,20 +94,20 @@ test('Fehler im Executor → Status failed mit Fehlertext, Rückfrage liefert di
   s.running = false;
 });
 
-test('dropSession während laufender Runde: gelöschter Chat wird durch das Ende der Runde nicht wiederbelebt', async () => {
+test('dropSession during a running turn: deleted chat is not revived by the end of the turn', async () => {
   const s = start('c-del');
   const p = s.requestChange(cs('cs5')); await tick();
-  assert.ok(chatGet('c-del'), 'vor dem Löschen gespeichert');
-  chatDelete('c-del'); dropSession('c-del'); // wie DELETE /api/chats/[id]
+  assert.ok(chatGet('c-del'), 'saved before deletion');
+  chatDelete('c-del'); dropSession('c-del'); // like DELETE /api/chats/[id]
   assert.equal(peekSession('c-del'), null);
-  const r = await p; // stopChat hat die Freigabe als Ablehnung aufgelöst → changeset_result wird emittiert (persist!)
+  const r = await p; // stopChat resolved the approval as rejection → changeset_result is emitted (persist!)
   assert.equal(r.status, 'rejected');
   s.running = false; s.events.push({ t: 'done', error: 'Abgebrochen.' }); persist(s); // finally von startChat
-  assert.equal(chatGet('c-del'), null, 'bleibt gelöscht');
+  assert.equal(chatGet('c-del'), null, 'stays deleted');
   assert.equal(chatSnapshot('c-del'), null);
 });
 
-test('undoChangeSet: nutzt die Rückgängig-Schritte des Ergebnisses, markiert undone, Audit „undo“; zweites Mal null', async () => {
+test('undoChangeSet: uses the undo steps of the result, marks undone, audit "undo"; second time null', async () => {
   const s = start('c-undo');
   const p = s.requestChange(cs('cs6')); await tick();
   applyResult = async () => ({ results: [{ itemId: 'a', ok: true }, { itemId: 'b', ok: true }], undo: [{ op: 'patch', entity: 'product', id: 'p1', data: { name: 'alt' } }] });
@@ -117,23 +117,23 @@ test('undoChangeSet: nutzt die Rückgängig-Schritte des Ergebnisses, markiert u
   assert.equal(r?.ok, true); assert.deepEqual(r?.results, [{ ok: true }]); assert.deepEqual(r?.undoResults, [{ ok: true }]);
   assert.deepEqual(undone.at(-1), [{ op: 'patch', entity: 'product', id: 'p1', data: { name: 'alt' }, platform: 'shopware' }]);
   assert.equal(auditList(5).find(a => a.changeSet === 'cs6' && a.decision === 'undo')?.decision, 'undo');
-  assert.equal(await undoChangeSet('c-undo', 'cs6'), null, 'schon rückgängig gemacht');
+  assert.equal(await undoChangeSet('c-undo', 'cs6'), null, 'already undone');
   assert.equal(await undoChangeSet('c-undo', 'gibt-es-nicht'), null);
 });
 
-test('Plattformwechsel: ruhende Session wird neu aufgebaut (Verlauf bleibt), Set einer fremden Plattform wird nicht geschrieben', async () => {
+test('platform switch: idle session is rebuilt (history stays), set of another platform is not written', async () => {
   const before = getSession('c-undo');
   updateSettings({ platform: 'magento' });
   const s = getSession('c-undo');
   assert.notEqual(s, before); assert.equal(s.platform, 'magento');
-  assert.ok(s.events.some(e => e.t === 'changeset_result'), 'Verlauf aus der DB');
+  assert.ok(s.events.some(e => e.t === 'changeset_result'), 'history from the DB');
   s.running = true; s.emit = ev => { s.events.push({ ...ev }); };
   const n = applied.length;
   const p = s.requestChange(cs('cs7', 'shopware')); await tick();
   decideChange('c-undo', approvalIdOf(s.events), true);
   const r = await p;
   assert.equal(r.status, 'failed'); assert.match(r.error ?? '', /gehört zu Shopware, verbunden ist jetzt Magento/);
-  assert.equal(applied.length, n, 'Shopware-Executor nicht aufgerufen');
+  assert.equal(applied.length, n, 'Shopware executor not called');
   s.running = false;
   updateSettings({ platform: 'shopware' });
 });

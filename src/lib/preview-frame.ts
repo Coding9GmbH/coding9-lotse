@@ -1,44 +1,44 @@
-// Entwurfs-Vorschau im sandboxed iframe (srcdoc, sandbox="allow-scripts", eigener opaker Origin): Skripte aus custom-html-Blöcken
-// und rohes Shop-HTML laufen dort ohne Zugriff auf Oberfläche und API. Alles, was die Oberfläche am Entwurf tun muss
-// (Teil-Updates beim Streamen, Scroll-Position, Markier-Modus, Nummern), geht über postMessage mit diesem Protokoll.
-// Beide Seiten prüfen die Gegenstelle (event.source) und das Kennzeichen lotse: 1.
+// Draft preview in a sandboxed iframe (srcdoc, sandbox="allow-scripts", own opaque origin): scripts from custom-html blocks
+// and raw shop HTML run there without access to the UI and API. Everything the UI needs to do to the draft
+// (partial updates while streaming, scroll position, mark mode, numbers) goes through postMessage with this protocol.
+// Both sides check the counterpart (event.source) and the marker lotse: 1.
 
 export const FRAME_TAG = 1;
 
-/** Oberfläche → Entwurf */
+/** UI → draft */
 export type ToFrame =
-  | { t: 'body'; html: string }            // Teil-Update: nur <body> austauschen (Theme-CSS bleibt, Scroll bleibt)
-  | { t: 'scroll'; top: number }           // Scroll-Position nach dem Neuladen wiederherstellen
-  | { t: 'mark'; on: boolean }             // Markier-Modus ein/aus
-  | { t: 'pins'; paths: string[] };        // Nummern an den markierten Elementen (CSS-Pfade)
-/** Entwurf → Oberfläche */
+  | { t: 'body'; html: string }            // Partial update: replace only <body> (theme CSS stays, scroll stays)
+  | { t: 'scroll'; top: number }           // Restore scroll position after reload
+  | { t: 'mark'; on: boolean }             // Mark mode on/off
+  | { t: 'pins'; paths: string[] };        // Numbers on the marked elements (CSS paths)
+/** Draft → UI */
 export type FromFrame =
   | { t: 'scroll'; top: number }
   | { t: 'pick'; tag: string; text: string; alt: string; isButton: boolean; section?: string; path: string; x: number; y: number }
   | { t: 'targets'; items: { tag: string; text: string; alt: string; isButton: boolean; section?: string; path: string }[] };
 
-/** CSP des Entwurfs: KI-geschriebenes JS darf nichts nach außen senden (fetch/XHR/sendBeacon/WebSocket, Formulare);
- *  Bilder, Schriften und CSS (über den /shop-Proxy) laden weiter, Skripte laufen weiter (nötig für custom-html und FRAME_SCRIPT). */
+/** The draft's CSP: AI-written JS must not send anything out (fetch/XHR/sendBeacon/WebSocket, forms);
+ *  images, fonts and CSS (via the /shop proxy) still load, scripts still run (needed for custom-html and FRAME_SCRIPT). */
 export const FRAME_CSP = "connect-src 'none'; form-action 'none'";
-/** Setzt die CSP als <meta> an den Anfang des Dokuments (nach dem Doctype, damit der Standardmodus bleibt) – gilt dann für alles danach */
+/** Puts the CSP as <meta> at the start of the document (after the doctype, so standards mode stays); it then applies to everything after it */
 export function withFrameCsp(html: string): string {
   const meta = `<meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}">`;
   const dt = html.match(/^\s*<!doctype[^>]*>/i)?.[0] ?? '';
   return dt + meta + html.slice(dt.length);
 }
 
-/** Eindeutiges Kennzeichen prüfen (Nachrichten anderer Herkunft werden ignoriert) */
+/** Check the unique marker (messages from other origins are ignored) */
 export const isFrameMessage = (d: unknown): d is { t: string } & Record<string, unknown> => !!d && typeof d === 'object' && (d as { lotse?: unknown }).lotse === FRAME_TAG && typeof (d as { t?: unknown }).t === 'string';
 
-/** Styles für Markier-Modus und Nummern (Teil des Vorschau-Dokuments; für das Live-iframe injiziert sie annotator.ts) */
+/** Styles for mark mode and numbers (part of the preview document; for the live iframe, annotator.ts injects them) */
 export const FRAME_CSS = `.__lotse-hover{outline:2px solid #FF786D!important;outline-offset:2px;cursor:crosshair!important}
 .__lotse-pin{position:absolute;z-index:2147483647;min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:#FF786D;color:#2e2e38;font:700 12px/22px Inter,system-ui,sans-serif;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.25);pointer-events:none}
 html.__lotse-on a,html.__lotse-on button{cursor:crosshair!important}`;
 
-/** Sinnvolle Zielelemente im Markier-Modus: was ein Mensch als „das da“ bezeichnen würde */
+/** Meaningful target elements in mark mode: what a human would call "that one" */
 export const MEANINGFUL = 'a,button,img,picture,video,h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,table,details,summary,.btn,[class*="button"],label,input,select';
 
-/** Skript im <head> des Vorschau-Dokuments (reines ES5, kein Zugriff auf parent.document) */
+/** Script in the preview document's <head> (plain ES5, no access to parent.document) */
 export const FRAME_SCRIPT = `(function(){var P=window.parent;if(!P||P===window)return;var on=false,hov=null,pending=false;
 function send(m){m.lotse=${FRAME_TAG};P.postMessage(m,'*')}
 function target(el){if(!el||!el.closest)return null;return el.closest(${JSON.stringify(MEANINGFUL)})||el.closest('section,article,.cms-block,.cms-section')||el}

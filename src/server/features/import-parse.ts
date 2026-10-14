@@ -1,5 +1,5 @@
-// Lieferantendateien lesen (rein, ohne Shop-Zugriff → testbar): CSV/TSV (Trennzeichen, Anführungszeichen, Kodierung),
-// XLSX (erstes oder gewähltes Blatt), Kopfzeilen-Erkennung, Zahlen mit Dezimalkomma, Spaltentypen und Zuordnungs-Vorschlag.
+// Read supplier files (pure, no shop access → testable): CSV/TSV (delimiter, quotes, encoding),
+// XLSX (first or selected sheet), header row detection, numbers with decimal comma, column types and mapping suggestion.
 import crypto from 'node:crypto';
 import { assertSafeZip } from '../zip-guard';
 
@@ -8,27 +8,27 @@ export interface Table {
   format: 'csv' | 'xlsx';
   headers: string[];
   rows: string[][];
-  /** 1-basierte Zeile der Kopfzeile in der Datei/im Blatt */
+  /** 1-based line of the header row in the file/sheet */
   headerRow: number;
   delimiter?: string; encoding?: string;
   sheet?: string; sheets?: string[];
-  /** Datei hatte mehr als MAX_ROWS Datenzeilen */
+  /** file had more than MAX_ROWS data rows */
   truncated: boolean;
 }
 
-// ---- Kodierung ----
+// ---- Encoding ----
 export function decodeText(buf: Buffer): { text: string; encoding: string } {
   if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) return { text: buf.subarray(3).toString('utf8'), encoding: 'UTF-8 (BOM)' };
   if (buf[0] === 0xff && buf[1] === 0xfe) return { text: new TextDecoder('utf-16le').decode(buf.subarray(2)), encoding: 'UTF-16' };
   try { return { text: new TextDecoder('utf-8', { fatal: true }).decode(buf), encoding: 'UTF-8' }; }
   catch { return { text: Array.from(buf, b => (b >= 0x80 && b <= 0x9f ? CP1252[b - 0x80] : String.fromCharCode(b))).join(''), encoding: 'Windows-1252' }; }
 }
-// Node dekodiert „windows-1252“ wie Latin-1 – die Zeichen 0x80–0x9F (€, „, “, – …) daher selbst abbilden
+// Node decodes "windows-1252" like Latin-1, so map the characters 0x80–0x9F (€, „, “, – …) ourselves
 const CP1252 = '€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008DŽ\u008F\u0090‘’“”•–—˜™š›œ\u009DžŸ';
 
 // ---- CSV ----
 const DELIMS = [';', ',', '\t', '|'];
-/** Trennzeichen: das in den ersten Zeilen (außerhalb von Anführungszeichen) häufigste und gleichmäßigste */
+/** Delimiter: the most frequent and most even one in the first lines (outside quotes) */
 export function detectDelimiter(text: string): string {
   const lines = text.split(/\r?\n/).filter(l => l.trim()).slice(0, 30);
   let best = ';', score = -1;
@@ -43,7 +43,7 @@ export function detectDelimiter(text: string): string {
   return best;
 }
 
-/** RFC-4180-Parser: Anführungszeichen, verdoppelte "" und Zeilenumbrüche in Feldern */
+/** RFC 4180 parser: quotes, doubled "" and line breaks in fields */
 export function parseCsv(text: string, delimiter: string): string[][] {
   const rows: string[][] = []; let row: string[] = [], field = '', q = false;
   for (let i = 0; i < text.length; i++) {
@@ -64,7 +64,7 @@ export function parseCsv(text: string, delimiter: string): string[][] {
 
 // ---- XLSX ----
 type Cell = unknown;
-/** Zellwert von exceljs → Text (Zahlen mit Punkt, Datum als JJJJ-MM-TT, Formeln mit Ergebnis, Rich-Text, Links) */
+/** exceljs cell value → text (numbers with dot, date as YYYY-MM-DD, formulas with result, rich text, links) */
 export function cellText(v: Cell): string {
   if (v == null) return '';
   if (typeof v === 'number') return Number.isInteger(v) ? String(v) : String(Math.round(v * 1e6) / 1e6);
@@ -82,7 +82,7 @@ export function cellText(v: Cell): string {
 }
 
 async function readXlsx(buf: Buffer, sheet?: string): Promise<{ rows: string[][]; sheet: string; sheets: string[] }> {
-  await assertSafeZip(buf); // Zip-Bombe: vor exceljs (entpackt ohne Obergrenze)
+  await assertSafeZip(buf); // zip bomb: before exceljs (unpacks without limit)
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf as unknown as ArrayBuffer);
@@ -92,16 +92,16 @@ async function readXlsx(buf: Buffer, sheet?: string): Promise<{ rows: string[][]
   const rows: string[][] = [];
   const last = Math.min(ws.rowCount, MAX_ROWS + 20);
   for (let r = 1; r <= last; r++) {
-    const vals = ws.getRow(r).values as Cell[]; // 1-basiert
+    const vals = ws.getRow(r).values as Cell[]; // 1-based
     rows.push(Array.isArray(vals) ? Array.from({ length: Math.max(0, vals.length - 1) }, (_, i) => cellText(vals[i + 1])) : []);
   }
-  if (ws.rowCount > last) rows.push(['…']); // Marker für „gekürzt“
+  if (ws.rowCount > last) rows.push(['…']); // marker for "truncated"
   return { rows, sheet: ws.name, sheets };
 }
 
-// ---- Kopfzeile ----
+// ---- Header row ----
 const isNumeric = (s: string) => /^[-+]?[\d.,\s]+(€|%)?$/.test(s) && /\d/.test(s);
-/** Erste Zeile, die wie eine Kopfzeile aussieht (viele Texte, kaum Zahlen); Titelzeilen davor werden übersprungen */
+/** First row that looks like a header row (many texts, few numbers); title rows before it are skipped */
 export function detectHeaderRow(rows: string[][]): number {
   const head = rows.slice(0, 15), width = Math.max(0, ...head.map(r => r.filter(Boolean).length));
   for (let i = 0; i < head.length; i++) {
@@ -122,14 +122,14 @@ function toTable(raw: string[][], base: Omit<Table, 'headers' | 'rows' | 'header
     const n = (seen.get(name) ?? 0) + 1; seen.set(name, n);
     return n > 1 ? `${name} (${n})` : name;
   });
-  // leere Spalten am Ende ohne Überschrift weglassen
+  // drop empty trailing columns without a heading
   while (headers.length && /^Spalte \d+$/.test(headers[headers.length - 1]) && all.slice(h + 1).every(r => !r[headers.length - 1])) headers.pop();
   const body = all.slice(h + 1).filter(r => r.some(c => c !== '')).map(r => headers.map((_, i) => r[i] ?? ''));
   return { ...base, headers, rows: body.slice(0, MAX_ROWS), headerRow: h + 1, truncated: !!truncatedMark || body.length > MAX_ROWS };
 }
 
 const ext = (name: string) => (name.match(/\.([a-z0-9]+)$/i)?.[1] ?? '').toLowerCase();
-/** Datei → Tabelle. XLSX über exceljs; .xls nur, wenn sie eigentlich Text/CSV oder XLSX ist (altes Binärformat: bitte als XLSX/CSV speichern). */
+/** File → table. XLSX via exceljs; .xls only if it is actually text/CSV or XLSX (old binary format: please save as XLSX/CSV). */
 export async function parseTable(buf: Buffer, name: string, sheet?: string): Promise<Table> {
   const e = ext(name);
   const zip = buf[0] === 0x50 && buf[1] === 0x4b, ole = buf.subarray(0, 4).toString('hex') === 'd0cf11e0';
@@ -142,10 +142,10 @@ export async function parseTable(buf: Buffer, name: string, sheet?: string): Pro
   return toTable(parseCsv(text, delimiter), { format: 'csv', delimiter, encoding });
 }
 
-// ---- Zahlen ----
-/** Dezimaltrennzeichen einer Spalte: „,“ wenn Werte wie 12,50 / 1.234,56 vorkommen, sonst „.“.
- *  „1.250“ (ein Punkt, genau drei Stellen) ist mehrdeutig und zählt nicht; nur solche Werte → Tausenderpunkt,
- *  außer die Datei ist mit Komma getrennt (englisches Format). */
+// ---- Numbers ----
+/** Decimal separator of a column: "," if values like 12,50 / 1.234,56 occur, otherwise ".".
+ *  "1.250" (one dot, exactly three digits) is ambiguous and doesn't count; only such values → thousands dot,
+ *  unless the file is comma-delimited (English format). */
 export function columnDecimal(values: string[], delimiter?: string): ',' | '.' {
   let comma = 0, dot = 0;
   for (const v of values) {
@@ -157,7 +157,7 @@ export function columnDecimal(values: string[], delimiter?: string): ',' | '.' {
   if (!comma && !dot) return delimiter === ',' ? '.' : ',';
   return comma >= dot ? ',' : '.';
 }
-/** „1.234,56 €“, „12,5“, „19 %“, „1,234.56“ → Zahl; leer/ungültig → null */
+/** "1.234,56 €", "12,5", "19 %", "1,234.56" → number; empty/invalid → null */
 export function parseNumber(raw: string | null | undefined, decimal: ',' | '.' = ','): number | null {
   let s = String(raw ?? '').replace(/\s|€|EUR|%/gi, '').replace(/^\+/, '');
   if (!s || !/\d/.test(s)) return null;
@@ -168,7 +168,7 @@ export function parseNumber(raw: string | null | undefined, decimal: ',' | '.' =
   return Number(s);
 }
 
-// ---- Spalten ----
+// ---- Columns ----
 export type ColType = 'leer' | 'ganzzahl' | 'zahl' | 'preis' | 'ean' | 'url' | 'html' | 'text';
 export interface ColumnInfo { name: string; type: ColType; filled: number; distinct: number; samples: string[] }
 const URL_RE = /^https?:\/\/\S+$/i;
@@ -191,7 +191,7 @@ export function columnInfo(t: Table): ColumnInfo[] {
   });
 }
 
-/** Normalisierter Spaltenname für Abgleich und Signatur: klein, Umlaute ausgeschrieben, nur Buchstaben/Ziffern */
+/** Normalized column name for matching and signature: lowercase, umlauts spelled out, letters/digits only */
 export const normHeader = (h: string) => h.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[^a-z0-9]+/g, '');
-/** Signatur der Kopfzeile (Reihenfolge egal) – erkennt dieselbe Lieferantendatei wieder */
+/** Signature of the header row (order irrelevant): recognizes the same supplier file again */
 export const headerSignature = (headers: string[]) => crypto.createHash('sha1').update([...new Set(headers.map(normHeader).filter(Boolean))].sort().join('|')).digest('hex').slice(0, 16);

@@ -6,9 +6,9 @@ import type { ShopReader, SwEntity } from '../../../src/server/shopware';
 import { runHealth } from '@/lib/shopcheck';
 import { perRun, runChecks } from '../../../src/server/shopcheck-run';
 import { SCAN_MAX, SCAN_PAGE, scanProducts } from '../../../src/server/features/shopcheck';
-import { SYSTEM_LANGUAGE } from '../../../src/server/features/sprachen';
+import { SYSTEM_LANGUAGE } from '../../../src/server/features/translations';
 
-/** Fake-Shop: total aktive Produkte, jedes 10. mit Preis 0 */
+/** Fake shop: `total` active products, every 10th with price 0 */
 function fakeShop(total: number) {
   const calls: Criteria[] = [];
   const prod = (i: number): SwEntity => ({ id: `p${i}`, productNumber: `N-${i}`, translated: { name: `P${i}`, metaTitle: `T${i}`, description: 'wort '.repeat(60) }, price: [{ currencyId: 'b7d2554b0ce847cd82f3ac9bd1c0dfca', gross: i % 10 ? 10 : 0 }] });
@@ -25,7 +25,7 @@ function fakeShop(total: number) {
   return { sw, calls };
 }
 
-test('scanProducts: seitenweise, nur benötigte Felder, gedeckelt bei SCAN_MAX', async () => {
+test('scanProducts: paginated, only needed fields, capped at SCAN_MAX', async () => {
   const { sw, calls } = fakeShop(SCAN_MAX + 700);
   const s = await scanProducts(sw);
   assert.equal(s.rows.length, SCAN_MAX);
@@ -33,11 +33,11 @@ test('scanProducts: seitenweise, nur benötigte Felder, gedeckelt bei SCAN_MAX',
   assert.equal(s.capped, true);
   assert.equal(calls.length, SCAN_MAX / SCAN_PAGE);
   assert.ok(calls.every(c => c.includes && c.limit === SCAN_PAGE));
-  await scanProducts(sw); // je Lese-Client nur einmal
+  await scanProducts(sw); // only once per read client
   assert.equal(calls.length, SCAN_MAX / SCAN_PAGE);
 });
 
-test('Preis-0-Prüfung: gedeckelter Katalog meldet „mindestens“', async () => {
+test('Price-0 check: capped catalog reports "mindestens" (at least)', async () => {
   const { sw } = fakeShop(SCAN_MAX + 10);
   const c = listChecks().find(x => x.id === 'shopcheck.price-zero')!;
   const f = await c.run(sw) as { count: number; total: number; atLeast?: boolean; fixPrompt: string };
@@ -47,13 +47,13 @@ test('Preis-0-Prüfung: gedeckelter Katalog meldet „mindestens“', async () =
   assert.match(f.fixPrompt, /mindestens 250 Produkte/);
 });
 
-test('Kernprüfungen sind registriert und nennen ihre Bereiche', () => {
+test('Core checks are registered and name their areas', () => {
   const ids = listChecks().map(c => c.id);
   for (const id of ['shopcheck.meta-description', 'shopcheck.no-image', 'shopcheck.stock-zero', 'shopcheck.below-purchase', 'shopcheck.cms-links', 'shopcheck.translations']) assert.ok(ids.includes(id), id);
   assert.ok(listChecks().filter(c => c.id.startsWith('shopcheck.')).every(c => c.scopes?.length));
 });
 
-test('runChecks: zweiter Durchlauf mit demselben Lese-Client sieht geänderte Daten (Zwischenspeicher nur je Durchlauf)', async () => {
+test('runChecks: second run with the same read client sees changed data (cache only per run)', async () => {
   let zero = true;
   const sw: ShopReader = {
     base: 'http://shop',
@@ -69,7 +69,7 @@ test('runChecks: zweiter Durchlauf mit demselben Lese-Client sieht geänderte Da
   assert.equal((await runChecks(sw, checks)).findings.length, 0);
 });
 
-test('Shop nicht erreichbar: alle Prüfungen scheitern, kein „Alles im grünen Bereich“', async () => {
+test('Shop unreachable: all checks fail, no "Alles im grünen Bereich"', async () => {
   const down = () => Promise.reject(new Error('fetch failed'));
   const sw: ShopReader = { base: 'http://shop', search: down, get: down, salesChannels: down, req: down };
   const run = await runChecks(sw, listChecks().filter(c => c.id.startsWith('shopcheck.')));
@@ -78,7 +78,7 @@ test('Shop nicht erreichbar: alle Prüfungen scheitern, kein „Alles im grünen
   assert.equal(runHealth(run), 'unvollstaendig');
 });
 
-// ---- Kategorien und Übersetzungen: Fake-Shop, der die DAL-Filter dieser Prüfungen auswertet ----
+// ---- Categories and translations: fake shop that evaluates the DAL filters of these checks ----
 type Filter = { type: string; field: string; value?: unknown; queries?: Filter[]; parameters?: { gte?: number } };
 const DE = SYSTEM_LANGUAGE, EN = 'e'.repeat(32), FR = 'f'.repeat(32);
 function langShop() {
@@ -118,27 +118,27 @@ function langShop() {
 type F = { id: string; count: number; total: number; title: string; sample: { id: string; label: string }[]; fixPrompt: string };
 const check = (id: string) => listChecks().find(c => c.id === id)!;
 
-test('Übersetzungen: nur Sprachen mit Storefront-Domain außer System-/Hauptsprache; Hauptsprache zählt nie als fehlend', async () => {
+test('Translations: only languages with a storefront domain except system/main language; main language never counts as missing', async () => {
   const { sw } = langShop();
   const out = [await check('shopcheck.translations').run(sw)].flat() as F[];
-  assert.equal(out.length, 1, 'Französisch hat keine Domain, Deutsch ist Hauptsprache');
+  assert.equal(out.length, 1, 'French has no domain, German is the main language');
   assert.deepEqual([out[0].id, out[0].count, out[0].total, out[0].title], ['sprachen.missing-translation.en-GB', 1, 3, 'Produkte ohne Übersetzung: English']);
   assert.deepEqual(out[0].sample.map(s => s.id), ['p2']);
   assert.match(out[0].fixPrompt, /Zielsprache: English \(en-GB\)/);
-  // nur eine Domain-Sprache: keine Prüfung
+  // only one domain language: no check
   const one = { ...sw, salesChannels: async () => [{ id: 'sc', languageId: DE, domains: [{ url: 'https://shop.de', languageId: DE }] }] };
   assert.equal(await check('shopcheck.translations').run(one), null);
 });
 
-test('Kategorien: nur aktive Seiten unter der Navigation des Kanals zählen; beide Prüfungen teilen sich die Zählung', async () => {
+test('Categories: only active pages under the channel navigation count; both checks share the count', async () => {
   const { sw, calls } = langShop();
   const ro = perRun(sw);
   const [meta, desc] = await Promise.all([check('shopcheck.category-meta').run(ro), check('shopcheck.category-description').run(ro)]) as F[];
-  assert.deepEqual([meta.count, meta.total, meta.sample.map(s => s.label)], [1, 2, ['C1']], 'c3 liegt außerhalb der Navigation, c4 ist ein Link');
+  assert.deepEqual([meta.count, meta.total, meta.sample.map(s => s.label)], [1, 2, ['C1']], 'c3 is outside the navigation, c4 is a link');
   assert.deepEqual([desc.count, desc.total, desc.sample.map(s => s.id)], [1, 2, ['c2']]);
-  assert.equal(calls.filter(e => e === 'category').length, 3, 'gesamt + Meta + Beschreibung, nur einmal je Durchlauf');
-  // ohne Navigationskategorie: Fallback auf Ebene ≥ 2
+  assert.equal(calls.filter(e => e === 'category').length, 3, 'total + meta + description, only once per run');
+  // without navigation category: fall back to level ≥ 2
   const noNav = { ...sw, salesChannels: async () => [{ id: 'sc', languageId: DE, domains: [{ url: 'https://shop.de', languageId: DE }] }] };
   const m2 = await check('shopcheck.category-meta').run(perRun(noNav)) as F;
-  assert.deepEqual([m2.count, m2.total], [2, 3], 'c1 und c3 ohne Meta-Description');
+  assert.deepEqual([m2.count, m2.total], [2, 3], 'c1 and c3 without meta description');
 });

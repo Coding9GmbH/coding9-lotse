@@ -1,7 +1,7 @@
 import 'server-only';
-// OpenMage-Shop-Check: Prüfungen registrieren (SEO, Bilder, Bestand, Preise, Links in Beschreibungen und CMS-Seiten, Übersetzungen).
-// Je Durchlauf ein frischer Lese-Client; Daten werden je Lese-Client einmal gelesen (memo) und von allen Prüfungen geteilt.
-// Die Produktliste liefert mit ?fields= und ?with=images alles Nötige; große Kataloge: höchstens SCAN_MAX Produkte (Befund „mindestens“).
+// OpenMage shop check: register checks (SEO, images, stock, prices, links in descriptions and CMS pages, translations).
+// A fresh read client per run; data is read once per read client (memo) and shared by all checks.
+// The product list returns everything needed with ?fields= and ?with=images; large catalogs: at most SCAN_MAX products (finding "at least").
 import type { NeutralProduct, NeutralScan } from '@/lib/custom-checks';
 import type { CheckFinding } from '@/lib/protocol';
 import { registerPlatformCheck } from '../../checks';
@@ -15,7 +15,7 @@ import { mrec, type OmRecord } from './map';
 import { LIST_FIELDS, type OmReader } from './reader';
 
 export const SCAN_MAX = 2500, SCAN_PAGE = 200;
-/** Befund-Definitionen wie Magento 2, Texte für OpenMage; Bestand kommt aus dem Lagerposten (kein MSI) */
+/** Finding definitions as in Magento 2, texts for OpenMage; stock comes from the stock item (no MSI) */
 export const OM_DEFS: typeof M_DEFS = Object.fromEntries(Object.entries(M_DEFS).map(([k, d]) => [k, { ...d, hint: d.hint.replace(/Magento/g, 'OpenMage') }])) as typeof M_DEFS;
 (OM_DEFS as Record<string, FindingDef>).stockZero = { ...M_DEFS.stockZero, hint: 'Der Lagerposten steht auf „auf Lager“, die Menge ist aber 0. Je nach Einstellung für Nachbestellungen können Kunden bestellen, obwohl nichts da ist.',
   fix: n => `Prüfe alle aktiven Produkte mit Bestand 0, die als „auf Lager“ markiert sind (betrifft ${n}; list_products active=true maxStock=0). Zeig sie mir und frag mich, ob ich Bestand nachtragen oder die Produkte deaktivieren will. Erst dann mit propose_product_changes (stock oder active) vorschlagen.` };
@@ -26,10 +26,10 @@ function memo<T>(ro: OmReader, key: string, fn: () => Promise<T>): Promise<T> {
   if (!m.has(key)) m.set(key, fn());
   return m.get(key) as Promise<T>;
 }
-/** Link-Auflösungen je Lese-Client teilen: /versand.html oder Kategorie-Links stehen in vielen Beschreibungen und Seiten */
+/** Share link resolutions per read client: /versand.html or category links appear in many descriptions and pages */
 const linkCache = (ro: OmReader) => memo(ro, 'links', async (): Promise<OmLinkCache> => new Map());
 
-/** Aktive, einzeln sichtbare Produkte seitenweise mit Inhalts-/SEO-Feldern und Galerie (store: Store-View, 'admin' = globale Werte) */
+/** Active, individually visible products, paged, with content/SEO fields and gallery (store: store view, 'admin' = global values) */
 async function scan(ro: OmReader, store?: string): Promise<{ rows: OmRecord[]; raw: OmRecord[]; total: number; capped: boolean }> {
   return memo(ro, `scan:${store ?? ''}`, async () => {
     const raw: OmRecord[] = []; let total = 0;
@@ -48,7 +48,7 @@ const hitsOf = (ro: OmReader) => memo(ro, 'hits', async () => {
   for (const p of s.raw) if (p.qty != null) stock.set(String(p.sku), { qty: Number(p.qty), inStock: !!p.is_in_stock });
   return { s, h: productHits(s.rows, stock), stock };
 });
-/** Neutrale Produktzeilen für eigene Prüfungen (Bestand aus dem Lagerposten) */
+/** Neutral product rows for custom checks (stock from the stock item) */
 export async function neutralScan(ro: OmReader): Promise<NeutralScan> {
   const { s, stock } = await hitsOf(ro);
   return {
@@ -83,7 +83,7 @@ reg('openmage.stock-zero', 'Daten', ['products'], fromScan('stockZero', OM_DEFS.
 reg('openmage.price-zero', 'Preise', ['products'], fromScan('priceZero', OM_DEFS.priceZero));
 reg('openmage.special-not-below', 'Preise', ['products'], fromScan('specialNotBelow', OM_DEFS.specialNotBelow));
 
-// ---- Links in Produktbeschreibungen ----
+// ---- Links in product descriptions ----
 reg('openmage.description-links', 'Links', ['products', 'shop'], async ro => {
   const s = await scan(ro), hits: Hit[] = [];
   for (const p of s.raw) {
@@ -95,7 +95,7 @@ reg('openmage.description-links', 'Links', ['products', 'shop'], async ro => {
   return makeFinding(OM_DEFS.descLinks, hits.length, s.total, hits, { atLeast: s.capped });
 });
 
-// ---- Kategorien (aktiv, ab Ebene 2; Details für Texte und Metas) ----
+// ---- Categories (active, from level 2; details for texts and metas) ----
 const categoryRows = (ro: OmReader) => memo(ro, 'categories', async () => {
   const flat = (await ro.categoriesFlat()).filter(c => Number(c.level) >= 2 && c.is_active).slice(0, 300), rows: OmRecord[] = [];
   for (const c of flat) { const d = await ro.category(c.id); if (d) rows.push(catRec(d)); }
@@ -104,7 +104,7 @@ const categoryRows = (ro: OmReader) => memo(ro, 'categories', async () => {
 reg('openmage.category-meta', 'SEO', ['categories'], async ro => { const rows = await categoryRows(ro), h = categoryHits(rows); return makeFinding(OM_DEFS.catMeta, h.meta.length, rows.length, h.meta); });
 reg('openmage.category-description', 'SEO', ['categories'], async ro => { const rows = await categoryRows(ro), h = categoryHits(rows); return makeFinding(OM_DEFS.catDesc, h.desc.length, rows.length, h.desc); });
 
-// ---- CMS-Seiten mit kaputten Links ----
+// ---- CMS pages with broken links ----
 reg('openmage.cms-links', 'Links', ['cms', 'shop'], async ro => {
   const hits: Hit[] = []; let total = 0;
   for (let page = 1; page <= 4; page++) {
@@ -122,7 +122,7 @@ reg('openmage.cms-links', 'Links', ['cms', 'shop'], async ro => {
   return makeFinding(OM_DEFS.cmsBroken, hits.length, total, hits, { atLeast: total > 200 });
 });
 
-// ---- Übersetzungen: nur wenn weitere Store-Views eine andere Sprache haben ----
+// ---- Translations: only if other store views have a different language ----
 reg('openmage.translations', 'Sprachen', ['products', 'shop'], async ro => {
   const views = await ro.storeViews(), main = await ro.store();
   const locale = (code: string) => String(views.find(v => v.code === code)?.locale ?? '');

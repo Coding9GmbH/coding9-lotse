@@ -1,6 +1,6 @@
 import 'server-only';
-// OpenMage: SEO-Bestandsaufnahme (nur lesen) für Produkte und Kategorien, seitenweise für große Kataloge.
-// Die Liste liefert mit ?fields= und ?with=images alles Nötige ohne Einzelabrufe; die reine Prüfung kommt aus magento/audit.ts.
+// OpenMage: SEO inventory (read-only) for products and categories, paged for large catalogs.
+// With ?fields= and ?with=images the list returns everything needed without single fetches; the pure check comes from magento/audit.ts.
 import { auditRecords, type AuditIssue } from '../magento/audit';
 import { mrec, type OmRecord } from './map';
 import { LIST_FIELDS, type OmReader } from './reader';
@@ -12,7 +12,7 @@ const ISSUES: AuditIssue[] = [
   { key: 'thinDescription', label: 'Beschreibung unter 50 Wörtern', level: 'wichtig' }, { key: 'noImage', label: 'Kein sichtbares Bild', level: 'wichtig' }, { key: 'imageWithoutAlt', label: 'Bild ohne Alt-Text', level: 'empfohlen' },
 ];
 
-/** Kategorie-Datensatz in Magento-2-Form (meta_* und description liegen oben) */
+/** Category record in Magento 2 shape (meta_* and description at the top level) */
 export const catRec = (c: OmRecord) => ({ id: c.id, name: c.name, custom_attributes: ['description', 'meta_title', 'meta_description', 'display_mode', 'landing_page'].map(code => ({ attribute_code: code, value: c[code] ?? c.attributes?.[code] ?? null })) });
 
 export async function seoAudit(ro: OmReader, a: { entity: 'product' | 'category'; limit?: number; offset?: number }) {
