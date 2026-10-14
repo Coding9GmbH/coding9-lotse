@@ -41,7 +41,7 @@ function settingsOf(s: StoredSettings): Settings {
   return {
     platform: kindOf(s),
     shopify: genericConfig('shopify', s.shopify), magento: genericConfig('magento', s.magento), openmage: genericConfig('openmage', s.openmage),
-    shopware: { url: pick(sw.url, env.SHOPWARE_URL), publicUrl: pick(sw.publicUrl, env.SHOPWARE_PUBLIC_URL), user: pick(sw.user, env.SHOPWARE_USER), password: pick(unseal(sw.password), env.SHOPWARE_PASSWORD), clientId: pick(sw.clientId, env.SHOPWARE_CLIENT_ID), clientSecret: pick(unseal(sw.clientSecret), env.SHOPWARE_CLIENT_SECRET) },
+    shopware: { url: pick(sw.url, env.SHOPWARE_URL), publicUrl: pick(sw.publicUrl, env.SHOPWARE_PUBLIC_URL), user: pick(sw.user, env.SHOPWARE_USER), password: pick(unseal(sw.password), envSecret('shopware', sw, 'SHOPWARE_PASSWORD')), clientId: pick(sw.clientId, env.SHOPWARE_CLIENT_ID), clientSecret: pick(unseal(sw.clientSecret), envSecret('shopware', sw, 'SHOPWARE_CLIENT_SECRET')) },
     ai: { provider: pick(ai.provider, env.AI_PROVIDER) === 'codex' ? 'codex' : 'claude', apiKey: pick(unseal(ai.apiKey)), model: pick(ai.model, env.AI_MODEL), codexModel: pick(ai.codexModel, env.CODEX_MODEL) },
     image: { openaiKey: pick(unseal(im.openaiKey), env.OPENAI_API_KEY), model: pick(im.model, env.IMAGE_MODEL) },
     scopes: { ...DEFAULT_SCOPES, ...(s.scopes ?? {}) },
@@ -50,7 +50,25 @@ function settingsOf(s: StoredSettings): Settings {
 
 // Shopify/Magento/OpenMage: Felder laut Beschreibung; Rückfall auf die Umgebungsvariable des Feldes
 function genericConfig(kind: GenericKind, sec: Section = {}): PlatformConfig {
-  return Object.fromEntries(platformFields(kind).map(f => [f.key, pick(f.secret ? unseal(sec[f.key]) : sec[f.key], f.env ? env[f.env] : undefined)]));
+  return Object.fromEntries(platformFields(kind).map(f => [f.key, f.secret ? pick(unseal(sec[f.key]), envSecret(kind, sec, f.env)) : pick(sec[f.key], f.env ? env[f.env] : undefined)]));
+}
+
+// Zugangsdaten gehören zur Adresse, an die sie gehen (API-Basis je Plattform). Wechselt deren Herkunft, verwirft mergeSettings die gespeicherten
+// Geheimnisse (außer sie kommen im selben Patch neu mit) – eine kompromittierte Oberfläche kann sie sonst per „Verbindung testen“ an einen fremden Host schicken.
+const CONN_URL: Record<PlatformKind, string> = { shopware: 'url', shopify: 'storeDomain', magento: 'url', openmage: 'url' };
+const connEnv = (kind: PlatformKind) => platformFields(kind).find(f => f.key === CONN_URL[kind])?.env;
+/** Herkunft einer Shop-Adresse (Schema, Host, Port; klein). Domain ohne Schema (Shopify) = https. */
+export function shopOrigin(v: string | undefined): string {
+  const s = (v ?? '').trim(); if (!s) return '';
+  try { return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : `https://${s}`).origin.toLowerCase(); } catch { return s.toLowerCase(); }
+}
+/** Wirksame Verbindungsadresse einer Plattform (gespeichert, sonst Umgebung) */
+const connOrigin = (kind: PlatformKind, sec: Section = {}) => { const e = connEnv(kind); return shopOrigin(pick(sec[CONN_URL[kind]], e ? env[e] : undefined)); };
+/** Geheimnis aus der Umgebung nur zur Adresse aus der Umgebung: zeigt die gespeicherte URL woandershin, bleibt es weg. */
+function envSecret(kind: PlatformKind, sec: Section, name: string | undefined): string | undefined {
+  if (!name) return undefined;
+  const e = connEnv(kind), envUrl = e ? env[e] : undefined;
+  return !envUrl || connOrigin(kind, sec) === shopOrigin(envUrl) ? env[name] : undefined;
 }
 /** Zugang einer Plattform als Schlüssel → Wert (Shopware: ShopwareConfig) */
 export const platformConfig = (kind: PlatformKind, g = getSettings()): PlatformConfig => (kind === 'shopware' ? { ...g.shopware } : g[kind]);
@@ -91,6 +109,10 @@ function mergeSettings(s: StoredSettings, p: SettingsPatch): StoredSettings {
     const patch = p[name] as Record<string, string | null | undefined> | undefined;
     if (!patch) return; const sec: Section = { ...(s[name] ?? {}) }; out[name] = sec;
     for (const k of plain) if (patch[k] !== undefined) sec[k] = String(patch[k]).trim();
+    if (name !== 'ai' && name !== 'image') { // Shop-Adresse auf andere Herkunft: gespeicherte Geheimnisse verwerfen (neue aus dem Patch gelten)
+      const kind = name as PlatformKind, before = connOrigin(kind, s[kind]);
+      if (before && before !== connOrigin(kind, sec)) for (const k of secret) delete sec[k];
+    }
     for (const k of secret) { const v = patch[k]; if (v === null) delete sec[k]; else if (v !== undefined && v !== '') { const sealed = seal(String(v).trim()); if (sealed) sec[k] = sealed; } } // leer = unverändert, null = löschen
   };
   if (p.platform !== undefined && isPlatformKind(p.platform)) out.platform = p.platform;
