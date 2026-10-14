@@ -13,3 +13,7 @@ next-env.d.ts
 
 # Promo-Videos (Quellen und Export) liegen nicht im Repository
 video/
+
+# Playwright (E2E)
+test-results/
+playwright-report/
