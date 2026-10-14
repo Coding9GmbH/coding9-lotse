@@ -3,7 +3,7 @@ import { SHOP_TOKEN, shopUrl } from './support/helpers';
 
 test('Einstellungen: Shopify verbinden, automatisch speichern und Verbindungen testen', async ({ page }) => {
   await page.goto('/settings');
-  await expect(page.getByRole('heading', { level: 1, name: 'Einstellungen' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Allgemein' })).toBeVisible();
 
   const shop = page.locator('section#shop');
   await shop.getByRole('radio', { name: 'Shopify' }).click();
