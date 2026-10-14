@@ -3,9 +3,9 @@
 Alle nennenswerten Änderungen an Lotse stehen in dieser Datei.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die Versionen folgen [Semantic Versioning](https://semver.org/lang/de/).
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
-Jede Änderung bekommt einen eigenen Abschnitt mit neuer Versionsnummer (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
+Änderungen sammeln sich unter [Unreleased] und bekommen erst beim Release eine Versionsnummer (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
-## [0.8.0] – 2026-10-14
+## [Unreleased]
 
 ### Hinzugefügt
 - KI-Zugriff: neuer Schalter „Internetrecherche“ (Einstellungen → KI-Zugriff → Internet). Ist er an, darf die KI im Internet suchen und öffentliche Webseiten lesen, etwa Herstellerangaben, Datenblätter oder Pflichtangaben, und nennt dabei ihre Quellen; geschrieben wird weiterhin nur nach Freigabe.
@@ -154,7 +154,7 @@ Jede Änderung bekommt einen eigenen Abschnitt mit neuer Versionsnummer (siehe [
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
-[0.8.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.7.2...v0.8.0
+[Unreleased]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.7.2...HEAD
 [0.7.2]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.6.0...v0.7.0
