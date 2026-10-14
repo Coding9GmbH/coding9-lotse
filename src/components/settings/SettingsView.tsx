@@ -208,6 +208,14 @@ export function SettingsView({ section = 'general' }: { section?: SettingsSectio
                   ))}
                 </ul>
               </section>
+
+              <section id="scopes-web" className={styles.card} aria-labelledby="scopes-web-h">
+                <div className={styles.cardHead}><h2 id="scopes-web-h">{ts.scopes.webHeading}</h2></div>
+                <p className={styles.hint}>{markup(ts.scopes.webHint)}</p>
+                <ul className={styles.scopes}>
+                  {'web' in form.scopes && <ScopeSwitch k="web" form={form} saved={saved} set={set} locale={locale} />}
+                </ul>
+              </section>
             </form>
           )}
 

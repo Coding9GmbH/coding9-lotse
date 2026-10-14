@@ -14,10 +14,13 @@ export const SCOPES: Record<ScopeKey, { label: string; hint: string; entities: s
   // Integrationen: keine Shop-Entitäten, sondern ob die KI die Daten lesen darf (Werkzeuge, Shop-Prüfungen, SEO-Übersicht)
   gsc:        { label: 'Search Console', hint: 'Klicks, Impressionen, Klickrate und Position deiner Seiten (Google Search Console)', entities: [] },
   sistrix:    { label: 'Sistrix', hint: 'Sichtbarkeitsindex, Wettbewerber, Keyword-Potenzial und OnPage-Crawl (Sistrix)', entities: [] },
+  // Internetrecherche: Websuche und Abruf öffentlicher Webseiten durch die KI (Claude: WebSearch/WebFetch, Codex: web_search); standardmäßig aus
+  web:        { label: 'Internetrecherche', hint: 'Websuche und Abruf öffentlicher Webseiten, z. B. Herstellerangaben, Datenblätter, Normen', entities: [] },
 };
 export type Scopes = Record<ScopeKey, boolean>;
 export const SCOPE_KEYS = Object.keys(SCOPES) as ScopeKey[];
-export const DEFAULT_SCOPES = Object.fromEntries(SCOPE_KEYS.map(k => [k, true])) as Scopes;
+/** Alles an außer der Internetrecherche: Inhalte aus dem Netz sind fremder Text, den der Betreiber bewusst zulassen soll */
+export const DEFAULT_SCOPES = Object.fromEntries(SCOPE_KEYS.map(k => [k, k !== 'web'])) as Scopes;
 const ENTITY_SCOPE: Record<string, ScopeKey> = Object.fromEntries(SCOPE_KEYS.flatMap(k => SCOPES[k].entities.map(e => [e, k])));
 // Erlaubte Beziehungen je Entität (Name → Ziel-Entität). Alles andere (z.B. reviews, orderLineItems, customer …) wird abgewiesen.
 const ASSOC: Record<string, Record<string, string>> = {

@@ -15,22 +15,23 @@ import { errMsg } from './util';
 // Ergänzung zum System-Prompt: Codex kennt sonst seine Rolle als Programmier-Agent
 const CODEX_NOTE = `\n\n## Laufzeit
 Du läufst in Lotse, nicht als Programmier-Assistent. Du hast ausschließlich die Werkzeuge des MCP-Servers „shop“ (z. B. search_products, draft_page, ask_user, propose_product_changes). Führe keine Befehle aus, lies oder schreibe keine Dateien und frage nicht nach solchen Rechten. Das ist hier technisch gesperrt.`;
+const CODEX_WEB_NOTE = ' Zusätzlich darfst du die Websuche verwenden (Internetrecherche ist eingeschaltet).';
 
 /** Interne Adresse, unter der der Codex-Prozess Lotse erreicht (gleicher Rechner/Container). */
 const internalUrl = () => (process.env.LOTSE_INTERNAL_URL || `http://127.0.0.1:${process.env.PORT || 3333}`).replace(/\/$/, '');
 
-function client(chatId: string, platform?: PlatformKind, locale?: Locale) {
-  const cfg = codexConfig({ mcpUrl: `${internalUrl()}/api/mcp/${encodeURIComponent(chatId)}`, instructions: buildSystem(platform, locale) + CODEX_NOTE });
+function client(chatId: string, platform?: PlatformKind, locale?: Locale, web = false) {
+  const cfg = codexConfig({ mcpUrl: `${internalUrl()}/api/mcp/${encodeURIComponent(chatId)}`, instructions: buildSystem(platform, locale, web) + CODEX_NOTE + (web ? CODEX_WEB_NOTE : ''), web });
   const codex = new Codex({ env: codexEnv({ LOTSE_MCP_TOKEN: mcpTokenFor(chatId) }), config: cfg.config, configOverrides: cfg.configOverrides });
-  const opts = codexThreadOptions(cfg.workingDirectory, getSettings().ai.codexModel);
+  const opts = codexThreadOptions(cfg.workingDirectory, getSettings().ai.codexModel, web);
   return { codex, opts };
 }
 
-/** Thread-Optionen jedes Laufs. Sandbox nur lesend, kein Netz, keine Websuche, keine Freigabe-Rückfrage. */
-export function codexThreadOptions(workingDirectory: string, model?: string): ThreadOptions {
+/** Thread-Optionen jedes Laufs. Sandbox nur lesend, kein Netz für Befehle, keine Freigabe-Rückfrage; Websuche nur mit `web` (Internetrecherche). */
+export function codexThreadOptions(workingDirectory: string, model?: string, web = false): ThreadOptions {
   return {
     workingDirectory, skipGitRepoCheck: true, sandboxMode: 'read-only', approvalPolicy: 'never',
-    networkAccessEnabled: false, webSearchMode: 'disabled', ...(model ? { model } : {}),
+    networkAccessEnabled: false, webSearchMode: web ? 'live' : 'disabled', ...(model ? { model } : {}),
   };
 }
 
@@ -39,11 +40,11 @@ const resultText = (item: Extract<ThreadItem, { type: 'mcp_tool_call' }>) =>
 
 
 
-/** Ein Ereignis der Codex-Runde. Befehl, Dateiänderung und Websuche beenden die Runde. Neue SDK-Typen müssen hier eingeordnet werden. */
+/** Ein Ereignis der Codex-Runde. Befehl, Dateiänderung und (ohne Internetrecherche) Websuche beenden die Runde. Neue SDK-Typen müssen hier eingeordnet werden. */
 export function onCodexItem(
   item: ThreadItem,
   evType: 'item.started' | 'item.updated' | 'item.completed',
-  state: { texts: Map<string, number>; tools: Set<string> },
+  state: { texts: Map<string, number>; tools: Set<string>; web?: boolean },
   emit: (ev: ChatEvent) => void,
   locale?: Locale,
 ): { abort?: string } {
@@ -61,7 +62,12 @@ export function onCodexItem(
       if (evType === 'item.completed') emit({ t: 'tool_result', id: item.id, error: item.status === 'failed' || !!item.error, preview: redact(resultText(item)).slice(0, 300) });
       return {};
     }
-    case 'command_execution': case 'file_change': case 'web_search':
+    case 'web_search': {
+      if (!state.web) return { abort: messages(locale).server.codexBlockedTool };
+      if (!state.tools.has(item.id)) { state.tools.add(item.id); emit({ t: 'tool', id: item.id, name: 'web_search', input: { query: item.query } }); }
+      return {};
+    }
+    case 'command_execution': case 'file_change':
       return { abort: messages(locale).server.codexBlockedTool };
     case 'reasoning': case 'todo_list': case 'error':
       return {};
@@ -82,9 +88,9 @@ export async function runCodex(s: Session, prompt: string, signal: AbortSignal, 
     const texts = new Map<string, number>(); // agent_message-ID → bereits gesendete Zeichen
     const tools = new Set<string>();
     let failed: string | null = null, usage: RunUsage | undefined;
-    const model = getSettings().ai.codexModel || undefined;
+    const model = getSettings().ai.codexModel || undefined, web = getSettings().scopes.web;
     try {
-      const { codex, opts } = client(s.id, s.platform, s.locale);
+      const { codex, opts } = client(s.id, s.platform, s.locale, web);
       const thread = s.codexThreadId ? codex.resumeThread(s.codexThreadId, opts) : codex.startThread(opts);
       const { events } = await thread.runStreamed(prompt, { signal: ac.signal });
       for await (const ev of events) {
@@ -93,7 +99,7 @@ export async function runCodex(s: Session, prompt: string, signal: AbortSignal, 
         if (ev.type === 'error') { failed = ev.message; continue; }
         if (ev.type === 'turn.completed') { const u = ev.usage; usage = { input: u.input_tokens, output: u.output_tokens, cacheRead: u.cached_input_tokens, cacheWrite: u.cache_write_input_tokens }; continue; }
         if (ev.type !== 'item.started' && ev.type !== 'item.updated' && ev.type !== 'item.completed') continue;
-        const stop = onCodexItem(ev.item, ev.type, { texts, tools }, emit, s.locale);
+        const stop = onCodexItem(ev.item, ev.type, { texts, tools, web }, emit, s.locale);
         if (stop.abort) { failed = stop.abort; ac.abort(); }
       }
       persist(s);
