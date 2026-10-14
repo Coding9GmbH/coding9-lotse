@@ -26,7 +26,7 @@
     "unpdf": "^1.8.1",
     "zod": "^4.6.5"
   },
-  "description": "Lotse – KI-Lotse für Shopware 6: Inhalte, Layouts, Preise & SEO per Chat. Die KI liest nur, geschrieben wird nur nach Freigabe.",
+  "description": "Lotse – KI-Lotse für Onlineshops (Shopware 6, Shopify, Magento 2, OpenMage): Inhalte, Layouts, Preise & SEO per Chat. Die KI liest nur, geschrieben wird nur nach Freigabe.",
   "engines": {
     "node": ">=22.13"
   },

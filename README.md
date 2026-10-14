@@ -2,8 +2,8 @@
 
 <p align="center"><b>Deutsch</b> · <a href="README.en.md">English</a></p>
 
-<p align="center"><b>Der KI-Lotse für Shopware 6.</b> Du gibst den Kurs vor – Lotse bringt deinen Shop sicher hin.<br>
-Einkaufswelten, Preise, Texte & SEO per Chat. Die KI liest nur, geschrieben wird erst nach deiner Freigabe.</p>
+<p align="center"><b>Der KI-Lotse für deinen Onlineshop – Shopware 6, Shopify, Magento 2 und OpenMage.</b> Du gibst den Kurs vor – Lotse bringt deinen Shop sicher hin.<br>
+Seiten & Einkaufswelten, Preise, Texte & SEO per Chat. Die KI liest nur, geschrieben wird erst nach deiner Freigabe.</p>
 
 <p align="center"><img src="docs/screenshots/app.png" alt="Lotse Oberfläche" width="820"></p>
 
@@ -64,7 +64,7 @@ Ohne Docker: `npm install && npm run dev` (Node ≥ 22.13) → http://localhost:
 
 | Schutz | Wie |
 |---|---|
-| KI ohne Schreibrechte | Das Modell bekommt nur `ReadOnlyShopware` mit Freigabeliste; Kunden-, Bestell-, Zahlungs- und Zugangsdaten sind fest gesperrt, jeder Lesezugriff wird protokolliert. |
+| KI ohne Schreibrechte | Das Modell bekommt nur einen geschützten Lese-Client mit Freigabeliste (Shopware `ReadOnlyShopware`, Shopify `ShopifyReader`, Magento `MagentoReader`, OpenMage `OmReader`); Kunden-, Bestell-, Zahlungs- und Zugangsdaten sind fest gesperrt, jeder Lesezugriff wird protokolliert. |
 | Freigabe vor jedem Schreiben | Änderungen erscheinen als Alt→Neu-Vergleich; erst „Anwenden“ schreibt. Audit-Log + Rückgängig. |
 | Shop wird geschont | Schreibzugriffe gedrosselt (`LOTSE_WRITE_CONCURRENCY`, Standard 2), max. 300 Einträge je Änderungsset, Timeouts (`LOTSE_SHOP_TIMEOUT_MS`), Backoff bei 429/503. |
 | Lokal & gehärtet | Port nur auf `127.0.0.1`, Host-/Origin-Prüfung, Container als Nicht-Root, read-only, ohne Capabilities, mit Ressourcen-Limits. |
@@ -106,7 +106,7 @@ Gebaut wird für amd64 und arm64, mit SBOM und Provenance. `latest` gibt es erst
 
 ## Dokumentation
 
-Die ausführliche Dokumentation liegt unter [`docs/`](docs/README.md): [Benutzerhandbuch](docs/benutzerhandbuch.md) (wie alles funktioniert), [Selbst hosten](docs/self-hosting.md), [Architektur](docs/architektur.md) und [Plattform-Schicht](docs/platform.md).
+Die ausführliche Dokumentation liegt unter [`docs/`](docs/README.md): [Benutzerhandbuch](docs/benutzerhandbuch.md) (wie alles funktioniert), [Selbst hosten](docs/self-hosting.md), [Architektur](docs/architektur.md) und [Plattform-Schicht](docs/platform.md). Was sich je Version geändert hat, steht im [CHANGELOG](CHANGELOG.md).
 
 ## Konzept: AI-first Verwaltung
 Chat statt Formulare. Du schreibst, was passieren soll („Ändere das Layout von Produkt XY“, „Senke alle Preise um 20 %“, „FAQ bei allen Produkten“). Der Agent **versteht → fragt gezielt zurück** (klickbare Antworten) **→ recherchiert (nur lesen) → zeigt Vorschau bzw. Alt→Neu-Vergleich → du gibst frei → der Server schreibt** (Audit-Log, Rückgängig).
@@ -128,9 +128,16 @@ Chat statt Formulare. Du schreibst, was passieren soll („Ändere das Layout vo
 - **Deutsch und Englisch**: Oberfläche und KI-Antworten gibt es auf Deutsch und Englisch. Umschalten in den Einstellungen oder in der Seitennavigation; ohne Auswahl gilt die Browsersprache (gespeichert im Cookie `lotse_lang`).
 - UI im Coding9-CI (Dunkel `#2E2E38`, Grün, Koralle, Creme; Satoshi/Inter via Fontshare/Google Fonts).
 
-## Shop-Plattformen
+## Unterstützte Shopsysteme
 
-Lotse verbindet sich mit **Shopware 6** (Standard), **Shopify**, **Magento 2** und **OpenMage (Magento 1)**; die Plattform wird in den Einstellungen unter „Shop verbinden“ gewählt (oder per `SHOP_PLATFORM`). Was welche Plattform kann, zeigt die Fähigkeitsmatrix in [`docs/platform.md`](docs/platform.md).
+Die Plattform wird in den Einstellungen unter „Shop verbinden“ gewählt (oder per `SHOP_PLATFORM`). Shopware 6 ist der Standard und am weitesten ausgebaut; was genau welche Plattform kann, zeigt die [Fähigkeitsmatrix](docs/platform.md#0-fähigkeitsmatrix-stand-nach-shopify-magento-2-und-openmage) in [`docs/platform.md`](docs/platform.md).
+
+| Shopsystem | Einrichtung (Kurzform) |
+|---|---|
+| **Shopware 6** (Standard) | Im Admin unter *Einstellungen → System → Integrationen* eine Integration anlegen, Shop-URL, Zugangs-ID und Schlüssel eintragen (alternativ Admin-Benutzer; `SHOPWARE_*`). |
+| **Shopify** | App im Shopify Dev Dashboard installieren und Client-ID/-Secret eintragen, oder das Admin-API-Token einer bestehenden eigenen App; dazu die `*.myshopify.com`-Domain (`SHOPIFY_*`). |
+| **Magento 2** (Adobe Commerce) | Im Admin unter *System → Erweiterungen → Integrationen* eine Integration mit Zugriff auf Katalog, Inhalte und Marketing anlegen und das Zugriffstoken eintragen (alternativ Admin-Benutzer); optional Store-View und Preisbasis (`MAGENTO_*`). |
+| **OpenMage** (Magento 1) | Modul `Lotse_Connector` aus [`integrations/openmage/`](integrations/openmage/) installieren, API-Token erzeugen, Shop-URL und Token eintragen (`OPENMAGE_*`, siehe unten). |
 
 **OpenMage** hat keine brauchbare Schnittstelle für CMS-Seiten/-Blöcke, darum liegt im Repository das Modul **`Lotse_Connector`** ([`integrations/openmage/`](integrations/openmage/)) mit token-gesicherter JSON-API unter `/lotse-api/v1`. Installation in Kurzform (Details, Sicherheit und Endpunkte in [`integrations/openmage/README.md`](integrations/openmage/README.md)):
 

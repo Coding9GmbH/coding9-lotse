@@ -27,5 +27,6 @@ Die Oberfläche gibt es auf Deutsch und Englisch.
 ## Pull Requests
 - Kleine, fokussierte Änderungen; ein Thema je PR.
 - Tests ergänzen oder anpassen; `npm run check` muss grün sein.
+- Jede für Nutzer sichtbare Änderung unter „Unveröffentlicht“ in [`CHANGELOG.md`](CHANGELOG.md) eintragen.
 - Die Sicherheitsgrenzen bleiben bestehen: Die KI liest nur (`ReadOnly…`-Clients), geschrieben wird ausschließlich im Executor nach Freigabe. Änderungen, die das aufweichen, brauchen eine ausführliche Begründung.
 - Mit deinem Beitrag stimmst du zu, dass er unter der [MIT-Lizenz](LICENSE) veröffentlicht wird.

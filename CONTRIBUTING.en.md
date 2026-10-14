@@ -27,5 +27,6 @@ The UI is available in German and English.
 ## Pull requests
 - Small, focused changes; one topic per PR.
 - Add or update tests; `npm run check` must be green.
+- Record every user-visible change under "Unveröffentlicht" (unreleased) in [`CHANGELOG.md`](CHANGELOG.md).
 - The security boundaries stay in place: the AI only reads (`ReadOnly…` clients), and writing happens exclusively in the executor after approval. Changes that weaken this need a thorough justification.
 - By contributing, you agree that your contribution is published under the [MIT license](LICENSE).
