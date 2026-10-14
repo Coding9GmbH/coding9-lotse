@@ -58,7 +58,7 @@ test('Storefront-Proxy: Weiterleitungen bleiben im /shop-Präfix, Status ohne Bo
 
   reply = () => new Response('body{}', { headers: { 'content-type': 'text/css' } });
   const css = await GET(req('/shop/theme/a.css'));
-  assert.equal(css.headers.get('content-security-policy'), null);
+  assert.match(css.headers.get('content-security-policy') ?? '', /^sandbox; default-src 'none'/, 'CSS direkt geöffnet: ohne Skripte, opaker Origin');
   assert.equal(css.headers.get('content-type'), 'text/css');
   assert.equal(await css.text(), 'body{}');
 });
@@ -87,11 +87,35 @@ test('Storefront-Proxy: Assets mit CORS-Freigabe (Schriften im sandboxed Entwurf
   reply = () => new Response(new Uint8Array([0, 1]), { headers: { 'content-type': 'font/woff2' } });
   const font = await GET(req('/shop/theme/abc/assets/font/Inter.woff2'));
   assert.equal(font.headers.get('access-control-allow-origin'), '*', 'opaker Origin des Entwurfs darf @font-face laden');
-  assert.equal(font.headers.get('content-security-policy'), null);
+  assert.match(font.headers.get('content-security-policy') ?? '', /^sandbox; default-src 'none'/);
   reply = () => new Response('<p>ok</p>', { headers: { 'content-type': 'text/html' } });
   const html = await GET(req('/shop/'));
   assert.equal(html.headers.get('access-control-allow-origin'), null, 'Shop-HTML bleibt ohne CORS-Freigabe');
   assert.match(html.headers.get('content-security-policy') ?? '', /^sandbox allow-scripts/);
+});
+
+test('Storefront-Proxy: SVG/XML/XHTML und andere Nicht-HTML-Antworten laufen nie in Lotses Herkunft; MIME case-insensitiv', async () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><script>fetch("/api/approve",{method:"POST"})</script></svg>';
+  for (const type of ['image/svg+xml', 'IMAGE/SVG+XML', 'application/xml', 'text/xml', 'application/xhtml+xml', 'application/json', 'text/plain', 'application/octet-stream', 'image/png']) {
+    reply = () => new Response(svg, { headers: { 'content-type': type } });
+    const r = await GET(req('/media/x.svg', { [STOREFRONT_PREFIX_HEADER]: 'media' }));
+    const csp = r.headers.get('content-security-policy') ?? '';
+    assert.match(csp, /^sandbox;/, `${type}: sandbox ohne allow-scripts`);
+    assert.doesNotMatch(csp, /allow-scripts|allow-same-origin/, type);
+    assert.match(csp, /default-src 'none'/, type);
+    assert.equal(r.headers.get('x-content-type-options'), 'nosniff', type);
+  }
+  reply = () => new Response(null, { headers: {} }); // ohne Content-Type: application/octet-stream
+  assert.match((await GET(req('/shop/x'))).headers.get('content-security-policy') ?? '', /^sandbox;/);
+  // Großgeschriebenes HTML bekommt die HTML-CSP (Sandbox ohne allow-same-origin) statt gar keiner
+  for (const type of ['TEXT/HTML; charset=UTF-8', 'Text/Html']) {
+    reply = () => new Response(`<html><head></head><a href="${BASE}/x">x</a></html>`, { headers: { 'content-type': type } });
+    const r = await GET(req('/shop/'));
+    const csp = r.headers.get('content-security-policy') ?? '';
+    assert.match(csp, /^sandbox allow-scripts allow-forms;/, type);
+    assert.doesNotMatch(csp, /allow-same-origin/, type);
+    assert.match(await r.text(), /href="\/shop\/x"/, `${type}: wird wie HTML umgeschrieben`);
+  }
 });
 
 test('Storefront-Proxy: fremde Weiterleitung wird nicht durchgereicht', async () => {

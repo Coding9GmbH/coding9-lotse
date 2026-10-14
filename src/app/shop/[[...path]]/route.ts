@@ -15,6 +15,12 @@ const NO_BODY = new Set([101, 204, 205, 304]);
  * (der Proxy liefert die des Shops), keine Drittanbieter. Der Rahmen-Skript spricht per postMessage mit der Oberfläche (Markieren, Scroll).
  */
 const HTML_CSP = "sandbox allow-scripts allow-forms; script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'";
+/**
+ * Alles andere (Bilder, SVG, XML, XHTML, CSS, JSON, Skripte, Schriften): direkt geöffnet ein Dokument ohne Skripte und mit opakem Origin –
+ * ein SVG mit <script> aus den Shop-Medien (/media/x.svg) liefe sonst in Lotses Herkunft und könnte die API aufrufen.
+ * Als Unterressource (img, link, @font-face, script) gilt die CSP der Antwort nicht, die Vorschau lädt sie unverändert.
+ */
+const ASSET_CSP = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'";
 const FRAME_HEAD = `<style>${FRAME_CSS}</style><script>${FRAME_SCRIPT}</script>`;
 const MAX_HOPS = 3;
 const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'ac', 'edu']);
@@ -62,15 +68,14 @@ export async function GET(req: NextRequest) {
       return new Response(null, { status: r.status, headers: { location: target } });
     }
     const ct = r.headers.get('content-type') || 'application/octet-stream';
-    const html = /text\/html/.test(ct);
     // Nur Vorschau: kein Shop-/Drittanbieter-JS in Lotses Herkunft (zusätzlich zur iframe-Sandbox ohne allow-scripts).
     // Schriften und Bilder mit CORS-Freigabe: der Entwurf läuft in einem sandboxed iframe mit opakem Origin,
     // und @font-face lädt der Browser nur mit Access-Control-Allow-Origin. CSS, JSON und Skripte bleiben ohne Stern.
-    const mime = ct.split(';', 1)[0].trim().toLowerCase();
+    const mime = ct.split(';', 1)[0].trim().toLowerCase(), html = mime === 'text/html'; // MIME-Typen sind case-insensitiv (TEXT/HTML)
     const corsAsset = mime.startsWith('image/') || mime.startsWith('font/') || mime === 'application/font-woff' || mime === 'application/font-woff2';
-    const headers: Record<string, string> = { 'content-type': ct, 'cache-control': 'no-store', ...(html ? { 'content-security-policy': HTML_CSP } : {}), ...(corsAsset ? { 'access-control-allow-origin': '*' } : {}) };
+    const headers: Record<string, string> = { 'content-type': ct, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': html ? HTML_CSP : ASSET_CSP, ...(corsAsset ? { 'access-control-allow-origin': '*' } : {}) };
     if (NO_BODY.has(r.status)) return new Response(null, { status: r.status, headers });
-    const body = html ? injectIntoHead(storefrontRewrite(await r.text(), b), FRAME_HEAD) : /text\/css/.test(ct) ? storefrontRewrite(await r.text(), b) : await r.arrayBuffer();
+    const body = html ? injectIntoHead(storefrontRewrite(await r.text(), b), FRAME_HEAD) : mime === 'text/css' ? storefrontRewrite(await r.text(), b) : await r.arrayBuffer();
     return new Response(body, { status: r.status, headers });
   } catch (e) {
     return new Response('Shop nicht erreichbar: ' + errMsg(e), { status: 502, headers: { 'content-type': 'text/plain; charset=utf-8' } });
