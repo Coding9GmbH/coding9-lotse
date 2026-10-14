@@ -98,7 +98,7 @@ test('Hilfen: URL-Schlüssel, Medien-ID, Gleichheit, Fehlertexte, SEO-Prüfung',
 // ================= Datenschutz =================
 test('Guard: Kunden, Bestellungen, Warenkörbe, Integrationen gesperrt; Bereiche schaltbar; Filterfelder nur laut Freigabeliste; Protokoll', async () => {
   const events: { op: string; entity: string; denied?: string }[] = [];
-  let scopes = { products: true, manufacturers: true, categories: true, cms: true, media: true, marketing: true, shop: true, gsc: true, sistrix: true };
+  let scopes = { products: true, manufacturers: true, categories: true, cms: true, media: true, marketing: true, shop: true, gsc: true, sistrix: true, web: false };
   const g = createMagentoGuard({ getScopes: () => scopes, onAccess: a => events.push(a) });
   for (const p of ['/V1/customers/1', '/V1/customers/search', '/V1/orders', '/V1/orders/1', '/V1/invoices', '/V1/creditmemo/1', '/V1/carts/mine', '/V1/guest-carts/x', '/V1/integration/admin/token', '/V1/customerGroups/search', '/V1/transactions', '/V1/shipment/1'])
     assert.throws(() => g.check('GET', p), /ZUGRIFF VERWEIGERT/, p);

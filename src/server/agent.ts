@@ -1,5 +1,5 @@
 import 'server-only';
-// KI-Lauf je Chat-Nachricht: Claude Agent SDK oder Codex (ChatGPT-Abo) mit ausschließlich unseren Shop-Tools, Ereignisse als NDJSON an die Oberfläche.
+// KI-Lauf je Chat-Nachricht: Claude Agent SDK oder Codex (ChatGPT-Abo) mit ausschließlich unseren Shop-Tools (optional Websuche), Ereignisse als NDJSON an die Oberfläche.
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatEvent, ChatRequest } from '@/lib/protocol';
 import type { PageSpec } from './cms';
@@ -19,6 +19,8 @@ import { errMsg } from './util';
 // Sofort speichern (Freigaben, Rückfragen, Entwürfe); alle übrigen Ereignisse des Verlaufs gebündelt (persistSoon), nur-live-Ereignisse gar nicht
 const PERSIST_ON = new Set(['draft', 'styleguide', 'approval', 'changeset', 'changeset_result', 'question']);
 const LIVE_ONLY = new Set(['draft_partial', 'start', 'changeset_progress']);
+/** Eingebaute Web-Werkzeuge des Agent SDK, nur bei eingeschalteter Internetrecherche (nur lesend) */
+export const WEB_TOOLS = ['WebSearch', 'WebFetch'];
 
 /** Vorschau eines Werkzeugergebnisses: dieselbe Schwärzung wie bei Codex, höchstens 300 Zeichen. */
 export function previewToolResult(content: unknown): string {
@@ -98,19 +100,20 @@ export function usageOf(modelUsage: Record<string, { inputTokens: number; output
 async function runClaude(s: Session, prompt: string, ac: AbortController, emit: (ev: ChatEvent) => void): Promise<RunEnd> {
   let end: RunEnd = { error: null };
   try {
-    const allowed = allToolsFor(s.platform); // Werkzeuge der Plattform dieser Session
+    const web = getSettings().scopes.web; // Internetrecherche (Einstellungen → KI-Zugriff)
+    const allowed = [...allToolsFor(s.platform), ...(web ? WEB_TOOLS : [])]; // Werkzeuge der Plattform dieser Session
     const q = query({
       prompt,
       options: {
-        systemPrompt: buildSystem(s.platform, s.locale),
+        systemPrompt: buildSystem(s.platform, s.locale, web),
         model: getSettings().ai.model || undefined,
         env: aiEnv(), // KI-Prozess ohne SHOPWARE_*/OPENAI_*-Zugangsdaten
         resume: s.sdkSessionId ?? undefined,
-        tools: [],                       // keine Datei-/Shell-Tools: der Agent darf nur die Shop-Tools
+        tools: web ? WEB_TOOLS : [],     // keine Datei-/Shell-Tools: nur die Shop-Tools, Websuche/Webseiten nur bei eingeschalteter Internetrecherche
         settingSources: [],              // keine CLAUDE.md / User-Settings laden
         mcpServers: { shop: buildToolServer(s) },
         allowedTools: allowed,
-        // Nur unsere Shop-Tools; das Schreiben passiert nie hier, sondern im Executor nach Freigabe im UI
+        // Nur unsere Shop-Tools (+ ggf. Web); das Schreiben passiert nie hier, sondern im Executor nach Freigabe im UI
         canUseTool: async (tool, input) => (allowed.includes(tool) ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: 'Nicht erlaubt.' }),
         includePartialMessages: true,
         maxTurns: 40,

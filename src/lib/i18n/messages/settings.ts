@@ -5,7 +5,7 @@ export const de = {
   title: 'Einstellungen',
   sections: {
     general: { nav: 'Allgemein', title: 'Allgemein', lead: 'Sprache, Shop und KI verbinden, Bild-KI.' },
-    access: { nav: 'KI-Zugriff', title: 'KI-Zugriff', lead: 'Lege fest, was die KI lesen darf: Bereiche deines Shops (inklusive Hersteller) und die Daten verbundener Integrationen. Geschrieben wird nur nach deiner Freigabe.' },
+    access: { nav: 'KI-Zugriff', title: 'KI-Zugriff', lead: 'Lege fest, was die KI lesen darf: Bereiche deines Shops (inklusive Hersteller) die Daten verbundener Integrationen und ob sie im Internet recherchieren darf. Geschrieben wird nur nach deiner Freigabe.' },
     integrations: { nav: 'Integrationen', title: 'Integrationen', lead: 'Search Console und Sistrix liefern echte Such- und Marktdaten für SEO-Vorschläge, Shop-Check und die SEO-Übersicht.' },
     logs: { nav: 'Protokolle', title: 'Protokolle', lead: 'Was die KI im Shop gelesen hat und welche Änderungen freigegeben, abgelehnt oder rückgängig gemacht wurden.' },
   },
@@ -86,6 +86,8 @@ export const de = {
     locked: '🔒 Kunden-, Bestell- und Zahlungsdaten sowie Zugangsdaten sind immer gesperrt, unabhängig von diesen Schaltern.',
     integrationsHeading: 'Integrationen',
     integrationsHint: 'Darf die KI die Daten verbundener Dienste **lesen**? Ist ein Schalter aus, verschwinden die zugehörigen Werkzeuge, Prüfungen, Beispiele und der Bereich in der SEO-Übersicht.',
+    webHeading: 'Internet',
+    webHint: 'Darf die KI im Internet **suchen** und öffentliche Webseiten **lesen**? Suchbegriffe und Adressen gehen dabei an den Suchdienst des KI-Anbieters. Inhalte aus dem Netz behandelt die KI als Quelle, nicht als Anweisung; geschrieben wird weiterhin nur nach deiner Freigabe.',
   },
   integrations: {
     hint: 'Externe Dienste, aus denen Lotse echte Such- und Marktdaten bezieht. Beide sind optional und nur lesend. Ob die KI die Daten nutzen darf, steuerst du unter KI-Zugriff.',
@@ -172,7 +174,7 @@ export const en: typeof de = {
   title: 'Settings',
   sections: {
     general: { nav: 'General', title: 'General', lead: 'Language, connect shop and AI, image AI.' },
-    access: { nav: 'AI access', title: 'AI access', lead: 'Decide what the AI may read: areas of your shop (including manufacturers) and the data of connected integrations. Writing only happens after your approval.' },
+    access: { nav: 'AI access', title: 'AI access', lead: 'Decide what the AI may read: areas of your shop (including manufacturers) the data of connected integrations and whether it may research the web. Writing only happens after your approval.' },
     integrations: { nav: 'Integrations', title: 'Integrations', lead: 'Search Console and Sistrix provide real search and market data for SEO suggestions, the shop check and the SEO overview.' },
     logs: { nav: 'Logs', title: 'Logs', lead: 'What the AI read in the shop and which changes were approved, rejected or undone.' },
   },
@@ -253,6 +255,8 @@ export const en: typeof de = {
     locked: '🔒 Customer, order and payment data as well as credentials are always locked, regardless of these switches.',
     integrationsHeading: 'Integrations',
     integrationsHint: 'May the AI **read** the data of connected services? When a switch is off, the related tools, checks, examples and the area in the SEO overview disappear.',
+    webHeading: 'Internet',
+    webHint: 'May the AI **search** the web and **read** public web pages? Search terms and addresses are sent to the AI provider\'s search service. The AI treats web content as a source, not as instructions; writing still only happens after your approval.',
   },
   integrations: {
     hint: 'External services Lotse uses for real search and market data. Both are optional and read-only. Whether the AI may use the data is controlled under AI access.',

@@ -83,3 +83,23 @@ test('Codex-Runde: Befehl, Datei und Websuche brechen ab; Text, Shop-Tool, Über
     assert.equal(events.length, n, item.type);
   }
 });
+
+test('Codex mit Internetrecherche: Websuche live, Websuche-Ereignis erscheint als Arbeitsschritt statt Abbruch; Befehle bleiben gesperrt', async () => {
+  const { codexConfig } = await import('../../src/server/codex');
+  const { codexThreadOptions, onCodexItem } = await import('../../src/server/agent-codex');
+  const cfg = codexConfig({ mcpUrl: 'http://127.0.0.1:3333/api/mcp/c', instructions: 'SYS', web: true });
+  assert.equal(cfg.config.web_search, 'live');
+  assert.ok(Object.values(cfg.config.features as Record<string, boolean>).every(v => v === false), 'sonst bleibt alles aus');
+  const opts = codexThreadOptions(cfg.workingDirectory, undefined, true);
+  assert.equal(opts.webSearchMode, 'live');
+  assert.equal(opts.networkAccessEnabled, false, 'kein Netz für Befehle');
+  assert.equal(opts.sandboxMode, 'read-only');
+
+  const events: ChatEvent[] = [];
+  const state = { texts: new Map<string, number>(), tools: new Set<string>(), web: true };
+  const item: ThreadItem = { id: 'w', type: 'web_search', query: '3M Datenblatt' };
+  assert.equal(onCodexItem(item, 'item.started', state, ev => events.push(ev)).abort, undefined);
+  assert.equal(onCodexItem(item, 'item.completed', state, ev => events.push(ev)).abort, undefined);
+  assert.deepEqual(events, [{ t: 'tool', id: 'w', name: 'web_search', input: { query: '3M Datenblatt' } }]);
+  assert.match(onCodexItem({ id: 'c', type: 'command_execution', command: 'curl x', aggregated_output: '', status: 'completed' }, 'item.completed', state, () => {}).abort ?? '', /abgebrochen/);
+});

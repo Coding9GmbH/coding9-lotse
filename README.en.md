@@ -69,7 +69,8 @@ Without Docker: `npm install && npm run dev` (Node ≥ 22.13) → http://localho
 | The shop is spared | Writes are throttled (`LOTSE_WRITE_CONCURRENCY`, default 2), max. 300 entries per change set, timeouts (`LOTSE_SHOP_TIMEOUT_MS`), backoff on 429/503. |
 | Local & hardened | Port bound to `127.0.0.1` only, host/origin check, container runs as non-root, read-only, without capabilities, with resource limits. |
 | Credentials | AES-256-GCM encrypted in the volume, never sent to the AI. |
-| Codex (ChatGPT subscription) | Codex's own tools (shell, files, web, images, plugins …) disabled, file access fully blocked via permission profile, no prompts for more permissions; shop tools only via a local MCP endpoint with a random token per chat. If a blocked tool shows up anyway, Lotse aborts the turn. |
+| Web research | Off by default; can be switched on under Settings → AI access → Internet (web search and fetching public web pages, read-only). |
+| Codex (ChatGPT subscription) | Codex's own tools (shell, files, web, images, plugins …) disabled (web search only when web research is on), file access fully blocked via permission profile, no prompts for more permissions; shop tools only via a local MCP endpoint with a random token per chat. If a blocked tool shows up anyway, Lotse aborts the turn. |
 | Server operation | Set `LOTSE_PASSWORD` (login) + `ALLOWED_HOSTS`, HTTPS via reverse proxy. Guide: [`docs/self-hosting.md`](docs/self-hosting.md) (German). |
 
 For live shops: use a dedicated integration with a restricted role instead of an admin login, and test new workflows on staging first. Details: [SECURITY.en.md](SECURITY.en.md).
