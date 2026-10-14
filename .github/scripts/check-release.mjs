@@ -1,6 +1,7 @@
-// PR-Prüfung: Jede Änderung braucht einen Eintrag in CHANGELOG.md – entweder unter „## [Unreleased]“ (Version bleibt, bis wirklich
-// veröffentlicht wird) oder als Release mit höherer Version in package.json und eigenem Abschnitt.
-// Aufruf: node .github/scripts/check-release.mjs <base-ref>   (z. B. origin/main; lokal genauso nutzbar)
+// Release check for PRs. Ordinary PRs leave package.json's version untouched and always pass.
+// When the version is bumped, package-lock.json must match and CHANGELOG.md needs a section
+// "## [x.y.z] – YYYY-MM-DD" with at least one category plus the compare link at the bottom.
+// Usage: node .github/scripts/check-release.mjs <base-ref>   (e.g. origin/main; works locally too)
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 
@@ -11,22 +12,18 @@ const greater = (a, b) => { for (let i = 0; i < 3; i++) if (a[i] !== b[i]) retur
 
 const head = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
 const prev = JSON.parse(show('package.json')).version;
+
+// No release: nothing to check (CHANGELOG and version are only written when a new version is tagged).
+if (head === prev) {
+  console.log(`OK: Version ${head} unverändert, kein Release`);
+  process.exit(0);
+}
+
 const errors = [];
 const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
 if (lock.version !== head || lock.packages?.['']?.version !== head) errors.push(`package-lock.json hat nicht Version ${head} – npm version … aktualisiert beide Dateien`);
 const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
 const hasEntries = (body) => /^### .+\n+- \S/m.test(body);
-
-// Unveröffentlicht: Version unverändert, Einträge unter „## [Unreleased]“
-if (head === prev) {
-  const unreleased = /^## \[Unreleased\]\n([\s\S]*?)(?=^## \[|^\[)/m.exec(changelog);
-  if (!unreleased) errors.push(`CHANGELOG.md braucht oben einen Abschnitt „## [Unreleased]“ (oder für ein Release: npm version patch|minor|major --no-git-tag-version)`);
-  else if (!hasEntries(unreleased[1])) errors.push('Abschnitt [Unreleased] in CHANGELOG.md braucht mindestens eine Rubrik (### …) mit Eintrag');
-  if (!/^\[Unreleased\]: https:\/\//m.test(changelog)) errors.push(`CHANGELOG.md braucht unten den Vergleichslink „[Unreleased]: https://…/compare/v${head}...HEAD“`);
-  if (errors.length) { console.error('Versions-/CHANGELOG-Prüfung fehlgeschlagen:\n- ' + errors.join('\n- ')); process.exit(1); }
-  console.log(`OK: Version ${head} unverändert, Einträge unter [Unreleased]`);
-  process.exit(0);
-}
 
 if (!greater(parse(head), parse(prev))) errors.push(`Version in package.json (${head}) muss höher sein als auf ${base} (${prev}) – z. B. npm version patch --no-git-tag-version`);
 const esc = head.replace(/\./g, '\\.');

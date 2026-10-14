@@ -48,7 +48,7 @@ jobs:
           curl -fs -o /dev/null localhost:3333/
           curl -fs -o /dev/null localhost:3333/settings
 
-  # Jede Änderung: Eintrag unter [Unreleased] oder Release mit höherer Version + CHANGELOG-Abschnitt (siehe CONTRIBUTING.md). Dependabot-PRs sind ausgenommen.
+  # Release-Prüfung: Wird die Version in package.json erhöht, muss package-lock.json mitziehen und CHANGELOG.md den passenden Abschnitt haben (siehe CONTRIBUTING.md). Gewöhnliche PRs ohne Versionsänderung bestehen immer.
   release-check:
     if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
