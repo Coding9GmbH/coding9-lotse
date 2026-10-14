@@ -15,7 +15,11 @@ npm install          # Node ≥ 22.13
 make dev             # http://localhost:3333
 make demo            # optional: Demo-Shop (dockware) dazu
 npm run check        # Typecheck, ESLint, Tests – vor jedem Pull Request
+npm run test:e2e     # End-to-End (Playwright): baut Lotse und testet gegen Shopify- und KI-Fake
 ```
+Die E2E-Tests (`tests/e2e/*.spec.ts`) brauchen keinen echten Shop und keine echte KI: `tests/e2e/support/serve.ts` startet den
+Shopify-Fake, einen Anthropic-Fake (`tests/support/anthropic-fake`, ein Drehbuch-Modell hinter `ANTHROPIC_BASE_URL`) und Lotse mit
+leerem Datenordner. Browser einmalig mit `npx playwright install chromium`; schneller beim Entwickeln mit `E2E_DEV=1 npm run test:e2e`.
 
 ## Übersetzungen
 Die Oberfläche gibt es auf Deutsch und Englisch.
