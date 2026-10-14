@@ -420,7 +420,7 @@ test('Layout-Bereichswahl: Bereich wird in feste IDs aufgelöst, große Mengen a
   await assert.rejects(buildPublishChangeSet(f.sw, SPEC, { ...allCats, metaTitle: 'T' }), /nur für eine einzelne Kategorie/);
 
   const r = await applyChangeSet(f.sw, pageCs(['i0']), { spec: PDP, args: all }, new Set(['i0']));
-  assert.ok(r.results[0].ok, r.error);
+  assert.ok(r.results[0].ok, r.error ?? '');
   const pageId = r.published!.cmsPageId;
   assert.ok(f.db.product.filter(p => p.parentId === null).every(p => p.cmsPageId === pageId));
   assert.equal(f.db.product.find(p => p.id === 'v1')!.cmsPageId, null, 'Variante bleibt unberührt');
@@ -431,7 +431,7 @@ test('Layout-Bereichswahl: Bereich wird in feste IDs aufgelöst, große Mengen a
 
   // mehrere Kategorien ohne Meta: beide bekommen das Layout; ein fehlendes Ziel nimmt alles zurück
   const c2 = await applyChangeSet(f.sw, pageCs(['i0']), { spec: SPEC, args: allCats }, new Set(['i0']));
-  assert.ok(c2.results[0].ok, c2.error);
+  assert.ok(c2.results[0].ok, c2.error ?? '');
   assert.deepEqual(f.db.category.filter(c => c.cmsPageId).map(c => c.id).sort(), ['outdoor', 'wohnen']);
   await undoOps(f.sw, c2.undo);
   const bad = await applyChangeSet(f.sw, pageCs(['i0']), { spec: SPEC, args: { target: 'category', categoryIds: ['outdoor', 'weg'] } }, new Set(['i0']));
