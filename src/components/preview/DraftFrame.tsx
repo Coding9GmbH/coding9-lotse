@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { DraftView } from '@/lib/chat-state';
-import { FRAME_TAG, isFrameMessage, type ToFrame } from '@/lib/preview-frame';
+import { FRAME_TAG, isFrameMessage, withFrameCsp, type ToFrame } from '@/lib/preview-frame';
 
 interface Props { draft: DraftView | null; className?: string; hidden: boolean; title: string }
 
@@ -45,7 +45,7 @@ export function DraftFrame({ draft, className, hidden, title }: Props) {
     ready.current = false;
     const onLoad = () => { ready.current = true; if (y) postToFrame(f, { t: 'scroll', top: y }); };
     f.addEventListener('load', onLoad, { once: true });
-    f.srcdoc = draft.html;
+    f.srcdoc = withFrameCsp(draft.html); // connect-src/form-action 'none': KI-JS kann aus der Vorschau nichts senden
     return () => f.removeEventListener('load', onLoad);
   }, [draft]);
 
