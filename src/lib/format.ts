@@ -7,6 +7,9 @@ const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"
 /** Escape HTML special characters (for the few places that produce HTML strings). */
 export const esc = (s: unknown): string => String(s ?? '').replace(/[&<>"']/g, c => ESC[c]);
 
+/** HTML → plain text: tags become spaces, whitespace collapsed (no entity decoding). */
+export const stripHtml = (t: unknown): string => String(t ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
 /** "vor 5 Min." · "vor 3 Std." · date, as in the previous UI. */
 export function ago(iso: string, now: number = Date.now(), locale: Locale = DEFAULT_LOCALE): string {
   const t = new Date(iso).getTime();

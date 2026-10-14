@@ -13,7 +13,6 @@ export interface MCategory extends MRecord { id: number; parent_id?: number; nam
 
 /** Attributes that Magento keeps as a field of the record (not under custom_attributes) */
 const TOP_LEVEL = new Set(['name', 'price', 'status', 'visibility', 'weight', 'type_id', 'attribute_set_id', 'is_active', 'include_in_menu', 'position']);
-export const isTopLevel = (code: string) => TOP_LEVEL.has(code);
 export function attr(rec: MRecord | null | undefined, code: string): unknown {
   if (!rec) return undefined;
   if (TOP_LEVEL.has(code)) return rec[code];
@@ -31,7 +30,7 @@ export function writeBody(values: Record<string, unknown>, top: Record<string, u
   return out;
 }
 
-export const plain = (t: unknown) => String(t ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+export { stripHtml as plain } from '@/lib/format';
 export const money = (v: number | null | undefined, cur = 'EUR') => (v == null || !Number.isFinite(v) ? null : `${Number(v).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur === 'EUR' ? '€' : cur}`);
 const num = (v: unknown) => (v == null || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 /** "2026-10-01 00:00:00" → "2026-10-01" */

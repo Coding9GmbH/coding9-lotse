@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { viewedImages } from '../../features/product-images';
 import type { Session } from '../../sessions';
-import { fail, guard, ok, type AnyTool } from '../../tool-kit';
+import { fail, guard, lim, ok, type AnyTool } from '../../tool-kit';
 import { MAX_ITEMS } from './kit';
 import { likeTerm, type Filter } from './criteria';
 import { attr, attrStr, basisWord, isActive, money, plain, priceState, VISIBILITY, type MCategory, type MProduct, type MRecord } from './map';
@@ -32,7 +32,6 @@ export function magentoReader(session: Pick<Session, 'reader'>): MagentoReader {
   if (!(session.reader instanceof MagentoReader)) throw new Error('Dieses Werkzeug gibt es nur für Magento.');
   return session.reader;
 }
-const lim = (v: number | undefined, d: number, max: number) => Math.max(1, Math.min(Math.floor(v ?? d), max));
 const excerpt = (t: unknown, n = 200) => { const s = plain(t); return s.length > n ? `${s.slice(0, n)}…` : s; };
 
 export function magentoTools(session: Session): AnyTool[] {

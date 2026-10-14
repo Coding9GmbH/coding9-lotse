@@ -88,3 +88,22 @@ test('collectSignals: storefront errors land in the field, theme and text sample
   assert.ok((big.cssBytes as number) <= 1_500_000, `CSS truncated: ${big.cssBytes}`);
   await assert.rejects(collectSignals(reader(), 'https://shop.test', () => new Promise(() => {}), 30), /get_brand_signals: Zeitlimit/);
 });
+
+test('collectSignals: only same-origin stylesheets/pages are fetched; redirects are re-checked per hop (no SSRF)', async () => {
+  const home = HOME.replace('<link rel="stylesheet" href="/theme/all.css">',
+    '<link rel="stylesheet" href="https://evil.test/x.css"><link rel="stylesheet" href="http://169.254.169.254/latest/meta-data/x.css"><link rel="stylesheet" href="/theme/all.css"><link rel="stylesheet" href="/theme/hop.css">')
+    .replace('href="/vase-kiesel/HH-1"', 'href="https://evil.test/p"');
+  const urls: string[] = [];
+  const out = await collectSignals(reader(), 'https://shop.test', async (url, init) => {
+    urls.push(url);
+    assert.equal(init?.redirect, 'manual');
+    if (url.endsWith('/theme/hop.css')) return new Response(null, { status: 302, headers: { location: 'http://127.0.0.1:8080/admin.css' } });
+    if (url.endsWith('/theme/all.css')) return new Response(CSS);
+    if (url === 'https://shop.test/' || url === 'https://shop.test') return new Response(home);
+    return new Response('<html><main><h1>x</h1></main></html>');
+  }) as Record<string, unknown>;
+  assert.deepEqual(urls.filter(u => !u.startsWith('https://shop.test')), [], 'no foreign host was contacted');
+  assert.ok(urls.includes('https://shop.test/theme/hop.css') && urls.includes('https://shop.test/theme/all.css'));
+  assert.deepEqual(out.cssVariables, { 'sw-color-brand-primary': '#0042a0', 'sw-font-family-base': 'Inter' });
+  assert.ok(!('storefrontError' in out));
+});

@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { STOREFRONT_PREFIX_HEADER, isStorefrontPathOf } from '@/lib/platforms';
 import { errMsg } from '@/server/http';
+import { trustedOrigins } from '@/server/media';
 import { activePlatform } from '@/server/platform';
 import { FRAME_CSS, FRAME_SCRIPT } from '@/lib/preview-frame';
 import { injectIntoHead } from '@/server/real-page';
@@ -23,17 +24,9 @@ const HTML_CSP = "sandbox allow-scripts allow-forms; script-src 'self' 'unsafe-i
 const ASSET_CSP = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'";
 const FRAME_HEAD = `<style>${FRAME_CSS}</style><script>${FRAME_SCRIPT}</script>`;
 const MAX_HOPS = 3;
-const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'ac', 'edu']);
-/** Same site: same host or same parent domain (stage.shop.de ↔ www.shop.de); excluding public suffixes like co.uk. */
-function sameSite(a: string, c: string): boolean {
-  const reg = (h: string) => {
-    const l = h.toLowerCase().split('.');
-    if (l.length < 2 || /^\d+$/.test(l[l.length - 1])) return h.toLowerCase(); // IP/localhost: exact match only
-    const n = l.length >= 3 && l[l.length - 1].length === 2 && SECOND_LEVEL.has(l[l.length - 2]) ? 3 : 2;
-    return l.slice(-n).join('.');
-  };
-  return a.toLowerCase() === c.toLowerCase() || (a.includes('.') && c.includes('.') && reg(a) === reg(c));
-}
+/** Server-side redirect targets: only the shop's own addresses (settings URLs + sales channel domains) or the base host itself (http↔https).
+ *  No eTLD+1 guess: on *.myshopify.com any sibling, on self-hosted shops e.g. internal.example.de would otherwise be fetched and proxied. */
+const followable = (abs: URL, base: URL, trusted: Set<string>) => trusted.has(abs.origin) || (abs.hostname === base.hostname && abs.port === base.port);
 
 // Storefront proxy (storefront of the active platform): Shopware sends X-Frame-Options: deny → not embeddable directly. Here same origin, links rewritten to /shop.
 // Paths without the /shop prefix also end up here (proxy.ts rewrites them).
@@ -49,8 +42,9 @@ export async function GET(req: NextRequest) {
     const b = await sf.base();
     const hdrs = { accept: req.headers.get('accept') || '*/*', 'accept-language': 'de-DE,de' };
     let r = await sf.fetch(b + url, { redirect: 'manual', headers: hdrs });
-    // Redirects: return same origin as the shop base as a /shop path; follow the same site on another subdomain
-    // (stage.→www., media/CDN host) server-side. Everything else (foreign domain, credentials in the URL) is not followed.
+    // Redirects: return same origin as the shop base as a /shop path; follow the shop's other trusted addresses
+    // (stage.→www. as a sales channel domain) server-side. Everything else (foreign/sibling domain, credentials in the URL) is not followed.
+    let trusted: Set<string> | null = null;
     for (let hop = 0; ; hop++) {
       const loc = r.headers.get('location');
       if (!loc) break;
@@ -60,7 +54,7 @@ export async function GET(req: NextRequest) {
         const abs = new URL(loc, hop === 0 ? baseUrl : r.url || baseUrl);
         if (!abs.username && !abs.password && /^https?:$/.test(abs.protocol)) {
           if (abs.origin === baseUrl.origin) target = storefrontRewrite(abs.href, b);
-          else if (r.status < 400 && sameSite(abs.hostname, baseUrl.hostname) && hop < MAX_HOPS) follow = abs.href;
+          else if (r.status < 400 && hop < MAX_HOPS && followable(abs, baseUrl, trusted ??= await trustedOrigins())) follow = abs.href;
         }
       } catch { target = null; }
       if (follow) { r = await sf.fetch(follow, { redirect: 'manual', headers: hdrs }); continue; }

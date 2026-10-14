@@ -179,3 +179,32 @@ test('docker/db-snapshot.mjs: consistent snapshot of a running WAL DB (incl. WAL
   assert.equal((s.prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode, 'delete', 'standalone file without -wal');
   s.close(); d.close();
 });
+
+test('secret.key: created with 32 bytes and mode 600, corrupt key fails clearly, undecryptable values are logged once', async () => {
+  const { setLogSinkForTests } = await import('../../src/server/log');
+  const G = globalThis as unknown as { __lotse: Map<string, unknown> };
+  const prev = process.env.AICB_DATA, kdir = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-key-')), keyfile = path.join(kdir, 'secret.key');
+  const fresh = () => { G.__lotse.delete('secretKey'); G.__lotse.delete('unsealWarned'); };
+  const lines: string[] = [];
+  setLogSinkForTests((_s, l) => lines.push(l));
+  try {
+    process.env.AICB_DATA = kdir; fresh();
+    const sealed = db.seal('geheim');
+    assert.equal(fs.readFileSync(keyfile).length, 32);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(keyfile).mode & 0o777, 0o600);
+    assert.equal(db.unseal(sealed), 'geheim');
+    // another process created the key: it is used, never overwritten
+    fresh(); const before = fs.readFileSync(keyfile);
+    assert.equal(db.unseal(sealed), 'geheim'); assert.deepEqual(fs.readFileSync(keyfile), before);
+    // truncated key: clear error instead of "Invalid key length" later
+    fs.writeFileSync(keyfile, before.subarray(0, 16)); fresh();
+    assert.throws(() => db.seal('x'), /secret\.key ist beschädigt \(16 statt 32 Bytes\)/);
+    // different key: unseal yields null and warns (only once)
+    fs.writeFileSync(keyfile, Buffer.alloc(32, 7)); fresh();
+    assert.equal(db.unseal(sealed), null); assert.equal(db.unseal(sealed), null);
+    await new Promise(r => setTimeout(r, 50));
+    const warns = lines.filter(l => l.includes('nicht entschlüsseln'));
+    assert.equal(warns.length, 1, lines.join('\n'));
+    assert.match(warns[0], /WARN/);
+  } finally { setLogSinkForTests(null); process.env.AICB_DATA = prev; fresh(); }
+});

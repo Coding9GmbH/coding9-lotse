@@ -2,15 +2,14 @@ import 'server-only';
 // Magento: change sets for products, categories, translations, URL keys and category assignments (build + executor).
 // Building reads via the protected read client; the executor re-reads the before values and writes with the privileged client.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
-import { assertFresh, isStale, STALE } from '../../changes';
-import { applyEach, errMsg, MAX_ITEMS, newIdSafe, partialTicker, pool, resolvePrice, WRITE_CONCURRENCY, type ApplyCtx, type ApplyResult, type PriceSpec } from './kit';
+import { isStale, STALE } from '../../changes';
+import { applyEach, errMsg, MAX_ITEMS, newIdSafe, partialTicker, pool, resolvePrice, WRITE_CONCURRENCY, type ApplyResult, type PriceSpec } from './kit';
+import { applyGrouped, splitStale, validate, withFailed, type ApplyPiece, type FieldDef } from './grouped';
 import { skuPath, type MagentoClient } from './client';
-import { attr, attrStr, basisWord, day, isActive, money, needBasis, plain, planPrice, priceState, priceText, priceUndo, sameValue, urlKey, VISIBILITY, VISIBILITY_IN, type MProduct, type MRecord, type PriceWrite } from './map';
+import { attr, attrStr, basisWord, day, isActive, money, needBasis, plain, planPrice, priceState, priceText, priceUndo, sameValue, urlKey, VISIBILITY, type MProduct, type MRecord, type PriceWrite } from './map';
 import type { MagentoReader } from './reader';
 import { getEnt, reg, reqOp, writeScoped, writeStore } from './write';
 
-type Kind = 'str' | 'html' | 'price' | 'date' | 'int' | 'bool' | 'visibility' | 'num';
-interface FieldDef { label: string; kind: Kind; attr?: string }
 /** Fields for propose_product_changes (names as in Shopware where they fit) → Magento attribute */
 export const M_PRODUCT_FIELDS: Record<string, FieldDef> = {
   name: { label: 'Name', kind: 'str', attr: 'name' }, description: { label: 'Beschreibung', kind: 'html', attr: 'description' }, shortDescription: { label: 'Kurzbeschreibung', kind: 'html', attr: 'short_description' },
@@ -28,19 +27,6 @@ const ATTR_INPUTS = new Set(['text', 'textarea', 'select', 'boolean']);
 const PRICE_KEYS = ['price', 'listPrice', 'specialFromDate', 'specialToDate'];
 const cut = (t: unknown, n = 220) => { const s = plain(t); return s.length > n ? `${s.slice(0, n)}…` : s || '–'; };
 export const productLabel = (p: MRecord) => `${p.name ?? p.sku} (${p.sku})`;
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-function validate(def: FieldDef, v: unknown): unknown {
-  switch (def.kind) {
-    case 'str': case 'html': if (typeof v !== 'string') throw new Error(`${def.label}: Text erwartet`); if (def.kind === 'str' && v.length > 255) throw new Error(`${def.label}: max. 255 Zeichen`); if (def.attr === 'name' && !v.trim()) throw new Error('Name darf nicht leer sein'); return v;
-    case 'int': if (!Number.isInteger(v) || (v as number) < 0) throw new Error(`${def.label}: ganze Zahl ≥ 0 erwartet`); return v;
-    case 'num': if (typeof v !== 'number' || !(v >= 0)) throw new Error(`${def.label}: Zahl ≥ 0 erwartet`); return v;
-    case 'bool': if (typeof v !== 'boolean') throw new Error(`${def.label}: true/false erwartet`); return v;
-    case 'visibility': { const n = typeof v === 'number' ? v : VISIBILITY_IN[String(v)]; if (![1, 2, 3, 4].includes(n)) throw new Error('Sichtbarkeit: none, catalog, search oder both'); return n; }
-    case 'date': if (v !== null && !(typeof v === 'string' && DATE_RE.test(v))) throw new Error(`${def.label}: Datum JJJJ-MM-TT oder null`); return v;
-  }
-  return v;
-}
 const shown = (def: FieldDef, v: unknown) => (def.kind === 'bool' ? (v ? 'ja' : 'nein') : def.kind === 'visibility' ? VISIBILITY[Number(v)] ?? String(v ?? '–') : def.kind === 'int' || def.kind === 'num' ? String(v ?? '–') : cut(v));
 
 export interface ProposeArgs { title: string; reason: string; changes: { id: string; fields: Record<string, unknown> }[] }
@@ -169,23 +155,6 @@ export async function assertPriceInView(c: MagentoClient, sku: string, store: st
   if (keys.some(k => !sameValue(now[k], write[k]))) throw Object.assign(new Error(`Die Store-View „${store}“ zeigt weiter ihren Website-Preis (Preis-Scope „Website“): Preis bitte in Magento je Website pflegen`), { undo });
 }
 
-type ApplyPiece = { undo: UndoOp[]; failed?: { id: string; error: string }[] };
-
-/** Fresh attribute value. Price and stock have their own checks (price format, stock source). Without beforeRaw no check. */
-function splitStale(its: ChangeItem[], freshOf: (it: ChangeItem) => unknown): { live: ChangeItem[]; failed: { id: string; error: string }[] } {
-  const live: ChangeItem[] = [], failed: { id: string; error: string }[] = [];
-  for (const it of its) {
-    if (it.beforeRaw === undefined || !it.field || it.field === 'price' || it.field === 'stock') { live.push(it); continue; }
-    try { assertFresh(it.fieldLabel, freshOf(it), it.beforeRaw); live.push(it); }
-    catch (e) { failed.push({ id: it.id, error: errMsg(e) }); }
-  }
-  return { live, failed };
-}
-const withFailed = (e: unknown, undo: UndoOp[], failed: { id: string; error: string }[]): never => {
-  const prev = (e as { undo?: UndoOp[] }).undo;
-  throw Object.assign(e instanceof Error ? e : new Error(String(e)), { undo: !prev?.length || prev === undo ? undo : [...undo, ...prev], ...(failed.length ? { failed } : {}) });
-};
-
 async function applyProduct(c: MagentoClient, store: string, sku: string, its: ChangeItem[]): Promise<ApplyPiece> {
   const fresh = await getEnt(c, 'product', sku, store);
   if (!fresh) throw new Error('Produkt nicht mehr vorhanden');
@@ -234,35 +203,6 @@ async function applyProduct(c: MagentoClient, store: string, sku: string, its: C
     }
   }
   return { undo, ...(failed.length ? { failed } : {}) };
-}
-
-/** Groups the rows per record. Stale fields (failed) apply only to their row, the rest is written. */
-async function applyGrouped(cs: ChangeSet, selected: Set<string>, fn: (id: string, its: ChangeItem[]) => Promise<UndoOp[] | ApplyPiece>, ctx?: ApplyCtx): Promise<ApplyResult> {
-  const groups = new Map<string, ChangeItem[]>();
-  let n = 0;
-  for (const it of cs.items) if (selected.has(it.id) && it.entity !== 'info') { groups.set(it.entityId ?? '', [...(groups.get(it.entityId ?? '') ?? []), it]); n++; }
-  const results: ApplyResult['results'] = [], undo: UndoOp[] = [], tick = partialTicker(ctx, n, { results, undo });
-  const mark = (its: ChangeItem[], failed: { id: string; error: string }[] | undefined, okIds: string[] | undefined, msg: string) => {
-    const bad = new Map((failed ?? []).map(f => [f.id, f.error]));
-    its.forEach(i => {
-      if (okIds?.includes(i.id)) results.push({ itemId: i.id, ok: true });
-      else if (bad.has(i.id)) results.push({ itemId: i.id, ok: false, error: bad.get(i.id) });
-      else results.push({ itemId: i.id, ok: !msg, ...(msg ? { error: msg } : {}) });
-    });
-  };
-  await pool([...groups], WRITE_CONCURRENCY, async ([id, its]) => {
-    try {
-      const out = await fn(id, its);
-      if (Array.isArray(out)) { undo.push(...out); its.forEach(i => results.push({ itemId: i.id, ok: true })); }
-      else { undo.push(...out.undo); mark(its, out.failed, undefined, ''); }
-    } catch (e) {
-      const extra = (e as { undo?: UndoOp[] }).undo ?? [], okIds = (e as { okIds?: string[] }).okIds, msg = errMsg(e);
-      undo.push(...extra); // partially written: keep the undo steps; okIds = rows already written
-      mark(its, (e as { failed?: { id: string; error: string }[] }).failed, okIds, msg);
-    }
-    finally { tick(); }
-  });
-  return { results, undo };
 }
 
 reg.register('products', (c, cs, payload, selected, ctx) => {

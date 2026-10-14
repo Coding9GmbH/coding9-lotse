@@ -10,6 +10,7 @@ import type { Session } from '../sessions';
 import { newId, type ShopReader, type SwEntity } from '../shopware';
 import { singleton } from '../state';
 import { guard, ok, type AnyTool } from '../tool-kit';
+import { chunks } from '../util';
 import type { Feature } from './types';
 import { columnInfo, headerSignature, parseTable, type Table } from './import-parse';
 import { checkMapping, describeMapping, suggestMapping, type ImportMapping } from './import-mapping';
@@ -35,7 +36,6 @@ const savedAll = () => kvGet<Record<string, SavedMapping>>(MAPPINGS) ?? {};
 const low = (s: string) => s.trim().toLocaleLowerCase('de-DE');
 
 // ---- Catalog for planning (read-only via the AI's protected client) ----
-const chunks = <T>(xs: T[], n: number) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
 const uniq = (xs: (string | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))];
 const PRODUCT_ASSOC = { tax: {}, properties: {}, categories: {}, manufacturer: {}, deliveryTime: {}, media: {} };
 

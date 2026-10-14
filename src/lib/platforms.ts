@@ -151,9 +151,10 @@ export function platformSettings(kind: PlatformKind, locale: Locale = DEFAULT_LO
 export const categoryNoun = (kind: PlatformKind | null | undefined, locale: Locale = DEFAULT_LOCALE): { one: string; many: string } =>
   (kind && platformSettings(kind, locale).categoryNoun) || (LIB[locale] ?? deLib).platforms.category;
 
-const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+/** Escape regex metacharacters (for RegExp sources, also RE2 filters such as Search Console) */
+export const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const ALL_STOREFRONT_PATHS = [...new Set(PLATFORM_KINDS.flatMap(k => PLATFORM_SETTINGS[k].storefrontPaths))].sort((a, b) => b.length - a.length);
-const STOREFRONT_RE = new RegExp(`^/(${ALL_STOREFRONT_PATHS.map(escRe).join('|')})(/|$)`);
+const STOREFRONT_RE = new RegExp(`^/(${ALL_STOREFRONT_PATHS.map(escapeRe).join('|')})(/|$)`);
 /**
  * Storefront prefix of a path without /shop (union of all platforms; proxy.ts doesn't know the active platform),
  * e.g. '/cdn/shop/x.css' → 'cdn'. null = not a storefront path. Whether the prefix belongs to the active platform is checked by the /shop route.
@@ -173,7 +174,6 @@ export function scopeDisplay(kind: PlatformKind, key: string, info: { label: str
   } : base);
 }
 
-export const platformLabel = (kind: PlatformKind) => PLATFORM_SETTINGS[kind].label;
 /** All fields of a platform (general + all access methods, without duplicates) */
 export function platformFields(kind: PlatformKind): PlatformField[] {
   const d = PLATFORM_SETTINGS[kind], seen = new Set<string>();

@@ -60,10 +60,10 @@ const since = () => { const n = calls.length; return () => calls.slice(n); };
 type Res = { isError?: boolean; content: { text: string }[] };
 const requested: ChangeSet[] = [];
 let fetched: { url: string; init?: RequestInit }[] = [];
-let fetchResponse: () => Partial<Response> = () => ({ ok: true, status: 200, url: '', text: async () => '<html><head><title>Wohnen</title></head><body><h1>Wohnen</h1></body></html>' });
+let fetchResponse: (url: string) => Partial<Response> = () => ({ ok: true, status: 200, url: '', text: async () => '<html><head><title>Wohnen</title></head><body><h1>Wohnen</h1></body></html>' });
 const session = {
   id: 'chat-sw', platform: 'shopware', sw: fake as unknown as ReadOnlyShopware, reader: fake, lookup: shopwareLookup(fake),
-  storefrontFetch: async (url: string, init?: RequestInit) => { fetched.push({ url, init }); return fetchResponse() as Response; },
+  storefrontFetch: async (url: string, init?: RequestInit) => { fetched.push({ url, init }); return fetchResponse(url) as Response; },
   requestChange: async (cs: ChangeSet) => { requested.push(cs); return { status: 'applied' as const, message: 'ok', applied: cs.items.length }; },
 } as unknown as Session;
 const tools = shopwareTools(session);
@@ -136,13 +136,23 @@ test('read_page: shop domains only, also after redirect', async () => {
   assert.equal(fetched.length, 0, 'foreign URL is not fetched');
   const ok = json(await call('read_page', { url: 'https://shop.example/wohnen/' }));
   assert.equal(ok.url, 'https://shop.example/wohnen/'); assert.equal(ok.title, 'Wohnen');
-  // shop redirects to a foreign address: not passed to the AI
-  fetchResponse = () => ({ ok: true, status: 200, url: 'https://fremd.example/landing', text: async () => '<html><title>Fremd</title></html>' });
+  assert.equal(fetched.at(-1)!.init?.redirect, 'manual', 'redirects are followed manually, not by fetch');
+  const page = (title: string) => ({ ok: true, status: 200, url: '', headers: new Headers(), text: async () => `<html><title>${title}</title></html>` });
+  const redirect = (location: string) => ({ ok: false, status: 302, url: '', headers: new Headers({ location }), text: async () => '' });
+  // open redirect on the shop to a foreign/internal address: the target is never requested
+  fetched = [];
+  fetchResponse = url => (url.startsWith('https://shop.example/') ? redirect('http://169.254.169.254/latest/meta-data') : page('Fremd'));
   const redirected = await call('read_page', { url: 'https://shop.example/aktion' });
-  assert.equal(redirected.isError, true); assert.match(redirected.content[0].text, /fremd\.example/);
+  assert.equal(redirected.isError, true); assert.match(redirected.content[0].text, /169\.254\.169\.254/);
+  assert.deepEqual(fetched.map(f => f.url), ['https://shop.example/aktion'], 'foreign redirect target is never contacted');
+  fetched = [];
+  fetchResponse = url => (url.startsWith('https://shop.example/') ? redirect('https://fremd.example/landing') : page('Fremd'));
+  assert.equal((await call('read_page', { url: 'https://shop.example/aktion' })).isError, true);
+  assert.ok(!fetched.some(f => f.url.includes('fremd.example')), 'foreign host is never contacted');
   // redirect within the shop (e.g. to the internal address) is fine
-  fetchResponse = () => ({ ok: true, status: 200, url: 'http://shopware:8000/wohnen/', text: async () => '<html><title>Intern</title></html>' });
+  fetchResponse = url => (url.startsWith('https://shop.example/') ? redirect('http://shopware:8000/wohnen/') : page('Intern'));
   assert.equal(json(await call('read_page', { url: 'https://shop.example/wohnen' })).title, 'Intern');
+  fetchResponse = () => page('Wohnen');
 });
 
 test('propose_product_changes: nothing is written, change set goes to session.requestChange', async () => {

@@ -5,7 +5,7 @@ import 'server-only';
 // views other than the main view, writing happens only there. Undo writes the level's previous values; null = "Use Default Value".
 import type { UndoOp } from '@/lib/protocol';
 import { applierRegistry } from '../appliers';
-import { idPath, isGlobal, OmClient, OmError, skuPath } from './client';
+import { isGlobal, OmClient, OmError, skuPath } from './client';
 import { globalEmpty, hasOverride, omAttr, same, type OmCategory, type OmProduct, type OmRecord } from './map';
 
 export const reg = applierRegistry<OmClient>('openmage');
@@ -25,7 +25,6 @@ const failWithUndo = (e: unknown, undo: UndoOp[]): never => {
 
 export const getEnt = (c: OmClient, e: Ent, ref: string, store: string): Promise<OmRecord | null> => c.req('GET', entPath(e, ref), undefined, { store, nullOn404: true });
 export const getProduct = (c: OmClient, sku: string, store = 'admin'): Promise<OmProduct | null> => getEnt(c, 'product', sku, store) as Promise<OmProduct | null>;
-export const getProductById = (c: OmClient, id: string | number, store = 'admin'): Promise<OmProduct | null> => c.req('GET', `/v1/products/${idPath(id)}`, undefined, { store, nullOn404: true });
 export const getCategory = (c: OmClient, id: string, store = 'admin'): Promise<OmCategory | null> => getEnt(c, 'category', id, store) as Promise<OmCategory | null>;
 
 /** PATCH {attributes} of one level; null is not allowed in the global scope (clear = ""). Returns the new state. */

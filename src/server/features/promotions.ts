@@ -7,6 +7,7 @@ import { applyEach, errMsg, MAX_ITEMS, registerApplier, trackedUndo, undoOps, ty
 import { newId, type Shopware, type ShopReader, type SwEntity } from '../shopware';
 import { ok, fail, guard, type AnyTool } from '../tool-kit';
 import type { Feature } from './types';
+import { chunks } from '../util';
 
 export const KIND = 'promotion', STATUS_KIND = 'promotion-status';
 export const MAX_DISCOUNTS = 5, MAX_CODES = 5000;
@@ -465,7 +466,6 @@ export async function buildStatusChangeSet(ro: ShopReader, a: { ids: string[]; a
 
 // ================= EXECUTOR =================
 const PROMO_KEYS = ['name', 'active', 'validFrom', 'validUntil', 'priority', 'exclusive', 'preventCombination', 'maxRedemptionsGlobal', 'maxRedemptionsPerCustomer', 'useCodes', 'code', 'useIndividualCodes', 'individualCodePattern'];
-const chunks = <T,>(l: T[], n: number) => Array.from({ length: Math.ceil(l.length / n) }, (_, i) => l.slice(i * n, i * n + n));
 /** Generate codes that don't exist in the shop yet (neither as individual nor as fixed code). */
 async function freshCodes(swW: Shopware, pattern: string, count: number): Promise<string[]> {
   const taken = new Set<string>(); let codes = generateCodes(pattern, count, taken);

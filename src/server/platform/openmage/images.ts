@@ -3,7 +3,7 @@ import 'server-only';
 // Roles (image/small_image/thumbnail) are store-scoped product attributes; PATCH …/images/{id} with types sets them exactly.
 // "Entfernen" (remove) hides an image (disabled); undo shows it again. Undo deletes new images (?mode=delete).
 import type { ChangeAsset, ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
-import { downloadImage, readStaged, stagedMeta } from '../../media';
+import { downloadImage, IMAGE_TOO_LARGE, MAX_IMAGE_BYTES, readCapped, readStaged, stagedMeta } from '../../media';
 import { fetchShopPage } from '../../storefront';
 import { applyEach, errMsg, MAX_ITEMS, newIdSafe, partialTicker, pool, WRITE_CONCURRENCY, type ApplyResult } from './kit';
 import { isGlobal, skuPath, type OmClient } from './client';
@@ -28,12 +28,12 @@ export async function imageContent(c: OmClient, ref: string, name: string): Prom
     const allowed = [c.publicUrl, c.base, e.url].filter(Boolean);
     const res = await fetchShopPage(e.url, allowed, { publicUrl: c.publicUrl, internalBase: c.base, fetchImpl: (href, init) => c.storefrontFetch(href, init) });
     if (!res.ok) throw new Error(`Medium ${ref} nicht ladbar (HTTP ${res.status})`);
-    buf = Buffer.from(await res.arrayBuffer()); mime = (res.headers.get('content-type') ?? '').split(';')[0] || 'image/jpeg';
+    buf = await readCapped(res); mime = (res.headers.get('content-type') ?? '').split(';')[0] || 'image/jpeg';
     base = fileName(e).replace(/\.[a-z0-9]+$/i, '');
   } else if (/^https:\/\//.test(ref)) ({ buf, mime } = await downloadImage(ref));
   else throw new Error(`Unbekannte Bildquelle ${ref}`);
   if (!IMG_MIME.has(mime)) throw new Error(`Bildtyp ${mime} wird von der OpenMage-Galerie nicht unterstützt (JPG, PNG, GIF, WebP)`);
-  if (buf.length > 20 * 1024 * 1024) throw new Error('Bild größer als 20 MB');
+  if (buf.length > MAX_IMAGE_BYTES) throw new Error(IMAGE_TOO_LARGE);
   return { base64: buf.toString('base64'), filename: `${base}.${mime.split('/')[1].replace('jpeg', 'jpg')}` };
 }
 /** Checks an image source while building (without downloading) and returns a preview URL */

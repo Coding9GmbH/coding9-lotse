@@ -94,6 +94,10 @@ export async function proxy(req: NextRequest) {
   const hostHeader = req.headers.get('host') ?? '', forwardedFor = req.headers.get('x-forwarded-for'), peer = req.headers.get(PEER_HEADER);
   if (!hostAllowed(hostHeader, forwardedFor, peer)) return new NextResponse('Host nicht erlaubt', { status: 403 });
 
+  // Foreign pages may fire no-cors GETs at localhost (img/script/fetch), and some GETs have side effects (crawl, preview refresh).
+  // The browser marks these as cross-site; only that is rejected. Without the header (curl, MCP agent process, tests) allowed.
+  if (pathname.startsWith('/api/') && req.headers.get('sec-fetch-site')?.trim().toLowerCase() === 'cross-site') return new NextResponse('Aufruf von fremder Seite nicht erlaubt', { status: 403 });
+
   const origin = req.headers.get('origin');
   const writes = req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS';
   if (writes && origin) {

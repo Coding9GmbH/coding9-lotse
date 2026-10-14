@@ -2,6 +2,7 @@
 // Pure (server, UI, tests). Stored locally (server/custom-checks.ts), evaluated per platform via scanProducts.
 import { DEFAULT_LOCALE, INTL_LOCALE, messages, type Locale } from './i18n';
 import type { CheckSeverity } from './protocol';
+import { htmlToText } from './text';
 
 /** Neutral view of an active product, the same for Shopware, Shopify, Magento and OpenMage. null = not readable on this platform. */
 export interface NeutralProduct {
@@ -44,7 +45,7 @@ export const CUSTOM_MAX = 20, CONDITIONS_MAX = 5, TITLE_MAX = 80, HINT_MAX = 300
 export const CUSTOM_PREFIX = 'custom.';
 const SEVERITIES: CheckSeverity[] = ['hoch', 'mittel', 'niedrig'];
 
-const text = (html: string) => html.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+const text = (html: string) => htmlToText(html);
 export const slugify = (t: string) => t.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 
 /** Field value of a product; null = unknown (the condition then never matches, nothing is guessed) */

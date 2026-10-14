@@ -174,3 +174,11 @@ test('checkLinks: findings have a short form (short) for lists, problem = short 
   assert.ok(r.findings.every(x => x.short && x.problem.startsWith(x.short)));
   assert.doesNotMatch(r.findings.map(x => x.problem).join(' '), /[–—]/);
 });
+
+test('extractLinks: unclosed anchors are ignored as before and do not freeze (ReDoS)', () => {
+  assert.deepEqual(extractLinks('<a href="/a">A</a><a href="/b">offen').map(l => l.href), ['/a']);
+  for (const bad of ['<a href="/x">', '<a ', '<a href="/x"><']) {
+    const t = Date.now(); extractLinks(bad.repeat(80_000)); const d = Date.now() - t;
+    assert.ok(d < 1000, `${bad}: ${d} ms`);
+  }
+});

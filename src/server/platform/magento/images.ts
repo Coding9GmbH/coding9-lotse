@@ -6,7 +6,7 @@ import type { ChangeAsset, ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol'
 import { downloadImage, readStaged, stagedMeta } from '../../media';
 import { applyEach, errMsg, MAX_ITEMS, newIdSafe, partialTicker, pool, WRITE_CONCURRENCY, type ApplyResult } from './kit';
 import { skuPath, type MagentoClient } from './client';
-import { attr, attrStr, basisWord, coverEntry, IMAGE_ROLES, COVER_TYPES, mediaId, money, needBasis, parseMediaId, plain, sameValue, urlKey, type MGalleryEntry, type MProduct, type MRecord } from './map';
+import { attrStr, basisWord, coverEntry, IMAGE_ROLES, COVER_TYPES, mediaId, money, needBasis, parseMediaId, plain, sameValue, urlKey, type MGalleryEntry, type MProduct, type MRecord } from './map';
 import type { MagentoReader } from './reader';
 import { productLabel, stockSource } from './catalog';
 import { getEnt, mainStoreCode, reg, reqOp } from './write';
@@ -324,4 +324,3 @@ export async function imageRows(ro: MagentoReader, p: MProduct) {
     return { mediaId: mediaId(p.id, e.id), url, file: fileName(e), alt: label || null, position: e.position ?? 0, cover: e.id === cover?.id, roles: e.types ?? [], ...(e.disabled ? { hidden: true } : {}), ...(!label ? { altMissing: true } : {}), ...(/ki-generiert/i.test(String(e.file)) ? { aiGenerated: true } : {}) };
   }));
 }
-export const productAttr = attr;

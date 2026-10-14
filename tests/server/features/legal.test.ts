@@ -266,3 +266,11 @@ test('legal checks: one catalog scan per run with field selection; GPSR, base pr
   await run('recht.grundpreis', perRun(ro));
   assert.equal(calls.filter(x => x.entity === 'product').length, 2);
 });
+
+test('htmlA11y/footerLinks: unclosed tags are ignored as before and stay linear (ReDoS)', () => {
+  assert.deepEqual(footerLinks('<footer><a href="/impressum">Impressum</a><a href="/x">offen'), [{ href: '/impressum', text: 'Impressum' }]);
+  for (const bad of ['<a href="/x">', '<button>', '<script', '<img ', '<']) {
+    const t = Date.now(); htmlA11y(bad.repeat(80_000)); footerLinks(bad.repeat(80_000)); const d = Date.now() - t;
+    assert.ok(d < 1000, `${bad}: ${d} ms`);
+  }
+});

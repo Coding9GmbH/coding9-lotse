@@ -7,6 +7,7 @@ import 'server-only';
 import { activeAuthMode } from '@/lib/platforms';
 import { getSettings, type Settings } from '../../settings';
 import { log } from '../../log';
+import { sleep as sleepReal } from '../../retry';
 
 /** API version tested by Lotse (fake 2026-10, current stable version per shopify.dev) */
 export const DEFAULT_API_VERSION = '2026-10';
@@ -50,7 +51,6 @@ export interface ClientOpts { fetch?: typeof fetch; sleep?: (ms: number) => Prom
 export const shopTimeoutMs = (raw = process.env.LOTSE_SHOP_TIMEOUT_MS) => Math.max(5_000, parseInt(raw ?? '', 10) || 60_000);
 
 const isMutation = (q: string) => /^\s*mutation\b/.test(q.replace(/#[^\n]*/g, ''));
-const sleepReal = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 const errText = (errors: { message?: string; extensions?: { code?: string } }[]) => errors.map(e => e.message ?? e.extensions?.code ?? 'Fehler').join('; ').slice(0, 600);
 
 /** userErrors (or mediaUserErrors) of a mutation result → error text or null */

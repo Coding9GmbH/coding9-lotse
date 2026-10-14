@@ -115,3 +115,18 @@ test('trustedOrigins: shop URLs from the settings count as our own shop', async 
   assert.ok(t.has('http://shopware') && t.has('http://localhost:8888') && t.has('https://demo.myshopify.com'));
   updateSettings({ shopware: { url: '', publicUrl: '' }, shopify: { storeDomain: '' } });
 });
+
+test('generateRaster: image delivered by URL is read with the size cap', async () => {
+  const { generateRaster, setImageConfig, MAX_IMAGE_BYTES } = await import('../../src/server/media');
+  const srv = http.createServer((q, r) => {
+    const base = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+    if (q.url === '/v1/images/generations') { r.setHeader('content-type', 'application/json'); return r.end(JSON.stringify({ data: [{ url: `${base}/big.png` }] })); }
+    r.setHeader('content-type', 'image/png'); r.write(Buffer.alloc(MAX_IMAGE_BYTES)); r.end(Buffer.alloc(10)); // no content-length (chunked)
+  });
+  await new Promise<void>(res => srv.listen(0, '127.0.0.1', res));
+  const prev = process.env.LOTSE_OPENAI_API_BASE;
+  process.env.LOTSE_OPENAI_API_BASE = `http://127.0.0.1:${(srv.address() as { port: number }).port}/v1`;
+  setImageConfig({ key: 'sk-test', model: '' });
+  try { await assert.rejects(generateRaster('x'), /Bild größer als 20 MB/); }
+  finally { setImageConfig({ key: '', model: '' }); process.env.LOTSE_OPENAI_API_BASE = prev; if (prev === undefined) delete process.env.LOTSE_OPENAI_API_BASE; srv.closeAllConnections(); srv.close(); }
+});

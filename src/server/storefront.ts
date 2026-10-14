@@ -1,6 +1,7 @@
 import 'server-only';
 // Read storefront pages of the own shop: text, images, links and (from the Shopware markup) the real structure of the
 // Shopping Experience (sections → blocks → elements, plugin blocks too). Plus the mapping URL → CMS page via the SEO URLs.
+import { closed, HEADINGS, htmlToText, stripBlocks } from '@/lib/text';
 import type { ShopReader, SwEntity } from './shopware';
 
 export interface CmsBlockOutline { block: string; elements: string[] }
@@ -20,13 +21,13 @@ export interface PageOutline {
   componentClasses: Record<string, number>;
 }
 
-const text = (html: string) => html.replace(/<(script|style|noscript|svg|template)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ')
-  .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#0?39;|&apos;/g, '’').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
+const TEXT_DROP = ['script', 'style', 'noscript', 'svg', 'template'];
+const text = (html: string) => htmlToText(html, { tags: TEXT_DROP, decode: true, apos: '’' });
 const abs = (u: string, base: string) => { try { return new URL(u, base).href; } catch { return u; } };
 const COMPONENT = /^(btn|btn-[a-z-]+|card|card-[a-z-]+|badge[a-z-]*|product-box|product-[a-z-]+|alert[a-z-]*|breadcrumb|accordion[a-z-]*|nav-tabs|carousel[a-z-]*|hero[a-z-]*|teaser[a-z-]*|cta[a-z-]*)$/;
 
 export function pageKind(html: string): string {
-  const body = html.match(/<body[^>]*class="([^"]*)"/i)?.[1] ?? '';
+  const body = html.match(/<body[^<>]*class="([^"]*)"/i)?.[1] ?? '';
   if (/\bis-act-home\b/.test(body)) return 'Startseite';
   if (/\bis-ctl-product\b/.test(body)) return 'Produktseite';
   if (/\bis-ctl-navigation\b/.test(body)) return 'Kategorie';
@@ -60,17 +61,18 @@ export function cmsOutline(html: string): { sections: CmsSectionOutline[]; compo
 /** Readable summary of a storefront page (without header/footer area). */
 export function parseStorefront(html: string, url: string, limits = { text: 6000, images: 20, links: 30, headings: 40 }): PageOutline {
   const title = text(html.match(/<title>([^<]*)/i)?.[1] ?? '') || undefined;
-  const metaDescription = html.match(/<meta[^>]+name="description"[^>]+content="([^"]*)"/i)?.[1];
-  const canonical = html.match(/<link[^>]+rel="canonical"[^>]+href="([^"]+)"/i)?.[1];
-  const main = html.match(/<main[\s\S]*?<\/main>/i)?.[0] ?? html.replace(/<(header|footer|nav)[\s\S]*?<\/\1>/gi, ' ');
-  const headings = [...main.matchAll(/<h([1-4])[^>]*>([\s\S]*?)<\/h\1>/gi)].map(m => ({ level: +m[1], text: text(m[2]) })).filter(h => h.text).slice(0, limits.headings);
-  const images = [...main.matchAll(/<img\b[^>]*>/gi)].map(m => {
+  const metaDescription = html.match(/<meta[^<>]+name="description"[^<>]+content="([^"]*)"/i)?.[1];
+  const canonical = html.match(/<link[^<>]+rel="canonical"[^<>]+href="([^"]+)"/i)?.[1];
+  // `|$` keeps the lazy scans linear on unclosed tags; matches that hit the end instead of the close tag are dropped
+  const main = closed(html.match(/<main[\s\S]*?(?:<\/main>|$)/i)?.[0], 'main') ?? stripBlocks(html, ['header', 'footer', 'nav']);
+  const headings = [...main.matchAll(HEADINGS)].map(m => ({ level: +m[1], text: text(m[2]) })).filter(h => h.text).slice(0, limits.headings);
+  const images = [...main.matchAll(/<img\b[^<>]*>/gi)].map(m => {
     const tag = m[0], src = tag.match(/\s(?:src|data-src)="([^"]+)"/i)?.[1];
     return src && !/^data:/.test(src) ? { src: abs(src, url), alt: text(tag.match(/\salt="([^"]*)"/i)?.[1] ?? '') } : null;
   }).filter((x): x is { src: string; alt: string } => !!x).filter((x, i, a) => a.findIndex(y => y.src === x.src) === i).slice(0, limits.images);
   const origin = (() => { try { return new URL(url).origin; } catch { return ''; } })();
   const seen = new Set<string>();
-  const links = [...main.matchAll(/<a\b[^>]*href="([^"#][^"]*)"[^>]*>([\s\S]*?)<\/a>/gi)].map(m => ({ href: abs(m[1], url), text: text(m[2]).slice(0, 80) }))
+  const links = [...main.matchAll(/<a\b[^<>]*href="([^"#][^"]*)"[^<>]*>([\s\S]*?)(?:<\/a>|$)/gi)].filter(m => closed(m[0], 'a')).map(m => ({ href: abs(m[1], url), text: text(m[2]).slice(0, 80) }))
     .filter(l => l.href.startsWith(origin) && !/\.(jpe?g|png|webp|gif|svg|pdf)(\?|$)/i.test(l.href) && !seen.has(l.href) && seen.add(l.href)).slice(0, limits.links);
   const { sections, componentClasses } = cmsOutline(html);
   return {

@@ -9,6 +9,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { PLATFORM_KINDS } from '@/lib/platforms';
 import { dataDir, kvGet, kvSet } from './db';
+import { readLimited } from './http';
 import { fetchWithRetry } from './retry';
 import { getSettings, platformConfig } from './settings';
 import type { Shopware } from './shopware';
@@ -18,14 +19,17 @@ import { errMsg } from './util';
 
 export const MIME_EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg', 'image/avif': 'avif' };
 const EXT_MIME: Record<string, string> = Object.fromEntries(Object.entries(MIME_EXT).map(([m, e]) => [e, m]));
-const MAX = 20 * 1024 * 1024;
+/** Upper limit for images (upload, staging, download, generation); the upload route uses it too */
+export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const mb = (bytes: number) => Math.round(bytes / 1024 / 1024);
+export const IMAGE_TOO_LARGE = `Bild größer als ${mb(MAX_IMAGE_BYTES)} MB`;
 const slug = (s: unknown) => String(s || 'bild').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'bild';
 
 export interface UploadResult { mediaId: string; url?: string; fileName: string; alt: string | null }
 export async function uploadBuffer(sw: Shopware, buf: Buffer, mime: string, { name, alt, title, folder = 'cms_page' }: { name?: string; alt?: string | null; title?: string; folder?: string } = {}): Promise<UploadResult> {
   const ext = MIME_EXT[mime];
   if (!ext) throw new Error(`Bildtyp ${mime} wird nicht unterstützt (erlaubt: ${Object.keys(MIME_EXT).join(', ')})`);
-  if (buf.length > MAX) throw new Error('Bild größer als 20 MB');
+  if (buf.length > MAX_IMAGE_BYTES) throw new Error(IMAGE_TOO_LARGE);
   const folderId = (await sw.search('media-default-folder', { filter: [{ type: 'equals', field: 'entity', value: folder }], associations: { folder: {} }, limit: 1 })).data?.[0]?.folder?.id ?? null;
   const id = await sw.uploadMediaBinary(buf, { ext, mime, fileName: `${slug(name)}-${Math.random().toString(36).slice(2, 7)}`, folderId });
   if (alt || title) await sw.update('media', id, { alt: alt ?? null, title: title ?? alt });
@@ -113,20 +117,11 @@ export function pinnedFetch(url: string, init: { headers?: Record<string, string
     req.end();
   });
 }
-/** Read the response body with a limit: Content-Length up front, counted continuously while streaming (no unbounded arrayBuffer()) */
-export async function readCapped(r: Response, max = MAX): Promise<Buffer> {
-  const too = () => new Error(`Bild größer als ${Math.round(max / 1024 / 1024)} MB`);
-  if (Number(r.headers.get('content-length') || 0) > max) { await r.body?.cancel().catch(() => {}); throw too(); }
-  if (!r.body) return Buffer.alloc(0);
-  const reader = r.body.getReader(), parts: Uint8Array[] = []; let n = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    n += value.byteLength;
-    if (n > max) { await reader.cancel().catch(() => {}); throw too(); }
-    parts.push(value);
-  }
-  return Buffer.concat(parts);
+/** Read the response body with a limit (see readLimited); throws "Bild größer als … MB" when exceeded */
+export async function readCapped(r: Response, max = MAX_IMAGE_BYTES): Promise<Buffer> {
+  const buf = await readLimited(r, max);
+  if (!buf) throw new Error(`Bild größer als ${mb(max)} MB`);
+  return buf;
 }
 const REDIRECT = new Set([301, 302, 303, 307, 308]);
 export async function downloadImage(url: string) {
@@ -176,7 +171,7 @@ export interface StagedMeta { id: string; file: string; mime: string; name: stri
 export interface StagedResult { mediaId: string; url: string; fileName: string; alt: string | null; staged: true }
 export function stageImage(buf: Buffer, mime: string, { name, alt, ai }: { name?: string; alt?: string | null; ai?: boolean } = {}): StagedResult {
   const ext = MIME_EXT[mime]; if (!ext) throw new Error(`Bildtyp ${mime} wird nicht unterstützt`);
-  if (buf.length > MAX) throw new Error('Bild größer als 20 MB');
+  if (buf.length > MAX_IMAGE_BYTES) throw new Error(IMAGE_TOO_LARGE);
   const dir = stageDir();
   fs.mkdirSync(dir, { recursive: true });
   const id = Math.random().toString(36).slice(2, 10) + Date.now().toString(36), file = `${id}.${ext}`;
@@ -298,6 +293,6 @@ export async function generateRaster(prompt: string, size = '1536x1024'): Promis
   if (!r.ok) throw new Error(`Bildgenerierung fehlgeschlagen (${r.status}): ${j.error?.message ?? 'unbekannt'}`);
   const d = j.data?.[0];
   if (d?.b64_json) return Buffer.from(d.b64_json, 'base64');
-  if (d?.url) return Buffer.from(await (await fetch(d.url)).arrayBuffer());
+  if (d?.url) return readCapped(await fetch(d.url, { signal: AbortSignal.timeout(60_000) }));
   throw new Error('Bildgenerierung lieferte kein Bild');
 }

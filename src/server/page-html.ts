@@ -2,6 +2,7 @@ import 'server-only';
 // Page draft → static HTML for platforms without Shopping Experiences (Shopify pages, Magento CMS pages, category/collection texts).
 // Only the generic blocks (GENERIC_BLOCKS + patterns). Images must be resolved to final URLs beforehand (upload after approval),
 // products come as preview data (name, formatted price, image, url) from the platform.
+import { esc } from '@/lib/format';
 import { GENERIC_BLOCKS, wrapCustom, type BlockSpec, type ImageRef, type PageSpec, type PreviewProduct, type SectionSpec } from './cms';
 import { expandSpec } from './patterns';
 import { cssVars } from './styleguide';
@@ -15,7 +16,6 @@ export interface HtmlCtx {
   scope?: string;
 }
 
-const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c as '&' | '<' | '>' | '"']));
 const alt = (im: ImageRef | undefined) => (im && typeof im === 'object' ? im.alt ?? '' : '');
 
 /** Block types of an already expanded draft that are not allowed */

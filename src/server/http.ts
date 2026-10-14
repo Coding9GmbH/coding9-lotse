@@ -7,13 +7,14 @@ const JSON_LIMIT = 2 * 1024 * 1024; // as before express.json({ limit: '2mb' })
 export { errMsg } from './util';
 export const jsonError = (status: number, error: string) => Response.json({ error }, { status });
 
-/** Reads the body with a size limit (aborts as soon as the limit is exceeded). null = too large. */
-export async function readBodyLimited(req: Request, max: number): Promise<Buffer | null> {
-  const len = Number(req.headers.get('content-length') ?? '');
-  if (Number.isFinite(len) && len > max) return null;
-  if (!req.body) return Buffer.alloc(0);
+/** Reads a request/response body with a size limit: Content-Length checked up front, counted while streaming,
+ *  aborted as soon as the limit is exceeded (no unbounded arrayBuffer()). null = too large. */
+export async function readLimited(src: { headers: Headers; body: ReadableStream<Uint8Array> | null }, max: number): Promise<Buffer | null> {
+  const len = Number(src.headers.get('content-length') ?? '');
+  if (Number.isFinite(len) && len > max) { await src.body?.cancel().catch(() => {}); return null; }
+  if (!src.body) return Buffer.alloc(0);
   const chunks: Uint8Array[] = []; let size = 0;
-  const reader = req.body.getReader();
+  const reader = src.body.getReader();
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -23,6 +24,8 @@ export async function readBodyLimited(req: Request, max: number): Promise<Buffer
   }
   return Buffer.concat(chunks);
 }
+/** Request body with a size limit. null = too large. */
+export const readBodyLimited = (req: Request, max: number) => readLimited(req, max);
 
 const deError = z.locales.de().localeError; // German error messages only for REST validation (tool schemas stay unchanged)
 const describe = (err: z.ZodError) => err.issues.slice(0, 3).map(i => `${i.path.join('.') || 'Body'}: ${i.message}`).join('; ');

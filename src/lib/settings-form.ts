@@ -106,7 +106,6 @@ export const aiModels = (locale: Locale = DEFAULT_LOCALE): { value: string; labe
   const m = messages(locale).lib.settings.aiModels;
   return [{ value: '', label: m.default }, { value: 'sonnet', label: m.sonnet }, { value: 'opus', label: m.opus }];
 };
-export const AI_MODELS: { value: string; label: string }[] = aiModels();
 
 
 // ---- Generic platform form: read/set values, whether Shopware (fixed fields) or Shopify/Magento/OpenMage ----

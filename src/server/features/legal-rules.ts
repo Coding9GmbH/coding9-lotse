@@ -1,9 +1,10 @@
 // Mandatory legal information: pure check logic without shop access (GPSR, PAngV base price, BFSG texts/contrast, legal pages).
 // Technical check, not legal advice: findings name the rule, the case-by-case assessment stays with the human.
+import { closed, htmlToText } from '@/lib/text';
 
 type Row = Record<string, unknown> & { translated?: Record<string, unknown> | null; customFields?: Record<string, unknown> | null };
 
-export const plain = (t: unknown) => String(t ?? '').replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+export const plain = (t: unknown) => htmlToText(String(t ?? '')).replace(/&amp;/g, '&');
 const num = (v: number, d = 3) => v.toLocaleString('de-DE', { maximumFractionDigits: d });
 export const eur = (v: number) => `${v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
@@ -201,19 +202,21 @@ const attr = (tag: string, name: string) => tag.match(new RegExp(`\\b${name}\\s*
 /** embedded = text sits in a page with its own H1 (product/category description) */
 export function htmlA11y(html: string, { embedded = true } = {}): A11yIssue[] {
   const out: A11yIssue[] = [], h = String(html ?? '');
-  for (const m of h.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
-    const imgAlt = [...m[2].matchAll(/<img\b[^>]*>/gi)].map(i => attr(i[0], 'alt') ?? '').join(' ');
+  for (const m of h.matchAll(/<a\b([^<>]*)>([\s\S]*?)(?:<\/a>|$)/gi)) {
+    if (!closed(m[0], 'a')) continue;
+    const imgAlt = [...m[2].matchAll(/<img\b[^<>]*>/gi)].map(i => attr(i[0], 'alt') ?? '').join(' ');
     const label = (attr(m[1], 'aria-label') ?? '').trim(), text = plain(m[2]);
     const name = (label || text || imgAlt).trim();
     if (!name) out.push({ type: 'link-empty', detail: `Link ${attr(m[1], 'href') ?? ''}`.trim() });
     else if (VAGUE.has(name.toLowerCase().replace(/[.:!…»›→>]+$/g, '').trim())) out.push({ type: 'link-vague', detail: `„${name}“ → ${attr(m[1], 'href') ?? '?'}` });
   }
-  for (const m of h.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/gi)) {
-    const imgAlt = [...m[2].matchAll(/<img\b[^>]*>/gi)].map(i => attr(i[0], 'alt') ?? '').join('');
+  for (const m of h.matchAll(/<button\b([^<>]*)>([\s\S]*?)(?:<\/button>|$)/gi)) {
+    if (!closed(m[0], 'button')) continue;
+    const imgAlt = [...m[2].matchAll(/<img\b[^<>]*>/gi)].map(i => attr(i[0], 'alt') ?? '').join('');
     if (!plain(m[2]) && !attr(m[1], 'aria-label')?.trim() && !attr(m[1], 'title')?.trim() && !imgAlt.trim()) out.push({ type: 'button-empty', detail: '<button> ohne sichtbaren Text oder aria-label' });
   }
-  for (const m of h.matchAll(/<input\b[^>]*>/gi)) if (/type\s*=\s*["']?(submit|button)/i.test(m[0]) && !attr(m[0], 'value')?.trim() && !attr(m[0], 'aria-label')?.trim()) out.push({ type: 'button-empty', detail: '<input type=submit/button> ohne value' });
-  for (const m of h.matchAll(/<img\b[^>]*>/gi)) if (attr(m[0], 'alt') === null) out.push({ type: 'img-alt', detail: `Bild ${(attr(m[0], 'src') ?? '').split('/').pop()?.slice(0, 60) ?? ''}` });
+  for (const m of h.matchAll(/<input\b[^<>]*>/gi)) if (/type\s*=\s*["']?(submit|button)/i.test(m[0]) && !attr(m[0], 'value')?.trim() && !attr(m[0], 'aria-label')?.trim()) out.push({ type: 'button-empty', detail: '<input type=submit/button> ohne value' });
+  for (const m of h.matchAll(/<img\b[^<>]*>/gi)) if (attr(m[0], 'alt') === null) out.push({ type: 'img-alt', detail: `Bild ${(attr(m[0], 'src') ?? '').split('/').pop()?.slice(0, 60) ?? ''}` });
   const levels = [...h.matchAll(/<h([1-6])\b/gi)].map(m => Number(m[1]));
   let prev = embedded ? 1 : 0;
   for (const l of levels) {
@@ -303,7 +306,7 @@ export function evaluateLegalPage(def: LegalPageDef, i: LegalPageInput): LegalPa
 /** Links in the footer (or whole page if there is no footer): href + text */
 export function footerLinks(html: string): { href: string; text: string }[] {
   const i = html.search(/<footer\b/i), part = i >= 0 ? html.slice(i) : html;
-  return [...part.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)].map(m => ({ href: attr(m[1], 'href') ?? '', text: plain(m[2]) || (attr(m[1], 'title') ?? '') }));
+  return [...part.matchAll(/<a\b([^<>]*)>([\s\S]*?)(?:<\/a>|$)/gi)].filter(m => closed(m[0], 'a')).map(m => ({ href: attr(m[1], 'href') ?? '', text: plain(m[2]) || (attr(m[1], 'title') ?? '') }));
 }
 export const isLinked = (def: LegalPageDef, cmsPageId: string | null, links: { href: string; text: string }[]) =>
   links.some(l => (cmsPageId && l.href.includes(cmsPageId)) || def.words.test(l.text));

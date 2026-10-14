@@ -1,17 +1,15 @@
 import type { NextRequest } from 'next/server';
 import { errMsg, jsonError, readBodyLimited } from '@/server/http';
-import { sanitizeSvg, stageImage } from '@/server/media';
+import { IMAGE_TOO_LARGE, MAX_IMAGE_BYTES, sanitizeSvg, stageImage } from '@/server/media';
 
 export const dynamic = 'force-dynamic';
-
-const LIMIT = 25 * 1024 * 1024;
 
 // Raw image in the body (content-type image/*), name/alt text as query parameters
 export async function POST(req: NextRequest) {
   const mime = (req.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
   if (!mime.startsWith('image/')) return jsonError(400, `Bildtyp ${mime || 'unbekannt'} wird nicht unterstützt`);
-  const buf = await readBodyLimited(req, LIMIT);
-  if (!buf) return jsonError(413, 'Bild größer als 25 MB');
+  const buf = await readBodyLimited(req, MAX_IMAGE_BYTES); // same limit as stageImage (documents: /api/files with FILE_LIMIT)
+  if (!buf) return jsonError(413, IMAGE_TOO_LARGE);
   try {
     const q = req.nextUrl.searchParams;
     const name = String(q.get('name') || 'upload').replace(/\.[a-z0-9]+$/i, '');

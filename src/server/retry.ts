@@ -4,7 +4,7 @@ import 'server-only';
 
 import { log } from './log';
 
-const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+export const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 export const RETRY_MAX_WAIT_MS = 10_000;
 
 export const retryable = (status: number) => status === 429 || (status >= 500 && status <= 599);

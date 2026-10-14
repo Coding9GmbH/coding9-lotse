@@ -1,8 +1,8 @@
 import 'server-only';
 // Design patterns: tested, responsive, accessible sections as custom-html (using the --sg-* styleguide variables)
+import { esc } from '@/lib/format';
 import { wrapCustom, type BlockSpec, type PageSpec } from './cms';
 import { AI_CREDIT, isAiImageUrl } from './media';
-const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c as '&' | '<' | '>' | '"']));
 const href = (u: unknown) => (/^(\/|#|https?:\/\/|mailto:|tel:)/.test(String(u ?? '')) ? esc(u) : '#');
 // Pattern data comes freely from the AI → deliberately loosely typed
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

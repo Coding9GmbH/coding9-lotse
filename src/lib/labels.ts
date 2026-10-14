@@ -22,11 +22,9 @@ export type ExampleAvailability = { gsc?: boolean; sistrix?: boolean; shopware?:
 export const examples = (p: string, c: string, locale: Locale = DEFAULT_LOCALE, available: ExampleAvailability = {}): Example[] =>
   messages(locale).lib.examples(p, c).map((e, i) => ({ tag: EXAMPLE_TAGS[i], need: EXAMPLE_NEEDS[i], ...e })).filter(e => !e.need || available[e.need]).map(({ need: _need, ...e }) => e); // eslint-disable-line @typescript-eslint/no-unused-vars
 
-/** Suggestion chips per context (German); per language: suggestions(kind, locale). */
-export const SUGGESTIONS: Record<TargetKind, string[]> = messages(DEFAULT_LOCALE).lib.suggestions;
+/** Suggestion chips per context and language. */
 export const suggestions = (kind: TargetKind, locale: Locale = DEFAULT_LOCALE): string[] => messages(locale).lib.suggestions[kind];
 
-export const DEFAULT_PLACEHOLDER = messages(DEFAULT_LOCALE).lib.placeholder.default;
 export const defaultPlaceholder = (locale: Locale = DEFAULT_LOCALE): string => messages(locale).lib.placeholder.default;
 export const placeholderFor = (kind: TargetKind, name = '', locale: Locale = DEFAULT_LOCALE): string => {
   const t = messages(locale).lib.placeholder;

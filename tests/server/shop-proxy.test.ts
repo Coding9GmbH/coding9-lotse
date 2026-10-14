@@ -132,6 +132,32 @@ test('storefront proxy: foreign redirect is not passed through', async () => {
   assert.equal(ok.headers.get('location'), '/shop/ok/');
 });
 
+test('storefront proxy: redirects are followed server-side only to trusted shop origins', async () => {
+  const { setTrustedOrigins } = await import('../../src/server/media');
+  setTrustedOrigins(async () => ['https://www.shop.de']);
+  try {
+    // same site, but not a trusted origin (internal host, sibling on a shared platform domain): neither followed nor passed through
+    for (const location of ['https://internal.shop.de/admin', 'http://intern.shop.de:8080/', 'https://other-store.myshopify.com/']) {
+      reply = () => new Response(null, { status: 302, headers: { location } });
+      const n = calls.length;
+      const r = await GET(req('/shop/alt'));
+      assert.equal(r.status, 502, location);
+      assert.equal(calls.length, n + 1, `${location} is not fetched`);
+    }
+    // sales channel domain: followed, content delivered
+    let hop = 0;
+    reply = () => (hop++ === 0 ? new Response(null, { status: 301, headers: { location: 'https://www.shop.de/start' } }) : new Response('<p>www</p>', { headers: { 'content-type': 'text/html' } }));
+    const r = await GET(req('/shop/start'));
+    assert.equal(r.status, 200);
+    assert.equal(calls.at(-1)?.url, 'https://www.shop.de/start');
+    // the base host itself via http: followed
+    hop = 0;
+    reply = () => (hop++ === 0 ? new Response(null, { status: 301, headers: { location: 'http://shop.de/x' } }) : new Response('ok', { headers: { 'content-type': 'text/plain' } }));
+    assert.equal((await GET(req('/shop/x'))).status, 200);
+    assert.equal(calls.at(-1)?.url, 'http://shop.de/x');
+  } finally { setTrustedOrigins(async () => []); }
+});
+
 test('storefront proxy: without /shop only prefixes of the active platform; shop unreachable → 502', async () => {
   reply = () => new Response('<p>ok</p>', { headers: { 'content-type': 'text/html' } });
   const n = calls.length;

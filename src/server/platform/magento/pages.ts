@@ -4,6 +4,7 @@ import 'server-only';
 // product = product description (one product) or CMS block as a widget below the description (several products).
 // Content in Page Builder format (pagebuilder.ts): still editable in the admin, product boxes as a Magento widget with live prices.
 import { z } from 'zod';
+import { esc } from '@/lib/format';
 import type { ChangeAsset, ChangeItem, ChatEvent, PublishedInfo, UndoOp } from '@/lib/protocol';
 import { withScript } from '@/lib/script-scan';
 import { GENERIC_BLOCKS, type BlockSpec, type ImageRef, type PageSpec, type PreviewCtx, type PreviewProduct } from '../../cms';
@@ -78,7 +79,6 @@ export interface RenderCtx {
   extraCss?: string;
 }
 const stripRootStyle = (html: string) => html.replace(/^(<div class="[^"]+">)<style>[\s\S]*?<\/style>/, '$1');
-const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c as '&']));
 
 /**
  * Draft → Page Builder parts: contiguous blocks without products as html content type (static HTML with scoped CSS),

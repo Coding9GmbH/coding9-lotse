@@ -8,6 +8,7 @@ import { HEX32, newId, type ShopReader, type SwEntity } from '../shopware';
 import type { AssocTree } from '../policy';
 import { fail, guard, nextOffsetOf, ok, pageOf, type AnyTool } from '../tool-kit';
 import type { Session } from '../sessions';
+import { chunks } from '../util';
 import type { Feature } from './types';
 import { KIND_PRODUCT_DATA, NewRegistry, nameOf, planProduct, productFilter, productLabel, type Catalog, type DataOps, type ProductFilter, type PropIn } from './product-data-plan';
 import { neededCreates, type ProductDataPayload } from './product-data-apply'; // also registers the applier
@@ -21,7 +22,6 @@ const VIS_NAME: Record<number, string> = { 30: 'all', 20: 'search', 10: 'link' }
 export interface DataTarget extends DataOps { productIds?: string[]; filter?: ProductFilter }
 export interface ProductDataArgs { title: string; reason: string; changes: DataTarget[] }
 
-const chunks = <T>(xs: T[], n: number) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
 const uniq = <T>(xs: (T | null | undefined)[]) => [...new Set(xs.filter((x): x is T => x != null && x !== ''))];
 
 /** Records by ID and/or name (name: case-insensitive, matched later in the plan) */

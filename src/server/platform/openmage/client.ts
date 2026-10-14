@@ -2,7 +2,7 @@ import 'server-only';
 // Privileged OpenMage client: JSON API of the Lotse module (Lotse_Connector) at <shop>/lotse-api/v1 (integrations/openmage/openapi.yaml).
 // Stays in the adapter: never in the session, never given to the AI. Auth: bearer token; store scope via ?store=<code> (empty = global, store 0).
 // Protecting the shop: timeout per request, at most MAX_CONC concurrent requests, on 429/503 (reads only) wait briefly and retry at most 2×.
-import { log, urlForLog } from '../../log';
+import { createLimiter, shopFetch } from '../../shop-http';
 
 export interface OmConfig { url: string; publicUrl?: string; storeCode?: string; token?: string }
 export class OmError extends Error { constructor(msg: string, public status: number, public code = '') { super(msg); } }
@@ -19,7 +19,6 @@ export interface OmListMeta { page: number; limit: number; total: number; pages:
 
 const TIMEOUT_MS = Math.max(5_000, parseInt(process.env.LOTSE_SHOP_TIMEOUT_MS ?? '', 10) || 60_000);
 const MAX_CONC = Math.min(8, Math.max(1, parseInt(process.env.LOTSE_OPENMAGE_CONCURRENCY ?? '', 10) || 4));
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 /** Store code: lowercase letters, digits, underscore (no query injection); '' = global */
 export const STORE_RE = /^[a-z][a-z0-9_]{0,31}$/;
 export const isGlobal = (store: string | undefined) => !store || store === 'admin' || store === '0' || store === 'all';
@@ -42,8 +41,7 @@ export class OmClient {
   /** Store view from the settings ('' = the shop's default store view, see workStore()) */
   storeCode = '';
   #info: Promise<OmInfo> | null = null;
-  #active = 0;
-  #queue: (() => void)[] = [];
+  #slot = createLimiter(MAX_CONC);
 
   constructor(cfg: OmConfig) { this.configure(cfg); }
   configure(cfg: OmConfig) {
@@ -53,10 +51,6 @@ export class OmClient {
   }
   get configured() { return !!(this.base && this.cfg.token); }
 
-  async #slot<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.#active >= MAX_CONC) await new Promise<void>(r => this.#queue.push(r)); else this.#active++;
-    try { return await fn(); } finally { const next = this.#queue.shift(); if (next) next(); else this.#active--; }
-  }
   // Writing calls one after another: parallel product saves cause deadlocks in the OpenMage indexer (index_process)
   #writes: Promise<unknown> = Promise.resolve();
   async #fetch(url: string, init: RequestInit): Promise<Response> {
@@ -65,18 +59,8 @@ export class OmClient {
     this.#writes = run.catch(() => undefined);
     return run;
   }
-  async #fetchRetry(url: string, init: RequestInit): Promise<Response> {
-    for (let attempt = 0; ; attempt++) {
-      const r = await this.#slot(() => fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) })).catch((e: Error & { cause?: { code?: string } }) => {
-        log.warn('Shop nicht erreichbar', { shop: 'openmage', url: urlForLog(url), error: e.name === 'TimeoutError' ? 'timeout' : e.cause?.code || e.message });
-        throw new OmError(e.name === 'TimeoutError' ? `OpenMage antwortet nicht (Timeout nach ${TIMEOUT_MS / 1000}s)` : `OpenMage nicht erreichbar: ${e.cause?.code || e.message}`, 0);
-      });
-      const retry = r.status === 429 || (r.status === 503 && (init.method ?? 'GET') === 'GET');
-      if (!retry || attempt >= 2) { if (r.status >= 500 || r.status === 429) log.warn('Shop-Anfrage fehlgeschlagen', { shop: 'openmage', method: init.method ?? 'GET', url: urlForLog(url), status: r.status, attempts: attempt + 1 }); return r; }
-      const ra = parseInt(r.headers.get('retry-after') ?? '', 10), wait = Math.min(Number.isFinite(ra) ? ra * 1000 : 1000 * 2 ** attempt, 10_000);
-      log.info('Shop-Anfrage wird wiederholt', { shop: 'openmage', url: urlForLog(url), status: r.status, attempt: attempt + 1, waitMs: wait });
-      await sleep(wait);
-    }
+  #fetchRetry(url: string, init: RequestInit): Promise<Response> {
+    return shopFetch(url, init, { shop: 'openmage', name: 'OpenMage', timeoutMs: TIMEOUT_MS, slot: this.#slot, toError: m => new OmError(m, 0) });
   }
 
   /** Full URL of an API path (/v1/…) with store and query; path may already carry a query (stored undo steps) */

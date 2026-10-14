@@ -14,6 +14,7 @@ export const FILE_TYPES: Record<string, string> = {
   pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 };
 export const FILE_LIMIT = 25 * 1024 * 1024;
+export const FILE_TOO_LARGE = `Datei größer als ${FILE_LIMIT / 1024 / 1024} MB`;
 
 const dir = () => path.join(dataDir(), 'files');
 const ID = /^f_[0-9a-f]{20}$/;
@@ -24,7 +25,7 @@ export function fileType(name: string): string | null { return FILE_TYPES[ext(na
 
 export function saveFile(buf: Buffer, name: string): StoredFile {
   const mime = fileType(name); if (!mime) throw new Error(`Dateityp .${ext(name) || '?'} wird nicht unterstützt (erlaubt: ${Object.keys(FILE_TYPES).join(', ')})`);
-  if (buf.length > FILE_LIMIT) throw new Error('Datei größer als 25 MB');
+  if (buf.length > FILE_LIMIT) throw new Error(FILE_TOO_LARGE);
   const fileId = `f_${crypto.randomBytes(10).toString('hex')}`, d = path.join(dir(), fileId);
   fs.mkdirSync(d, { recursive: true });
   const meta: StoredFile = { fileId, name: path.basename(name).slice(0, 200), mime, size: buf.length, createdAt: new Date().toISOString() };

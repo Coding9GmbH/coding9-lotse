@@ -4,8 +4,8 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import { Readable } from 'node:stream';
-import { log, urlForLog } from './log';
 import { createGuard, type Criteria, type Guard } from './policy';
+import { shopFetch as httpFetch } from './shop-http';
 
 /** Shopware JSON is dynamic per entity, deliberately loosely typed. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -19,20 +19,7 @@ export interface ShopwareConfig { url: string; publicUrl: string; user: string; 
 // Shop protection: every request with a timeout; on overload (429/503) wait briefly and retry at most 2× (Retry-After is respected).
 // This way a slow shop doesn't hang and isn't overrun with retries.
 const TIMEOUT_MS = Math.max(5_000, parseInt(process.env.LOTSE_SHOP_TIMEOUT_MS ?? '', 10) || 60_000);
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-async function shopFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  for (let attempt = 0; ; attempt++) {
-    const r = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) }).catch((e: Error & { cause?: { code?: string } }) => {
-      log.warn('Shop nicht erreichbar', { shop: 'shopware', url: urlForLog(url), error: e.name === 'TimeoutError' ? 'timeout' : e.cause?.code || e.message });
-      throw new Error(e.name === 'TimeoutError' ? `Shop antwortet nicht (Timeout nach ${TIMEOUT_MS / 1000}s)` : `Shop nicht erreichbar: ${e.cause?.code || e.message}`);
-    });
-    const retry = r.status === 429 || (r.status === 503 && (init.method ?? 'GET') === 'GET'); // writes only on 429 (certainly not processed)
-    if (!retry || attempt >= 2) { if (r.status >= 500 || r.status === 429) log.warn('Shop-Anfrage fehlgeschlagen', { shop: 'shopware', method: init.method ?? 'GET', url: urlForLog(url), status: r.status, attempts: attempt + 1 }); return r; }
-    const ra = parseInt(r.headers.get('retry-after') ?? '', 10), wait = Math.min(Number.isFinite(ra) ? ra * 1000 : 1000 * 2 ** attempt, 10_000);
-    log.info('Shop-Anfrage wird wiederholt', { shop: 'shopware', url: urlForLog(url), status: r.status, attempt: attempt + 1, waitMs: wait });
-    await sleep(wait);
-  }
-}
+const shopFetch = (url: string, init: RequestInit = {}) => httpFetch(url, init, { shop: 'shopware', name: 'Shop', timeoutMs: TIMEOUT_MS });
 
 // fetch() ignores a custom Host header. For the storefront via the internal address (Docker: http://shopware)
 // Shopware must see the sales channel domain though → node:http with Host set (GET/HEAD only, without redirects).

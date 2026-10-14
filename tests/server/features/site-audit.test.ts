@@ -70,3 +70,13 @@ test('home page unreachable: one clear finding, no follow-up errors', async () =
   assert.ok(ids.includes('site:status')); assert.ok(ids.includes('site:https'));
   assert.ok(!ids.some(i => /title|h1|canonical|noindex/.test(i)), 'unfetchable pages produce no content findings');
 });
+
+test('evaluate page: entities decoded in one pass; pathological HTML stays fast', () => {
+  const a = A.auditPage(got('https://shop.test/', '<html><head><title>A &amp;lt;b&amp;gt; &amp; B&#39;s</title><meta name="description" content="x &amp;quot;y"></head><body></body></html>'), 'home');
+  assert.equal(a.title, "A &lt;b&gt; & B's");
+  assert.equal(a.description, 'x &quot;y');
+  for (const bad of ['<script', '<head', '<title>', '<meta ', '<link ', '<script type="application/ld+json">']) {
+    const t = Date.now(); A.auditPage(got('https://shop.test/', bad.repeat(80_000)), 'home'); const d = Date.now() - t;
+    assert.ok(d < 1000, `${bad}: ${d} ms`);
+  }
+});

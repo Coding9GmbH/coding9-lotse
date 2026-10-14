@@ -89,3 +89,12 @@ test('quality check: JavaScript in the draft yields an important notice with the
   assert.match(auditSpec({ name: 'T', type: 'product_detail', sections: [{ blocks }] } as unknown as PageSpec, null, { format: 'html' }).warnings[0] ?? '', /JavaScript/);
   assert.ok(!auditSpec({ name: 'T', type: 'landingpage', sections: [{ blocks: [blocks[1]] }] } as unknown as PageSpec).warnings.some(w => /JavaScript/.test(w)));
 });
+
+// Only inputs the shared script scan (lib/script-scan.ts) handles fast; this covers the heading/text parsing in audit.ts
+test('audit: pathological block HTML (unclosed <h2>) does not freeze (ReDoS)', () => {
+  for (const bad of ['<h2>', '<h2>x</h3>']) {
+    const spec = { name: 'T', type: 'landingpage', sections: [{ blocks: [{ type: 'text', html: bad.repeat(80_000) }] }] } as unknown as PageSpec;
+    const t = Date.now(); auditSpec(spec); const d = Date.now() - t;
+    assert.ok(d < 1000, `${bad}: ${d} ms`);
+  }
+});

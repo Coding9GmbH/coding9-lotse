@@ -97,6 +97,17 @@ test('POST /api/upload: clean SVG gets xmlns and stays script-free', async () =>
   assert.doesNotMatch(text, /<script/i);
 });
 
+test('POST /api/upload: limit is the staging limit (413 with matching message, also announced via content-length)', async () => {
+  const { MAX_IMAGE_BYTES, IMAGE_TOO_LARGE } = await import('../../src/server/media');
+  assert.equal(IMAGE_TOO_LARGE, `Bild größer als ${MAX_IMAGE_BYTES / 1024 / 1024} MB`);
+  const big = new NextRequest('http://127.0.0.1/api/upload?name=gross', { method: 'POST', headers: { 'content-type': 'image/png' }, body: new Uint8Array(MAX_IMAGE_BYTES + 1) });
+  const r = await upload(big);
+  assert.equal(r.status, 413);
+  assert.equal((await r.json()).error, IMAGE_TOO_LARGE);
+  const announced = await upload(new NextRequest('http://127.0.0.1/api/upload', { method: 'POST', headers: { 'content-type': 'image/png', 'content-length': String(MAX_IMAGE_BYTES + 1) }, body: png }));
+  assert.equal(announced.status, 413);
+});
+
 test('POST /api/upload (Shopware): image is only staged, no access to the shop', async () => {
   const r = await upload(new NextRequest(`http://127.0.0.1/api/upload?name=${encodeURIComponent('Becher Foto.png')}`, { method: 'POST', headers: { 'content-type': 'image/png' }, body: png }));
   assert.equal(r.status, 200);

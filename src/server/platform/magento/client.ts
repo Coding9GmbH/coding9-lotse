@@ -4,14 +4,13 @@ import 'server-only';
 // Shop protection: timeout per request, at most MAX_CONC concurrent requests, on 429/503 wait briefly and retry at most 2×.
 import { criteriaQuery, type Criteria } from './criteria';
 import { parseBasis, type PriceBasis } from './map';
-import { log, urlForLog } from '../../log';
+import { createLimiter, shopFetch } from '../../shop-http';
 
 export interface MagentoConfig { url: string; publicUrl?: string; storeCode?: string; accessToken?: string; user?: string; password?: string; priceBasis?: string }
 export class MagentoError extends Error { constructor(msg: string, public status: number) { super(msg); } }
 
 const TIMEOUT_MS = Math.max(5_000, parseInt(process.env.LOTSE_SHOP_TIMEOUT_MS ?? '', 10) || 60_000);
 const MAX_CONC = Math.min(8, Math.max(1, parseInt(process.env.LOTSE_MAGENTO_CONCURRENCY ?? '', 10) || 4));
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 /** Store code for /rest/<store>/V1: lowercase letters, digits, underscore (no path injection) */
 export const STORE_RE = /^[a-z][a-z0-9_]{0,31}$/;
 
@@ -40,8 +39,7 @@ export class MagentoClient {
   #adminToken: string | null = null;
   #adminExpires = 0;
   #adminLogin: Promise<string> | null = null;
-  #active = 0;
-  #queue: (() => void)[] = [];
+  #slot = createLimiter(MAX_CONC);
 
   constructor(cfg: MagentoConfig) { this.configure(cfg); }
   configure(cfg: MagentoConfig) {
@@ -52,24 +50,8 @@ export class MagentoClient {
   }
   get configured() { return !!(this.base && (this.cfg.accessToken || (this.cfg.user && this.cfg.password))); }
 
-  async #slot<T>(fn: () => Promise<T>): Promise<T> {
-    // A free slot is handed directly to the next waiter (no gap in which a newcomer can jump the queue)
-    if (this.#active >= MAX_CONC) await new Promise<void>(r => this.#queue.push(r)); else this.#active++;
-    try { return await fn(); } finally { const next = this.#queue.shift(); if (next) next(); else this.#active--; }
-  }
-
-  async #fetch(url: string, init: RequestInit): Promise<Response> {
-    for (let attempt = 0; ; attempt++) {
-      const r = await this.#slot(() => fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) })).catch((e: Error & { cause?: { code?: string } }) => {
-        log.warn('Shop nicht erreichbar', { shop: 'magento', url: urlForLog(url), error: e.name === 'TimeoutError' ? 'timeout' : e.cause?.code || e.message });
-        throw new MagentoError(e.name === 'TimeoutError' ? `Magento antwortet nicht (Timeout nach ${TIMEOUT_MS / 1000}s)` : `Magento nicht erreichbar: ${e.cause?.code || e.message}`, 0);
-      });
-      const retry = r.status === 429 || (r.status === 503 && (init.method ?? 'GET') === 'GET'); // writes only on 429 (definitely not processed)
-      if (!retry || attempt >= 2) { if (r.status >= 500 || r.status === 429) log.warn('Shop-Anfrage fehlgeschlagen', { shop: 'magento', method: init.method ?? 'GET', url: urlForLog(url), status: r.status, attempts: attempt + 1 }); return r; }
-      const ra = parseInt(r.headers.get('retry-after') ?? '', 10), wait = Math.min(Number.isFinite(ra) ? ra * 1000 : 1000 * 2 ** attempt, 10_000);
-      log.info('Shop-Anfrage wird wiederholt', { shop: 'magento', url: urlForLog(url), status: r.status, attempt: attempt + 1, waitMs: wait });
-      await sleep(wait);
-    }
+  #fetch(url: string, init: RequestInit): Promise<Response> {
+    return shopFetch(url, init, { shop: 'magento', name: 'Magento', timeoutMs: TIMEOUT_MS, slot: this.#slot, toError: m => new MagentoError(m, 0) });
   }
 
   /** Bearer token: integration token directly, otherwise admin token (Magento default: valid 1 h, cached here for 50 min) */

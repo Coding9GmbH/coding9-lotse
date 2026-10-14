@@ -10,10 +10,10 @@ import { extractBlocks, findDivByClass, REAL_BLOCK_TYPES, stripScripts } from '.
 import { storefrontBase, storefrontRewrite } from '../../runtime';
 import { findingText, prepareSpecLinks } from '../../seo-links';
 import type { Session } from '../../sessions';
+import { chunks } from '../../util';
 import type { PlatformPages } from '../types';
 import { brief, loadRawBlocks } from './tools';
 
-const chunks = <T>(xs: T[], n: number): T[][] => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, (i + 1) * n));
 
 /**
  * Real data instead of placeholders: if the draft names no sample product or sample category, an active product with a cover image

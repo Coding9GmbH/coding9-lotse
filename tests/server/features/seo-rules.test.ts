@@ -120,3 +120,9 @@ test('SEO audit: check items, duplicates, report sorted (important first)', () =
   assert.deepEqual(rep.summary.map(s => [s.issue, s.level, s.count, s.fix]), [['metaTitle.missing', 'wichtig', 1, 'propose_product_changes fields.metaTitle'], ['description.thin', 'empfohlen', 2, 'propose_product_changes fields.description']]);
   assert.deepEqual(rep.ids['description.thin'], ['b', 'c']); assert.deepEqual(rep.worst.map(w => w.id), ['b', 'c']);
 });
+
+test('wordCount: unclosed <script> swallows the rest and stays linear (ReDoS)', () => {
+  assert.equal(wordCount('<p>Eins zwei</p><script>var drei'), 2);
+  const t = Date.now(); wordCount('<script'.repeat(100_000) + '<'.repeat(100_000)); const d = Date.now() - t;
+  assert.ok(d < 1000, `${d} ms`);
+});

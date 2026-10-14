@@ -125,3 +125,18 @@ test('fetchShopPage: only allowed hosts, each redirect separately, public target
   assert.equal(new URL(seen[0].url).hostname, 'mein-shop.de');
   assert.equal(seen[0].url, attack);
 });
+
+test('storefront: entities decoded in one pass (&amp;lt; stays literal &lt;)', () => {
+  const o = parseStorefront('<title>A &amp;lt;b&amp;gt; &amp; C&#39;s</title><main><h1>x &amp;amp; y</h1></main>', 'https://shop.test/');
+  assert.equal(o.title, 'A &lt;b&gt; & C’s');
+  assert.deepEqual(o.headings, [{ level: 1, text: 'x &amp; y' }]);
+});
+
+test('storefront: unclosed tags do not freeze the parser (ReDoS) and keep the old fallbacks', () => {
+  for (const bad of ['<script', '<main', '<header', '<nav>', '<h1>', '<a href="/x">', '<meta ', '<link ', '<']) {
+    const t = Date.now(); parseStorefront(bad.repeat(80_000), 'https://shop.test/'); const d = Date.now() - t;
+    assert.ok(d < 1000, `${bad}: ${d} ms`);
+  }
+  const o = parseStorefront('<header><h2>Kopf</h2></header><main><h1>Inhalt</h1>', 'https://shop.test/');
+  assert.deepEqual(o.headings, [{ level: 1, text: 'Inhalt' }], 'unclosed <main>: header stripped as before');
+});

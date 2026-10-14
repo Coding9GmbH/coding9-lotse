@@ -1,6 +1,7 @@
 import 'server-only';
 // Shopify: fixed GraphQL queries and conversion into Lotse data (short IDs, formatted prices). The same functions read
 // for the AI via the protected reader (reader.query) and in the executor via the privileged client (client.gql).
+import { stripHtml } from '@/lib/format';
 import { noteMedia } from '../../media';
 import { shortId, toGid, type Json } from './client';
 
@@ -21,7 +22,7 @@ export function currencyDigits(currency?: string): number {
 export const money = (n: number, currency?: string) => { const d = currencyDigits(currency), f = 10 ** d; return (Math.round(n * f) / f).toFixed(d); };
 /** Write back a money value from Shopify unchanged (undo: exact, without rounding) */
 export const moneyRaw = (v: unknown): string | null => (v == null ? null : String(v));
-export const stripHtml = (t: unknown) => String(t ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+export { stripHtml };
 /** Defuse free text for Shopify search syntax (don't pass the AI's filter syntax through) */
 export const searchText = (t: string) => t.replace(/[\\"():*]/g, ' ').replace(/\b(AND|OR|NOT)\b/g, ' ').replace(/(^|\s)-/g, '$1').replace(/\s+/g, ' ').trim();
 const quote = (v: string) => `"${v.replace(/[\\"]/g, '')}"`;

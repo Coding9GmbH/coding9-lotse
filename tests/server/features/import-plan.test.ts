@@ -140,9 +140,15 @@ test('helpers: categories, common name, HTML sanitizing', () => {
   for (const h of ['&#106;avascript:fetch(1)', 'java&#9;script:alert(1)', 'javascript&#58;alert(1)', ' &#x6A;avascript:alert(1)', 'JAVASCRIPT:alert(1)', 'data:text/html;base64,AA', 'vbscript:msgbox'])
     assert.equal(toHtml(`<p>Infos <a href="${h}">hier</a></p>`), '<p>Infos <a href="#">hier</a></p>', h);
   assert.equal(toHtml("<a href='javascript:x()'>a</a><img src=javascript:x()>"), '<a href="#">a</a><img src="#">');
-  assert.equal(toHtml('<form action="https://evil"><input name="pw"></form><meta http-equiv="refresh" content="0;url=https://evil"><base href="https://evil/"><link rel="stylesheet" href="x.css"><p>t</p>'), '<input name="pw"><p>t</p>');
+  assert.equal(toHtml('<form action="https://evil"><input name="pw"></form><meta http-equiv="refresh" content="0;url=https://evil"><base href="https://evil/"><link rel="stylesheet" href="x.css"><p>t</p>'), '<p>t</p>');
   const okHtml = '<a href="https://shop.de/x?a=1&amp;b=2">ok</a> <a href="/pflege">rel</a> <a href="pflege.html">datei</a> <a href="#top">anker</a> <a href="mailto:a@b.de">m</a> <a href="tel:+4940">t</a> <img src="https://cdn/x.jpg" alt="x">';
   assert.equal(toHtml(okHtml), okHtml);
+  // allowlist: known regex-blocklist bypasses
+  assert.equal(toHtml('<p>a<svg/onload=alert(1)>b</p>'), '<p>a');
+  assert.equal(toHtml('<p><img src="x"/onerror=alert(1)></p>'), '<p><img src="x"></p>');
+  assert.equal(toHtml('<scr<script></script>ipt>alert(1)</script>'), 'ipt&gt;alert(1)');
+  assert.equal(toHtml('<button formaction=javascript:alert(1)>x</button>'), 'x');
+  assert.equal(toHtml('Text\nzweite Zeile\n\nAbsatz'), '<p>Text<br>zweite Zeile</p><p>Absatz</p>');
 });
 
 test('executor: creates, updates, collects exact undo (fake shop)', async () => {

@@ -417,16 +417,11 @@ for (const c of LEGAL_CHECKS) if (c.id !== 'bfsg.alt') registerCheck(c);
 async function fileText(fileId: string): Promise<{ name: string; text: string }> {
   const f = getFile(fileId); if (!f) throw new Error('Datei nicht gefunden (fileId aus dem Anhang verwenden)');
   const ext = (f.name.match(/\.([a-z0-9]+)$/i)?.[1] ?? '').toLowerCase();
-  if (ext === 'pdf') { const { extractText } = await import('unpdf'); const r = await extractText(new Uint8Array(f.buf), { mergePages: true }); return { name: f.name, text: String(r.text) }; }
-  if (ext === 'docx') { const m = (await import('mammoth')).default; return { name: f.name, text: (await m.extractRawText({ buffer: f.buf })).value }; }
-  if (ext === 'xlsx') {
-    const ExcelJS = (await import('exceljs')).default, wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(f.buf as unknown as ArrayBuffer);
-    const lines: string[] = [];
-    wb.eachSheet(ws => { lines.push(`# ${ws.name}`); ws.eachRow(r => lines.push((r.values as unknown[]).slice(1).map(v => (v && typeof v === 'object' ? ((v as { text?: string; result?: unknown }).text ?? String((v as { result?: unknown }).result ?? '')) : String(v ?? ''))).join('\t'))); });
-    return { name: f.name, text: lines.join('\n') };
+  if (['pdf', 'docx', 'xlsx', 'xls'].includes(ext)) { // shared extractor: zip-bomb guard, page/row/text limits
+    const { extractSegments } = await import('../knowledge-text');
+    const { segments } = await extractSegments(f.buf, f.name);
+    return { name: f.name, text: segments.map(s => (s.label ? `# ${s.label}\n${s.text}` : s.text)).join('\n\n') };
   }
-  if (ext === 'xls') throw new Error('Altes Excel-Format (.xls): bitte als .xlsx oder .csv speichern');
   return { name: f.name, text: f.buf.toString('utf8') };
 }
 

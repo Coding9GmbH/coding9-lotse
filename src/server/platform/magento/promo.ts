@@ -12,7 +12,6 @@ const COMBINE = 'Magento\\SalesRule\\Model\\Rule\\Condition\\Combine', PRODUCT_C
 const PRODUCT_COND = 'Magento\\SalesRule\\Model\\Rule\\Condition\\Product', ADDRESS_COND = 'Magento\\SalesRule\\Model\\Rule\\Condition\\Address';
 export const MAX_CODES = 1000;
 const ACTION: Record<string, string> = { percentage: 'by_percent', absolute: 'by_fixed', cart_fixed: 'cart_fixed', buy_x_get_y: 'buy_x_get_y' };
-const ACTION_BACK: Record<string, string> = Object.fromEntries(Object.entries(ACTION).map(([k, v]) => [v, k]));
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export type PromoStatus = 'läuft' | 'geplant' | 'abgelaufen' | 'inaktiv';
@@ -262,4 +261,3 @@ reg.register('promotion-status', (c: MagentoClient, cs, _p, selected, ctx) => ap
   await c.req('PUT', `/V1/salesRules/${it.entityId}`, { rule: { rule_id: Number(it.entityId), ...set } }, { store: 'all' });
   return reqOp('sales-rule', it.entityId!, 'PUT', `/all/V1/salesRules/${it.entityId}`, { rule: { rule_id: Number(it.entityId), ...undoRule(cur, Object.keys(set)) } });
 }, ctx));
-export const ACTION_NAMES = ACTION_BACK;

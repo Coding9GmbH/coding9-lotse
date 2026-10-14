@@ -1,5 +1,6 @@
 import 'server-only';
 // Simplified page spec (for the AI) → Shopware cms_page payload + HTML preview
+import { esc } from '@/lib/format';
 import { FRAME_CSS, FRAME_SCRIPT } from '@/lib/preview-frame';
 import { injectIntoHead, spliceSections } from './real-page';
 import { newId } from './shopware';
@@ -246,7 +247,6 @@ export async function compile(spec: PageSpec, resolveMedia: (im: ImageObj) => Pr
 // ---------- HTML preview ----------
 // Runs in the sandboxed iframe (DraftFrame.tsx): scripts from custom-html and shop HTML have no access to the UI and API;
 // partial updates, scroll and mark mode go through the script from lib/preview-frame.ts (postMessage).
-const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c as '&' | '<' | '>' | '"']));
 
 export interface PreviewProduct { id?: string; name?: string; price?: string | null; img?: string; description?: string; faqHtml?: string; [k: string]: unknown }
 export interface PreviewCtx {

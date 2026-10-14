@@ -1,4 +1,5 @@
 // Search Console: pure evaluation (no network): periods, CTR curve, opportunities, content gaps, success measurement.
+import { escapeRe } from '@/lib/platforms';
 import type { Row } from './gsc-google';
 
 export const LAG_DAYS = 3;          // Search Console data is about 2-3 days old
@@ -201,5 +202,4 @@ const fmtRel = (x: number | null) => (x == null ? 'n/a' : `${x >= 0 ? '+' : ''}$
 
 /** RE2 pattern for page URLs with these paths (any scheme/host, exact path).
  *  Search Console returns URLs percent-encoded (küche → k%C3%BCche); so per path both the raw and the encoded form apply. */
-export const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export const pathRegex = (paths: string[]) => `^https?://[^/]+/(${[...new Set(paths.flatMap(p => { const c = p.replace(/^\/+/, ''); return [c, encodeURI(c)]; }))].map(escapeRe).join('|')})$`;

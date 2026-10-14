@@ -5,9 +5,9 @@ import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { viewedImages } from '../../features/product-images';
 import type { Session } from '../../sessions';
-import { fail, guard, ok, type AnyTool } from '../../tool-kit';
+import { fail, guard, lim, ok, type AnyTool } from '../../tool-kit';
 import { assertShopUrl, fetchShopPage, parseStorefront } from '../../storefront';
-import { MAX_ITEMS } from './kit';
+import { MAX_ITEMS } from '../magento/kit';
 import { basisWord, isActive, money, omAttr, omStr, plain, priceOf, FROM_KIDS, VISIBILITY, type OmCategory, type OmProduct, type OmRecord } from './map';
 import { LIST_FIELDS, OmReader, type ProductQuery } from './reader';
 import { buildCategoryChangeSet, buildCategoryProductsChangeSet, buildProductChangeSet, buildSeoUrlChangeSet, buildTranslationChangeSet, loadProducts, OM_CATEGORY_FIELDS, OM_PRODUCT_FIELDS, storeViewList, TRANSLATION_FIELDS } from './catalog';
@@ -30,7 +30,6 @@ export function openmageReader(session: Pick<Session, 'reader'>): OmReader {
   if (!(session.reader instanceof OmReader)) throw new Error('Dieses Werkzeug gibt es nur für OpenMage.');
   return session.reader;
 }
-const lim = (v: number | undefined, d: number, max: number) => Math.max(1, Math.min(Math.floor(v ?? d), max));
 const excerpt = (t: unknown, n = 200) => { const s = plain(t); return s.length > n ? `${s.slice(0, n)}…` : s; };
 
 export function openmageTools(session: Session): AnyTool[] {

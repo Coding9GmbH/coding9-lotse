@@ -39,7 +39,7 @@ test('read_gpsr_document: XLSX row by row as text, CSV with offset/maxChars, unk
   ws.addRow(['Firma', 'Anschrift', 'Kontakt']); ws.addRow(['Nordlicht GmbH', 'Kai 1, 24103 Kiel', 'info@nordlicht.example']);
   const x = saveFile(Buffer.from(await wb.xlsx.writeBuffer()), 'liste.xlsx');
   const r = await call('read_gpsr_document', { fileId: x.fileId });
-  assert.match(r.text, /# Hersteller\nFirma\tAnschrift\tKontakt\nNordlicht GmbH\tKai 1, 24103 Kiel\tinfo@nordlicht\.example/);
+  assert.match(r.text, /# Blatt Hersteller\nFirma: Nordlicht GmbH; Anschrift: Kai 1, 24103 Kiel; Kontakt: info@nordlicht\.example/);
   assert.deepEqual(r.candidates.emails, ['info@nordlicht.example']);
   const c = saveFile(Buffer.from('a;b\n' + 'x'.repeat(3000), 'utf8'), 'daten.csv');
   const p1 = await call('read_gpsr_document', { fileId: c.fileId, maxChars: 1000 });
@@ -49,4 +49,14 @@ test('read_gpsr_document: XLSX row by row as text, CSV with offset/maxChars, unk
   assert.deepEqual([p2.offset, p2.nextOffset], [2500, undefined]);
   const bad = await raw('read_gpsr_document', { fileId: 'f_gibtesnicht' });
   assert.equal(bad.isError, true); assert.match(bad.content[0].text, /Datei nicht gefunden/);
+});
+
+test('read_gpsr_document: XLSX/DOCX go through the shared extractor with zip-bomb guard; old .xls rejected', async () => {
+  const d = saveFile(Buffer.from('kein zip'), 'datenblatt.docx');
+  const r = await raw('read_gpsr_document', { fileId: d.fileId });
+  assert.equal(r.isError, true); assert.match(r.content[0].text, /kein gültiges ZIP/);
+  const x = await raw('read_gpsr_document', { fileId: saveFile(Buffer.from('kein zip'), 'liste.xlsx').fileId });
+  assert.equal(x.isError, true); assert.match(x.content[0].text, /kein gültiges ZIP/);
+  const o = await raw('read_gpsr_document', { fileId: saveFile(Buffer.from('x'), 'alt.xls').fileId });
+  assert.equal(o.isError, true); assert.match(o.content[0].text, /\.xls/);
 });

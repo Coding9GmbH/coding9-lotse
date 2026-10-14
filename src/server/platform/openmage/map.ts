@@ -1,7 +1,7 @@
 // Read OpenMage records (Lotse_Connector API) and map them to Lotse fields (pure functions, tested in openmage.test.ts).
 // The price logic is the same as for Magento 2 (price = regular/strikethrough, special_price = selling price with period):
 // planPrice/priceState from magento/map.ts are applied to OpenMage records via mrec().
-import { attr, basisWord, day, deDay, isoDay, money, parseBasis, plain, planPrice, priceState, priceText, priceUndo, sameValue, urlKey, VISIBILITY, VISIBILITY_IN, type MRecord, type PriceBasis, type PriceState, type PriceWrite } from '../magento/map';
+import { basisWord, day, deDay, isoDay, money, parseBasis, plain, planPrice, priceState, priceText, priceUndo, sameValue, urlKey, VISIBILITY, VISIBILITY_IN, type MRecord, type PriceBasis, type PriceState, type PriceWrite } from '../magento/map';
 
 export { basisWord, day, deDay, isoDay, money, parseBasis, plain, planPrice, priceState, priceText, priceUndo, sameValue, urlKey, VISIBILITY, VISIBILITY_IN };
 export type { PriceBasis, PriceState, PriceWrite };
@@ -74,7 +74,6 @@ export function mrec(p: OmRecord): MRecord {
     media_gallery_entries: ((p.images ?? []) as OmImage[]).map(e => ({ id: e.id, label: e.label, position: e.position, disabled: e.disabled, types: e.types, file: e.file })) };
 }
 export const priceOf = (p: OmRecord, today?: string): PriceState => priceState(mrec(p), today);
-export const attrM = attr;
 
 export const isActive = (p: OmRecord) => Number(p.status) === 1;
 export const isVisible = (p: OmRecord) => Number(p.visibility) !== 1;

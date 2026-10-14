@@ -1,6 +1,7 @@
 import 'server-only';
 // SEO rules (pure + change set/executor for SEO URLs): slug check, SEO audit per product/category, duplicate metas.
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
+import { htmlToText } from '@/lib/text';
 import { MAX_ITEMS } from '../changes';
 import { HEX32, newId, type ShopReader, type Shopware, type SwEntity } from '../shopware';
 import { canonicalSeoPaths, linkContext, ROUTE, underRoots, visibleProducts, type LinkCtx } from '../seo-links';
@@ -135,7 +136,7 @@ export const ISSUES: Record<string, IssueDef> = {
 
 export interface AuditInput { id: string; name?: string; number?: string; metaTitle?: string | null; metaDescription?: string | null; description?: string | null; isProduct: boolean; hasCover?: boolean; imagesWithoutAlt?: number; seoPath?: string | null; brokenLinks?: number }
 const clean = (t: unknown) => String(t ?? '').replace(/\s+/g, ' ').trim();
-export const wordCount = (html: unknown) => (String(html ?? '').replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').match(/[\p{L}\p{N}]+(?:[-'’][\p{L}\p{N}]+)*/gu) ?? []).length;
+export const wordCount = (html: unknown) => (htmlToText(String(html ?? '')).match(/[\p{L}\p{N}]+(?:[-'’][\p{L}\p{N}]+)*/gu) ?? []).length;
 export const dupKey = (t: unknown) => clean(t).toLowerCase();
 
 /** Check items of a product/category. dups: meta values that occur more than once in the shop. */

@@ -9,12 +9,10 @@ import { noteMedia } from '../../media';
 import { storefrontBase } from '../../runtime';
 import type { Session } from '../../sessions';
 import type { ShopReader, SwEntity } from '../../shopware';
-import { assertShopUrl, parseStorefront, resolveCmsTarget } from '../../storefront';
+import { assertShopUrl, fetchShopPage, parseStorefront, resolveCmsTarget } from '../../storefront';
 import { collectSignals } from '../../styleguide';
-import { fail, guard, nextOffsetOf, ok, pageOf, type AnyTool } from '../../tool-kit';
+import { fail, guard, lim, nextOffsetOf, ok, pageOf, type AnyTool } from '../../tool-kit';
 
-/** Limit page size (protection against huge responses) */
-const lim = (v: number | undefined, d: number, max: number) => Math.max(1, Math.min(Math.floor(v ?? d), max));
 const money = (p: SwEntity) => (p?.price?.[0]?.gross != null ? `${Number(p.price[0].gross).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : null);
 export const brief = (p: SwEntity) => ({
   id: p.id, name: p.translated?.name ?? p.name, number: p.productNumber, price: money(p),
@@ -115,8 +113,8 @@ export function shopwareTools(session: Session): AnyTool[] {
         const sc = await sw.salesChannels();
         const allowed = [...sc.flatMap(c => (c.domains ?? []).map((d: SwEntity) => String(d.url))), sw.base, await storefrontBase().catch(() => '')];
         const u = assertShopUrl(url, allowed);
-        const r = await (session.storefrontFetch ?? fetch)(u.href, { redirect: 'follow' });
-        if (r.url && r.url !== u.href) assertShopUrl(r.url, allowed); // redirect must not leave the shop
+        // follow redirects hop by hop: every target must be a shop address before it is requested
+        const r = await fetchShopPage(u.href, allowed, { fetchImpl: (href, init) => (session.storefrontFetch ?? fetch)(href, init) });
         if (!r.ok) return fail(`Seite antwortet mit HTTP ${r.status}`);
         const html = (await r.text()).slice(0, 2_500_000);
         const page = parseStorefront(html, u.href);

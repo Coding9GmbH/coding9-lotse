@@ -128,10 +128,27 @@ export const pruneLogs = (now = Date.now()) => { logPrune().at = now; return pru
 function maybePrune(now = Date.now()) { if (now - logPrune().at >= DAY) try { pruneLogs(now); } catch {} }
 
 // ---- Store secrets encrypted (AES-256-GCM, key in the data folder, permissions 600) ----
+const KEY_LEN = 32;
+/** Existing key must be exactly 32 bytes; otherwise fail clearly here instead of an opaque "Invalid key length" in seal() later */
+function checkedKey(k: Buffer, keyfile: string): Buffer {
+  if (k.length !== KEY_LEN) throw new Error(`${keyfile} ist beschädigt (${k.length} statt ${KEY_LEN} Bytes). Datei aus einem Backup wiederherstellen; ohne den richtigen Schlüssel lassen sich gespeicherte Zugangsdaten nicht mehr entschlüsseln.`);
+  return k;
+}
 const key = () => singleton('secretKey', (): Buffer => {
   const dir = dataDir(), keyfile = path.join(dir, 'secret.key');
-  try { return fs.readFileSync(keyfile); } catch { fs.mkdirSync(dir, { recursive: true }); const k = crypto.randomBytes(32); fs.writeFileSync(keyfile, k, { mode: 0o600 }); return k; }
+  try { return checkedKey(fs.readFileSync(keyfile), keyfile); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
+  fs.mkdirSync(dir, { recursive: true });
+  const k = crypto.randomBytes(KEY_LEN);
+  // wx: never overwrite; if another process created the key in the meantime, use its key
+  try { fs.writeFileSync(keyfile, k, { flag: 'wx', mode: 0o600 }); return k; }
+  catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e; return checkedKey(fs.readFileSync(keyfile), keyfile); }
 });
+const unsealWarned = () => singleton('unsealWarned', () => ({ done: false }));
+/** Undecryptable secret (key replaced/lost, value corrupted): log once per process. Lazy import: log → settings → db would be a cycle. */
+function warnUnseal(e: unknown) {
+  const w = unsealWarned(); if (w.done) return; w.done = true;
+  void import('./log').then(({ log }) => log.warn('Gespeicherter geheimer Wert lässt sich nicht entschlüsseln (secret.key ersetzt oder Wert beschädigt); er wird als leer behandelt', { error: e instanceof Error ? e.message : String(e) })).catch(() => {});
+}
 export function seal(text: unknown): string | null {
   if (text == null || text === '') return null;
   const iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', key(), iv), ct = Buffer.concat([c.update(String(text), 'utf8'), c.final()]);
@@ -139,7 +156,7 @@ export function seal(text: unknown): string | null {
 }
 export function unseal(s: string | null | undefined): string | null {
   if (!s) return null; if (!s.startsWith('enc:v1:')) return s;
-  try { const b = Buffer.from(s.slice(7), 'base64'), d = crypto.createDecipheriv('aes-256-gcm', key(), b.subarray(0, 12)); d.setAuthTag(b.subarray(12, 28)); return Buffer.concat([d.update(b.subarray(28)), d.final()]).toString('utf8'); } catch { return null; }
+  try { const b = Buffer.from(s.slice(7), 'base64'), d = crypto.createDecipheriv('aes-256-gcm', key(), b.subarray(0, 12)); d.setAuthTag(b.subarray(12, 28)); return Buffer.concat([d.update(b.subarray(28)), d.final()]).toString('utf8'); } catch (e) { warnUnseal(e); return null; }
 }
 
 // ---- One-time import of old JSON files (earlier versions) ----

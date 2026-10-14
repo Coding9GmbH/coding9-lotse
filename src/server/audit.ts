@@ -5,8 +5,9 @@ import type { BlockSpec, ImageRef, PageSpec } from './cms';
 import { AI_CREDIT, aiImagesIn } from './media';
 import { findingText, type LinkReport } from './seo-links';
 import { scriptRisk, scriptRiskText } from '@/lib/script-scan';
+import { HEADINGS, htmlToText } from '@/lib/text';
 
-const strip = (h: unknown) => String(h ?? '').replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+const strip = (h: unknown) => htmlToText(String(h ?? ''));
 const words = (t: string) => (t.match(/[\p{L}\p{N}-]+/gu) ?? []).length;
 const TEXT_FIELDS = ['html', 'leftHtml', 'centerHtml', 'rightHtml'] as const;
 /** Visible text (without FAQ) per page: check and message use the same value */
@@ -56,16 +57,16 @@ export function auditSpec(spec: PageSpec, links?: LinkReport | null, { format = 
   const THEME_LIKE: Record<string, string[]> = { product_list: ['product-listing'], product_detail: ['pdp-gallery-buybox', 'pdp-description-reviews', 'pdp-heading'] };
   const isLike = (f: Flow, t: string) => f.b.type === t || f.type === t || f.b.like === t || (f.b.type === 'theme-main' && (THEME_LIKE[spec.type] ?? []).includes(t)); // reused blocks count like their catalog counterpart
   const all = flow.map(f => f.html).join('\n'), allText = strip(all), nWords = words(allText);
-  const heads = [...all.matchAll(/<h([1-4])[^>]*>([\s\S]*?)<\/h\1>/gi)].map(m => ({ l: +m[1], t: strip(m[2]).toLowerCase() }));
+  const heads = [...all.matchAll(HEADINGS)].map(m => ({ l: +m[1], t: strip(m[2]).toLowerCase() }));
   // Heading from the shop: pdp-heading or the theme (product or collection title as H1 next to theme-main)
   const hasPdpHeading = flow.some(f => f.b.type === 'pdp-heading') || themed;
   const h1s = heads.filter(h => h.l === 1), h1Count = h1s.length + (hasPdpHeading ? 1 : 0);
   const h2s = heads.filter(h => h.l === 2);
   const firstWords = allText.split(/\s+/).slice(0, 100).join(' ').toLowerCase();
   const kwCount = kw ? (allText.toLowerCase().split(kw).length - 1) : 0;
-  const linkList = [...all.matchAll(/<a\s[^>]*href="([^"]*)"/gi)].map(m => m[1]);
+  const linkList = [...all.matchAll(/<a\s[^<>]*href="([^"]*)"/gi)].map(m => m[1]);
   const internal = links ? links.internal : linkList.filter(l => l.startsWith('/') && !l.startsWith('//')).length;
-  const hasCta = (f: Flow) => /class="[^"]*\bbtn\b|<button|<a\s[^>]*href=/i.test(f.html) || f.type === 'cta-banner';
+  const hasCta = (f: Flow) => /class="[^"]*\bbtn\b|<button|<a\s[^<>]*href=/i.test(f.html) || f.type === 'cta-banner';
   const listingIdx = flow.findIndex(f => isLike(f, 'product-listing'));
   const imgs = flow.flatMap(f => (['image', 'image2'] as const).map(k => f.b[k]).filter((i): i is ImageRef => !!i));
   const noAlt = imgs.filter(i => typeof i === 'string' || !i.alt).length;

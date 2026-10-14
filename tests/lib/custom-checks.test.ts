@@ -48,3 +48,8 @@ test('texts: rule in words, slug, titles of built-in checks', () => {
   assert.equal(builtinTitle('recht.gpsr'), 'GPSR-Pflichtangaben');
   assert.equal(builtinTitle('xyz.unbekannt'), 'xyz.unbekannt');
 });
+
+test('fields: pathological description HTML (unclosed <script>) does not freeze', () => {
+  const t = Date.now(); fieldValue({ description: '<script'.repeat(100_000) } as NeutralProduct, 'descriptionWords'); const d = Date.now() - t;
+  assert.ok(d < 1000, `${d} ms`);
+});

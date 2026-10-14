@@ -2,6 +2,7 @@
 // Rows + mapping + resolved catalog → one plan per product (new / update / add variants) + readable change set.
 import type { ChangeItem, ChangeSet } from '@/lib/protocol';
 import { eur, net } from '../changes';
+import { sanitizeHtml } from '../html-sanitize';
 import type { SwEntity } from '../shopware';
 import { columnDecimal, parseNumber, type Table } from './import-parse';
 import { FIELD_LABELS, type ImportMapping, type ScalarTarget } from './import-mapping';
@@ -77,21 +78,10 @@ export interface Rec {
 }
 const URL_RE = /^https?:\/\/[^\s"'<>]+$/i;
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const ENTITY: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", colon: ':', tab: '\t', newline: '\n' };
-/** Resolve HTML entities (&#106; &#x6A; &colon; …) as the browser does in attribute values */
-const decodeEntities = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);?/gi, (m, e: string) => {
-  if (e[0] === '#') { const n = parseInt(e[1].toLowerCase() === 'x' ? e.slice(2) : e.slice(1), e[1].toLowerCase() === 'x' ? 16 : 10); return Number.isFinite(n) && n > 0 && n < 0x110000 ? String.fromCodePoint(n) : m; }
-  return ENTITY[e.toLowerCase()] ?? m;
-});
-/** Link target allowed? No scheme (relative, anchor) or only http(s), mailto, tel; browsers ignore control characters and whitespace in the scheme */
-const safeUrl = (v: string) => { const m = /^([a-z][a-z0-9+.-]*):/i.exec(decodeEntities(v).replace(/[\u0000-\u0020\u007f-\u009f]/g, '')); return !m || /^(https?|mailto|tel)$/i.test(m[1]); };
-/** Description: text → paragraphs; HTML without scripts, styles, forms, event handlers; link targets only http(s), mailto, tel, relative */
+/** Description: text → paragraphs; HTML through the allowlist sanitizer (formatting tags only, link targets only http(s), mailto, tel, relative) */
 export function toHtml(s: string): string {
-  if (/<\/?[a-z][^>]*>/i.test(s)) {
-    return s.replace(/<(script|style|iframe|object|embed)\b[\s\S]*?(<\/\1>|$)/gi, '').replace(/<\/?(link|meta|base|form)\b[^>]*>/gi, '')
-      .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-      .replace(/\b(href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi, (m, a: string, d?: string, q?: string, b?: string) => (safeUrl(d ?? q ?? b ?? '') ? m : `${a}="#"`)).trim();
-  }
+  const h = s.search(/<\/?[a-z]/i);
+  if (h >= 0 && s.indexOf('>', h) >= 0) return sanitizeHtml(s).trim();
   return s.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean).map(p => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('');
 }
 const clean = (s: string | undefined, max = 255) => { const v = String(s ?? '').replace(/\s+/g, ' ').trim(); return v ? v.slice(0, max) : undefined; };

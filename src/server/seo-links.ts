@@ -1,6 +1,7 @@
 import 'server-only';
 // Links in pages and descriptions: technical Shopware paths (/detail/<id>, /navigation/<id>) → SEO URL,
 // check internal targets (exists, active, in sales channel, SEO URL present) and external links (rel/target); see prompts/09-seo.md.
+import { attr, closed } from '@/lib/text';
 import type { ShopReader, SwEntity } from './shopware';
 
 export type LinkKind = 'product' | 'category' | 'landing';
@@ -14,13 +15,12 @@ const GENERIC_ANCHOR = /^(hier|hier klicken|klicken sie hier|klick hier|hier ent
 
 export interface LinkRef { href: string; text: string; rel?: string; target?: string }
 
-const attr = (tag: string, name: string) => tag.match(new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i'))?.slice(1).find(v => v != null);
-const plain = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+const plain = (h: string) => h.replace(/<[^<>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
 
 /** All <a href> of an HTML text with link text, rel and target. */
 export function extractLinks(html: string): LinkRef[] {
-  return [...String(html ?? '').matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)].flatMap(m => {
-    const href = attr(m[1], 'href'); if (href == null) return [];
+  return [...String(html ?? '').matchAll(/<a\b([^<>]*)>([\s\S]*?)(?:<\/a>|$)/gi)].flatMap(m => {
+    const href = attr(m[1], 'href'); if (href == null || !closed(m[0], 'a')) return [];
     return [{ href: href.trim(), text: plain(m[2]).slice(0, 120) || (attr(m[2], 'alt') ?? ''), rel: attr(m[1], 'rel'), target: attr(m[1], 'target') }];
   });
 }
@@ -225,7 +225,7 @@ export function collectLinks(obj: unknown): LinkRef[] {
 }
 
 /** Replace href values in HTML (only exact matches from the map). */
-export const rewriteHtml = (html: string, map: Map<string, string>) => !map.size ? html : html.replace(/(<a\b[^>]*?\shref\s*=\s*)(["'])([^"']*)\2/gi, (all, pre, q, href) => { const n = map.get(href.trim()); return n ? `${pre}${q}${n}${q}` : all; });
+export const rewriteHtml = (html: string, map: Map<string, string>) => !map.size ? html : html.replace(/(<a\b[^<>]*?\shref\s*=\s*)(["'])([^"']*)\2/gi, (all, pre, q, href) => { const n = map.get(href.trim()); return n ? `${pre}${q}${n}${q}` : all; });
 
 /** Copy of an object with rewritten links (HTML strings and link fields). */
 export function rewriteLinks<T>(obj: T, map: Map<string, string>): T {

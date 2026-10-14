@@ -13,6 +13,8 @@ export function pageOf(offset: number | undefined, limit: number): { limit: numb
   const want = Math.max(0, Math.floor(offset ?? 0)), page = Math.floor(want / limit) + 1, eff = (page - 1) * limit;
   return { limit, page, offset: eff, ...(eff !== want ? { note: `offset auf ${eff} gerundet (Vielfaches von limit=${limit})` } : {}) };
 }
+/** Limit page size (protection against huge responses) */
+export const lim = (v: number | undefined, d: number, max: number) => Math.max(1, Math.min(Math.floor(v ?? d), max));
 /** nextOffset, if more records remain after the page read */
 export const nextOffsetOf = (offset: number, returned: number, limit: number, total: number | undefined) => (offset + returned < (total ?? 0) ? offset + limit : null);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

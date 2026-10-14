@@ -178,4 +178,3 @@ export const toolNamesFor = (kind: PlatformKind): string[] => {
 export const allToolsFor = (kind: PlatformKind): string[] => toolNamesFor(kind).map(n => `mcp__shop__${n}`);
 /** Shopware (default), for tests and legacy calls */
 export const TOOL_NAMES: string[] = toolNamesFor('shopware');
-export const ALL_TOOLS: string[] = allToolsFor('shopware');
