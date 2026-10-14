@@ -5,6 +5,11 @@ Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die V
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
 Jede Änderung bekommt einen eigenen Abschnitt mit neuer Versionsnummer (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
+## [0.7.1] – 2026-10-14
+
+### Geändert
+- Entwicklungs-Werkzeuge aktualisiert: ESLint 10, TypeScript 6 und die Node-26-Typdefinitionen. Für Nutzer ändert sich nichts. TypeScript 7 folgt, sobald typescript-eslint es unterstützt.
+
 ## [0.7.0] – 2026-10-14
 
 ### Hinzugefügt
@@ -136,6 +141,7 @@ Jede Änderung bekommt einen eigenen Abschnitt mit neuer Versionsnummer (siehe [
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
+[0.7.1]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.4.0...v0.5.0

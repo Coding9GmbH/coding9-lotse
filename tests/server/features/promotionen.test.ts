@@ -339,7 +339,7 @@ test('Ändern: Rabatte ersetzen löscht alte Rabatte und verwaiste Lotse-Regel; 
   assert.deepEqual(cs.items.map(i => i.field), ['discounts']);
   const shop = fakeShop(db);
   const res = await applyChangeSet(shop.sw, cs, payload, all(cs));
-  assert.ok(res.results.every(r => r.ok) && !res.error, res.error);
+  assert.ok(res.results.every(r => r.ok) && !res.error, res.error ?? '');
   assert.deepEqual(db['promotion-discount'].map(d => [d.value, d.discountRules]), [[25, [{ id: 'id1' }]]]);
   assert.deepEqual(db.rule.map(r => r.id), ['id1'], 'alte Lotse-Regel gelöscht');
   assert.deepEqual(res.undo.map(u => `${u.op} ${u.entity}`), ['delete rule', 'create promotion-discount', 'delete promotion-discount', 'create rule']);
