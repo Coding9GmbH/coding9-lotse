@@ -53,6 +53,8 @@ export interface PlatformSettingsDescriptor {
   categoryNoun?: { one: string; many: string };
   /** Adapter fertig angebunden. false = Vorschau: Zugang speicherbar, Werkzeuge melden „noch nicht verfügbar“. */
   available: boolean;
+  /** Alpha: angebunden, aber noch nicht im Alltag mit echten Shops erprobt (anders als Shopware). Die Oberfläche kennzeichnet das. */
+  alpha?: boolean;
 }
 
 type PlatformTexts = typeof deLib.platforms;
@@ -81,7 +83,7 @@ const DESCRIBE: Record<PlatformKind, (t: PlatformTexts) => PlatformSettingsDescr
     ],
   }),
   shopify: ({ urlPlaceholder, authLabel, shopify: x }) => ({
-    kind: 'shopify', label: 'Shopify', product: 'Shopify', available: true, categoryNoun: x.category,
+    kind: 'shopify', label: 'Shopify', product: 'Shopify', available: true, alpha: true, categoryNoun: x.category,
     storefrontPaths: ['cdn', 'products', 'collections', 'pages', 'cart', 'search'],
     fields: [
       { key: 'storeDomain', label: x.storeDomain.label, placeholder: x.storeDomain.placeholder, hint: x.storeDomain.hint, env: 'SHOPIFY_STORE_DOMAIN', autoComplete: 'off' },
@@ -100,7 +102,7 @@ const DESCRIBE: Record<PlatformKind, (t: PlatformTexts) => PlatformSettingsDescr
     ],
   }),
   magento: ({ urlPlaceholder, authLabel, magento: x }) => ({
-    kind: 'magento', label: 'Magento', product: 'Magento 2 (Adobe Commerce)', available: true,
+    kind: 'magento', label: 'Magento', product: 'Magento 2 (Adobe Commerce)', available: true, alpha: true,
     storefrontPaths: ['static', 'media', 'pub', 'catalog', 'checkout', 'customer/section'],
     fields: [
       { key: 'url', label: x.url.label, type: 'url', placeholder: urlPlaceholder, hint: x.url.hint, env: 'MAGENTO_URL', autoComplete: 'url' },
@@ -122,7 +124,7 @@ const DESCRIBE: Record<PlatformKind, (t: PlatformTexts) => PlatformSettingsDescr
     ],
   }),
   openmage: ({ urlPlaceholder, openmage: x }) => ({
-    kind: 'openmage', label: 'OpenMage', product: 'OpenMage (Magento 1)', available: true,
+    kind: 'openmage', label: 'OpenMage', product: 'OpenMage (Magento 1)', available: true, alpha: true,
     storefrontPaths: ['skin', 'js', 'media', 'catalog', 'catalogsearch', 'checkout', 'cms', 'index.php'],
     fields: [
       { key: 'url', label: x.url.label, type: 'url', placeholder: urlPlaceholder, hint: x.url.hint, env: 'OPENMAGE_URL', autoComplete: 'url' },
