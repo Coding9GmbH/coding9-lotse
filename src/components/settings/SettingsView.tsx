@@ -125,6 +125,7 @@ export function SettingsView() {
             <LanguageSwitch className={styles.langSeg} />
           </section>
 
+          {saved?.openWithoutPassword && <div className={styles.alert} role="alert">{ts.openWithoutPassword}</div>}
           {loadError && <div className={styles.alert} role="alert">{ts.loadFailed(loadError)}</div>}
           {!form && !loadError && <p className={styles.lead}>{ts.loading}</p>}
 

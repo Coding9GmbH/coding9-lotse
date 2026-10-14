@@ -2,6 +2,7 @@ import 'server-only';
 // Einstellungen: Shop-Plattform + Zugang (Shopware, Shopify, Magento, OpenMage), KI-Zugang, Bild-KI, KI-Zugriffsbereiche. Geheimnisse liegen verschlüsselt in der DB (db.ts) – sie verlassen den Server nie in Richtung KI.
 import type { AiProvider, PlatformPublic, PublicSettings, ScopeInfo, ScopeKey, SettingsPatch } from '@/lib/protocol';
 import { DEFAULT_PLATFORM, isPlatformKind, PLATFORM_KINDS, PLATFORM_SETTINGS, platformConfigured, platformFields, plainKeys, secretKeys, type PlatformKind } from '@/lib/platforms';
+import { openWithoutPassword } from './access';
 import { codexLoggedIn } from './codex';
 import path from 'node:path';
 import { dataDir, kvGet, kvSet, seal, unseal } from './db';
@@ -98,6 +99,7 @@ export function publicSettings(): PublicSettings { // maskiert – für die Ober
     image: { hasKey: !!g.image.openaiKey, model: g.image.model },
     scopes: g.scopes,
     scopeInfo: Object.fromEntries(SCOPE_KEYS.map(k => [k, { label: SCOPES[k].label, hint: SCOPES[k].hint }])) as Record<ScopeKey, ScopeInfo>,
+    openWithoutPassword: openWithoutPassword(env),
   };
 }
 
