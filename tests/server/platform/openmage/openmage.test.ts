@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ChatEvent } from '@/lib/protocol';
-import { startFakeOpenmage, type FakeProduct } from '../../../../src/server/platform/openmage/fake';
+import { startFakeOpenmage, type FakeProduct } from '../../../support/openmage-fake';
 
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-openmage-'));
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64');

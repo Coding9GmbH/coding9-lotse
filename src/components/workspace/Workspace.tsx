@@ -85,7 +85,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       if (c.status === 'fulfilled') setCfg(c.value);
       if (sg.status === 'fulfilled' && sg.value !== undefined) dispatch({ type: 'set_styleguide', sg: sg.value && typeof sg.value === 'object' ? sg.value : null });
       setSgLoaded(true);
-      api.categories().then(l => { if (!off) { setCategoryError(null); setCategories(l); } }).catch(() => { if (!off) setCategoryError('nicht geladen'); });
+      api.categories().then(l => { if (!off) { setCategoryError(null); setCategories(l); } }).catch(e => { if (!off) setCategoryError(errorText(e) || 'error'); }); // Kennzeichen + Ursache; angezeigt wird der übersetzte Hinweis
       api.products('').then(l => { if (!off && l[0]) setExampleProduct(l[0].name); }).catch(() => {});
     })();
     return () => { off = true; };

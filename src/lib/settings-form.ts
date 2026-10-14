@@ -137,6 +137,10 @@ export function hasSecret(saved: PublicSettings, kind: PlatformKind, key: string
   if (kind === 'shopware') return key === 'password' ? saved.shopware.hasPassword : key === 'clientSecret' ? saved.shopware.hasClientSecret : false;
   return !!saved.platforms?.[kind]?.has[key];
 }
+/** Hat der Server beim Speichern Geheimnisse der Plattform verworfen, die das Formular nicht entfernen wollte? (Shop-Adresse auf andere Herkunft:
+ *  gespeicherte Zugangsdaten gehen nie an einen neuen Host, sie müssen neu eingegeben werden) */
+export const secretsDropped = (before: PublicSettings, after: PublicSettings, sent: SettingsForm, kind: PlatformKind): boolean =>
+  secretKeys(kind).some(k => hasSecret(before, kind, k) && !hasSecret(after, kind, k) && !secretState(sent, kind, k).remove);
 /** Gespeicherter Stand: Plattform eingerichtet? */
 export const savedConfigured = (saved: PublicSettings, kind: PlatformKind): boolean => (kind === 'shopware' ? saved.shopware.configured : !!saved.platforms?.[kind]?.configured);
 /** Anbindung fertig (sonst Vorschau) */

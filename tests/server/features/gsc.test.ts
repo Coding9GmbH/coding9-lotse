@@ -5,14 +5,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ShopReader, SwEntity } from '../../../src/server/shopware';
-import type { FakeRow } from '../../../src/server/features/gsc-fake';
+import type { FakeRow } from '../../support/gsc-fake';
 
 // Ganzer Ablauf gegen einen lokalen Fake von Google (Token-Endpunkt + Search Console API): JWT, Token-Cache, Paging, Chancen, Zuordnung, Messung.
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-gsc-'));
 const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
 const EMAIL = 'lotse-test@projekt.iam.gserviceaccount.com';
 const KEY = JSON.stringify({ type: 'service_account', project_id: 'projekt', private_key_id: 'kid1', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }), client_email: EMAIL });
-const { startFakeGoogle } = await import('../../../src/server/features/gsc-fake');
+const { startFakeGoogle } = await import('../../support/gsc-fake');
 const fake = await startFakeGoogle(publicKey, { clientEmail: EMAIL });
 process.env.LOTSE_GSC_TOKEN_URL = fake.tokenUrl;
 process.env.LOTSE_GSC_API_BASE = fake.apiBase;

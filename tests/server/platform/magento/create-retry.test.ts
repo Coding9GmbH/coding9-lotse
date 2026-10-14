@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startFakeMagento } from '../../../../src/server/platform/magento/fake';
+import { startFakeMagento } from '../../../support/magento-fake';
 
 const fake = await startFakeMagento({ products: [{ id: 1, sku: 'VASE', type_id: 'simple', attribute_set_id: 4, website_ids: [1], media: [], vals: { 0: { name: 'Vase', price: 49, status: 1, visibility: 4 } } }] });
 after(() => fake.close());

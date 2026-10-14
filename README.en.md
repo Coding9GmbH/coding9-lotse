@@ -2,8 +2,8 @@
 
 <p align="center"><a href="README.md">Deutsch</a> · <b>English</b></p>
 
-<p align="center"><b>The AI pilot for Shopware 6.</b> You set the course – Lotse steers your shop safely there.<br>
-Shopping experiences, prices, copy & SEO via chat. The AI only reads; nothing is written until you approve it.</p>
+<p align="center"><b>The AI pilot for your online shop – Shopware 6, Shopify, Magento 2 and OpenMage.</b> You set the course – Lotse steers your shop safely there.<br>
+Pages & shopping experiences, prices, copy & SEO via chat. The AI only reads; nothing is written until you approve it.</p>
 
 <p align="center"><img src="docs/screenshots/app.png" alt="Lotse interface" width="820"></p>
 
@@ -23,7 +23,7 @@ Shopping experiences, prices, copy & SEO via chat. The AI only reads; nothing is
 
 ```bash
 docker run -d --name lotse --restart unless-stopped \
-  -p 127.0.0.1:3333:3333 -v lotse-data:/data \
+  -p 127.0.0.1:3333:3333 -e LOTSE_BIND=127.0.0.1 -v lotse-data:/data \
   --read-only --tmpfs /tmp:size=256m,mode=1777 --tmpfs /app/.next/cache:size=64m,uid=1000,gid=1000 \
   --cap-drop ALL --security-opt no-new-privileges:true \
   --pids-limit 512 --memory 2g --cpus 2 \
@@ -64,7 +64,7 @@ Without Docker: `npm install && npm run dev` (Node ≥ 22.13) → http://localho
 
 | Protection | How |
 |---|---|
-| AI without write access | The model only gets `ReadOnlyShopware` with an allowlist; customer, order, payment and credential data are hard-blocked, and every read is logged. |
+| AI without write access | The model only gets a guarded read client with an allowlist (Shopware `ReadOnlyShopware`, Shopify `ShopifyReader`, Magento `MagentoReader`, OpenMage `OmReader`); customer, order, payment and credential data are hard-blocked, and every read is logged. |
 | Approval before every write | Changes appear as an old→new comparison; only "Apply" writes. Audit log + undo. |
 | The shop is spared | Writes are throttled (`LOTSE_WRITE_CONCURRENCY`, default 2), max. 300 entries per change set, timeouts (`LOTSE_SHOP_TIMEOUT_MS`), backoff on 429/503. |
 | Local & hardened | Port bound to `127.0.0.1` only, host/origin check, container runs as non-root, read-only, without capabilities, with resource limits. |
@@ -93,6 +93,7 @@ Language (German/English) is not a variable: it is chosen in Settings or the sid
 | `LOTSE_PASSWORD`, `ALLOWED_HOSTS` | Access protection for server operation ([self-hosting](docs/self-hosting.md)) |
 | `LOTSE_BIND`, `LOTSE_PORT` | Published address and port of the container (default `127.0.0.1`, `3333`) |
 | `LOTSE_WRITE_CONCURRENCY`, `LOTSE_SHOP_TIMEOUT_MS` | Sparing the shop |
+| `LOTSE_LOG_RETENTION_DAYS`, `LOTSE_AUDIT_RETENTION_DAYS` | Retention of the access log (default 180 days) and change log (365 days); `0` = never prune |
 | `OPENAI_API_KEY`, `IMAGE_MODEL` | optional image AI |
 
 ## Releases & image
@@ -106,7 +107,7 @@ Built for amd64 and arm64, with SBOM and provenance. `latest` only exists after 
 
 ## Documentation
 
-The detailed documentation lives in [`docs/`](docs/README.md) (German): [user guide](docs/benutzerhandbuch.md) (how everything works), [self-hosting](docs/self-hosting.md), [architecture](docs/architektur.md) and [platform layer](docs/platform.md).
+The detailed documentation lives in [`docs/`](docs/README.md) (German): [user guide](docs/benutzerhandbuch.md) (how everything works), [self-hosting](docs/self-hosting.md), [architecture](docs/architektur.md) and [platform layer](docs/platform.md). What changed in each version is listed in the [CHANGELOG](CHANGELOG.md) (German).
 
 ## Concept: AI-first administration
 Chat instead of forms. You write what should happen ("Change the layout of product XY", "Lower all prices by 20%", "FAQ on all products"). The agent **understands → asks targeted follow-up questions** (clickable answers) **→ researches (read-only) → shows a preview or old→new comparison → you approve → the server writes** (audit log, undo).
@@ -128,9 +129,16 @@ Chat instead of forms. You write what should happen ("Change the layout of produ
 - **German and English**: the UI and AI replies are available in German and English. Switch in Settings or the side navigation; without a choice, the browser language applies (stored in the `lotse_lang` cookie).
 - UI in the Coding9 corporate design (dark `#2E2E38`, green, coral, cream; Satoshi/Inter via Fontshare/Google Fonts).
 
-## Shop platforms
+## Supported platforms
 
-Lotse connects to **Shopware 6** (default), **Shopify**, **Magento 2** and **OpenMage (Magento 1)**; the platform is chosen in Settings under "Connect shop" (or via `SHOP_PLATFORM`). What each platform can do is shown in the capability matrix in [`docs/platform.md`](docs/platform.md) (German).
+The platform is chosen in Settings under "Connect shop" (or via `SHOP_PLATFORM`). Shopware 6 is the default and the most complete; exactly what each platform can do is shown in the [capability matrix](docs/en/platform.md#0-capability-matrix-status-after-shopify-magento-2-and-openmage) in [`docs/en/platform.md`](docs/en/platform.md).
+
+| Platform | Setup (in brief) |
+|---|---|
+| **Shopware 6** (default) | In the admin under *Settings → System → Integrations*, create an integration and enter shop URL, access key ID and secret (alternatively an admin user; `SHOPWARE_*`). |
+| **Shopify** | Install an app from the Shopify Dev Dashboard and enter its client ID/secret, or use the Admin API token of an existing custom app; plus the `*.myshopify.com` domain (`SHOPIFY_*`). |
+| **Magento 2** (Adobe Commerce) | In the admin under *System → Extensions → Integrations*, create an integration with access to catalog, content and marketing and enter its access token (alternatively an admin user); optionally store view and price basis (`MAGENTO_*`). |
+| **OpenMage** (Magento 1) | Install the `Lotse_Connector` module from [`integrations/openmage/`](integrations/openmage/README.en.md), generate an API token, enter shop URL and token (`OPENMAGE_*`, see below). |
 
 **OpenMage** has no usable API for CMS pages/blocks, so the repository includes the module **`Lotse_Connector`** ([`integrations/openmage/`](integrations/openmage/README.en.md)) with a token-secured JSON API under `/lotse-api/v1`. Installation in brief (details, security and endpoints in [`integrations/openmage/README.en.md`](integrations/openmage/README.en.md)):
 

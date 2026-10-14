@@ -7,6 +7,7 @@ import 'server-only';
 // statischen Produktboxen mit den echten Daten zum Zeitpunkt der Veröffentlichung (Magento 1 hat kein SKU-Listen-Widget).
 import { z } from 'zod';
 import type { ChangeAsset, ChangeItem, ChatEvent, PublishedInfo, UndoOp } from '@/lib/protocol';
+import { withScript } from '@/lib/script-scan';
 import { GENERIC_BLOCKS, type ImageRef, type PageSpec, type PreviewCtx, type PreviewProduct } from '../../cms';
 import { readStaged, stagedMeta } from '../../media';
 import { renderPageHtml } from '../../page-html';
@@ -162,7 +163,7 @@ export async function buildPagePublish(ro: OmReader, spec: PageSpec, a: PublishA
     info('Neue Landingpage', 'Überschrift des Themes', '–', h1 ? 'keine (H1 kommt aus dem Inhalt)' : title, h1 ? [] : ['Der Entwurf hat keine H1: das Theme zeigt den Seitentitel als H1']);
     info('Neue Landingpage', 'Store-View', '–', stores[0] === 'admin' ? 'alle Store-Views' : store);
     info('Neue Landingpage', 'Meta-Description', '–', md || '–', md ? [] : ['Keine Meta-Description']);
-    return { cs: { id: newIdSafe(), kind: 'page', title: `Seite veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true }, payload: { ...base, content, page: { identifier, title: mt || title, contentHeading: h1 ? '' : title, metaDescription: md, stores }, storefront: `${sfBase}/${identifier}` } satisfies PagePayload };
+    return { cs: { id: newIdSafe(), kind: 'page', title: `Seite veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec) }, payload: { ...base, content, page: { identifier, title: mt || title, contentHeading: h1 ? '' : title, metaDescription: md, stores }, storefront: `${sfBase}/${identifier}` } satisfies PagePayload };
   }
 
   if (a.target === 'category') {
@@ -181,7 +182,7 @@ export async function buildPagePublish(ro: OmReader, spec: PageSpec, a: PublishA
     if (metas.meta_title) info(label, 'Meta-Title', cut(omStr(c, 'meta_title')), mt);
     if (metas.meta_description) info(label, 'Meta-Description', cut(omStr(c, 'meta_description')), md);
     const path = categoryPath(c, sf.category), url = path ? `${sfBase}/${path}` : null;
-    return { cs: { id: newIdSafe(), kind: 'page', title: `Kategorie-Inhalt veröffentlichen: ${name}`, reason: null, items, assets, skipped: [], atomic: true }, payload: { ...base, content, category: { id: String(c.id), displayMode: mode, metas, url }, storefront: url ?? sfBase } satisfies PagePayload };
+    return { cs: { id: newIdSafe(), kind: 'page', title: `Kategorie-Inhalt veröffentlichen: ${name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec) }, payload: { ...base, content, category: { id: String(c.id), displayMode: mode, metas, url }, storefront: url ?? sfBase } satisfies PagePayload };
   }
 
   const ids = [...new Set((a.productIds ?? []).map(String))];
@@ -196,7 +197,7 @@ export async function buildPagePublish(ro: OmReader, spec: PageSpec, a: PublishA
     info(`Produkt „${p.name}“ (${p.sku})`, 'Beschreibung', cut(cur), mode === 'replace' ? `${spec.name} · ${blocks} Blöcke` : `bisheriger Text + „${spec.name}“ darunter`, [...warn, mode === 'replace' ? 'Ersetzt die bisherige Beschreibung (Rückgängig stellt sie wieder her)' : 'Hängt den Inhalt unter die bisherige Beschreibung'], { before: cur, after });
   }
   if (list.length > 1) items[0].warn.push(`Alle ${list.length} Produkte bekommen denselben Inhalt`);
-  return { cs: { id: newIdSafe(), kind: 'page', title: `Produktinhalt veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true }, payload: { ...base, content, products: { mode, items: rows }, storefront: rows.find(r => r.url)?.url ?? sfBase } satisfies PagePayload };
+  return { cs: { id: newIdSafe(), kind: 'page', title: `Produktinhalt veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec) }, payload: { ...base, content, products: { mode, items: rows }, storefront: rows.find(r => r.url)?.url ?? sfBase } satisfies PagePayload };
 }
 
 // ================= Executor =================

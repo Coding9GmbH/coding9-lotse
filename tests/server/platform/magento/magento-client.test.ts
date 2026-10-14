@@ -1,7 +1,7 @@
 // Magento-Client: Schutzmechanismen gegen den Fake (Retry bei 429/503, Token-Erneuerung bei 401, Parallelitätsgrenze).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startFakeMagento } from '../../../../src/server/platform/magento/fake';
+import { startFakeMagento } from '../../../support/magento-fake';
 
 const fake = await startFakeMagento();
 const { MagentoClient } = await import('../../../../src/server/platform/magento/client');

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ChatEvent } from '@/lib/protocol';
-import { startFakeOpenmage, type FakeProduct } from '../../../../src/server/platform/openmage/fake';
+import { startFakeOpenmage, type FakeProduct } from '../../../support/openmage-fake';
 
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-openmage-pages-'));
 const prod = (id: number, sku: string, v: Record<string, unknown>, extra: Partial<FakeProduct> = {}): FakeProduct => ({ id, sku, type_id: 'simple', attribute_set_id: 4, website_ids: [1], images: [], categories: [], stock: { qty: 10, is_in_stock: true, manage_stock: true }, vals: { 0: { status: 1, visibility: 4, url_key: sku.toLowerCase(), tax_class_id: 2, ...v } }, ...extra });

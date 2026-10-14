@@ -61,3 +61,65 @@ test('aiEnv: nur API-Schlüssel – kein Claude-Abo-Token, keine Anmeldung des R
   delete process.env.CLAUDE_CODE_OAUTH_TOKEN; delete process.env.ANTHROPIC_AUTH_TOKEN; delete process.env.CLAUDE_CONFIG_DIR;
   updateSettings({ ai: { apiKey: null } });
 });
+
+test('Shop-Adresse auf andere Herkunft: gespeicherte Geheimnisse werden verworfen, außer sie kommen im selben Patch neu mit', () => {
+  updateSettings({ shopware: { url: 'https://shop.de', user: 'admin', password: 'pw-alt', clientId: 'SWIA', clientSecret: 'cs-alt' } });
+  updateSettings({ shopware: { url: 'https://shop.de/', publicUrl: 'https://www.shop.de' } }); // gleiche Herkunft, andere Schreibweise
+  assert.equal(getSettings().shopware.password, 'pw-alt');
+  updateSettings({ shopware: { url: 'HTTPS://Shop.de:443/admin' } });
+  assert.equal(getSettings().shopware.clientSecret, 'cs-alt', 'Pfad/Großschreibung/Standardport ändern die Herkunft nicht');
+  updateSettings({ shopware: { url: 'https://boese.example' } });
+  assert.equal(getSettings().shopware.password, '');
+  assert.equal(getSettings().shopware.clientSecret, '');
+  assert.equal(getSettings().shopware.user, 'admin', 'Klartextfelder bleiben');
+  const pub = publicSettings();
+  assert.equal(pub.shopware.hasPassword, false); assert.equal(pub.shopware.hasClientSecret, false);
+  assert.equal(pub.shopware.configured, false, 'Oberfläche verlangt die Zugangsdaten neu');
+  updateSettings({ shopware: { url: 'https://neu.shop', password: 'pw-neu' } });
+  assert.equal(getSettings().shopware.password, 'pw-neu', 'neues Geheimnis im selben Patch gilt');
+  updateSettings({ shopware: { url: 'http://neu.shop' } });
+  assert.equal(getSettings().shopware.password, '', 'Schema-Wechsel ist eine andere Herkunft');
+  updateSettings({ shopware: { url: '' } }); updateSettings({ shopware: { password: 'erst-passwort' } }); updateSettings({ shopware: { url: 'https://erst.shop' } });
+  assert.equal(getSettings().shopware.password, 'erst-passwort', 'Ersteinrichtung (vorher keine Adresse) behält das Geheimnis');
+});
+
+test('Adressfeld kurz geleert oder vertippt: Zugangsdaten sind geparkt, nicht gelöscht, und kommen bei derselben Herkunft zurück', () => {
+  updateSettings({ shopware: { url: 'https://haus.shop', user: 'admin', password: 'pw-haus', clientSecret: null } });
+  updateSettings({ shopware: { url: '' } }); // Auto-Speichern beim Leeren
+  assert.equal(getSettings().shopware.password, '', 'leere Adresse: nicht wirksam');
+  updateSettings({ shopware: { url: 'https://haus.sho' } }); // vertippt
+  assert.equal(getSettings().shopware.password, '', 'fremde Herkunft: nicht wirksam');
+  assert.equal(publicSettings().shopware.hasPassword, false);
+  updateSettings({ shopware: { url: 'https://haus.shop/' } });
+  assert.equal(getSettings().shopware.password, 'pw-haus', 'alte Herkunft wiederhergestellt: Zugangsdaten wieder da');
+  updateSettings({ shopware: { url: 'https://anders.shop' } }); updateSettings({ shopware: { password: 'pw-anders' } });
+  updateSettings({ shopware: { url: 'https://haus.shop' } });
+  assert.equal(getSettings().shopware.password, '', 'neu eingegebene Zugangsdaten verwerfen die geparkten');
+  assert.equal(JSON.stringify(publicSettings()).includes('_parked'), false, 'Parkplatz erreicht die Oberfläche nie');
+});
+
+test('Herkunftswechsel gilt für alle Plattformen (Shopify-Domain, Magento, OpenMage)', () => {
+  updateSettings({ shopify: { storeDomain: 'laden.myshopify.com', accessToken: 'shpat_alt', clientId: 'cid', clientSecret: 'sec' }, magento: { url: 'https://m.shop', accessToken: 'mtok', user: 'u', password: 'mpw' }, openmage: { url: 'https://om.shop', token: 'lotse_tok' } });
+  updateSettings({ shopify: { storeDomain: 'https://laden.myshopify.com/' } });
+  assert.equal(getSettings().shopify.accessToken, 'shpat_alt', 'mit Schema = gleiche Herkunft');
+  updateSettings({ shopify: { storeDomain: 'fremd.myshopify.com' }, magento: { url: 'https://evil.example' }, openmage: { url: 'https://om.shop/neu', token: '' } });
+  assert.equal(getSettings().shopify.accessToken, ''); assert.equal(getSettings().shopify.clientSecret, '');
+  assert.equal(getSettings().shopify.clientId, 'cid');
+  assert.equal(getSettings().magento.accessToken, ''); assert.equal(getSettings().magento.password, '');
+  assert.equal(getSettings().openmage.token, 'lotse_tok', 'gleiche Herkunft, leeres Feld = unverändert');
+  assert.deepEqual(publicSettings().platforms?.magento?.has, { accessToken: false, password: false });
+});
+
+test('Geheimnisse aus der Umgebung gehen nur an die Adresse aus der Umgebung', () => {
+  process.env.SHOPWARE_URL = 'https://env.shop'; process.env.SHOPWARE_PASSWORD = 'env-pw';
+  try {
+    updateSettings({ shopware: { url: '', password: null } });
+    assert.equal(getSettings().shopware.password, 'env-pw');
+    updateSettings({ shopware: { url: 'https://env.shop/' } });
+    assert.equal(getSettings().shopware.password, 'env-pw', 'gleiche Herkunft');
+    updateSettings({ shopware: { url: 'https://boese.example' } });
+    assert.equal(getSettings().shopware.password, '', 'gespeicherte Adresse zeigt woandershin');
+    updateSettings({ shopware: { url: '' } });
+    assert.equal(getSettings().shopware.password, 'env-pw');
+  } finally { delete process.env.SHOPWARE_URL; delete process.env.SHOPWARE_PASSWORD; }
+});

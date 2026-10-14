@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ChatEvent, UndoOp } from '@/lib/protocol';
-import { startFakeMagento, type FakeProduct } from '../../../../src/server/platform/magento/fake';
+import { startFakeMagento, type FakeProduct } from '../../../support/magento-fake';
 
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-magento-'));
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64');

@@ -17,6 +17,16 @@ export type FromFrame =
   | { t: 'pick'; tag: string; text: string; alt: string; isButton: boolean; section?: string; path: string; x: number; y: number }
   | { t: 'targets'; items: { tag: string; text: string; alt: string; isButton: boolean; section?: string; path: string }[] };
 
+/** CSP des Entwurfs: KI-geschriebenes JS darf nichts nach außen senden (fetch/XHR/sendBeacon/WebSocket, Formulare);
+ *  Bilder, Schriften und CSS (über den /shop-Proxy) laden weiter, Skripte laufen weiter (nötig für custom-html und FRAME_SCRIPT). */
+export const FRAME_CSP = "connect-src 'none'; form-action 'none'";
+/** Setzt die CSP als <meta> an den Anfang des Dokuments (nach dem Doctype, damit der Standardmodus bleibt) – gilt dann für alles danach */
+export function withFrameCsp(html: string): string {
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}">`;
+  const dt = html.match(/^\s*<!doctype[^>]*>/i)?.[0] ?? '';
+  return dt + meta + html.slice(dt.length);
+}
+
 /** Eindeutiges Kennzeichen prüfen (Nachrichten anderer Herkunft werden ignoriert) */
 export const isFrameMessage = (d: unknown): d is { t: string } & Record<string, unknown> => !!d && typeof d === 'object' && (d as { lotse?: unknown }).lotse === FRAME_TAG && typeof (d as { t?: unknown }).t === 'string';
 

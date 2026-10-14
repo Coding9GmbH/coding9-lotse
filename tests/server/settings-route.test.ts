@@ -25,6 +25,8 @@ test('connectionChanges: nennt nur Felder der Shop-Verbindung, die sich wirklich
   assert.deepEqual(connectionChanges({ shopware: { url: 'http://neu.shop', password: 'neues-passwort' } }), ['shopware.url', 'shopware.password']);
   assert.deepEqual(connectionChanges({ platform: 'shopify', shopify: { storeDomain: 'laden.myshopify.com' } }), ['platform', 'shopify.storeDomain']);
   assert.deepEqual(connectionChanges({ shopware: { password: null } }), ['shopware.password']);
+  assert.deepEqual(connectionChanges({ shopware: { url: 'http://neu.shop' } }), ['shopware.url', 'shopware.password'], 'andere Herkunft verwirft das gespeicherte Passwort (im Audit sichtbar)');
+  assert.deepEqual(connectionChanges({ shopware: { url: 'http://alt.shop/' } }), ['shopware.url'], 'gleiche Herkunft behält es');
 });
 
 test('PUT: Shop-Verbindung geändert → Audit-Zeile mit Feldnamen, nie mit Werten; KI-Einstellungen ohne Audit', async () => {

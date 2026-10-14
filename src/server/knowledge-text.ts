@@ -1,12 +1,15 @@
 import 'server-only';
 // Wissensbasis: Text aus Dateien holen (PDF, Word, Excel, CSV, Text) und in zitierbare Abschnitte teilen.
 import ExcelJS from 'exceljs';
+import { assertSafeZip } from './zip-guard';
 
 /** Textabschnitt einer Quelle: page = PDF-Seite, label = z. B. Tabellenblatt. */
 export interface Segment { text: string; page?: number; label?: string }
 export interface Chunk { idx: number; text: string; page?: number; label?: string }
 
 export const MAX_TEXT = 2_000_000, MAX_CHUNKS = 4000;
+/** Obergrenzen beim Lesen (Speicher): Tabellenzeilen über alle Blätter, PDF-Seiten */
+export const MAX_SHEET_ROWS = 100_000, MAX_PDF_PAGES = 1000;
 export const CHUNK = { min: 800, target: 1100, max: 1200, overlap: 150 };
 
 const ext = (name: string) => (name.match(/\.([a-z0-9]+)$/i)?.[1] ?? '').toLowerCase();
@@ -57,26 +60,35 @@ export async function extractSegments(buf: Buffer, name: string): Promise<{ segm
   if (e === 'csv' || e === 'tsv') return { segments: [{ text: rowsToText(parseDelimited(clean(buf.toString('utf8')))) }] };
   if (e === 'xls') throw new Error('Das alte Excel-Format .xls kann nicht gelesen werden. Bitte als .xlsx speichern und erneut hochladen.');
   if (e === 'xlsx') {
+    await assertSafeZip(buf);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf as unknown as ArrayBuffer);
     const segments: Segment[] = [];
+    let left = MAX_SHEET_ROWS; // Zeilen über alle Blätter
     wb.eachSheet(ws => {
       const rows: string[][] = [];
-      ws.eachRow({ includeEmpty: false }, r => { const vals: string[] = []; r.eachCell({ includeEmpty: true }, (c, col) => { vals[col - 1] = cellText(c.value); }); rows.push(Array.from(vals, v => v ?? '')); });
+      ws.eachRow({ includeEmpty: false }, r => { if (left-- <= 0) return; const vals: string[] = []; r.eachCell({ includeEmpty: true }, (c, col) => { vals[col - 1] = cellText(c.value); }); rows.push(Array.from(vals, v => v ?? '')); });
       const text = rowsToText(rows);
       if (text) segments.push({ text, label: `Blatt ${ws.name}` });
     });
     return { segments };
   }
   if (e === 'pdf') {
-    const { extractText, getDocumentProxy } = await import('unpdf');
+    const { getDocumentProxy } = await import('unpdf');
     const pdf = await getDocumentProxy(new Uint8Array(buf));
-    const r = await extractText(pdf, { mergePages: false });
-    const segments = r.text.map((t, i) => ({ text: clean(t), page: i + 1 })).filter(s => s.text);
+    const segments: Segment[] = [];
+    try { // Seiten einzeln und begrenzt (Seitenzahl, Textmenge) statt alle auf einmal
+      for (let p = 1, len = 0; p <= Math.min(pdf.numPages, MAX_PDF_PAGES) && len <= MAX_TEXT; p++) {
+        const items = (await (await pdf.getPage(p)).getTextContent()).items as { str?: string; hasEOL?: boolean }[];
+        const text = clean(items.filter(i => i.str != null).map(i => i.str + (i.hasEOL ? '\n' : '')).join(''));
+        if (text) { segments.push({ text, page: p }); len += text.length; }
+      }
+    } finally { await pdf.loadingTask.destroy().catch(() => {}); }
     if (!segments.length) throw new Error('Das PDF enthält keinen lesbaren Text (vermutlich gescannt). Bitte eine PDF mit Text oder die Angaben als Text hochladen.');
-    return { segments, pages: r.totalPages };
+    return { segments, pages: pdf.numPages };
   }
   if (e === 'docx') {
+    await assertSafeZip(buf);
     const mammoth = (await import('mammoth')).default;
     const r = await mammoth.extractRawText({ buffer: buf });
     return { segments: [{ text: clean(r.value) }] };

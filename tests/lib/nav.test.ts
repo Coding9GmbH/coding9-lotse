@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { filterHistory, historyContexts, setupReady } from '../../src/lib/nav';
+import { filterHistory, historyContexts, mergeChatPages, pageFull, rollChatPages, setupReady } from '../../src/lib/nav';
 import type { Target } from '../../src/lib/protocol';
 
 const chat = (title: string, name?: string) => ({ title, target: name ? ({ kind: 'category', id: name, name } as Target) : null });
@@ -32,4 +32,19 @@ test('filterHistory: Kontext exakt, Suchbegriff in Titel oder Kontext, beides ko
   assert.deepEqual(filterHistory(chats, 'wohnacc', null).map(c => c.title), ['Preise senken'], 'auch im Kontextnamen');
   assert.deepEqual(filterHistory(chats, 'preise', 'Keramik'), [], 'Kontext und Suche zusammen');
   assert.deepEqual(filterHistory(chats, '', 'Gibt es nicht'), []);
+});
+
+test('Verlauf blättern: erste Seite + ältere Seiten ohne Doppelte; herausgerutschte Chats wandern zu den älteren', () => {
+  const c = (...ids: string[]) => ids.map(id => ({ id }));
+  const ids = (l: { id: string }[] | null) => l?.map(x => x.id);
+  assert.equal(mergeChatPages(null, c('x')), null, 'ohne erste Seite: noch nichts geladen');
+  const first = c('a', 'b');
+  assert.equal(mergeChatPages(first, []), first, 'ohne ältere Seiten unverändert (gleiche Referenz)');
+  assert.deepEqual(ids(mergeChatPages(c('z', 'a'), c('c', 'z', 'd'))), ['z', 'a', 'c', 'd'], 'aufgefrischter Chat steht nur vorn');
+  assert.deepEqual(rollChatPages(c('a', 'b'), c('n', 'a'), []), [], 'ohne ältere Seiten: nichts merken');
+  assert.deepEqual(ids(rollChatPages(c('a', 'b'), c('n', 'a'), c('c', 'd'))), ['b', 'c', 'd'], 'b rutschte heraus → vorn bei den älteren');
+  assert.deepEqual(ids(rollChatPages(c('a', 'b'), c('a'), c('c', 'b'), new Set(['b', 'c']))), [], 'gelöschte Chats bleiben weg');
+  const once = rollChatPages(c('a', 'b'), c('n', 'a'), c('c')), twice = rollChatPages(c('a', 'b'), c('n', 'a'), once);
+  assert.deepEqual(ids(twice), ['b', 'c'], 'idempotent (React-Strict-Mode ruft Updater doppelt)');
+  assert.equal(pageFull(199), false); assert.equal(pageFull(200), true);
 });

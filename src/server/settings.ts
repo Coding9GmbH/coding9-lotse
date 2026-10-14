@@ -2,6 +2,7 @@ import 'server-only';
 // Einstellungen: Shop-Plattform + Zugang (Shopware, Shopify, Magento, OpenMage), KI-Zugang, Bild-KI, KI-Zugriffsbereiche. Geheimnisse liegen verschlüsselt in der DB (db.ts) – sie verlassen den Server nie in Richtung KI.
 import type { AiProvider, PlatformPublic, PublicSettings, ScopeInfo, ScopeKey, SettingsPatch } from '@/lib/protocol';
 import { DEFAULT_PLATFORM, isPlatformKind, PLATFORM_KINDS, PLATFORM_SETTINGS, platformConfigured, platformFields, plainKeys, secretKeys, type PlatformKind } from '@/lib/platforms';
+import { openWithoutPassword } from './access';
 import { codexLoggedIn } from './codex';
 import path from 'node:path';
 import { dataDir, kvGet, kvSet, seal, unseal } from './db';
@@ -41,7 +42,7 @@ function settingsOf(s: StoredSettings): Settings {
   return {
     platform: kindOf(s),
     shopify: genericConfig('shopify', s.shopify), magento: genericConfig('magento', s.magento), openmage: genericConfig('openmage', s.openmage),
-    shopware: { url: pick(sw.url, env.SHOPWARE_URL), publicUrl: pick(sw.publicUrl, env.SHOPWARE_PUBLIC_URL), user: pick(sw.user, env.SHOPWARE_USER), password: pick(unseal(sw.password), env.SHOPWARE_PASSWORD), clientId: pick(sw.clientId, env.SHOPWARE_CLIENT_ID), clientSecret: pick(unseal(sw.clientSecret), env.SHOPWARE_CLIENT_SECRET) },
+    shopware: { url: pick(sw.url, env.SHOPWARE_URL), publicUrl: pick(sw.publicUrl, env.SHOPWARE_PUBLIC_URL), user: pick(sw.user, env.SHOPWARE_USER), password: pick(unseal(sw.password), envSecret('shopware', sw, 'SHOPWARE_PASSWORD')), clientId: pick(sw.clientId, env.SHOPWARE_CLIENT_ID), clientSecret: pick(unseal(sw.clientSecret), envSecret('shopware', sw, 'SHOPWARE_CLIENT_SECRET')) },
     ai: { provider: pick(ai.provider, env.AI_PROVIDER) === 'codex' ? 'codex' : 'claude', apiKey: pick(unseal(ai.apiKey)), model: pick(ai.model, env.AI_MODEL), codexModel: pick(ai.codexModel, env.CODEX_MODEL) },
     image: { openaiKey: pick(unseal(im.openaiKey), env.OPENAI_API_KEY), model: pick(im.model, env.IMAGE_MODEL) },
     scopes: { ...DEFAULT_SCOPES, ...(s.scopes ?? {}) },
@@ -50,7 +51,35 @@ function settingsOf(s: StoredSettings): Settings {
 
 // Shopify/Magento/OpenMage: Felder laut Beschreibung; Rückfall auf die Umgebungsvariable des Feldes
 function genericConfig(kind: GenericKind, sec: Section = {}): PlatformConfig {
-  return Object.fromEntries(platformFields(kind).map(f => [f.key, pick(f.secret ? unseal(sec[f.key]) : sec[f.key], f.env ? env[f.env] : undefined)]));
+  return Object.fromEntries(platformFields(kind).map(f => [f.key, f.secret ? pick(unseal(sec[f.key]), envSecret(kind, sec, f.env)) : pick(sec[f.key], f.env ? env[f.env] : undefined)]));
+}
+
+// Zugangsdaten gehören zur Adresse, an die sie gehen (API-Basis je Plattform). Wechselt deren Herkunft, verwirft mergeSettings die gespeicherten
+// Geheimnisse (außer sie kommen im selben Patch neu mit) – eine kompromittierte Oberfläche kann sie sonst per „Verbindung testen“ an einen fremden Host schicken.
+const CONN_URL: Record<PlatformKind, string> = { shopware: 'url', shopify: 'storeDomain', magento: 'url', openmage: 'url' };
+const connEnv = (kind: PlatformKind) => platformFields(kind).find(f => f.key === CONN_URL[kind])?.env;
+/** Herkunft einer Shop-Adresse (Schema, Host, Port; klein). Domain ohne Schema (Shopify) = https. */
+export function shopOrigin(v: string | undefined): string {
+  const s = (v ?? '').trim(); if (!s) return '';
+  try { return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : `https://${s}`).origin.toLowerCase(); } catch { return s.toLowerCase(); }
+}
+/** Geparkte Zugangsdaten: { origin, <feld>: versiegelt } – nicht wirksam, kommen nur zurück, wenn die Adresse wieder genau dorthin zeigt.
+ *  So löscht ein kurz geleertes oder vertipptes Adressfeld (Auto-Speichern) nichts endgültig, und an eine fremde Adresse gehen sie nie. */
+const PARKED = '_parked';
+function parkSecrets(sec: Section, secret: string[], before: string, after: string) {
+  const held = secret.filter(k => sec[k]);
+  if (before && held.length) { sec[PARKED] = JSON.stringify({ origin: before, ...Object.fromEntries(held.map(k => [k, sec[k]])) }); for (const k of held) delete sec[k]; return; }
+  if (held.length || !sec[PARKED]) return;
+  let parked: Record<string, string> = {}; try { parked = JSON.parse(sec[PARKED]); } catch {}
+  if (after && parked.origin === after) { for (const k of secret) if (parked[k]) sec[k] = parked[k]; delete sec[PARKED]; }
+}
+/** Wirksame Verbindungsadresse einer Plattform (gespeichert, sonst Umgebung) */
+const connOrigin = (kind: PlatformKind, sec: Section = {}) => { const e = connEnv(kind); return shopOrigin(pick(sec[CONN_URL[kind]], e ? env[e] : undefined)); };
+/** Geheimnis aus der Umgebung nur zur Adresse aus der Umgebung: zeigt die gespeicherte URL woandershin, bleibt es weg. */
+function envSecret(kind: PlatformKind, sec: Section, name: string | undefined): string | undefined {
+  if (!name) return undefined;
+  const e = connEnv(kind), envUrl = e ? env[e] : undefined;
+  return !envUrl || connOrigin(kind, sec) === shopOrigin(envUrl) ? env[name] : undefined;
 }
 /** Zugang einer Plattform als Schlüssel → Wert (Shopware: ShopwareConfig) */
 export const platformConfig = (kind: PlatformKind, g = getSettings()): PlatformConfig => (kind === 'shopware' ? { ...g.shopware } : g[kind]);
@@ -80,6 +109,7 @@ export function publicSettings(): PublicSettings { // maskiert – für die Ober
     image: { hasKey: !!g.image.openaiKey, model: g.image.model },
     scopes: g.scopes,
     scopeInfo: Object.fromEntries(SCOPE_KEYS.map(k => [k, { label: SCOPES[k].label, hint: SCOPES[k].hint }])) as Record<ScopeKey, ScopeInfo>,
+    openWithoutPassword: openWithoutPassword(env),
   };
 }
 
@@ -91,7 +121,13 @@ function mergeSettings(s: StoredSettings, p: SettingsPatch): StoredSettings {
     const patch = p[name] as Record<string, string | null | undefined> | undefined;
     if (!patch) return; const sec: Section = { ...(s[name] ?? {}) }; out[name] = sec;
     for (const k of plain) if (patch[k] !== undefined) sec[k] = String(patch[k]).trim();
-    for (const k of secret) { const v = patch[k]; if (v === null) delete sec[k]; else if (v !== undefined && v !== '') { const sealed = seal(String(v).trim()); if (sealed) sec[k] = sealed; } } // leer = unverändert, null = löschen
+    if (name !== 'ai' && name !== 'image') { // Shop-Adresse auf andere Herkunft: gespeicherte Geheimnisse verwerfen (neue aus dem Patch gelten)
+      const kind = name as PlatformKind, before = connOrigin(kind, s[kind]), after = connOrigin(kind, sec);
+      if (before !== after) parkSecrets(sec, secret, before, after);
+    }
+    let fresh = false;
+    for (const k of secret) { const v = patch[k]; if (v === null) delete sec[k]; else if (v !== undefined && v !== '') { const sealed = seal(String(v).trim()); if (sealed) { sec[k] = sealed; fresh = true; } } } // leer = unverändert, null = löschen
+    if (fresh) delete sec[PARKED]; // neu eingegeben: geparkte alte Zugangsdaten sind überholt
   };
   if (p.platform !== undefined && isPlatformKind(p.platform)) out.platform = p.platform;
   section('shopware', ['url', 'publicUrl', 'user', 'clientId'], ['password', 'clientSecret']);

@@ -15,7 +15,7 @@ const rt = () => singleton<Runtime>('runtime', () => {
 function configureMedia(sw: Shopware) {
   const g = getSettings();
   setImageConfig({ key: g.image.openaiKey, model: g.image.model }); setFetcher((u, i) => sw.storefrontFetch(u, i));
-  // Domains der Verkaufskanäle gelten als eigener Shop (dort darf der Bild-Download auch interne Adressen erreichen)
+  // Domains der Verkaufskanäle gelten als eigener Shop (Bild-Download darf dort interne Docker-Adressen erreichen, Cloud-Metadaten/Link-local nie – s. media.ts)
   setTrustedOrigins(async () => (getSettings().platform !== 'shopware' ? [] : (await sw.salesChannels().catch(() => [] as SwEntity[])).flatMap(c => (c.domains ?? []).map((d: SwEntity) => String(d.url)))));
 }
 

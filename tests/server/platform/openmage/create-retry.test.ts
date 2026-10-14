@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startFakeOpenmage } from '../../../../src/server/platform/openmage/fake';
+import { startFakeOpenmage } from '../../../support/openmage-fake';
 
 const fake = await startFakeOpenmage({ products: [{ id: 1, sku: 'VASE', type_id: 'simple', attribute_set_id: 4, website_ids: [1], stock: { qty: 3, is_in_stock: true, manage_stock: true }, images: [], categories: [], vals: { 0: { name: 'Vase', price: 49, status: 1, visibility: 4, url_key: 'vase' } } }] });
 after(() => fake.close());
