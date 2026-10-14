@@ -114,6 +114,8 @@ export type ChatEventType = ChatEvent['t'];
 export interface ChatRequest { chatId: string; message: string; target?: Target | null; onboarding?: boolean; locale?: Locale }
 /** status: läuft gerade („running“) oder wartet auf Antwort/Freigabe des Menschen („waiting“); fehlt = ruht */
 export type ChatStatus = 'running' | 'waiting';
+/** Seitengröße der Chatliste (/api/chats): eine volle Seite heißt „vielleicht gibt es mehr“. */
+export const CHAT_PAGE = 200;
 export interface ChatSummary { id: string; title: string; target: Target | null; updatedAt: string; published: number; status?: ChatStatus }
 export interface ChatDetail { id: string; title: string; target: Target | null; events: ChatEvent[]; /** Runde läuft gerade (dann live verbinden) */ running?: boolean }
 
@@ -160,7 +162,7 @@ export interface TestResult { ok: boolean; message: string }
 
 export interface AccessLogRow { ts: string; chat: string | null; op: string; entity: string; n: number; scrubbed: number; denied: string | null }
 /** status 'started': Zeile vor dem ersten Schreibzugriff (Absturzsicherheit); das Ergebnis folgt als eigene Zeile. decision 'changed': Wechsel der Shop-Verbindung (Einstellungen) */
-export interface AuditRow { ts: string; chatId?: string; changeSet?: string; kind?: string; title?: string; decision: 'approved' | 'rejected' | 'undo' | 'changed'; status?: ChangeStatus | 'started'; applied?: number; failed?: number; [k: string]: unknown }
+export interface AuditRow { ts: string; chatId?: string; changeSet?: string; kind?: string; title?: string; decision: 'approved' | 'rejected' | 'undo' | 'changed'; status?: ChangeStatus | 'started'; applied?: number; failed?: number; /** Benutzername des Logins (LOTSE_PASSWORD), wenn vorhanden */ actor?: string; [k: string]: unknown }
 
 /** ChatGPT-Anmeldung für Codex (Gerätecode): Link öffnen, Code eingeben. */
 export interface CodexLoginState { status: 'idle' | 'pending' | 'done' | 'error'; url?: string; code?: string; message?: string }

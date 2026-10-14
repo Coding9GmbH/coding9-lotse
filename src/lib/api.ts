@@ -38,7 +38,11 @@ export const api = {
   categories: () => request<CategoryRow[]>('/api/categories'),
   products: (term: string, categoryId?: string) =>
     request<ProductRow[]>(`/api/products?term=${encodeURIComponent(term)}${categoryId ? `&categoryId=${encodeURIComponent(categoryId)}` : ''}`),
-  chats: () => request<ChatSummary[]>('/api/chats'),
+  /** Ohne Optionen die neuesten 200; before = letzter Chat der vorigen Seite (weiterblättern), q = Titelsuche */
+  chats: (o: { before?: Pick<ChatSummary, 'updatedAt' | 'id'>; q?: string } = {}) => {
+    const p = new URLSearchParams(); if (o.before) { p.set('before', o.before.updatedAt); p.set('beforeId', o.before.id); } if (o.q) p.set('q', o.q);
+    return request<ChatSummary[]>(`/api/chats${p.size ? `?${p}` : ''}`);
+  },
   deleteChat: (id: string) => request<unknown>(`/api/chats/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   answer: (chatId: string, approvalId: string, answer: string) => request<unknown>('/api/answer', json('POST', { chatId, approvalId, answer })),
   approve: (chatId: string, approvalId: string, allow: boolean, selected?: string[]) => request<unknown>('/api/approve', json('POST', { chatId, approvalId, allow, selected })),

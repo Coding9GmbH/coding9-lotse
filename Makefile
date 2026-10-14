@@ -46,15 +46,24 @@ shell: ## Shell im Container
 open: ## Oberfläche im Browser öffnen
 	@(command -v open >/dev/null && open http://localhost:$(PORT)) || xdg-open http://localhost:$(PORT) 2>/dev/null || echo http://localhost:$(PORT)
 
-backup: ## Datenvolume sichern (DB, Schlüssel, Verlauf) nach ./backups
+# Sicherung: SQLite läuft im WAL-Modus – die Dateien einfach zu kopieren kann einen halben Stand erwischen. Läuft Lotse,
+# schreibt docker/db-snapshot.mjs per VACUUM INTO einen stimmigen Schnappschuss nach /data/.backup/aicb.db; das Archiv enthält
+# ihn als aicb.db (statt der Live-Datei samt -wal/-shm) plus alle übrigen Dateien (secret.key, Wissen, Claude-Sitzungen …).
+# Ist Lotse gestoppt, ist die Datenbank in Ruhe und wird direkt gesichert. Archive haben dasselbe Format wie früher.
+backup: ## Datenvolume sichern (DB-Schnappschuss, Schlüssel, Verlauf) nach ./backups
 	@mkdir -p $(BACKUP_DIR)
-	docker run --rm -v lotse_lotse-data:/data:ro -v "$$PWD/$(BACKUP_DIR)":/backup busybox tar czf /backup/lotse-$$(date +%Y%m%d-%H%M%S).tgz -C /data .
+	@if [ -n "$$($(COMPOSE) ps -q --status running lotse 2>/dev/null)" ]; then $(COMPOSE) exec -T lotse node --input-type=module - < docker/db-snapshot.mjs; \
+	  else echo "Lotse läuft nicht – Datenbank ist in Ruhe und wird direkt gesichert"; fi
+	docker run --rm -e TS=$$(date +%Y%m%d-%H%M%S) -v lotse_lotse-data:/data -v "$$PWD/$(BACKUP_DIR)":/backup busybox sh -c 'set -e; s=/tmp/lotse; mkdir -p $$s; cp -a /data/. $$s/; \
+	  if [ -f $$s/.backup/aicb.db ]; then rm -f $$s/aicb.db $$s/aicb.db-wal $$s/aicb.db-shm; mv $$s/.backup/aicb.db $$s/aicb.db; fi; \
+	  rm -rf $$s/.backup /data/.backup; tar czf /backup/lotse-$$TS.tgz -C $$s .'
 	@ls -1t $(BACKUP_DIR) | head -1
 
 restore: ## Sicherung einspielen: make restore FILE=backups/lotse-….tgz
 	@[ -n "$(FILE)" ] || (echo "FILE=… angeben" && exit 1)
 	$(COMPOSE) stop lotse
-	docker run --rm -v lotse_lotse-data:/data -v "$$PWD/$(dir $(FILE))":/backup busybox sh -c "rm -rf /data/* && tar xzf /backup/$(notdir $(FILE)) -C /data && chown -R 1000:1000 /data"
+	docker run --rm -v lotse_lotse-data:/data -v "$$PWD/$(dir $(FILE))":/backup busybox sh -c 'set -e; rm -rf /data/* /data/.[!.]* /data/..?*; \
+	  tar xzf /backup/$(notdir $(FILE)) -C /data; rm -rf /data/.backup; chown -R 1000:1000 /data'
 	$(COMPOSE) start lotse
 
 update: ## Neuestes offizielles Image holen und neu starten

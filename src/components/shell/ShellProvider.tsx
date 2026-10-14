@@ -5,7 +5,7 @@
 import { useRouter } from 'next/navigation';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
-import { NAV_COOKIE } from '@/lib/nav';
+import { NAV_COOKIE, mergeChatPages, pageFull, rollChatPages } from '@/lib/nav';
 import type { ChatSummary, Health, Styleguide } from '@/lib/protocol';
 import type { ShellInitial } from '@/server/initial';
 
@@ -31,6 +31,10 @@ interface Shell {
   /** Statusabruf fehlgeschlagen: Shop und KI nicht als eingerichtet annehmen. */
   healthFailed: boolean;
   reloadChats: () => void;
+  /** Ältere Chats nachladen (die Liste kommt seitenweise, je 200) */
+  moreChats: boolean;
+  moreState: 'idle' | 'loading' | 'error';
+  loadMoreChats: () => void;
   /** Chats, deren Runde im Hintergrund fertig wurde und die noch nicht wieder geöffnet wurden */
   doneIds: ReadonlySet<string>;
   styleguide: Styleguide | null;
@@ -61,6 +65,11 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
   const [healthFailed, setHealthFailed] = useState(false);
   const [chats, setChats] = useState<ChatSummary[] | null>(initial?.chats ?? null);
   const [chatError, setChatError] = useState<string | null>(null);
+  // Nachgeladene ältere Seiten; die erste Seite (chats) frischt sich weiter wie bisher auf
+  const [older, setOlder] = useState<ChatSummary[]>([]);
+  const [olderMore, setOlderMore] = useState<boolean | null>(null);
+  const [moreState, setMoreState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const removed = useRef(new Set<string>());
   const [styleguide, setStyleguideState] = useState<Styleguide | null>(initial?.styleguide ?? null);
   const [styleguideKnown, setStyleguideKnown] = useState(!!initial);
   const [activeChatId, setActiveChatIdState] = useState<string | null>(null);
@@ -88,6 +97,7 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
         // Lief ein Chat eben noch und ruht jetzt, ist er fertig – markieren, wenn er gerade nicht offen ist
         const finished = (prev ?? []).filter(p => p.status && p.id !== activeRef.current && next.some(n => n.id === p.id && !n.status)).map(p => p.id);
         if (finished.length) setDoneIds(d => new Set([...d, ...finished]));
+        setOlder(o => rollChatPages(prev, next, o, removed.current));
         return next;
       });
     }).catch(e => setChats(prev => {
@@ -96,6 +106,18 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
       return prev;
     }));
   }, []);
+
+  const allChats = useMemo(() => mergeChatPages(chats, older), [chats, older]);
+  const moreChats = olderMore ?? pageFull(chats?.length ?? 0);
+  const loadMoreChats = useCallback(() => {
+    const last = allChats?.at(-1);
+    if (!last) return;
+    setMoreState('loading');
+    api.chats({ before: last }).then(page => {
+      setOlder(o => { const ids = new Set(o.map(c => c.id)); return [...o, ...page.filter(c => !ids.has(c.id) && !removed.current.has(c.id))]; });
+      setOlderMore(pageFull(page.length)); setMoreState('idle');
+    }).catch(() => setMoreState('error'));
+  }, [allChats]);
 
   // Solange ein Chat läuft oder wartet: Verlauf regelmäßig auffrischen (Status links aktuell halten)
   const anyLive = !!chats?.some(c => c.status);
@@ -138,7 +160,7 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
       else { intent.current = fallback; router.push('/'); }
     };
     return {
-      health, healthFailed, refreshHealth, chats, chatError, reloadChats, doneIds, styleguide, styleguideKnown, setup, setStyleguide, activeChatId, setActiveChatId, contextName, setContextName,
+      health, healthFailed, refreshHealth, chats: allChats, chatError, reloadChats, moreChats, moreState, loadMoreChats, doneIds, styleguide, styleguideKnown, setup, setStyleguide, activeChatId, setActiveChatId, contextName, setContextName,
       collapsed, toggleCollapsed, mobileOpen, setMobileOpen,
       registerWorkspace: b => { bridge.current = b; },
       takeIntent: () => { const i = intent.current; intent.current = null; return i; },
@@ -151,12 +173,13 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
         openStyleguide: () => via(b => b.openStyleguide(), { type: 'styleguide' }),
         openRules: () => via(b => b.openRules(), { type: 'rules' }),
         deleteChat: id => {
+          removed.current.add(id); setOlder(o => o.filter(c => c.id !== id));
           if (bridge.current) bridge.current.deleteChat(id);
           else api.deleteChat(id).catch(() => {}).finally(reloadChats);
         },
       },
     };
-  }, [health, healthFailed, refreshHealth, chats, chatError, reloadChats, doneIds, styleguide, styleguideKnown, setup, setStyleguide, activeChatId, contextName, collapsed, toggleCollapsed, mobileOpen, router, setActiveChatId]);
+  }, [health, healthFailed, refreshHealth, allChats, chatError, reloadChats, moreChats, moreState, loadMoreChats, doneIds, styleguide, styleguideKnown, setup, setStyleguide, activeChatId, contextName, collapsed, toggleCollapsed, mobileOpen, router, setActiveChatId]);
 
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

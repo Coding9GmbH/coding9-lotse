@@ -93,6 +93,7 @@ Die Sprache (Deutsch/Englisch) ist keine Variable: Sie wird in den Einstellungen
 | `LOTSE_PASSWORD`, `ALLOWED_HOSTS` | Zugangsschutz für Serverbetrieb ([Selbst hosten](docs/self-hosting.md)) |
 | `LOTSE_BIND`, `LOTSE_PORT` | Veröffentlichte Adresse und Port des Containers (Standard `127.0.0.1`, `3333`) |
 | `LOTSE_WRITE_CONCURRENCY`, `LOTSE_SHOP_TIMEOUT_MS` | Shop-Schonung |
+| `LOTSE_LOG_RETENTION_DAYS`, `LOTSE_AUDIT_RETENTION_DAYS` | Aufbewahrung von Zugriffs- (Standard 180 Tage) und Änderungsprotokoll (365 Tage); `0` = nie löschen |
 | `OPENAI_API_KEY`, `IMAGE_MODEL` | optionale Bild-KI |
 
 ## Releases & Image

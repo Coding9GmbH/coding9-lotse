@@ -174,6 +174,11 @@ export function SideNav() {
                 </ul>
               </div>
             ))}
+            {chatView === 'ready' && s.moreChats && (
+              <button type="button" className={styles.more} onClick={s.loadMoreChats} disabled={s.moreState === 'loading'} aria-busy={s.moreState === 'loading'}>
+                {s.moreState === 'loading' ? t.loadingMore : s.moreState === 'error' ? `${t.loadMoreFailed} ${t.loadMore}` : t.loadMore}
+              </button>
+            )}
           </div>
         </section>
       )}
