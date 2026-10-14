@@ -4,6 +4,7 @@ import type { AuditCheck, DraftAudit } from '@/lib/protocol';
 import type { BlockSpec, ImageRef, PageSpec } from './cms';
 import { AI_CREDIT, aiImagesIn } from './media';
 import { findingText, type LinkReport } from './seo-links';
+import { scriptRisk, scriptRiskText } from '@/lib/script-scan';
 
 const strip = (h: unknown) => String(h ?? '').replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 const words = (t: string) => (t.match(/[\p{L}\p{N}-]+/gu) ?? []).length;
@@ -75,6 +76,8 @@ export function auditSpec(spec: PageSpec, links?: LinkReport | null, { format = 
   const wordsBeforeListing = listingIdx < 0 ? 0 : words(flow.slice(0, listingIdx).map(f => f.text).join(' '));
   const maxTextBlock = Math.max(0, ...flow.filter(f => ['text', 'text-two-column', 'text-three-column'].includes(f.type)).map(f => words(f.text)));
 
+  // JavaScript im Entwurf (custom-html js/<script>/on…=/javascript:): wichtiger Hinweis, unabhängig vom Score – der Mensch muss es vor der Freigabe sehen
+  const js = scriptRisk(spec.sections), jsWarn = js ? [scriptRiskText(js)] : [];
   const pdp = spec.type === 'product_detail';
   const C: Check[] = [];
   const h1Ok = themeH1 ? h1Count === 0 : h1Count === 1, h1Msg = themeH1 ? `Keine eigene H1 im Inhalt (die H1 ist der ${spec.type === 'product_list' ? 'Kategoriename' : 'Produktname'} des Themes; aktuell ${h1Count})` : `Es muss genau EINE H1 geben (aktuell ${h1Count})`;
@@ -90,7 +93,7 @@ export function auditSpec(spec: PageSpec, links?: LinkReport | null, { format = 
     add('UX', 1, new Set(flow.map(f => f.type)).size >= 3, 'Abwechslungsreicher Aufbau', 'Mehr Abwechslung im Aufbau');
     if (links) linkChecks(C, links);
     const total = C.reduce((n, c) => n + c.w, 0), got = C.filter(c => c.ok).reduce((n, c) => n + c.w, 0);
-    return { score: Math.round((got / total) * 100), checks: C, warnings: [], stats: { words: nWords, h1: h1Count, internalLinks: internal } };
+    return { score: Math.round((got / total) * 100), checks: C, warnings: jsWarn, stats: { words: nWords, h1: h1Count, internalLinks: internal } };
   }
   if (pdp) {  // Produktseiten-Layout: gilt für viele Produkte → Qualität = Struktur, FAQ, Vertrauen, Lesbarkeit
     const has = (t: string) => flow.some(f => isLike(f, t));
@@ -105,7 +108,7 @@ export function auditSpec(spec: PageSpec, links?: LinkReport | null, { format = 
     add('UX', 1, new Set(flow.map(f => f.type)).size >= 4, 'Abwechslungsreicher Aufbau', 'Mehr Abwechslung im Aufbau');
     if (links) linkChecks(C, links);
     const total = C.reduce((n, c) => n + c.w, 0), got = C.filter(c => c.ok).reduce((n, c) => n + c.w, 0);
-    return { score: Math.round((got / total) * 100), checks: C, warnings: [], stats: { words: nWords, h1: h1Count, internalLinks: internal } };
+    return { score: Math.round((got / total) * 100), checks: C, warnings: jsWarn, stats: { words: nWords, h1: h1Count, internalLinks: internal } };
   }
   // SEO
   add('SEO', 2, kw, `Fokus-Keyword: „${seo.keyword}“`, 'seo.keyword fehlt (Fokus-Keyword mit Suchintention festlegen)');
@@ -159,7 +162,7 @@ export function auditSpec(spec: PageSpec, links?: LinkReport | null, { format = 
   add('UX', 1, !/\p{Extended_Pictographic}/u.test(allText), 'Keine Emojis als Gestaltungsmittel', 'Emojis entfernen (Icons/Typografie statt Emojis)');
   add('UX', 1, (allText.match(/!/g) ?? []).length <= 2, 'Ruhiger Ton (kaum Ausrufezeichen)', 'Zu viele Ausrufezeichen, sachlich-konkret formulieren');
 
-  const warnings: string[] = [];
+  const warnings: string[] = [...jsWarn];
   if (/\b\d{1,3}\s?%|testsieger|bestbewertet|marktführer|nr\.?\s?1|\d[.,]\d\s?(sterne|von 5)|garantiert|rekord/i.test(allText)) warnings.push('Enthält Zahlen/Superlative/Garantien: nur mit Beleg verwenden (UWG-Irreführung).');
   if (/nur noch \d+|letzte chance|nur heute|läuft ab/i.test(allText)) warnings.push('Verknappung/Dringlichkeit nur verwenden, wenn sie real stimmt (Dark Patterns vermeiden).');
 

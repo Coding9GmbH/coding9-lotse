@@ -1,6 +1,7 @@
 // Lieferantendateien lesen (rein, ohne Shop-Zugriff → testbar): CSV/TSV (Trennzeichen, Anführungszeichen, Kodierung),
 // XLSX (erstes oder gewähltes Blatt), Kopfzeilen-Erkennung, Zahlen mit Dezimalkomma, Spaltentypen und Zuordnungs-Vorschlag.
 import crypto from 'node:crypto';
+import { assertSafeZip } from '../zip-guard';
 
 export const MAX_ROWS = 20_000;
 export interface Table {
@@ -81,6 +82,7 @@ export function cellText(v: Cell): string {
 }
 
 async function readXlsx(buf: Buffer, sheet?: string): Promise<{ rows: string[][]; sheet: string; sheets: string[] }> {
+  await assertSafeZip(buf); // Zip-Bombe: vor exceljs (entpackt ohne Obergrenze)
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf as unknown as ArrayBuffer);

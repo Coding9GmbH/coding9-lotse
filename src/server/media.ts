@@ -2,8 +2,11 @@ import 'server-only';
 // Medien: Import per URL (serverseitiger Download), Datei-Upload, SVG-Erstellung, optionale KI-Bildgenerierung → Shopware-Medienbibliothek
 import dns from 'node:dns/promises';
 import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { PLATFORM_KINDS } from '@/lib/platforms';
 import { dataDir, kvGet, kvSet } from './db';
 import { fetchWithRetry } from './retry';
@@ -31,30 +34,49 @@ export async function uploadBuffer(sw: Shopware, buf: Buffer, mime: string, { na
 }
 
 // Laufzeit-Konfiguration (runtime.ts setzt sie nach jeder Einstellungsänderung)
-const rt = () => singleton('media', () => ({ fetch: fetch as Fetcher, img: { key: '', model: '' }, origins: (async () => []) as () => Promise<string[]> }));
+const rt = () => singleton('media', () => ({ fetch: fetch as Fetcher, publicFetch: ((u, i) => pinnedFetch(u, { headers: i?.headers as Record<string, string>, signal: i?.signal ?? undefined })) as Fetcher, img: { key: '', model: '' }, origins: (async () => []) as () => Promise<string[]> }));
 export const setFetcher = (f: Fetcher) => { rt().fetch = f; };
+/** Nur für Tests: fetch für fremde (nicht eigene) Hosts ersetzen – Standard ist pinnedFetch */
+export const setPublicFetcher = (f: Fetcher) => { rt().publicFetch = f; };
 export const setImageConfig = (c: { key: string; model: string }) => { rt().img = c; };
 /** Weitere vertrauenswürdige Shop-Adressen (z. B. Domains der Verkaufskanäle), zusätzlich zu den URLs aus den Einstellungen */
 export const setTrustedOrigins = (f: () => Promise<string[]>) => { rt().origins = f; };
 
 // ---- Schutz vor Zugriffen ins interne Netz (SSRF): Die KI darf Bilder nur vom eigenen Shop oder aus dem öffentlichen Internet laden ----
 const originOf = (u: string) => { try { return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(u) ? u : `https://${u}`).origin; } catch { return null; } };
-/** Adressen des verbundenen Shops (alle Plattform-URLs der Einstellungen + Laufzeit-Domains): dort ist auch eine interne/lokale Adresse erlaubt */
-export async function trustedOrigins(): Promise<Set<string>> {
+const toOrigins = (urls: string[]) => new Set(urls.map(originOf).filter((o): o is string => !!o));
+/** Voll vertrauenswürdig: nur die in den Einstellungen eingetragenen Shop-URLs (dort ist auch localhost/host.docker.internal erlaubt) */
+const settingsOrigins = () => {
   const g = getSettings(), urls: string[] = [];
   for (const k of PLATFORM_KINDS) for (const [key, v] of Object.entries(platformConfig(k, g))) if (/url|domain/i.test(key) && v) urls.push(v);
-  urls.push(...(await rt().origins().catch(() => [])));
-  return new Set(urls.map(originOf).filter((o): o is string => !!o));
+  return toOrigins(urls);
+};
+/** Adressen des verbundenen Shops (Plattform-URLs der Einstellungen + Laufzeit-Domains der Verkaufskanäle) */
+export async function trustedOrigins(): Promise<Set<string>> {
+  return new Set([...settingsOrigins(), ...toOrigins(await rt().origins().catch(() => []))]);
 }
 const privateV4 = (ip: string) => { const [a, b] = ip.split('.').map(Number); return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || a === 192 && b === 168; };
+/** IPv4 aus IPv4-mapped IPv6 (::ffff:1.2.3.4 bzw. von URL normalisiert ::ffff:a00:1), sonst null */
+const mappedV4 = (v: string) => {
+  const m4 = v.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/), mh = v.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (m4) return m4[1];
+  if (mh) { const hi = parseInt(mh[1], 16), lo = parseInt(mh[2], 16); return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`; }
+  return null;
+};
 /** Loopback, private Netze, Link-local (Cloud-Metadaten), CGNAT, IPv6-Gegenstücke und IPv4-mapped */
 export function isPrivateIp(ip: string): boolean {
   if (net.isIPv4(ip)) return privateV4(ip);
-  const v = ip.toLowerCase().replace(/^\[|\]$/g, ''), m4 = v.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/), mh = v.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (m4) return privateV4(m4[1]);
-  if (mh) { const hi = parseInt(mh[1], 16), lo = parseInt(mh[2], 16); return privateV4(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`); } // URL normalisiert ::ffff:10.0.0.1 zu ::ffff:a00:1
+  const v = ip.toLowerCase().replace(/^\[|\]$/g, ''), m = mappedV4(v);
+  if (m) return privateV4(m);
   return v === '::' || v === '::1' || /^f[cd][0-9a-f]{2}:/.test(v) || /^fe[89ab][0-9a-f]:/.test(v);
 }
+/** Link-local/Cloud-Metadaten (169.254.0.0/16, fe80::/10, AWS fd00:ec2::254) – auch für Verkaufskanal-Domains nie erlaubt */
+export function isMetadataIp(ip: string): boolean {
+  const v = ip.toLowerCase().replace(/^\[|\]$/g, ''), v4 = net.isIPv4(v) ? v : mappedV4(v);
+  if (v4) return v4.startsWith('169.254.');
+  return /^fe[89ab][0-9a-f]:/.test(v) || v === 'fd00:ec2::254';
+}
+const LOCAL_MSG = 'interne oder lokale Adressen sind nicht erlaubt (nur der eigene Shop oder öffentliche Bild-URLs)';
 /** Nur http(s) auf öffentliche Adressen; Hostnamen werden aufgelöst, damit „localhost“ oder ein interner DNS-Name nicht durchrutscht */
 export async function assertPublicUrl(url: string): Promise<void> {
   let u: URL; try { u = new URL(url); } catch { throw new Error(`${url} ist keine gültige URL`); }
@@ -62,29 +84,77 @@ export async function assertPublicUrl(url: string): Promise<void> {
   const host = u.hostname.replace(/^\[|\]$/g, '');
   const addrs = net.isIP(host) ? [host] : (await dns.lookup(host, { all: true }).catch(() => [])).map(a => a.address);
   if (!addrs.length) throw new Error(`${url}: Host nicht auflösbar`);
-  if (addrs.some(isPrivateIp)) throw new Error(`${url}: interne oder lokale Adressen sind nicht erlaubt (nur der eigene Shop oder öffentliche Bild-URLs)`);
+  if (addrs.some(isPrivateIp)) throw new Error(`${url}: ${LOCAL_MSG}`);
+}
+type LookupAll = (host: string) => Promise<{ address: string; family: number }[]>;
+type LookupCb = (err: NodeJS.ErrnoException | null, address: string | { address: string; family: number }[], family?: number) => void;
+/** DNS-Auflösung für den Socket selbst: JEDE aufgelöste Adresse wird geprüft (kein DNS-Rebinding zwischen Prüfung und Verbindung) */
+export const pinnedLookup = (resolve: LookupAll = h => dns.lookup(h, { all: true })) => (host: string, opts: { all?: boolean } | number | undefined, cb: LookupCb) => {
+  resolve(host).then(addrs => {
+    if (!addrs.length) throw Object.assign(new Error(`${host}: Host nicht auflösbar`), { code: 'ENOTFOUND' });
+    if (addrs.some(a => isPrivateIp(a.address))) throw Object.assign(new Error(`${host}: ${LOCAL_MSG}`), { code: 'EPRIVATE' });
+    if (typeof opts === 'object' && opts?.all) cb(null, addrs); else cb(null, addrs[0].address, addrs[0].family);
+  }).catch((e: NodeJS.ErrnoException) => cb(e, ''));
+};
+/** fetch für fremde Hosts: node:http(s) mit geprüfter DNS-Auflösung, ohne Weiterleitungen (die prüft der Aufrufer einzeln) */
+export function pinnedFetch(url: string, init: { headers?: Record<string, string>; signal?: AbortSignal } = {}, lookup = pinnedLookup()): Promise<Response> {
+  const u = new URL(url), mod = u.protocol === 'https:' ? https : http;
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  if (net.isIP(host) && isPrivateIp(host)) return Promise.reject(new Error(`${url}: ${LOCAL_MSG}`)); // IP-Literal: kein Lookup
+  return new Promise((resolve, reject) => {
+    const req = mod.request(u, { method: 'GET', headers: init.headers, signal: init.signal, lookup: lookup as unknown as typeof dns.lookup }, res => {
+      const h = new Headers();
+      for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) for (const x of [v].flat()) h.append(k, x);
+      const status = res.statusCode ?? 502, empty = [101, 204, 205, 304].includes(status);
+      if (empty) res.resume();
+      resolve(new Response(empty ? null : (Readable.toWeb(res) as ReadableStream<Uint8Array>), { status, headers: h }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+/** Antwort-Body mit Obergrenze lesen: Content-Length vorab, beim Streamen laufend gezählt (kein unbegrenztes arrayBuffer()) */
+export async function readCapped(r: Response, max = MAX): Promise<Buffer> {
+  const too = () => new Error(`Bild größer als ${Math.round(max / 1024 / 1024)} MB`);
+  if (Number(r.headers.get('content-length') || 0) > max) { await r.body?.cancel().catch(() => {}); throw too(); }
+  if (!r.body) return Buffer.alloc(0);
+  const reader = r.body.getReader(), parts: Uint8Array[] = []; let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > max) { await reader.cancel().catch(() => {}); throw too(); }
+    parts.push(value);
+  }
+  return Buffer.concat(parts);
 }
 const REDIRECT = new Set([301, 302, 303, 307, 308]);
 export async function downloadImage(url: string) {
-  const trusted = await trustedOrigins();
+  const own = settingsOrigins(), channel = toOrigins(await rt().origins().catch(() => []));
   let cur = url;
   for (let hop = 0; ; hop++) {
-    const own = trusted.has(originOf(cur) ?? '');
-    if (!own) await assertPublicUrl(cur);
+    const o = originOf(cur) ?? '', ownHost = own.has(o), chHost = !ownHost && channel.has(o), trusted = ownHost || chHost;
+    if (!trusted) await assertPublicUrl(cur);
+    else if (chHost) { // Verkaufskanal-Domain: interne Adressen ok (Docker), Cloud-Metadaten nie
+      const h = new URL(cur).hostname.replace(/^\[|\]$/g, '');
+      const addrs = net.isIP(h) ? [h] : (await dns.lookup(h, { all: true }).catch(() => [])).map(a => a.address);
+      if (addrs.some(isMetadataIp)) throw new Error(`${cur}: ${LOCAL_MSG}`);
+    }
     // fremde Hosts: kein Status/Fehlercode an die KI (sonst Erreichbarkeits-Orakel), Weiterleitungen werden einzeln geprüft (max. 3)
-    const fail = (detail: string) => new Error(`Download von ${cur} fehlgeschlagen${own ? `: ${detail}` : ' (nicht erreichbar oder kein Bild)'}`);
+    const fail = (detail: string) => new Error(`Download von ${cur} fehlgeschlagen${trusted ? `: ${detail}` : ' (nicht erreichbar oder kein Bild)'}`);
+    const init = { redirect: 'manual' as const, headers: { 'user-agent': 'Mozilla/5.0 (Lotse)', accept: 'image/*' }, signal: AbortSignal.timeout(25_000) };
     let r: Response;
-    try { r = await rt().fetch(cur, { redirect: 'manual', headers: { 'user-agent': 'Mozilla/5.0 (Lotse)', accept: 'image/*' }, signal: AbortSignal.timeout(25_000) }); }
+    try { r = await (trusted ? rt().fetch(cur, init) : rt().publicFetch(cur, init)); }
     catch (e) { throw fail(errMsg(e)); }
     if (REDIRECT.has(r.status)) {
       const loc = r.headers.get('location'); await r.body?.cancel().catch(() => {});
       if (!loc || hop >= 3) throw fail('zu viele Weiterleitungen');
       cur = new URL(loc, cur).href; continue;
     }
-    if (!r.ok) throw fail(`HTTP ${r.status}`);
+    if (!r.ok) { await r.body?.cancel().catch(() => {}); throw fail(`HTTP ${r.status}`); }
     const mime = (r.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-    if (!mime.startsWith('image/')) throw new Error(`${cur} ist kein Bild (Content-Type: ${mime || 'unbekannt'})`);
-    return { buf: Buffer.from(await r.arrayBuffer()), mime };
+    if (!mime.startsWith('image/')) { await r.body?.cancel().catch(() => {}); throw new Error(`${cur} ist kein Bild (Content-Type: ${mime || 'unbekannt'})`); }
+    return { buf: await readCapped(r), mime };
   }
 }
 const IMPORT_MAP = 'import_map';

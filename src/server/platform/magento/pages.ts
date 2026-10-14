@@ -5,6 +5,7 @@ import 'server-only';
 // Inhalte im Page-Builder-Format (pagebuilder.ts): im Admin weiter bearbeitbar, Produktboxen als Magento-Widget mit Live-Preisen.
 import { z } from 'zod';
 import type { ChangeAsset, ChangeItem, ChatEvent, PublishedInfo, UndoOp } from '@/lib/protocol';
+import { withScript } from '@/lib/script-scan';
 import { GENERIC_BLOCKS, type BlockSpec, type ImageRef, type PageSpec, type PreviewCtx, type PreviewProduct } from '../../cms';
 import { readStaged, stagedMeta } from '../../media';
 import { renderPageHtml } from '../../page-html';
@@ -229,7 +230,7 @@ export async function buildPagePublish(ro: MagentoReader, spec: PageSpec, a: Pub
     info('Neue Landingpage', 'Store-View', '–', store === 'all' ? 'alle Store-Views' : store);
     info('Neue Landingpage', 'Meta-Title', '–', mt || title, mt ? [] : ['Kein Meta-Title: Magento nimmt den Seitentitel']);
     info('Neue Landingpage', 'Meta-Description', '–', md || '–', md ? [] : ['Keine Meta-Description']);
-    return { cs: { id: newIdSafe(), kind: 'page', title: `Seite veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true }, payload: { ...base, content, page: { identifier, title, metaTitle: mt, metaDescription: md, store }, storefront: `${sfBase}/${identifier}` } satisfies PagePayload };
+    return { cs: { id: newIdSafe(), kind: 'page', title: `Seite veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec) }, payload: { ...base, content, page: { identifier, title, metaTitle: mt, metaDescription: md, store }, storefront: `${sfBase}/${identifier}` } satisfies PagePayload };
   }
 
   if (a.target === 'category') {
@@ -251,7 +252,7 @@ export async function buildPagePublish(ro: MagentoReader, spec: PageSpec, a: Pub
     if (metas.meta_title) info(label, 'Meta-Title', cut(attrStr(c, 'meta_title')), mt);
     if (metas.meta_description) info(label, 'Meta-Description', cut(attrStr(c, 'meta_description')), md);
     const k = attrStr(c, 'url_path') ?? attrStr(c, 'url_key'), url = k ? `${sfBase}/${k}${cfg.category_url_suffix ?? ''}` : null;
-    return { cs: { id: newIdSafe(), kind: 'page', title: `Kategorie-Inhalt veröffentlichen: ${name}`, reason: null, items, assets, skipped: [], atomic: true }, payload: { ...base, content, category: { id: String(c.id), displayMode: mode, metas, url }, storefront: url ?? sfBase } satisfies PagePayload };
+    return { cs: { id: newIdSafe(), kind: 'page', title: `Kategorie-Inhalt veröffentlichen: ${name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec) }, payload: { ...base, content, category: { id: String(c.id), displayMode: mode, metas, url }, storefront: url ?? sfBase } satisfies PagePayload };
   }
 
   // Produkt(e)
@@ -274,7 +275,7 @@ export async function buildPagePublish(ro: MagentoReader, spec: PageSpec, a: Pub
     info('Neuer CMS-Block (Produktinhalt)', 'Anlegen', '–', `${spec.name} · ${blocks} Blöcke · Page Builder`, warn);
     for (const p of list) info(`Produkt „${p.name}“ (${p.sku})`, 'Beschreibung', cut(attr(p, 'description'), 80), 'bisheriger Text + Block darunter');
   }
-  return { cs: { id: newIdSafe(), kind: 'page', title: `Produktinhalt veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true }, payload: { ...base, content, products: { mode, items: rows }, storefront: rows.find(r => r.url)?.url ?? sfBase } satisfies PagePayload };
+  return { cs: { id: newIdSafe(), kind: 'page', title: `Produktinhalt veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec) }, payload: { ...base, content, products: { mode, items: rows }, storefront: rows.find(r => r.url)?.url ?? sfBase } satisfies PagePayload };
 }
 /** Lesbare Vorschau der Teile für die Änderungskarte (Produkt-Widget als Platzhalter) */
 const renderPreviewHtml = (parts: PbPart[]) => parts.map(p => (p.kind === 'html' ? p.html : p.kind === 'products' ? `<p><b>Produktliste (Magento-Widget):</b> ${esc(p.skus.join(', '))}</p>` : '')).join('');

@@ -7,6 +7,7 @@ import 'server-only';
 // Inhalte von Kollektionen/Produkten stehen in Shop-Metafeldern lotse.<key> (multi_line_text_field), der Abschnitt
 // sections/lotse-content.liquid gibt sie aus. Schlägt ein Schritt fehl, nimmt der Executor alle bisherigen Schritte sofort zurück.
 import type { ChangeAsset, ChangeItem, ChangeSet, PublishedInfo, UndoOp } from '@/lib/protocol';
+import { withScript } from '@/lib/script-scan';
 import { cut, errMsg, trackedUndo, type ApplyCtx, type ApplyResult } from '../../changes';
 import { expandSpec } from '../../patterns';
 import type { ImageObj, ImageRef, PageSpec, PreviewProduct } from '../../cms';
@@ -106,7 +107,7 @@ export async function buildShopifyPublish(q: Q, spec: PageSpec, a: ShopifyPublis
     info('Theme', 'Vorlage', '–', `${target}: Kopie von ${[...groups.keys()][0] ?? baseOf(lotse[0]?.templateSuffix)} + Lotse-Inhalt ${parts.before && parts.after ? 'über und unter' : parts.before ? 'über' : 'unter'} dem Produktbereich`,
       ['Gilt für alle gewählten Produkte; gibt es die Vorlage schon, wird sie ersetzt (Rückgängig stellt sie wieder her).', ...(lotse.length ? ['Die Basis bisheriger Lotse-Vorlagen liest Lotse beim Übernehmen: weicht sie ab, wird nichts geschrieben.'] : [])]);
   }
-  const cs: ChangeSet = { id: newId(), kind: 'page', title: `Seite veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, noun: { one: 'Schritt', many: 'Schritte' } };
+  const cs: ChangeSet = { id: newId(), kind: 'page', title: `Seite veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, noun: { one: 'Schritt', many: 'Schritte' }, ...withScript(spec) };
   return { cs, payload };
 }
 const safeHost = (u: string) => { try { return new URL(u).host; } catch { return ''; } };

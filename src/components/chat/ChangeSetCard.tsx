@@ -4,6 +4,7 @@ import { useId, useMemo, useState } from 'react';
 import type { ChangesetResultEvent, UndoPhase } from '@/lib/chat-state';
 import type { ChangeItem, ChangeSet } from '@/lib/protocol';
 import { applyHint, undoPlannedFor } from '@/lib/apply-hint';
+import { scriptRisk } from '@/lib/script-scan';
 import { plural, sampleSummary } from '@/lib/format';
 import { formatNumber } from '@/lib/i18n';
 import { useI18n, useT } from '@/lib/i18n/I18nProvider';
@@ -55,6 +56,8 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
   const n = selected.size;
   const entities = new Set(real.map(i => i.entityId)).size;
   const warns = cs.items.filter(i => i.warn?.length).length;
+  // JavaScript in der Änderung (Seiten-Spec vom Server, sonst neue Werte der Zeilen): deutlich VOR dem Anwenden zeigen
+  const script = useMemo(() => cs.script ?? scriptRisk(cs.items.map(i => [i.after, i.afterRaw, i.html?.after])), [cs]);
   const locked = !interactive;
   const bulk = cs.total != null;
   const resultMap = useMemo(() => new Map((result?.results ?? []).map(r => [r.itemId, r])), [result]);
@@ -178,6 +181,15 @@ export function ChangeSetCard({ cs, interactive, decision, sent, result, progres
           <summary>⚠ {t.skipped(cs.skipped.length)}</summary>
           <ul>{cs.skipped.map((x, k) => <li key={`${x.id}-${k}`}>{x.reason}</li>)}</ul>
         </details>
+      )}
+
+      {script && (
+        <div className={styles.script} role="alert">
+          <b>{t.script.title}</b>
+          <span>{script.kinds.map(k => t.script.kinds[k]).join(' · ')}</span>
+          <span>{script.hosts.length ? t.script.loads(script.hosts.join(', ')) : t.script.noHosts}</span>
+          <small>{t.script.body}</small>
+        </div>
       )}
 
       <div className={styles.foot}>
