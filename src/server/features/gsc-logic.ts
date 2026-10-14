@@ -81,6 +81,69 @@ export function contentGaps(rows: Row[], o: { minImpressions?: number; goodPosit
   return out.sort((a, b) => b.impressions - a.impressions || a.bestPosition - b.bestPosition); // Nachfrage zuerst
 }
 
+// ---- Rankings: kurz vor Seite 1, Kannibalisierung, Verluste ----
+/** Seiten-URL ohne Parameter, Anker und Schrägstrich am Ende: so zählt /vasen/?p=2 zur selben Seite wie /vasen */
+export const pageKey = (u: string) => u.replace(/[?#].*$/, '').replace(/\/+$/, '');
+
+export interface Striking { page: string; impressions: number; clicks: number; potentialClicks: number; queries: (Metrics & { query: string })[] }
+/** Kurz vor Seite 1 bzw. vor den Top 3: Anfragen auf Position 4 bis 15 mit Nachfrage, je Seite gebündelt.
+ *  Potenzial = Klicks, wenn die Anfrage auf Position 3 stünde, abzüglich der heutigen. Zeilen mit dimensions [query, page]. */
+export function strikingDistance(rows: Row[], o: { minImpressions?: number; from?: number; to?: number } = {}): Striking[] {
+  const min = o.minImpressions ?? 50, from = o.from ?? 4, to = o.to ?? 15, target = expectedCtr(3);
+  const by = new Map<string, Striking>();
+  for (const r of rows) {
+    const [query, raw] = r.keys; if (!query || !raw || r.impressions < min || r.position < from || r.position > to) continue;
+    const page = pageKey(raw), s = by.get(page) ?? { page: raw, impressions: 0, clicks: 0, potentialClicks: 0, queries: [] };
+    s.impressions += r.impressions; s.clicks += r.clicks; s.potentialClicks += Math.max(0, Math.round(r.impressions * (target - r.ctr)));
+    s.queries.push({ query, clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position });
+    by.set(page, s);
+  }
+  return [...by.values()].map(s => ({ ...s, queries: s.queries.sort((a, b) => b.impressions - a.impressions) }))
+    .filter(s => s.potentialClicks > 0).sort((a, b) => b.potentialClicks - a.potentialClicks);
+}
+
+export interface Cannibal { query: string; impressions: number; clicks: number; bestPosition: number; pages: (Metrics & { page: string; share: number })[] }
+/** Kannibalisierung: Für eine Anfrage teilen sich mindestens zwei eigene Seiten nennenswert die Impressionen (je ≥ 15 %, Position ≤ 30)
+ *  und keine steht schon klar oben (beste Position > 3). Google weiß dann nicht, welche Seite gemeint ist; beide ranken schwächer. */
+export function cannibalization(rows: Row[], o: { minImpressions?: number; minShare?: number } = {}): Cannibal[] {
+  const min = o.minImpressions ?? 100, minShare = o.minShare ?? 0.15;
+  const by = new Map<string, Map<string, Row[]>>();
+  for (const r of rows) {
+    const [query, raw] = r.keys; if (!query || !raw) continue;
+    const pages = by.get(query) ?? new Map<string, Row[]>(), k = pageKey(raw);
+    pages.set(k, [...(pages.get(k) ?? []), r]); by.set(query, pages);
+  }
+  const out: Cannibal[] = [];
+  for (const [query, pages] of by) {
+    const per = [...pages.values()].map(rs => ({ page: rs[0].keys[1], ...aggregate(rs) })), total = aggregate(per);
+    if (total.impressions < min) continue;
+    const strong = per.filter(p => p.impressions / total.impressions >= minShare && p.position <= 30).sort((a, b) => b.impressions - a.impressions);
+    const best = Math.min(...per.map(p => p.position));
+    if (strong.length < 2 || best <= 3) continue;
+    out.push({ query, impressions: total.impressions, clicks: total.clicks, bestPosition: best, pages: strong.map(p => ({ ...p, share: round(p.impressions / total.impressions, 2) })) });
+  }
+  return out.sort((a, b) => b.impressions - a.impressions);
+}
+
+export interface Decline { page: string; before: Metrics; after: Metrics; change: number; vsSite: number }
+/** Verluste: Seiten, die im aktuellen Zeitraum deutlich weniger Klicks haben als im gleich langen Zeitraum davor,
+ *  stärker als der ganze Shop (Saison, Updates herausgerechnet). Zeilen mit dimensions [page]. */
+export function declines(before: Row[], after: Row[], o: { minClicks?: number; minDrop?: number; minLost?: number } = {}): Decline[] {
+  const minClicks = o.minClicks ?? 20, minDrop = o.minDrop ?? 0.3, minLost = o.minLost ?? 10;
+  const group = (rows: Row[]) => { const m = new Map<string, Row[]>(); for (const r of rows) { const k = pageKey(r.keys[0] ?? ''); if (k) m.set(k, [...(m.get(k) ?? []), r]); } return m; };
+  const b = group(before), a = group(after), siteB = aggregate(before).clicks, siteA = aggregate(after).clicks;
+  const site = siteB ? siteA / siteB : 1;
+  const out: Decline[] = [];
+  for (const [k, rs] of b) {
+    const mb = aggregate(rs), ma = aggregate(a.get(k) ?? []);
+    if (mb.clicks < minClicks || mb.clicks - ma.clicks < minLost) continue;
+    const change = (ma.clicks - mb.clicks) / mb.clicks, vsSite = site ? ma.clicks / mb.clicks / site - 1 : change;
+    if (change > -minDrop || vsSite > -minDrop) continue;
+    out.push({ page: rs[0].keys[0], before: mb, after: ma, change: round(change, 2), vsSite: round(vsSite, 2) });
+  }
+  return out.sort((x, y) => (y.before.clicks - y.after.clicks) - (x.before.clicks - x.after.clicks));
+}
+
 // ---- Erfolgsmessung ----
 export interface Baseline {
   id: string; entity: 'product' | 'category' | 'landing-page'; entityId: string; label: string; urls: string[]; pathRegex: string;

@@ -7,6 +7,7 @@ import type { ChatSummary, CheckFinding, Health } from '@/lib/protocol';
 import { Button } from '@/components/ui/Button';
 import { ShopCheck } from './ShopCheck';
 import { SistrixCard } from './SistrixCard';
+import { SeoCard, type FixTask } from './SeoCard';
 import styles from './Home.module.css';
 
 export function HomeHead() {
@@ -32,13 +33,15 @@ interface Props {
   onExample: (text: string) => void;
   /** Shop-Check-Befund als Auftrag ins Feld */
   onFix: (f: CheckFinding) => void;
+  /** SEO-Hebel als Auftrag ins Feld (wie ein Shop-Check-Befund: danach „in Bearbeitung“) */
+  onTask: (t: FixTask) => void;
   fixes: FixMap;
   onOpenChat: (id: string) => void;
   onOnboard: () => void;
 }
 
 /** Startbildschirm: Einrichtung, Styleguide-Empfehlung, Shop-Check, Beispiele, zuletzt genutzte Chats. */
-export function HomeContent({ health, loadFailed = false, hasStyleguide, product, category, recent, onExample, onFix, fixes, onOpenChat, onOnboard }: Props) {
+export function HomeContent({ health, loadFailed = false, hasStyleguide, product, category, recent, onExample, onFix, onTask, fixes, onOpenChat, onOnboard }: Props) {
   const { locale, t: m } = useI18n(), t = m.chat.home;
   const needsSetup = !loadFailed && health && (!health.shopware.configured || !health.ai.configured);
   const ready = !loadFailed && health && health.shopware.configured && health.ai.configured;
@@ -73,6 +76,7 @@ export function HomeContent({ health, loadFailed = false, hasStyleguide, product
         </div>
       )}
       {ready && <ShopCheck onFix={onFix} fixes={fixes} onOpenChat={onOpenChat} onNewCheck={onExample} />}
+      {ready && <SeoCard onTask={onTask} fixes={fixes} onOpenChat={onOpenChat} />}
       {ready && health?.integrations?.sistrix && <SistrixCard onAsk={onExample} />}
       <h3 className={styles.exH}>{t.tryIt}</h3>
       <div className={styles.ex}>

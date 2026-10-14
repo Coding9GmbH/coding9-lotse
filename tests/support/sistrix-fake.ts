@@ -31,6 +31,8 @@ export async function startFakeSistrix(o: { apiKey: string; data?: FakeSistrix['
     if (method === 'credits') return send(200, { method: ['credits'], answer: [{ credits: [{ value: 1234 }] }], credits: [{ used: '0' }] });
     const rows = (f.data[method] ?? []).slice(0, Number(params.limit ?? 100));
     const key = method.split('.').at(-1)!;
+    // Wie Sistrix: die URLs einer Fehlerart stecken verschachtelt in {count, "optimizer.onpage.issue": [...]}
+    if (method === 'project.onpage.issue') return send(200, { method: [['optimizer.onpage.issue']], answer: [{ 'optimizer.onpage.issue': [{ count: rows.length, 'optimizer.onpage.issue': rows }] }], credits: [{ used: '0' }] });
     return send(200, { method: [method], answer: [{ [key]: rows }], credits: [{ used: String(rows.length) }] });
   });
   await new Promise<void>(r => server.listen(0, '127.0.0.1', r));

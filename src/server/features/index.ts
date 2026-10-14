@@ -15,6 +15,7 @@ import { recht } from './recht';
 import { importFeature } from './import';
 import { gsc } from './gsc';
 import { sistrix } from './sistrix';
+import { siteCheck } from './site-audit';
 import { wissen } from './wissen';
 
 export const FEATURES: Feature[] = [
@@ -31,5 +32,6 @@ export const FEATURES: Feature[] = [
   importFeature,
   gsc,
   sistrix,
+  siteCheck,
   wissen,
 ];

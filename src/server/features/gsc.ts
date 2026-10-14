@@ -16,7 +16,7 @@ import { ok, guard, type AnyTool } from '../tool-kit';
 import type { Feature } from './types';
 import { getSettings } from '../settings';
 import { getGscConfig, searchAnalyticsCached, type Dim, type DimFilter, type Operator, type Row, type ServiceKey } from './gsc-google';
-import { aggregate, BASE_DAYS, compareEffect, contentGaps, isoDay, LAG_DAYS, MIN_IMPRESSIONS, measureWindow, opportunities, pathRegex, pct, range, round, view, type Baseline, type Metrics } from './gsc-logic';
+import { addDays, aggregate, BASE_DAYS, cannibalization, compareEffect, contentGaps, declines, isoDay, LAG_DAYS, MIN_IMPRESSIONS, measureWindow, opportunities, pathRegex, pct, range, round, strikingDistance, view, type Baseline, type Metrics } from './gsc-logic';
 import type { PageRef } from './gsc-map';
 
 type Cfg = { key: ServiceKey; property: string };
@@ -98,6 +98,24 @@ export async function findOpportunities(cfg: Cfg, ro: Shop, a: { days?: number; 
   if (a.queries !== false) await pool(top, 3, async o => { queries.set(o.page, (await searchAnalyticsCached(cfg, { startDate: r.startDate, endDate: r.endDate, dimensions: ['query'], filters: [{ dimension: 'page', operator: 'equals', expression: o.page }], maxRows: 5 })).slice(0, 5)); });
   return { period: r, pagesChecked: rows.length, total: all.length, mapped: !!map, items: top.map(o => ({ o, ref: map?.get(o.page) ?? null, queries: queries.get(o.page) ?? [] })) };
 }
+// ---- Rankings: kurz vor Seite 1, Kannibalisierung, Verluste (auch für Shop-Check und SEO-Bereich) ----
+/** Eine Abfrage [query, page] für die letzten 28 Tage, dazu [page] für diesen und den Zeitraum davor; alles zwischengespeichert. */
+export async function rankingInsights(cfg: Cfg, ro: Shop, a: { top?: number } = {}, now = new Date()) {
+  const r = range(BASE_DAYS, now), prev = range(BASE_DAYS, now, addDays(r.startDate, -1));
+  const [qp, cur, before] = await Promise.all([
+    searchAnalyticsCached(cfg, { startDate: r.startDate, endDate: r.endDate, dimensions: ['query', 'page'], maxRows: 50_000 }),
+    searchAnalyticsCached(cfg, { startDate: r.startDate, endDate: r.endDate, dimensions: ['page'], maxRows: 50_000 }),
+    searchAnalyticsCached(cfg, { startDate: prev.startDate, endDate: prev.endDate, dimensions: ['page'], maxRows: 50_000 }),
+  ]);
+  const top = Math.min(Math.max(a.top ?? 10, 1), 50);
+  const striking = strikingDistance(qp), cannibal = cannibalization(qp), decline = declines(before, cur);
+  const s = striking.slice(0, top), c = cannibal.slice(0, top), d = decline.slice(0, top);
+  const map = await asLookup(ro).mapUrls([...new Set([...s.map(x => x.page), ...c.flatMap(x => x.pages.map(p => p.page)), ...d.map(x => x.page)])], { metas: true }).catch(() => null);
+  const ref = (u: string) => map?.get(u) ?? null;
+  return { period: r, previous: prev, totals: { striking: striking.length, cannibal: cannibal.length, decline: decline.length },
+    striking: s.map(x => ({ x, ref: ref(x.page) })), cannibal: c.map(x => ({ x, refs: x.pages.map(p => ref(p.page)) })), decline: d.map(x => ({ x, ref: ref(x.page) })) };
+}
+
 export const refView = (ref: PageRef | null) => (ref ? { kind: ref.kind, ...(ref.id ? { id: ref.id } : {}), name: ref.name, ...(ref.number ? { number: ref.number } : {}), ...(ref.active === false ? { active: false } : {}) } : null);
 
 // ---- Shop-Check (nur, wenn verbunden) ----
@@ -110,6 +128,24 @@ registerCheck({ id: 'gsc.low-ctr', area: 'Search Console', scopes: ['gsc'], plat
     hint: 'Google zeigt diese Seiten oft, aber wenige klicken. Meist helfen ein klarerer Meta-Title und eine Meta-Description mit Nutzen (Daten der letzten 28 Tage).',
     fixPrompt: 'Zeige mir die Search-Console-Chancen (Seiten mit vielen Impressionen und schwacher Klickrate) und schlage für die wichtigsten bessere Meta-Titles und Meta-Descriptions vor.' };
   return f;
+} });
+registerCheck({ id: 'gsc.cannibalization', area: 'Search Console', scopes: ['gsc'], platforms: 'all', run: async (sw, ctx) => {
+  const cfg = getGscConfig(); if (!cfg) return null;
+  const r = await rankingInsights(cfg, ctx?.lookup ?? sw, { top: 5 }), n = r.totals.cannibal;
+  return { id: 'gsc.cannibalization', area: 'Search Console', severity: n >= 5 ? 'mittel' : 'niedrig', count: n,
+    title: n ? `${n} ${n === 1 ? 'Suchanfrage' : 'Suchanfragen'}, bei denen eigene Seiten gegeneinander ranken` : 'Keine eigenen Seiten, die gegeneinander ranken',
+    sample: r.cannibal.map(({ x }) => ({ id: x.query, label: `„${x.query}“: ${x.pages.length} Seiten, beste Position ${String(round(x.bestPosition)).replace('.', ',')}` })),
+    hint: 'Teilen sich mehrere Seiten dieselbe Suchanfrage, weiß Google nicht, welche gemeint ist, und beide ranken schwächer. Eine Hauptseite festlegen und die anderen auf eigene Themen schärfen.',
+    fixPrompt: 'Zeige mir die Suchanfragen, bei denen eigene Seiten gegeneinander ranken (Search Console), und schlage je Anfrage eine Hauptseite und konkrete Änderungen vor.' };
+} });
+registerCheck({ id: 'gsc.decline', area: 'Search Console', scopes: ['gsc'], platforms: 'all', run: async (sw, ctx) => {
+  const cfg = getGscConfig(); if (!cfg) return null;
+  const r = await rankingInsights(cfg, ctx?.lookup ?? sw, { top: 5 }), n = r.totals.decline;
+  return { id: 'gsc.decline', area: 'Search Console', severity: n >= 5 ? 'hoch' : 'mittel', count: n,
+    title: n ? `${n} ${n === 1 ? 'Seite' : 'Seiten'} mit deutlich weniger Klicks als in den 28 Tagen davor` : 'Keine Seite hat auffällig Klicks verloren',
+    sample: r.decline.map(({ x, ref }) => ({ id: ref?.id ?? x.page, label: `${ref?.name ?? x.page}: ${x.before.clicks} → ${x.after.clicks} Klicks (Position ${String(round(x.before.position)).replace('.', ',')} → ${String(round(x.after.position)).replace('.', ',')})` })),
+    hint: 'Mindestens 30 % weniger Klicks, stärker als der Trend des ganzen Shops. Häufige Ursachen: Seite inaktiv oder ausverkauft, geänderte URL oder Texte, Wettbewerber, Google-Update.',
+    fixPrompt: 'Welche Seiten haben laut Search Console Klicks verloren? Finde für die wichtigsten die betroffenen Suchanfragen und mögliche Ursachen und schlage Gegenmaßnahmen vor.' };
 } });
 registerCheck({ id: 'gsc.measure-due', area: 'Search Console', scopes: ['gsc'], platforms: 'all', run: async () => {
   if (!getGscConfig()) return null;
@@ -130,7 +166,7 @@ const dateArgs = { days: z.number().optional().describe('Zeitraum in Tagen bis z
 export const gsc: Feature = {
   key: 'gsc',
   platforms: 'all',
-  toolNames: ['gsc_performance', 'gsc_opportunities', 'gsc_content_gaps', 'gsc_measure_effect'],
+  toolNames: ['gsc_performance', 'gsc_opportunities', 'gsc_content_gaps', 'gsc_rankings', 'gsc_measure_effect'],
   tools: session => {
     const { lookup } = session, PROPOSE = propose(getPlatform(session.platform).label);
     return [
@@ -182,6 +218,20 @@ export const gsc: Feature = {
             property: cfg.property, period: `${r.startDate} bis ${r.endDate}`, queriesChecked: new Set(rows.map(x => x.keys[0])).size, gaps: gaps.length,
             items: top.map(g => ({ query: g.query, impressions: g.impressions, clicks: g.clicks, bestPosition: round(g.bestPosition), reason: g.reason, bestPage: g.bestPage, bestPageShop: refView(map?.get(g.bestPage) ?? null), pagesRanking: g.pages })),
             notes: [LAG_NOTE, 'Relevanz wird grob über die Wörter der Anfrage in der URL geschätzt; vor einem Vorschlag die Seite ansehen (get_product/get_category/read_page).', 'Vor neuen Seiten prüfen, ob eine bestehende Kategorie mit besserem Text reicht (keine Konkurrenz zwischen eigenen Seiten).'],
+          });
+        })),
+
+      tool('gsc_rankings', 'Ranking-Analysen aus der Search Console (letzte 28 Tage, Verluste gegen die 28 Tage davor). striking: Seiten mit Suchanfragen auf Position 4 bis 15 (kurz vor Seite 1 bzw. den Top 3) und geschätztem Gewinn an Position 3. cannibalization: Suchanfragen, bei denen sich mehrere eigene Seiten die Impressionen teilen und keine klar oben steht. decline: Seiten mit mindestens 30 % weniger Klicks, stärker als der ganze Shop. Seiten sind dem Shop zugeordnet (mit aktuellen Metas). Ändert nichts.',
+        { type: z.enum(['striking', 'cannibalization', 'decline', 'all']).optional().describe('Standard all'), top: z.number().optional().describe('Standard 10, max. 50 je Art') },
+        guard(async a => {
+          const cfg = need(), r = await rankingInsights(cfg, lookup, { top: a.top }), t = a.type ?? 'all';
+          const shop = (ref: PageRef | null) => ({ shop: refView(ref), ...(ref && (ref.kind === 'product' || ref.kind === 'category' || ref.kind === 'landing') ? { metaTitle: ref.metaTitle ?? null, metaDescription: ref.metaDescription ?? null } : {}), change: PROPOSE[ref?.kind ?? ''] ?? 'Seite nicht im Shop gefunden: nicht ändern, dem Nutzer nennen' });
+          return ok({
+            property: cfg.property, period: `${r.period.startDate} bis ${r.period.endDate}`, previous: `${r.previous.startDate} bis ${r.previous.endDate}`, totals: r.totals,
+            ...(t === 'all' || t === 'striking' ? { striking: r.striking.map(({ x, ref }) => ({ page: x.page, impressions: x.impressions, clicks: x.clicks, potentialClicks: x.potentialClicks, queries: x.queries.slice(0, 5).map(q => ({ query: q.query, ...view(q) })), ...shop(ref) })) } : {}),
+            ...(t === 'all' || t === 'cannibalization' ? { cannibalization: r.cannibal.map(({ x, refs }) => ({ query: x.query, impressions: x.impressions, clicks: x.clicks, bestPosition: round(x.bestPosition), pages: x.pages.map((p, i) => ({ page: p.page, share: pct(p.share, 0), ...view(p), shop: refView(refs[i]) })) })) } : {}),
+            ...(t === 'all' || t === 'decline' ? { decline: r.decline.map(({ x, ref }) => ({ page: x.page, before: view(x.before), after: view(x.after), clickChange: `${Math.round(x.change * 100)} %`, vsShop: `${Math.round(x.vsSite * 100)} %`, ...shop(ref) })) } : {}),
+            notes: [LAG_NOTE, 'Potenzial ist eine Schätzung (Klickrate an Position 3), kein Versprechen.', 'Kannibalisierung: erst eine Hauptseite je Suchanfrage festlegen, dann die anderen auf eigene Themen schärfen und auf die Hauptseite verlinken; Weiterleitungen oder Zusammenlegen nur nach Rückfrage.', 'Verluste: erst Ursachen prüfen (Seite inaktiv/ausverkauft/umbenannt, betroffene Suchanfragen per gsc_performance mit page-Filter), nicht blind Texte ändern.'],
           });
         })),
 

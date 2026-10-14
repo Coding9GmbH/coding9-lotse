@@ -39,7 +39,7 @@ export function visibilitySeries(rows: Row[]) {
   return { series: pts, latest: last, first, change: round(last.value - first.value, 4), changePct: first.value ? round(((last.value - first.value) / first.value) * 100, 1) : null };
 }
 
-/** Optimizer-Projekt zur Domain: Name enthält die Domain; sonst das einzige Projekt; sonst Auswahl nötig */
+/** Optimizer-Projekt zur Domain: gewünschtes (Name/Hash), sonst Name enthält die Domain, sonst das einzige Projekt, sonst Auswahl nötig */
 export function pickProject(projects: Row[], domain: string, wanted?: string): { hash: string; name: string } | { choose: { hash: string; name: string }[] } | null {
   const list = projects.map(p => ({ hash: String(p.hash ?? ''), name: String(p.name ?? p.domain ?? '') })).filter(p => p.hash);
   if (!list.length) return null;
@@ -51,9 +51,18 @@ export function pickProject(projects: Row[], domain: string, wanted?: string): {
   return { choose: byDomain.length ? byDomain : list };
 }
 
-async function findProject(cfg: SistrixConfig, wanted?: string) {
-  const r = await sistrixCached(cfg, 'project.overview');
-  return pickProject(rowsOf(r.answer, 'project', 'projects'), cfg.domain, wanted);
+/** Ohne Angabe gilt das in den Einstellungen bzw. im SEO-Bereich gewählte Projekt */
+export async function findProject(cfg: SistrixConfig, wanted?: string, ttlMs?: number) {
+  const r = await sistrixCached(cfg, 'project.overview', {}, ttlMs);
+  return pickProject(rowsOf(r.answer, 'project', 'projects'), cfg.domain, wanted ?? cfg.project);
+}
+
+/** URLs einer Fehlerart: Sistrix verschachtelt sie ({count, "optimizer.onpage.issue": [...]}) */
+export function issueRows(answer: Record<string, unknown>): Row[] {
+  const outer = Object.values(answer).find(Array.isArray) as unknown[] | undefined;
+  const first = outer?.[0];
+  const inner = first && typeof first === 'object' ? Object.values(first as Record<string, unknown>).find(v => Array.isArray(v) && v.some(x => x && typeof x === 'object')) : undefined;
+  return inner ? rowsOf(inner) : rowsOf(answer, 'issue', 'issues', 'url', 'urls');
 }
 
 const isIssueError = (r: Row) => String(r.type ?? '').toLowerCase() === 'error';
@@ -185,7 +194,7 @@ export const sistrix: Feature = {
           if (crawl.length && !crawl.some(x => x.name === a.issue)) return ok({ project: p.name, message: `Unbekannte Fehlerart. Verfügbar: ${crawl.map(x => String(x.name)).join(', ')}` });
           const limit = clamp(a.limit, 25, 100);
           const r = await sistrixCached(cfg, 'project.onpage.issue', { project: p.hash, issue: a.issue, limit });
-          const rows = rowsOf(r.answer, 'issue', 'issues', 'url', 'urls'), shop = await mapped(lookup, rows);
+          const rows = issueRows(r.answer), shop = await mapped(lookup, rows);
           return ok({ project: p.name, issue: a.issue, count: rows.length, creditsUsed: r.creditsUsed, items: rows.map(x => ({ ...x, shop: shop(x) })), notes: [CREDIT_NOTE] });
         })),
     ] as AnyTool[];

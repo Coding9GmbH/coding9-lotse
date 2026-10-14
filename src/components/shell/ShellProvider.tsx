@@ -19,10 +19,12 @@ export interface WorkspaceBridge {
   /** Styleguide-Dialog mit den Regeln öffnen, auch ohne analysierten Styleguide */
   openRules: () => void;
   /** Auftragstext ins Eingabefeld legen (Senden bleibt ein eigener Klick) */
-  prefill: (text: string) => void;
+  prefill: (text: string, fix?: PromptFix) => void;
 }
 /** Auftrag an die Arbeitsfläche, wenn die Navigation von einer anderen Seite aus genutzt wird. */
-export type WorkspaceIntent = { type: 'new' } | { type: 'new-context' } | { type: 'open'; id: string } | { type: 'context' } | { type: 'styleguide' } | { type: 'rules' } | { type: 'prompt'; text: string };
+export type WorkspaceIntent = { type: 'new' } | { type: 'new-context' } | { type: 'open'; id: string } | { type: 'context' } | { type: 'styleguide' } | { type: 'rules' } | { type: 'prompt'; text: string; fix?: PromptFix };
+/** Auftrag gehört zu einem Befund/Hebel: nach dem Senden „in Bearbeitung“ (Shop-Check und SEO teilen sich das) */
+export interface PromptFix { id: string; title: string }
 
 interface Shell {
   health: Health | null;
@@ -57,7 +59,7 @@ interface Shell {
   registerWorkspace: (bridge: WorkspaceBridge | null) => void;
   /** Holt (und löscht) einen vorgemerkten Auftrag – die Arbeitsfläche ruft das beim Start auf. */
   takeIntent: () => WorkspaceIntent | null;
-  nav: { newChat: () => void; newChatWithContext: () => void; openChat: (id: string) => void; deleteChat: (id: string) => void; openContext: () => void; openStyleguide: () => void; openRules: () => void; /** Neuer Chat mit vorbereitetem Auftrag (z. B. aus der SEO-Übersicht) */ promptChat: (text: string) => void };
+  nav: { newChat: () => void; newChatWithContext: () => void; openChat: (id: string) => void; deleteChat: (id: string) => void; openContext: () => void; openStyleguide: () => void; openRules: () => void; /** Neuer Chat mit vorbereitetem Auftrag (z. B. aus der SEO-Übersicht) */ promptChat: (text: string, fix?: PromptFix) => void };
 }
 
 const ShellContext = createContext<Shell | null>(null);
@@ -174,7 +176,7 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
         openContext: () => via(b => b.openContext(), { type: 'context' }),
         openStyleguide: () => via(b => b.openStyleguide(), { type: 'styleguide' }),
         openRules: () => via(b => b.openRules(), { type: 'rules' }),
-        promptChat: text => via(b => { b.newChat(); b.prefill(text); }, { type: 'prompt', text }),
+        promptChat: (text, fix) => via(b => { b.newChat(); b.prefill(text, fix); }, { type: 'prompt', text, fix }),
         deleteChat: id => {
           removed.current.add(id); setOlder(o => o.filter(c => c.id !== id));
           if (bridge.current) bridge.current.deleteChat(id);

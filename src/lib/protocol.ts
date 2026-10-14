@@ -207,10 +207,15 @@ export interface ShopCheckState { enabled: boolean; running: boolean; stale: boo
 export interface GscPublic { hasKey: boolean; clientEmail: string; projectId: string; property: string; connected: boolean; updatedAt: string | null }
 export interface GscTestResult extends TestResult { sites: string[] }
 // ---- Sistrix (Einstellungen): API-Schlüssel nur als „vorhanden“, nie im Browser ----
-export interface SistrixPublic { hasKey: boolean; domain: string; country: string; connected: boolean; updatedAt: string | null }
+export interface SistrixPublic { hasKey: boolean; domain: string; country: string; /** Optimizer-Projekt (Hash), leer = automatisch */ project: string; connected: boolean; updatedAt: string | null }
 export interface SistrixTestResult extends TestResult { credits: number | null }
 /** SEO-Übersicht: Hebel aus Search Console und Sistrix als fertige Aufträge (prompt) für einen neuen Chat */
-export interface SeoItem { id: string; source: 'gsc' | 'sistrix'; kind: 'meta' | 'gap' | 'keyword' | 'onpage'; title: string; detail: string; metrics: { label: string; value: string }[]; /** Sortierwert (geschätzte Wirkung) */ impact: number; prompt: string }
-export interface SeoOverview { gsc: boolean; sistrix: boolean; items: SeoItem[]; errors: { source: 'gsc' | 'sistrix'; error: string }[]; generatedAt: string }
+export interface SeoItem { id: string; source: 'gsc' | 'sistrix' | 'site'; kind: 'meta' | 'gap' | 'striking' | 'cannibal' | 'decline' | 'keyword' | 'onpage' | 'site'; title: string; detail: string; metrics: { label: string; value: string }[]; /** Sortierwert (geschätzte Wirkung) */ impact: number; prompt: string; /** vom Nutzer erledigt/ignoriert: ausgeblendet */ mark?: SeoMark }
+/** Erledigt = ausgeblendet, bis eine Abholung mindestens SEO_DONE_RECHECK_DAYS später den Hebel noch meldet; Ignoriert = dauerhaft ausgeblendet */
+export interface SeoMark { state: 'done' | 'ignored'; at: string }
+export const SEO_DONE_RECHECK_DAYS = 7;
+/** OnPage-Crawl (Sistrix-Optimizer): ok, kein Projekt, mehrere Projekte ohne Zuordnung (Auswahl nötig) oder noch kein Crawl */
+export interface SeoOnpage { status: 'ok' | 'none' | 'choose' | 'empty'; project?: { hash: string; name: string }; projects?: { hash: string; name: string }[]; lastCrawl?: { date: string; pages: number | null; errors: number | null; warnings: number | null; notices: number | null } | null }
+export interface SeoOverview { gsc: boolean; sistrix: boolean; /** Technik-Check der Live-Seiten lief */ site?: boolean; items: SeoItem[]; errors: { source: 'gsc' | 'sistrix' | 'site'; error: string }[]; generatedAt: string; onpage?: SeoOnpage; /** Live-Seiten: geprüfte Seiten und Zeitpunkt */ siteChecked?: { base: string; pages: { kind: string; url: string }[] }; /** aus dem Zwischenspeicher (kostet keine Credits); „Aktualisieren“ holt neu */ cached?: boolean }
 /** Startseiten-Karte: Sichtbarkeitsverlauf (älteste Woche zuerst) */
 export interface SistrixOverview { connected: boolean; domain?: string; country?: string; weeks?: number; series?: { date: string; value: number }[]; latest?: { date: string; value: number } | null; changePct?: number | null; creditsUsed?: number | null; error?: string }

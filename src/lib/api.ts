@@ -2,7 +2,7 @@
 import type { FileAttachment } from './attachments';
 import type { CheckListItem } from './custom-checks';
 import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget } from './knowledge';
-import type { CodexLoginState, GscPublic, GscTestResult, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
+import type { CodexLoginState, GscPublic, GscTestResult, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
   PublicSettings, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome,
 } from './protocol';
@@ -63,11 +63,13 @@ export const api = {
   disconnectGsc: () => request<GscPublic>('/api/gsc', { method: 'DELETE' }),
   testGsc: () => request<GscTestResult>('/api/gsc/test', { method: 'POST' }),
   sistrix: () => request<SistrixPublic>('/api/sistrix'),
-  saveSistrix: (patch: { key?: string; domain?: string; country?: string }) => request<SistrixPublic>('/api/sistrix', json('PUT', patch)),
+  saveSistrix: (patch: { key?: string; domain?: string; country?: string; project?: string }) => request<SistrixPublic>('/api/sistrix', json('PUT', patch)),
   disconnectSistrix: () => request<SistrixPublic>('/api/sistrix', { method: 'DELETE' }),
   testSistrix: () => request<SistrixTestResult>('/api/sistrix/test', { method: 'POST' }),
   sistrixOverview: () => request<SistrixOverview>('/api/sistrix/overview'),
-  seoOverview: () => request<SeoOverview>('/api/seo'),
+  seoOverview: (refresh = false) => request<SeoOverview>(`/api/seo${refresh ? '?refresh=1' : ''}`),
+  seoStored: () => request<SeoOverview | null>('/api/seo?stored=1'),
+  seoMark: (id: string, state: SeoMark['state'] | null) => request<{ mark: SeoMark | null }>('/api/seo/marks', json('PUT', { id, state })),
   accessLog: () => request<AccessLogRow[]>('/api/access-log'),
   audit: () => request<AuditRow[]>('/api/audit'),
   shopCheck: () => request<ShopCheckState>('/api/shopcheck'),
