@@ -263,9 +263,10 @@ function ShopSection({ form, saved, set, test, onTest, saving, dirty, pending, s
         <State ok={savedConfigured(saved, kind)} />
       </div>
       <Segmented<PlatformKind> label={ts.platform} className={`${styles.authSeg} ${styles.providerSeg} ${PLATFORM_KINDS.length > 3 ? styles.authSegLong : ''}`} value={kind} onChange={platform => set(f => ({ ...f, platform }))}
-        options={PLATFORM_KINDS.map(k => { const p = platformSettings(k, locale); return { value: k, label: p.label, title: p.product }; })} />
+        options={PLATFORM_KINDS.map(k => { const p = platformSettings(k, locale); return { value: k, label: p.alpha ? <>{p.label}<span className={styles.alphaTag}>{ts.alphaTag}</span></> : p.label, title: p.alpha ? `${p.product} (${ts.alphaTag})` : p.product }; })} />
       {pending && <p className={styles.info}>{ts.pending(d.label, platformSettings(saved.platform ?? 'shopware', locale).label)}</p>}
       {!available && <p className={styles.info}>{ts.coming(d.label)}</p>}
+      {available && d.alpha && <p className={styles.alert}>{ts.alpha(d.label)}</p>}
       {secretsReset && !savedConfigured(saved, kind) && <p className={styles.info} role="status">{ts.secretsReset}</p>}
       <div className={styles.grid}>{d.fields.map(input)}</div>
 

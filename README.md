@@ -134,12 +134,14 @@ Chat statt Formulare. Du schreibst, was passieren soll („Ändere das Layout vo
 
 Die Plattform wird in den Einstellungen unter „Shop verbinden“ gewählt (oder per `SHOP_PLATFORM`). Shopware 6 ist der Standard und am weitesten ausgebaut; was genau welche Plattform kann, zeigt die [Fähigkeitsmatrix](docs/platform.md#0-fähigkeitsmatrix-stand-nach-shopify-magento-2-und-openmage) in [`docs/platform.md`](docs/platform.md).
 
+**Alpha:** Aktiv getestet wird bisher nur Shopware 6. Die Anbindungen für Shopify, Magento 2 und OpenMage funktionieren, sind aber noch nicht im Alltag mit echten Shops erprobt; die Einstellungen kennzeichnen sie als „Alpha“. Am besten erst an einem Testshop ausprobieren und Vorschau und Vergleich vor jeder Freigabe besonders sorgfältig prüfen.
+
 | Shopsystem | Einrichtung (Kurzform) |
 |---|---|
 | **Shopware 6** (Standard) | Im Admin unter *Einstellungen → System → Integrationen* eine Integration anlegen, Shop-URL, Zugangs-ID und Schlüssel eintragen (alternativ Admin-Benutzer; `SHOPWARE_*`). |
-| **Shopify** | App im Shopify Dev Dashboard installieren und Client-ID/-Secret eintragen, oder das Admin-API-Token einer bestehenden eigenen App; dazu die `*.myshopify.com`-Domain (`SHOPIFY_*`). |
-| **Magento 2** (Adobe Commerce) | Im Admin unter *System → Erweiterungen → Integrationen* eine Integration mit Zugriff auf Katalog, Inhalte und Marketing anlegen und das Zugriffstoken eintragen (alternativ Admin-Benutzer); optional Store-View und Preisbasis (`MAGENTO_*`). |
-| **OpenMage** (Magento 1) | Modul `Lotse_Connector` aus [`integrations/openmage/`](integrations/openmage/) installieren, API-Token erzeugen, Shop-URL und Token eintragen (`OPENMAGE_*`, siehe unten). |
+| **Shopify** (Alpha) | App im Shopify Dev Dashboard installieren und Client-ID/-Secret eintragen, oder das Admin-API-Token einer bestehenden eigenen App; dazu die `*.myshopify.com`-Domain (`SHOPIFY_*`). |
+| **Magento 2** (Adobe Commerce, Alpha) | Im Admin unter *System → Erweiterungen → Integrationen* eine Integration mit Zugriff auf Katalog, Inhalte und Marketing anlegen und das Zugriffstoken eintragen (alternativ Admin-Benutzer); optional Store-View und Preisbasis (`MAGENTO_*`). |
+| **OpenMage** (Magento 1, Alpha) | Modul `Lotse_Connector` aus [`integrations/openmage/`](integrations/openmage/) installieren, API-Token erzeugen, Shop-URL und Token eintragen (`OPENMAGE_*`, siehe unten). |
 
 **OpenMage** hat keine brauchbare Schnittstelle für CMS-Seiten/-Blöcke, darum liegt im Repository das Modul **`Lotse_Connector`** ([`integrations/openmage/`](integrations/openmage/)) mit token-gesicherter JSON-API unter `/lotse-api/v1`. Installation in Kurzform (Details, Sicherheit und Endpunkte in [`integrations/openmage/README.md`](integrations/openmage/README.md)):
 

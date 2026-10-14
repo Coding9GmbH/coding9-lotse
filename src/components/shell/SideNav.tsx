@@ -7,6 +7,7 @@ import { ago, groupByDay, hostOf, swatches } from '@/lib/format';
 import { catalogState, shellFlags } from '@/lib/load-state';
 import { filterHistory, historyContexts, setupReady } from '@/lib/nav';
 import { chatDeleteQuestion } from '@/lib/privacy-copy';
+import { PLATFORM_SETTINGS } from '@/lib/platforms';
 import type { ChatStatus, ChatSummary, Health } from '@/lib/protocol';
 import type { Messages } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/I18nProvider';
@@ -27,7 +28,7 @@ function status(h: Health | null, healthFailed: boolean, t: Messages['nav']['sta
   });
   if (flags.shop === 'unloaded') return { shop: { tone: 'err', text: t.shopUnloaded }, ai: { tone: 'err', text: t.aiUnloaded }, flags };
   if (!h || flags.shop === 'loading') return { shop: { tone: '', text: t.checking }, ai: { tone: '', text: '…' }, flags };
-  const label = h.platform?.label;
+  const label = h.platform && (PLATFORM_SETTINGS[h.platform.kind]?.alpha ? t.platformAlpha(h.platform.label) : h.platform.label);
   const shop = flags.shop === 'disconnected' ? { tone: 'err', text: label ? t.platformDisconnected(label) : t.shopDisconnected }
     : h.platform && !h.platform.available ? { tone: 'err', text: t.platformComing(h.platform.label) }
       : flags.shop === 'ok' ? { tone: 'ok', text: label ? `${label} · ${hostOf(h.shopware.url)}` : hostOf(h.shopware.url) }
