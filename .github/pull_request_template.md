@@ -12,7 +12,8 @@
 ## Checkliste / Checklist
 - [ ] `npm run check` grün / green (Typecheck, ESLint, Tests)
 - [ ] Tests ergänzt oder angepasst / tests added or updated
-- [ ] Eintrag unter `## [Unreleased]` in `CHANGELOG.md` (Version erst beim Release erhöhen) / entry under `## [Unreleased]` in `CHANGELOG.md` (bump the version only on release)
+- [ ] `CHANGELOG.md` und Version unverändert (nur beim Release) / `CHANGELOG.md` and version untouched (release only)
+- [ ] Kommentare und Bezeichner auf Englisch, vorhandene Bausteine wiederverwendet / comments and identifiers in English, shared building blocks reused
 - [ ] Neue UI-Texte in `de` und `en` (`src/lib/i18n/messages/`) / new UI strings in `de` and `en`
 - [ ] Sicherheitsgrenzen unverändert: KI nur lesend, Schreiben nur im Executor nach Freigabe / security boundaries unchanged: AI read-only, writes only in the executor after approval
 - [ ] Doku angepasst, falls nötig (README, `docs/`, beide Sprachen) / docs updated if needed (README, `docs/`, both languages)
