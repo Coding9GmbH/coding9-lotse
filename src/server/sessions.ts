@@ -12,6 +12,8 @@ import { singleton } from './state';
 import type { Fetcher } from './styleguide';
 import { errMsg } from './util';
 import { DEFAULT_LOCALE, type Locale } from '@/lib/i18n/locales';
+import { messages } from '@/lib/i18n';
+import { log } from './log';
 
 export interface ApprovalReply { answer?: string; allow?: boolean; selected?: string[] }
 export interface Question { question: string; options: { label: string; description?: string }[] }
@@ -57,7 +59,11 @@ export interface Session {
 }
 
 const sessions = () => singleton('sessions', () => new Map<string, Session>()); // chatId -> Session
-export const dropSession = (id: string) => { const s = peekSession(id); if (s) s.deleted = true; stopChat(id); sessions().delete(id); };
+export const dropSession = (id: string) => { const s = peekSession(id); if (s) { s.deleted = true; cancelPersist(s); } stopChat(id); sessions().delete(id); };
+
+// Sprache der Oberfläche bei der letzten Chat-Nachricht: für Texte, die ohne Anfrage-Sprache entstehen (neue Session, Neustart-Aufräumen)
+const ui = () => singleton('sessions-ui-locale', () => ({ locale: DEFAULT_LOCALE as Locale }));
+export const noteUiLocale = (l: Locale) => { ui().locale = l; };
 
 // Ruhende Sessions ohne Zuhörer nach 30 Minuten freigeben: der Verlauf liegt in der DB, getSession baut sie bei Bedarf neu auf.
 // Laufende Runden und verbundene Oberflächen bleiben unberührt.
@@ -79,11 +85,11 @@ export const chatListLive = (): ChatSummary[] => chatList().map(c => {
   return status ? { ...c, status } : c;
 });
 
-/** Aktueller Stand eines Chats: aus dem Speicher (auch während er läuft) oder gespeichert. */
-export function chatSnapshot(id: string): ChatDetail | null {
+/** Aktueller Stand eines Chats: aus dem Speicher (auch während er läuft) oder gespeichert. `locale`: Sprache für Neustart-Hinweise (sonst die zuletzt genutzte). */
+export function chatSnapshot(id: string, locale?: Locale): ChatDetail | null {
   const s = peekSession(id);
   if (s && (s.running || s.events.length)) return { id, title: s.title ?? '', target: s.target, events: s.events };
-  const c = loadChat(id);
+  const c = loadChat(id, locale);
   return c ? { id: c.id, title: c.title ?? '', target: c.target, events: c.events } : null;
 }
 
@@ -93,10 +99,11 @@ export function stopChat(id: string): boolean {
   if (!s?.running) return false;
   for (const [approvalId, resolve] of s.approvals) {
     const q = s.events.find(e => e.t === 'question' && e.approvalId === approvalId);
-    if (q?.t === 'question' && q.answer === undefined) q.answer = 'Abgebrochen'; // sonst gilt sie beim nächsten Laden als „Nicht beantwortet (Neustart)“
+    if (q?.t === 'question' && q.answer === undefined) q.answer = messages(s.locale).server.cancelled; // sonst gilt sie beim nächsten Laden als „Nicht beantwortet (Neustart)“
     resolve({ allow: false, answer: '' });
   }
   s.approvals.clear(); persist(s);
+  log.info('Runde abgebrochen', { chatId: id });
   s.abort?.abort();
   return true;
 }
@@ -104,7 +111,18 @@ export function stopChat(id: string): boolean {
 const evType = (e: ChatEvent) => (e as { t: string }).t;
 
 // ---- Persistente Chats (SQLite) ----
+// Gespeichert wird der ganze Chat als eine JSON-Zeile. Zwei Wege:
+// - persist: sofort (Rückfragen, Änderungssets und ihre Ergebnisse, Entscheidungen, Rundenende, Abbruch, Fehler). Nimmt einen offenen gebündelten mit.
+// - persistSoon: gebündelt, höchstens alle PERSIST_MS je Chat (Streaming: Text, Werkzeugaufrufe). Vor dem Prozessende schreibt flushPersists alles Offene.
+// Freigaben/Änderungssets laufen nie über persistSoon: ein Absturz verliert höchstens die letzten PERSIST_MS Text, nie eine Freigabe.
+const PERSIST_MS = 500;
+const pendingPersists = () => singleton('sessions-persist-pending', () => new Map<Session, { cancel(): void }>());
+const lastPersist = new WeakMap<Session, number>();
+const cancelPersist = (s: Session) => { const p = pendingPersists(), t = p.get(s); if (t) { t.cancel(); p.delete(s); } };
+
+/** Sofort speichern (wichtige Zustände). */
 export function persist(s: Session) {
+  cancelPersist(s); lastPersist.set(s, runClock.now());
   if (s.deleted || !s.events.length) return;
   let lastDraft = -1; s.events.forEach((e, i) => { if (e.t === 'draft') lastDraft = i; });
   const events = s.events.map((e, i) => (e.t === 'draft' && i !== lastDraft ? { ...e, html: undefined } : e)); // nur letzte Vorschau behalten
@@ -112,27 +130,56 @@ export function persist(s: Session) {
   chatPut(c);
 }
 
+/** Gebündelt speichern: höchstens einmal je PERSIST_MS (das erste Mal nach einer Pause sofort, danach am Ende des Fensters). */
+export function persistSoon(s: Session) {
+  const p = pendingPersists(); if (p.has(s) || s.deleted) return;
+  const wait = PERSIST_MS - (runClock.now() - (lastPersist.get(s) ?? -Infinity));
+  if (wait <= 0) return persist(s);
+  p.set(s, runClock.later(() => { p.delete(s); try { persist(s); } catch (e) { log.error('Chat konnte nicht gespeichert werden', { chatId: s.id, error: e }); } }, wait));
+  exitFlush();
+}
+
+/** Alle offenen gebündelten Speicherungen jetzt schreiben (Prozessende, Tests). Liefert die Anzahl. */
+export function flushPersists(): number {
+  let n = 0;
+  for (const s of [...pendingPersists().keys()]) { try { persist(s); n++; } catch (e) { cancelPersist(s); log.error('Chat konnte nicht gespeichert werden', { chatId: s.id, error: e }); } }
+  return n;
+}
+
+// Prozessende: Next beendet bei SIGTERM/SIGINT über process.exit → 'exit' (synchron, node:sqlite schreibt synchron). 'beforeExit': Ereignisschleife leer
+// (Timer sind unref). Eigene Signal-Handler nur zum Schreiben; sind wir der einzige Handler, wird das Signal danach erneut ausgelöst (Standardverhalten).
+const exitFlush = () => singleton('sessions-exit-flush', () => {
+  const flush = () => { const n = flushPersists(); if (n) log.info('Offene Chats vor dem Beenden gespeichert', { chats: n }); };
+  process.on('exit', flush); process.on('beforeExit', flush);
+  for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+    const h = () => { flush(); if (process.listenerCount(sig) === 1) { process.removeListener(sig, h); process.kill(process.pid, sig); } };
+    process.on(sig, h);
+  }
+  return true;
+});
+
 /** Gespeicherter Chat ohne Session im Speicher: offene Vorgänge aus der Zeit vor einem Neustart werden dabei abgeschlossen (siehe recoverChat). */
-function loadChat(id: string): StoredChat | null {
+function loadChat(id: string, locale: Locale = ui().locale): StoredChat | null {
   const c = chatGet(id);
-  if (c && recoverChat(c)) chatPut(c); // updatedAt bleibt: der Chat rückt in der Liste nicht nach oben
+  if (c && recoverChat(c, locale)) chatPut(c); // updatedAt bleibt: der Chat rückt in der Liste nicht nach oben
   return c;
 }
 
-const RESTART = 'Neustart, bitte erneut vorschlagen';
+const RESTART = 'Neustart, bitte erneut vorschlagen'; // Grund im Audit (stabil, deutsch); im Chat steht der Text in der Sprache der Oberfläche
 /**
  * Nach einem Neustart (Absturz, Deploy): Freigaben leben nur im Speicher, ein unterbrochenes Anwenden hat seine Spur in changeset_runs.
  * - Set wurde angewendet und unterbrochen: Ergebnis „partial/failed“ mit den bis dahin gesicherten Rückgängig-Schritten (Rückgängig funktioniert)
  * - Set wartete noch auf die Freigabe: „rejected“ mit Grund (wie stopChat), Rückfragen bekommen eine Markierung
  * Jeweils mit Audit-Zeile. Liefert true, wenn sich etwas geändert hat (dann speichern). Zweiter Aufruf ändert nichts mehr.
  */
-function recoverChat(c: StoredChat): boolean {
+function recoverChat(c: StoredChat, locale: Locale): boolean {
+  const t = messages(locale).server;
   const open = new Map(runsOpen(c.id).map(r => [r.csId, r]));
   const resolved = new Set(c.events.flatMap(e => (e.t === 'changeset_result' ? [e.csId] : [])));
   const lastDone = c.events.findLastIndex(e => e.t === 'done'); // Rückfragen davor wurden schon aufgelöst (stopChat/Antwort), nur offene der letzten Runde markieren
   let changed = false;
   for (const [i, e] of [...c.events].entries()) {
-    if (e.t === 'question' && e.answer === undefined && i > lastDone) { e.answer = 'Nicht beantwortet (Neustart)'; changed = true; }
+    if (e.t === 'question' && e.answer === undefined && i > lastDone) { e.answer = t.unansweredRestart; changed = true; }
     if (e.t !== 'changeset' || resolved.has(e.cs.id)) continue;
     const cs = e.cs, run = open.get(cs.id);
     const base = { chatId: c.id, changeSet: cs.id, kind: cs.kind, title: cs.title, recoveredFrom: run?.startedAt ?? c.updatedAt }; // Zeitpunkt des Vorfalls, nicht des Ladens
@@ -140,14 +187,13 @@ function recoverChat(c: StoredChat): boolean {
       const applied = run.results.filter(r => r.ok).length, failed = run.results.length - applied, status: ChangeStatus = applied ? 'partial' : 'failed';
       const counted = run.total != null && run.results.length >= run.total, results = run.results.length > 300 ? run.results.filter(r => !r.ok).slice(0, 100) : run.results; // Stapel: Karte klein halten
       // Ehrlich bleiben: der Zwischenstand wird gebündelt gesichert, was danach noch geschrieben wurde, weiß niemand. Ohne Zwischenstand ist alles offen.
-      const error = run.results.length ? `Durch einen Neustart des Servers unterbrochen: ${applied} angewendet, ${failed} fehlgeschlagen (letzter gesicherter Zwischenstand)${counted ? '.' : '; ob weitere Elemente noch geschrieben wurden, ist unbekannt, bitte im Shop prüfen.'}`
-        : run.undo.length ? `Durch einen Neustart des Servers unterbrochen, bevor ein Element abgeschlossen war: ${run.undo.length} ${run.undo.length === 1 ? 'Schreibschritt ist' : 'Schreibschritte sind'} gesichert und lassen sich rückgängig machen; ob weitere folgten, ist unbekannt, bitte im Shop prüfen.`
-        : 'Durch einen Neustart unterbrochen, bevor ein Zwischenstand gesichert wurde: ob und was geschrieben wurde, ist unbekannt (siehe Audit „gestartet“). Bitte im Shop prüfen, nicht blind erneut anwenden.';
+      const error = run.results.length ? t.restartInterrupted(applied, failed, counted) : run.undo.length ? t.restartInterruptedUndo(run.undo.length) : t.restartInterruptedUnknown;
       c.events.push({ t: 'changeset_result', csId: cs.id, status, results, ...(run.results.length ? { counts: { applied, failed } } : {}), undo: run.undo, error });
       auditLog({ ...base, decision: 'approved', status, applied, failed, undo: run.undo, interrupted: true, ...(run.results.length ? {} : { unknown: true }) });
+      log.warn('Änderungsset durch Neustart unterbrochen', { chatId: c.id, changeSet: cs.id, kind: cs.kind, status, applied, failed, undo: run.undo.length });
     } else {
       e.decision = false;
-      c.events.push({ t: 'changeset_result', csId: cs.id, status: 'rejected', error: `${RESTART}. Es wurde nichts geschrieben.` });
+      c.events.push({ t: 'changeset_result', csId: cs.id, status: 'rejected', error: t.restartRejected });
       auditLog({ ...base, decision: 'rejected', reason: RESTART });
     }
     changed = true;
@@ -205,7 +251,7 @@ export function getSession(id: string): Session {
     id, platform: kind, reader: parts.reader, lookup: parts.lookup,
     sw: parts.reader instanceof ReadOnlyShopware ? parts.reader : new ReadOnlyShopware(shopwareOnly(kind)),
     storefrontFetch: parts.storefrontFetch, themeCss: parts.themeCss, draft: saved?.draft ?? null, sdkSessionId: saved?.sdkSessionId ?? null, codexThreadId: saved?.codexThreadId ?? null, title: saved?.title ?? null, target: saved?.target ?? null,
-    createdAt: saved?.createdAt ?? new Date().toISOString(), events: saved?.events ?? [], emit: () => {}, running: false, lastUsed: Date.now(), abort: null, locale: DEFAULT_LOCALE, listeners: new Set(), approvals: new Map(),
+    createdAt: saved?.createdAt ?? new Date().toISOString(), events: saved?.events ?? [], emit: () => {}, running: false, lastUsed: Date.now(), abort: null, locale: ui().locale, listeners: new Set(), approvals: new Map(),
     askUser: async q => {
       const approvalId = Math.random().toString(36).slice(2);
       ss.emit({ t: 'question', approvalId, question: q.question, options: q.options.map(o => o.label), optionHints: q.options.map(o => o.description ?? '') });
@@ -218,11 +264,11 @@ export function getSession(id: string): Session {
       const approvalId = Math.random().toString(36).slice(2);
       ss.emit({ t: 'changeset', approvalId, cs });
       const dec = await new Promise<ApprovalReply>(r => ss.approvals.set(approvalId, r)); ss.approvals.delete(approvalId);
-      if (!dec.allow) { ss.emit({ t: 'changeset_result', csId: cs.id, status: 'rejected' }); auditLog({ chatId: ss.id, changeSet: cs.id, kind: cs.kind, title: cs.title, decision: 'rejected' }); return { status: 'rejected', message: 'Der Nutzer hat das Änderungsset abgelehnt. Es wurde nichts geschrieben.' }; }
+      if (!dec.allow) { ss.emit({ t: 'changeset_result', csId: cs.id, status: 'rejected' }); auditLog({ chatId: ss.id, changeSet: cs.id, kind: cs.kind, title: cs.title, decision: 'rejected' }); log.info('Änderungsset abgelehnt', { chatId: ss.id, changeSet: cs.id, kind: cs.kind }); return { status: 'rejected', message: 'Der Nutzer hat das Änderungsset abgelehnt. Es wurde nichts geschrieben.' }; }
       const selected = new Set(dec.selected ?? cs.items.map(i => i.id));
       const chosen = cs.items.filter(i => selected.has(i.id) && i.entity !== 'info');
       const base = { chatId: ss.id, changeSet: cs.id, kind: cs.kind, title: cs.title, decision: 'approved' as const, items: chosen.map(i => ({ entity: i.entity, id: i.entityId, field: i.field, before: i.before, after: i.after })) };
-      let res: ApplyResult, run: ReturnType<typeof trackRun> | null = null;
+      let res: ApplyResult, run: ReturnType<typeof trackRun> | null = null; const t0 = Date.now();
       try {
         const kind = platformOf(ss, cs); // anderer Shop verbunden: Fehler, ohne „started“ und Lauf-Zeile (es wird garantiert nichts geschrieben)
         auditLog({ ...base, status: 'started' }); // vor dem ersten Schreibzugriff: ein Absturz mittendrin hinterlässt eine Spur
@@ -234,6 +280,7 @@ export function getSession(id: string): Session {
       ss.emit({ t: 'changeset_result', csId: cs.id, status, results: res.results, ...(res.counts ? { counts: res.counts } : {}), undo: res.undo, error: res.error, published: res.published });
       auditLog({ ...base, status, applied, failed: failedN, undo: res.undo });
       persist(ss);
+      log[status === 'applied' ? 'info' : 'warn'](status === 'applied' ? 'Änderungsset angewendet' : 'Änderungsset nicht vollständig angewendet', { chatId: ss.id, changeSet: cs.id, kind: cs.kind, platform: cs.platform, status, applied, failed: failedN, ms: Date.now() - t0, ...(res.error ? { error: res.error } : {}) });
       run?.finish();
       void notifyApplied(cs, res, { ro: ss.sw, lookup: ss.lookup, platform: ss.platform, chatId: ss.id }); // läuft im Hintergrund (z. B. Search-Console-Ausgangswerte)
       return { status, applied, failed: failed.map(f => ({ item: f.itemId, error: f.error })), ...(res.counts ? { failedTotal: failedN } : {}), error: res.error, ...(res.published ?? {}), message: status === 'applied' ? 'Vom Nutzer freigegeben und angewendet.' : 'Teilweise/nicht angewendet: siehe failed.' };
@@ -253,7 +300,7 @@ async function writing<T>(fn: () => Promise<T>): Promise<T> { writes().n++; try 
 // Schreiben über den Adapter der Plattform des Sets; jeder Rückgängig-Schritt bekommt die Plattform mit (Rückgängig läuft über denselben Adapter)
 function platformOf(ss: Session, cs: ChangeSet): PlatformKind {
   const kind = cs.platform ?? ss.platform;
-  if (kind !== activeKind()) throw new Error(`Das Änderungsset gehört zu ${getPlatform(kind).label}, verbunden ist jetzt ${getPlatform(activeKind()).label}. Es wurde nichts geschrieben.`);
+  if (kind !== activeKind()) throw new Error(messages(ss.locale).server.wrongPlatform(getPlatform(kind).label, getPlatform(activeKind()).label));
   return kind;
 }
 async function applyFor(ss: Session, cs: ChangeSet, kind: PlatformKind, payload: unknown, selected: Set<string>, tick: (p: ApplyPartial) => void): Promise<ApplyResult> {
@@ -293,5 +340,6 @@ export async function undoChangeSet(chatId: string, csId: string) {
   const done = merged.filter(x => x.ok).length, total = r.undo.length;
   r.undoResults = merged; r.undone = done === total; persist(ss);
   auditLog({ chatId, changeSet: csId, decision: 'undo', results: out, done, total, ...(prev.length ? { retry: true } : {}) });
+  log[r.undone ? 'info' : 'warn']('Änderungsset rückgängig gemacht', { chatId, changeSet: csId, done, total, ...(prev.length ? { retry: true } : {}) });
   return { ok: r.undone, results: out, undoResults: merged, done, total, error: out.find(x => !x.ok)?.error };
 }

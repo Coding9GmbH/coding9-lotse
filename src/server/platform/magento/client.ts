@@ -4,6 +4,7 @@ import 'server-only';
 // Schutz des Shops: Timeout je Anfrage, höchstens MAX_CONC Anfragen gleichzeitig, bei 429/503 kurz warten und höchstens 2× wiederholen.
 import { criteriaQuery, type Criteria } from './criteria';
 import { parseBasis, type PriceBasis } from './map';
+import { log, urlForLog } from '../../log';
 
 export interface MagentoConfig { url: string; publicUrl?: string; storeCode?: string; accessToken?: string; user?: string; password?: string; priceBasis?: string }
 export class MagentoError extends Error { constructor(msg: string, public status: number) { super(msg); } }
@@ -60,12 +61,14 @@ export class MagentoClient {
   async #fetch(url: string, init: RequestInit): Promise<Response> {
     for (let attempt = 0; ; attempt++) {
       const r = await this.#slot(() => fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) })).catch((e: Error & { cause?: { code?: string } }) => {
+        log.warn('Shop nicht erreichbar', { shop: 'magento', url: urlForLog(url), error: e.name === 'TimeoutError' ? 'timeout' : e.cause?.code || e.message });
         throw new MagentoError(e.name === 'TimeoutError' ? `Magento antwortet nicht (Timeout nach ${TIMEOUT_MS / 1000}s)` : `Magento nicht erreichbar: ${e.cause?.code || e.message}`, 0);
       });
       const retry = r.status === 429 || (r.status === 503 && (init.method ?? 'GET') === 'GET'); // Schreibzugriffe nur bei 429 (sicher nicht verarbeitet)
-      if (!retry || attempt >= 2) return r;
-      const ra = parseInt(r.headers.get('retry-after') ?? '', 10);
-      await sleep(Math.min(Number.isFinite(ra) ? ra * 1000 : 1000 * 2 ** attempt, 10_000));
+      if (!retry || attempt >= 2) { if (r.status >= 500 || r.status === 429) log.warn('Shop-Anfrage fehlgeschlagen', { shop: 'magento', method: init.method ?? 'GET', url: urlForLog(url), status: r.status, attempts: attempt + 1 }); return r; }
+      const ra = parseInt(r.headers.get('retry-after') ?? '', 10), wait = Math.min(Number.isFinite(ra) ? ra * 1000 : 1000 * 2 ** attempt, 10_000);
+      log.info('Shop-Anfrage wird wiederholt', { shop: 'magento', url: urlForLog(url), status: r.status, attempt: attempt + 1, waitMs: wait });
+      await sleep(wait);
     }
   }
 

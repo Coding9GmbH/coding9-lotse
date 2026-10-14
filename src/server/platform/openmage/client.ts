@@ -2,6 +2,7 @@ import 'server-only';
 // Privilegierter OpenMage-Client: JSON-API des Lotse-Moduls (Lotse_Connector) unter <shop>/lotse-api/v1 (integrations/openmage/openapi.yaml).
 // Bleibt im Adapter: nie in der Session, nie an die KI. Auth: Bearer-Token; Store-Scope über ?store=<code> (leer = global, Store 0).
 // Schutz des Shops: Timeout je Anfrage, höchstens MAX_CONC Anfragen gleichzeitig, bei 429/503 (nur Lesen) kurz warten und höchstens 2× wiederholen.
+import { log, urlForLog } from '../../log';
 
 export interface OmConfig { url: string; publicUrl?: string; storeCode?: string; token?: string }
 export class OmError extends Error { constructor(msg: string, public status: number, public code = '') { super(msg); } }
@@ -67,12 +68,14 @@ export class OmClient {
   async #fetchRetry(url: string, init: RequestInit): Promise<Response> {
     for (let attempt = 0; ; attempt++) {
       const r = await this.#slot(() => fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) })).catch((e: Error & { cause?: { code?: string } }) => {
+        log.warn('Shop nicht erreichbar', { shop: 'openmage', url: urlForLog(url), error: e.name === 'TimeoutError' ? 'timeout' : e.cause?.code || e.message });
         throw new OmError(e.name === 'TimeoutError' ? `OpenMage antwortet nicht (Timeout nach ${TIMEOUT_MS / 1000}s)` : `OpenMage nicht erreichbar: ${e.cause?.code || e.message}`, 0);
       });
       const retry = r.status === 429 || (r.status === 503 && (init.method ?? 'GET') === 'GET');
-      if (!retry || attempt >= 2) return r;
-      const ra = parseInt(r.headers.get('retry-after') ?? '', 10);
-      await sleep(Math.min(Number.isFinite(ra) ? ra * 1000 : 1000 * 2 ** attempt, 10_000));
+      if (!retry || attempt >= 2) { if (r.status >= 500 || r.status === 429) log.warn('Shop-Anfrage fehlgeschlagen', { shop: 'openmage', method: init.method ?? 'GET', url: urlForLog(url), status: r.status, attempts: attempt + 1 }); return r; }
+      const ra = parseInt(r.headers.get('retry-after') ?? '', 10), wait = Math.min(Number.isFinite(ra) ? ra * 1000 : 1000 * 2 ** attempt, 10_000);
+      log.info('Shop-Anfrage wird wiederholt', { shop: 'openmage', url: urlForLog(url), status: r.status, attempt: attempt + 1, waitMs: wait });
+      await sleep(wait);
     }
   }
 

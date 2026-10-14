@@ -6,6 +6,7 @@ import 'server-only';
 // Zeitlimit, Fehlertexte ohne Token/Secret.
 import { activeAuthMode } from '@/lib/platforms';
 import { getSettings, type Settings } from '../../settings';
+import { log } from '../../log';
 
 /** von Lotse getestete API-Version (Fake 2026-10, aktuelle stabile Version laut shopify.dev) */
 export const DEFAULT_API_VERSION = '2026-10';
@@ -127,13 +128,15 @@ export class ShopifyClient {
       try {
         res = await f(c.endpoint, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', 'x-shopify-access-token': token }, body: JSON.stringify({ query, variables: variables ?? {} }), signal: AbortSignal.timeout(this.opts.timeoutMs ?? shopTimeoutMs()) });
       } catch (e) {
-        if (!write && attempt < 3) { await sleep(500 * 2 ** attempt); continue; }
+        if (!write && attempt < 3) { log.info('Shop-Anfrage wird wiederholt', { shop: 'shopify', error: this.clean(e instanceof Error ? e.message : String(e)), attempt: attempt + 1 }); await sleep(500 * 2 ** attempt); continue; }
+        log.warn('Shop nicht erreichbar', { shop: 'shopify', write, error: this.clean(e instanceof Error ? e.message : String(e)), attempts: attempt + 1 });
         throw new ShopifyError(this.clean(`Shopify nicht erreichbar (${c.domain}): ${e instanceof Error ? e.message : String(e)}`));
       }
       if (res.status === 429 && attempt < max) { // Rate-Limit: Retry-After (Sekunden, z. B. "2.0") abwarten: die Anfrage wurde nicht ausgeführt
-        const ra = parseFloat(res.headers.get('retry-after') ?? ''); await sleep(Number.isFinite(ra) ? ra * 1000 : 2000); continue;
+        const ra = parseFloat(res.headers.get('retry-after') ?? ''); log.info('Shop-Anfrage wird wiederholt', { shop: 'shopify', status: 429, attempt: attempt + 1 }); await sleep(Number.isFinite(ra) ? ra * 1000 : 2000); continue;
       }
-      if (res.status >= 500 && !write && attempt < 3) { await sleep(1000 * 2 ** attempt); continue; }
+      if (res.status >= 500 && !write && attempt < 3) { log.info('Shop-Anfrage wird wiederholt', { shop: 'shopify', status: res.status, attempt: attempt + 1 }); await sleep(1000 * 2 ** attempt); continue; }
+      if (res.status >= 500 || res.status === 429) log.warn('Shop-Anfrage fehlgeschlagen', { shop: 'shopify', write, status: res.status, attempts: attempt + 1 });
       // abgelaufenes/widerrufenes App-Token: einmal neu holen (die Anfrage wurde nicht ausgeführt, auch Mutationen dürfen wiederholt werden)
       if (res.status === 401 && authOf(c) === 'app' && !renewed) { renewed = true; attempt--; await this.accessToken(c, true); continue; }
       const text = await res.text();
