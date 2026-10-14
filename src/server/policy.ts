@@ -4,12 +4,16 @@ import 'server-only';
 import type { ScopeKey } from '@/lib/protocol';
 
 export const SCOPES: Record<ScopeKey, { label: string; hint: string; entities: string[] }> = {
-  products:   { label: 'Produkte', hint: 'Name, Nr., Preise, Bestand, Texte, Bilder, Eigenschaften, Varianten, Hersteller, Steuersätze, Lieferzeiten, Tags, Cross-Selling, Produktstreams', entities: ['product', 'product-manufacturer', 'product-media', 'tax', 'property-group', 'property-group-option', 'product-configurator-setting', 'product-visibility', 'product-cross-selling', 'product-cross-selling-assigned-products', 'product-stream', 'product-stream-filter', 'delivery-time', 'tag', 'unit'] },
+  products:   { label: 'Produkte', hint: 'Name, Nr., Preise, Bestand, Texte, Bilder, Eigenschaften, Varianten, Steuersätze, Lieferzeiten, Tags, Cross-Selling, Produktstreams', entities: ['product', 'product-media', 'tax', 'property-group', 'property-group-option', 'product-configurator-setting', 'product-visibility', 'product-cross-selling', 'product-cross-selling-assigned-products', 'product-stream', 'product-stream-filter', 'delivery-time', 'tag', 'unit'] },
+  manufacturers: { label: 'Hersteller', hint: 'Marken mit Name, Beschreibung, Webseite, Logo und Pflichtangaben (GPSR)', entities: ['product-manufacturer'] },
   categories: { label: 'Kategorien', hint: 'Struktur, Texte, SEO-Felder', entities: ['category'] },
   cms:        { label: 'Einkaufswelten-Layouts', hint: 'Seiten, Sections, Blöcke, Slots, Landingpages, SEO-URLs', entities: ['cms-page', 'cms-section', 'cms-block', 'cms-slot', 'landing-page', 'seo-url'] },
   media:      { label: 'Medienbibliothek', hint: 'Dateinamen, URLs, Alt-Texte', entities: ['media', 'media-folder', 'media-default-folder'] },
   marketing:  { label: 'Marketing', hint: 'Promotionen, Rabatte, Gutscheincodes (ohne Bestell- und Kundendaten)', entities: ['promotion', 'promotion-discount', 'promotion-discount-prices', 'promotion-sales-channel', 'promotion-setgroup', 'promotion-individual-code', 'rule', 'rule-condition'] },
   shop:       { label: 'Shop-Grunddaten', hint: 'Verkaufskanäle & Domains, Sprachen, Währungen, Theme-Einstellungen (Farben, Schriften)', entities: ['sales-channel', 'sales-channel-domain', 'theme', 'language', 'locale', 'currency'] },
+  // Integrationen: keine Shop-Entitäten, sondern ob die KI die Daten lesen darf (Werkzeuge, Shop-Prüfungen, SEO-Übersicht)
+  gsc:        { label: 'Search Console', hint: 'Klicks, Impressionen, Klickrate und Position deiner Seiten (Google Search Console)', entities: [] },
+  sistrix:    { label: 'Sistrix', hint: 'Sichtbarkeitsindex, Wettbewerber, Keyword-Potenzial und OnPage-Crawl (Sistrix)', entities: [] },
 };
 export type Scopes = Record<ScopeKey, boolean>;
 export const SCOPE_KEYS = Object.keys(SCOPES) as ScopeKey[];

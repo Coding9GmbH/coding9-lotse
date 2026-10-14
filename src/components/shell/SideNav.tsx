@@ -192,7 +192,7 @@ export function SideNav() {
 
       <footer className={styles.foot}>
         {!collapsed && <LanguageSwitch className={styles.lang} />}
-        <Link href="/settings" className={styles.settings} aria-current={path === '/settings' ? 'page' : undefined} onClick={close}
+        <Link href="/settings" className={styles.settings} aria-current={path?.startsWith('/settings') ? 'page' : undefined} onClick={close}
           aria-label={t.settingsLabel(st.shop.text, st.ai.text)} data-tip={tip(t.settingsTip(st.shop.text, st.ai.text))}>
           <span className={styles.gear}><IconSettings size={18} />{warn && collapsed && <i className={cx(styles.pip, styles.pipWarn)} />}</span>
           <span className={styles.label}>

@@ -6,7 +6,7 @@
 .toc a { position: relative; display: flex; align-items: center; gap: 8px; margin-left: -1px; padding: 6px 10px 6px 16px; border-left: 2px solid transparent; color: var(--mute); font-size: 13.5px; text-decoration: none; transition: color .12s, border-color .12s; }
 .toc a span { flex: 1; min-width: 0; }
 .toc a:hover { color: var(--ink); text-decoration: none; }
-.toc a[aria-current="true"] { color: var(--ink); font-weight: 600; border-left-color: var(--green-d); }
+.toc a[aria-current="true"], .toc a[aria-current="page"] { color: var(--ink); font-weight: 600; border-left-color: var(--green-d); }
 .toc a small { font-size: 11px; color: var(--mute); opacity: .7; font-weight: 400; }
 .tocOk, .tocTodo { flex: none; width: 7px; height: 7px; border-radius: 50%; }
 .tocOk { background: var(--green); }

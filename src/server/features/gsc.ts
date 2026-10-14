@@ -14,13 +14,16 @@ import { asLookup } from '../platform/shopware/lookup';
 import { getPlatform } from '../platform';
 import { ok, guard, type AnyTool } from '../tool-kit';
 import type { Feature } from './types';
+import { getSettings } from '../settings';
 import { getGscConfig, searchAnalyticsCached, type Dim, type DimFilter, type Operator, type Row, type ServiceKey } from './gsc-google';
 import { aggregate, BASE_DAYS, compareEffect, contentGaps, isoDay, LAG_DAYS, MIN_IMPRESSIONS, measureWindow, opportunities, pathRegex, pct, range, round, view, type Baseline, type Metrics } from './gsc-logic';
 import type { PageRef } from './gsc-map';
 
 type Cfg = { key: ServiceKey; property: string };
-const NOT_CONNECTED = 'Google Search Console ist nicht verbunden. Der Nutzer kann sie unter Einstellungen → Google Search Console einrichten (Service-Konto + Property).';
-const need = (): Cfg => { const c = getGscConfig(); if (!c) throw new Error(NOT_CONNECTED); return c; };
+const NOT_CONNECTED = 'Google Search Console ist nicht verbunden. Der Nutzer kann sie unter Einstellungen → Integrationen → Search Console einrichten (Service-Konto + Property).';
+const BLOCKED = 'Der Zugriff der KI auf die Search Console ist ausgeschaltet. Der Nutzer kann ihn unter Einstellungen → KI-Zugriff aktivieren.';
+const allowed = () => getSettings().scopes.gsc !== false;
+const need = (): Cfg => { if (!allowed()) throw new Error(BLOCKED); const c = getGscConfig(); if (!c) throw new Error(NOT_CONNECTED); return c; };
 const LAG_NOTE = `Search-Console-Daten sind ca. ${LAG_DAYS} Tage alt; der Zeitraum endet deshalb vor heute.`;
 export const propose = (label: string): Record<string, string> => ({ product: 'propose_product_changes', category: 'propose_category_changes', landing: `Landingpage-Metas: im ${label}-Admin bzw. beim Neuveröffentlichen der Seite (publish_page)`, home: `Startseite: Metas des Verkaufskanals im ${label}-Admin` });
 /** Lese-Seite: plattform-neutral (ShopLookup); ein Shopware-Lese-Client wird wie bisher akzeptiert */
@@ -64,7 +67,7 @@ export async function baselinesFor(cfg: Cfg, items: ChangeItem[], ctx: { ro: Sho
   }
   return out;
 }
-onApplied('gsc', async (cs, items, { ro, lookup, chatId }) => { const cfg = getGscConfig(); if (cfg) await baselinesFor(cfg, items, { ro: lookup ?? ro, chatId, changeSetId: cs.id }); });
+onApplied('gsc', async (cs, items, { ro, lookup, chatId }) => { const cfg = allowed() ? getGscConfig() : null; if (cfg) await baselinesFor(cfg, items, { ro: lookup ?? ro, chatId, changeSetId: cs.id }); });
 
 /** Erfolg messen: Ausgangswert vs. gleich langer Zeitraum nach der Änderung (frühestens nach 14 Tagen Daten). */
 export async function measure(cfg: Cfg, ro: Shop, b: Baseline, now = new Date()) {
@@ -98,7 +101,7 @@ export async function findOpportunities(cfg: Cfg, ro: Shop, a: { days?: number; 
 export const refView = (ref: PageRef | null) => (ref ? { kind: ref.kind, ...(ref.id ? { id: ref.id } : {}), name: ref.name, ...(ref.number ? { number: ref.number } : {}), ...(ref.active === false ? { active: false } : {}) } : null);
 
 // ---- Shop-Check (nur, wenn verbunden) ----
-registerCheck({ id: 'gsc.low-ctr', area: 'Search Console', platforms: 'all', run: async (sw, ctx) => {
+registerCheck({ id: 'gsc.low-ctr', area: 'Search Console', scopes: ['gsc'], platforms: 'all', run: async (sw, ctx) => {
   const cfg = getGscConfig(); if (!cfg) return null;
   const r = await findOpportunities(cfg, ctx?.lookup ?? sw, { top: 5, queries: false });
   const f: CheckFinding = { id: 'gsc.low-ctr', area: 'Search Console', severity: r.total >= 10 ? 'hoch' : 'mittel', count: r.total, total: r.pagesChecked,
@@ -108,7 +111,7 @@ registerCheck({ id: 'gsc.low-ctr', area: 'Search Console', platforms: 'all', run
     fixPrompt: 'Zeige mir die Search-Console-Chancen (Seiten mit vielen Impressionen und schwacher Klickrate) und schlage für die wichtigsten bessere Meta-Titles und Meta-Descriptions vor.' };
   return f;
 } });
-registerCheck({ id: 'gsc.measure-due', area: 'Search Console', platforms: 'all', run: async () => {
+registerCheck({ id: 'gsc.measure-due', area: 'Search Console', scopes: ['gsc'], platforms: 'all', run: async () => {
   if (!getGscConfig()) return null;
   const all = listBaselines(), due = all.filter(b => !b.measured && measureWindow(b).status === 'vollständig');
   if (!all.length) return null;

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { PublicSettings, ScopeKey, TestResult } from '@/lib/protocol';
@@ -11,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Segmented } from '@/components/ui/Segmented';
 import { LanguageSwitch } from '@/components/i18n/LanguageSwitch';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import type { Locale } from '@/lib/i18n/locales';
 import { CodexLogin } from './CodexLogin';
 import { GscSettings } from './GscSettings';
 import { SistrixSettings } from './SistrixSettings';
@@ -22,10 +24,15 @@ import styles from './Settings.module.css';
 type TestTarget = 'shop' | 'ai';
 type TestState = { running: boolean; result: TestResult | null };
 
-const SCOPE_ORDER: ScopeKey[] = ['products', 'categories', 'cms', 'media', 'marketing', 'shop'];
+const SCOPE_ORDER: ScopeKey[] = ['products', 'manufacturers', 'categories', 'cms', 'media', 'marketing', 'shop'];
+const INTEGRATION_SCOPES: ScopeKey[] = ['gsc', 'sistrix'];
 
-/** Einstellungen: Shop & KI verbinden, Bild-KI, KI-Zugriffsbereiche, Protokolle. */
-export function SettingsView() {
+/** Unterseiten der Einstellungen (Routen unter /settings) */
+export type SettingsSection = 'general' | 'access' | 'integrations' | 'logs';
+const SECTION_PATH: Record<SettingsSection, string> = { general: '/settings', access: '/settings/ki-zugriff', integrations: '/settings/integrationen', logs: '/settings/protokolle' };
+
+/** Einstellungen: Unterseiten Allgemein (Shop, KI, Bild-KI), KI-Zugriff, Integrationen (Search Console, Sistrix), Protokolle. */
+export function SettingsView({ section = 'general' }: { section?: SettingsSection }) {
   const { refreshHealth } = useShell();
   const { t, locale } = useI18n();
   const ts = t.settings;
@@ -102,41 +109,34 @@ export function SettingsView() {
     <div className={styles.page}>
 
       <div className={styles.wrap}>
-        <Toc items={[
-          { id: 'language', label: t.common.language },
-          { id: 'shop', label: ts.toc.shop, state: saved ? (savedConfigured(saved, saved.platform ?? 'shopware') ? 'ok' : 'todo') : undefined },
-          { id: 'ai', label: ts.toc.ai, state: saved ? ((saved.ai.provider === 'codex' ? saved.ai.codexLoggedIn : saved.ai.hasApiKey || saved.ai.viaEnv) ? 'ok' : 'todo') : undefined },
-          { id: 'image', label: ts.toc.image, note: ts.optional },
-          { id: 'scopes', label: ts.toc.scopes },
-          { id: 'gsc', label: ts.toc.gsc, note: ts.optional },
-          { id: 'sistrix', label: ts.toc.sistrix, note: ts.optional },
-          { id: 'protokolle', label: ts.toc.logs },
-        ]} loaded={!!form && !!saved} />
+        <SubNav active={section} general={saved ? (savedConfigured(saved, saved.platform ?? 'shopware') && (saved.ai.provider === 'codex' ? saved.ai.codexLoggedIn : saved.ai.hasApiKey || saved.ai.viaEnv) ? 'ok' : 'todo') : undefined} />
 
         <main className={styles.content}>
           <div className={styles.titleRow}>
-            <h1 className={styles.h1}>{ts.title}</h1>
-            {form && saved && <SaveState saving={saving} dirty={dirty} notice={notice} onRetry={() => { setNotice(null); void save(form, saved); }} />}
+            <h1 className={styles.h1}>{ts.sections[section].title}</h1>
+            {form && saved && (section === 'general' || section === 'access') && <SaveState saving={saving} dirty={dirty} notice={notice} onRetry={() => { setNotice(null); void save(form, saved); }} />}
           </div>
-          <p className={styles.lead}>{ts.lead}</p>
-          <p className={styles.lead}>{egressNotice(locale)}</p>
+          <p className={styles.lead}>{ts.sections[section].lead}</p>
+          {section === 'general' && <p className={styles.lead}>{ts.lead}</p>}
+          {section === 'general' && <p className={styles.lead}>{egressNotice(locale)}</p>}
 
+          {section === "general" && (
           <section id="language" className={styles.card} aria-labelledby="language-h">
             <div className={styles.cardHead}><h2 id="language-h">{ts.languageHeading}</h2></div>
             <p className={styles.hint}>{t.common.languageHint}</p>
             <LanguageSwitch className={styles.langSeg} />
           </section>
+          )}
 
           {saved?.openWithoutPassword && <div className={styles.alert} role="alert">{ts.openWithoutPassword}</div>}
           {loadError && <div className={styles.alert} role="alert">{ts.loadFailed(loadError)}</div>}
           {!form && !loadError && <p className={styles.lead}>{ts.loading}</p>}
 
-          {form && saved && (
+          {form && saved && section === 'general' && (
             <form ref={formRef} onSubmit={e => e.preventDefault()} onBlur={() => setKick(k => k + 1)} noValidate>
               {/* ---- Shop ---- */}
               <ShopSection form={form} saved={saved} set={set} test={tests.shop} onTest={() => void test('shop')} saving={saving} dirty={dirty} pending={pending} secretsReset={secretsReset === form.platform} />
 
-              {/* ---- KI ---- */}
               <section id="ai" className={styles.card} aria-labelledby="ai-h">
                 <div className={styles.cardHead}>
                   <h2 id="ai-h">{ts.ai.heading}</h2>
@@ -170,7 +170,6 @@ export function SettingsView() {
                 <TestRow state={tests.ai} onTest={() => void test('ai')} disabled={saving || dirty || (form.ai.provider === 'codex' && !saved.ai.codexLoggedIn)} title={connectionTestBlock(dirty, locale) ?? undefined} />
               </section>
 
-              {/* ---- Bild-KI ---- */}
               <section id="image" className={styles.card} aria-labelledby="image-h">
                 <div className={styles.cardHead}>
                   <h2 id="image-h">{ts.image.heading} <span className={styles.opt}>{ts.optional}</span></h2>
@@ -184,38 +183,48 @@ export function SettingsView() {
                   </Field>
                 </div>
               </section>
+            </form>
+          )}
 
-              {/* ---- KI-Zugriff ---- */}
+          {form && saved && section === 'access' && (
+            <form ref={formRef} onSubmit={e => e.preventDefault()} onBlur={() => setKick(k => k + 1)} noValidate>
               <section id="scopes" className={styles.card} aria-labelledby="scopes-h">
                 <div className={styles.cardHead}><h2 id="scopes-h">{ts.scopes.heading}</h2></div>
                 <p className={styles.hint}>{markup(ts.scopes.hint)}</p>
                 <ul className={styles.scopes}>
-                  {SCOPE_ORDER.filter(k => k in form.scopes).map(k => {
-                    const info = scopeDisplay(form.platform, k, saved.scopeInfo?.[k] ?? { label: k, hint: '' }, locale);
-                    return (
-                      <li key={k}>
-                        <label className={styles.scope}>
-                          <input type="checkbox" role="switch" checked={form.scopes[k]} onChange={e => set(f => ({ ...f, scopes: { ...f.scopes, [k]: e.target.checked } }))} />
-                          <span className={styles.switch} aria-hidden="true" />
-                          <span><b>{info.label}</b><small>{info.hint}</small></span>
-                        </label>
-                      </li>
-                    );
-                  })}
+                  {SCOPE_ORDER.filter(k => k in form.scopes && (k !== 'manufacturers' || form.platform === 'shopware')).map(k => (
+                    <ScopeSwitch key={k} k={k} form={form} saved={saved} set={set} locale={locale} />
+                  ))}
                 </ul>
                 <p className={styles.locked}>{ts.scopes.locked}</p>
               </section>
 
+              <section id="scopes-integrations" className={styles.card} aria-labelledby="scopes-int-h">
+                <div className={styles.cardHead}><h2 id="scopes-int-h">{ts.scopes.integrationsHeading}</h2></div>
+                <p className={styles.hint}>{ts.scopes.integrationsHint}</p>
+                <ul className={styles.scopes}>
+                  {INTEGRATION_SCOPES.filter(k => k in form.scopes).map(k => (
+                    <ScopeSwitch key={k} k={k} form={form} saved={saved} set={set} locale={locale} />
+                  ))}
+                </ul>
+              </section>
             </form>
           )}
 
-          {form && saved && <GscSettings />}
-          {form && saved && <SistrixSettings />}
+          {section === 'integrations' && (
+            <>
+              <p className={styles.hint}>{ts.integrations.hint}</p>
+              <GscSettings />
+              <SistrixSettings />
+            </>
+          )}
 
-          <section id="protokolle" className={styles.card} aria-labelledby="logs-h">
-            <div className={styles.cardHead}><h2 id="logs-h">{ts.logs.heading}</h2></div>
-            <LogsPanel />
-          </section>
+          {section === 'logs' && (
+            <section id="protokolle" className={styles.card} aria-labelledby="logs-h">
+              <div className={styles.cardHead}><h2 id="logs-h">{ts.logs.heading}</h2></div>
+              <LogsPanel />
+            </section>
+          )}
         </main>
       </div>
     </div>
@@ -279,49 +288,40 @@ function Field({ label, hint, children }: { label: string; hint?: React.ReactNod
   );
 }
 
-type TocItem = { id: string; label: string; state?: 'ok' | 'todo'; note?: string };
-
-/** Abschnitte links: markiert den sichtbaren Abschnitt und zeigt, was eingerichtet ist und was noch fehlt. */
-function Toc({ items, loaded }: { items: TocItem[]; /** Abschnitte gerendert (Einstellungen geladen) */ loaded: boolean }) {
+/** Unterseiten links: Allgemein, KI-Zugriff, Integrationen, Protokolle (eigene Routen); Allgemein zeigt, ob Shop und KI eingerichtet sind. */
+function SubNav({ active, general }: { active: SettingsSection; general?: 'ok' | 'todo' }) {
   const t = useI18n().t.settings;
-  const [current, setCurrent] = useState(items[0]?.id);
-  const ids = items.map(i => i.id).join(',');
-  useEffect(() => {
-    const read = () => { const h = window.location.hash.slice(1); if (h) setCurrent(h); };
-    read();
-    const els = ids.split(',').map(id => document.getElementById(id)).filter((e): e is HTMLElement => !!e);
-    const root = els[0]?.closest(`.${styles.page}`) ?? null;
-    // Der Abschnitt, dessen Kopf zuletzt unter die Überschrift gewandert ist
-    const pick = () => {
-      const top = root?.getBoundingClientRect().top ?? 0, line = Math.max(160, ((root as HTMLElement | null)?.clientHeight ?? window.innerHeight) / 3);
-      let best: string | undefined = els[0]?.id;
-      for (const el of els) if (el.getBoundingClientRect().top - top < line) best = el.id;
-      const page = root as HTMLElement | null;
-      // Ganz unten (nach echtem Scrollen): letzter Abschnitt. Nicht beim Laden, wenn die Seite noch kurz ist und nicht scrollt.
-      if (page && page.scrollTop > 0 && page.scrollTop + page.clientHeight >= page.scrollHeight - 4) best = els.at(-1)?.id;
-      if (best) setCurrent(best);
-    };
-    // Beim Scrollen (je Frame höchstens einmal) neu bestimmen
-    let frame = 0;
-    const onScroll = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(pick); };
-    const target: HTMLElement | Window = (root as HTMLElement | null) ?? window;
-    if (!window.location.hash) pick(); // mit Sprungmarke zählt die (read), bis gescrollt wird
-    target.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('hashchange', read);
-    return () => { cancelAnimationFrame(frame); target.removeEventListener('scroll', onScroll); window.removeEventListener('hashchange', read); };
-  }, [ids, loaded]); // erst nach dem Laden gibt es alle Abschnitte
+  const items: { key: SettingsSection; label: string; state?: 'ok' | 'todo' }[] = [
+    { key: 'general', label: t.sections.general.nav, state: general },
+    { key: 'access', label: t.sections.access.nav },
+    { key: 'integrations', label: t.sections.integrations.nav },
+    { key: 'logs', label: t.sections.logs.nav },
+  ];
   return (
     <nav className={styles.toc} aria-label={t.toc.label}>
       <span className={styles.tocHead}>{t.toc.head}</span>
       {items.map(i => (
-        <a key={i.id} href={`#${i.id}`} aria-current={current === i.id ? 'true' : undefined} onClick={() => setCurrent(i.id)}>
+        <Link key={i.key} href={SECTION_PATH[i.key]} aria-current={active === i.key ? 'page' : undefined}>
           <span>{i.label}</span>
           {i.state === 'ok' && <i className={styles.tocOk} aria-label={t.toc.ok} />}
           {i.state === 'todo' && <i className={styles.tocTodo} aria-label={t.toc.todo} />}
-          {i.note && !i.state && <small>{i.note}</small>}
-        </a>
+        </Link>
       ))}
     </nav>
+  );
+}
+
+/** Ein Schalter für einen KI-Zugriffsbereich (Shop-Daten oder Integration) */
+function ScopeSwitch({ k, form, saved, set, locale }: { k: ScopeKey; form: SettingsForm; saved: PublicSettings; set: (fn: (f: SettingsForm) => SettingsForm) => void; locale: Locale }) {
+  const info = scopeDisplay(form.platform, k, saved.scopeInfo?.[k] ?? { label: k, hint: '' }, locale);
+  return (
+    <li>
+      <label className={styles.scope}>
+        <input type="checkbox" role="switch" checked={form.scopes[k]} onChange={e => set(f => ({ ...f, scopes: { ...f.scopes, [k]: e.target.checked } }))} />
+        <span className={styles.switch} aria-hidden="true" />
+        <span><b>{info.label}</b><small>{info.hint}</small></span>
+      </label>
+    </li>
   );
 }
 
