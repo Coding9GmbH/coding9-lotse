@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ShopReader, Shopware, SwEntity } from '../../../src/server/shopware';
-import { applyBulk, bulkChangeSet, bulkCriteria, bulkStale, cleanPrices, describeChange, planProduct, planWrite, resolveProducts, validateChange, BULK_SCAN, CHUNK, SAMPLE, type BulkPayload } from '../../../src/server/features/varianten-bulk';
+import { applyBulk, bulkChangeSet, bulkCriteria, bulkStale, cleanPrices, describeChange, planProduct, planWrite, resolveProducts, validateChange, BULK_SCAN, CHUNK, SAMPLE, type BulkPayload } from '../../../src/server/features/bulk-edit';
 
 const price = (gross: number, list?: number) => [{ currencyId: 'eur', gross, net: gross / 1.19, linked: true, percentage: null, apiAlias: 'price', ...(list != null ? { listPrice: { currencyId: 'eur', gross: list, net: list / 1.19, linked: true, apiAlias: 'price' } } : { listPrice: null }) }];
 const prod = (id: string, gross: number | null, extra: SwEntity = {}): SwEntity => ({ id, productNumber: `P-${id}`, name: `Produkt ${id}`, price: gross == null ? null : price(gross), stock: 10, active: true, tax: { taxRate: 19 }, ...extra });

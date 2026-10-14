@@ -3,7 +3,7 @@ import 'server-only';
 // Namen und Argumente wie bei Shopware/Magento, wo die Bedeutung passt (gemeinsame Prompts, Shop-Check-Aufträge, Onboarding).
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
-import { viewedImages } from '../../features/bilder';
+import { viewedImages } from '../../features/product-images';
 import type { Session } from '../../sessions';
 import { fail, guard, ok, type AnyTool } from '../../tool-kit';
 import { assertShopUrl, fetchShopPage, parseStorefront } from '../../storefront';

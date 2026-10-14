@@ -43,8 +43,8 @@ export async function resolveLinks(lookup: ShopLookup, a: { productIds?: string[
 
 const linkText = (links: KnowledgeLink[]) => links.map(l => (l.kind === 'product' ? `${l.name ?? l.id}${l.number ? ` (${l.number})` : ''}` : `Kategorie ${l.name ?? l.id}`)).join(', ');
 
-export const wissen: Feature = {
-  key: 'wissen',
+export const knowledgeBase: Feature = {
+  key: 'knowledge-base',
   platforms: 'all',
   toolNames: ['add_knowledge', 'search_knowledge', 'get_product_knowledge', 'list_knowledge', 'add_rule', 'list_rules', 'remove_rule'],
   tools: session => {

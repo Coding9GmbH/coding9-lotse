@@ -12,13 +12,13 @@ import { perRun } from '../shopcheck-run';
 import { newId, type Shopware, type ShopReader, type SwEntity } from '../shopware';
 import { guard, ok, type AnyTool } from '../tool-kit';
 import type { Feature } from './types';
-import { ALT_GAP, HAS_MEDIA, productFilter } from './bilder';
-import { neutral } from './wissen';
+import { ALT_GAP, HAS_MEDIA, productFilter } from './product-images';
+import { neutral } from './knowledge-base';
 import {
   A11Y_LABEL, basePriceCandidate, basePriceText, cfOf, contactCandidates, evaluateLegalPage, footerLinks, gpsrManufacturer, gpsrProduct, GPSR_SET, htmlA11y, isLinked,
   LEGAL_PAGES, MANUFACTURER_FIELDS, parseQuantity, PRODUCT_FIELDS, themeContrast, UNIT_DEFS, unitKeyOf, validateGpsrValue, WEAK_SOURCE,
   type A11yIssue, type BaseUnit, type ManufacturerField, type ManufacturerStatus, type ProductField, type VariantIds,
-} from './recht-rules';
+} from './legal-rules';
 
 export const KIND_GPSR = 'gpsr';
 export const KIND_BASEPRICE = 'base-prices';
@@ -353,7 +353,7 @@ async function legalPages(sw: ShopReader) {
 
 // ================= Shop-Check (Startseite) =================
 const sev = (n: number, high: boolean): CheckFinding['severity'] => (!n ? 'niedrig' : high ? 'hoch' : 'mittel');
-export const RECHT_CHECKS: ShopCheck[] = [
+export const LEGAL_CHECKS: ShopCheck[] = [
   { id: 'recht.gpsr', area: 'Recht', run: async sw => {
     const g = await loadGpsr(sw), mIncomplete = g.manufacturers.filter(m => !m.complete), relevant = g.products.filter(p => !p.food);
     const noMf = relevant.filter(p => p.missing.includes('Hersteller')), noId = relevant.filter(p => p.missing.some(m => m.startsWith('Kennnummer'))), safety = relevant.filter(p => p.missing.some(m => m.startsWith('Sicherheit')));
@@ -411,7 +411,7 @@ export const RECHT_CHECKS: ShopCheck[] = [
   } },
 ];
 // Startseite: Alt-Texte meldet bereits shopcheck.alt-missing (mit BFSG-Hinweis); get_legal_overview nutzt weiterhin alle Prüfungen
-for (const c of RECHT_CHECKS) if (c.id !== 'bfsg.alt') registerCheck(c);
+for (const c of LEGAL_CHECKS) if (c.id !== 'bfsg.alt') registerCheck(c);
 
 // ================= Dateien (Herstellerlisten, Datenblätter) =================
 async function fileText(fileId: string): Promise<{ name: string; text: string }> {
@@ -439,8 +439,8 @@ const MF_IN = z.object({
   euResponsible: z.string().nullable().optional().describe('nur bei Sitz außerhalb der EU: Name, Anschrift, Kontakt der verantwortlichen Person in der EU'),
 });
 
-export const recht: Feature = {
-  key: 'recht',
+export const legal: Feature = {
+  key: 'legal',
   platforms: ['shopware'],
   toolNames: ['get_legal_overview', 'get_gpsr_status', 'read_gpsr_document', 'propose_gpsr_data', 'find_baseprice_gaps', 'propose_base_prices', 'check_accessibility', 'check_legal_pages'],
   tools: session => {
@@ -450,7 +450,7 @@ export const recht: Feature = {
       tool('get_legal_overview', 'Rechts- und Barrierefreiheits-Check des ganzen Shops in einem Schritt: GPSR (Hersteller, Kennnummern, Sicherheitshinweise), Grundpreise (PAngV), Rechtstexte, Alt-Texte, Linktexte/Überschriften und Farbkontrast (BFSG). Liefert Befunde mit Anzahl, Beispielen und Regel. Ändert nichts. Technische Prüfung, keine Rechtsberatung.', {},
         guard(async () => {
           const sw = fresh();
-          const out = await Promise.all(RECHT_CHECKS.map(c => c.run(sw).then(r => [r ?? []].flat()).catch(e => [{ id: c.id, error: errMsg(e) }])));
+          const out = await Promise.all(LEGAL_CHECKS.map(c => c.run(sw).then(r => [r ?? []].flat()).catch(e => [{ id: c.id, error: errMsg(e) }])));
           return ok({ note: NOTE, findings: out.flat().map(f => ('error' in f ? f : { id: f.id, area: f.area, title: f.title, severity: f.severity, count: f.count, total: f.total, sample: f.sample, rule: f.hint })) });
         })),
 

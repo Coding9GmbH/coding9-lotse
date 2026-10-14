@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-bilder-'));
-const { planImages, imagesUndo, imagesSummary, checkAlt, altIsFileName, viewedImages, buildProductImagesChangeSet, buildAltTextChangeSet, mergeProductOps, applyImages, resolverFor, INHERIT_WARN, KIND_IMAGES, KIND_ALT } = await import('../../../src/server/features/bilder');
+const { planImages, imagesUndo, imagesSummary, checkAlt, altIsFileName, viewedImages, buildProductImagesChangeSet, buildAltTextChangeSet, mergeProductOps, applyImages, resolverFor, INHERIT_WARN, KIND_IMAGES, KIND_ALT } = await import('../../../src/server/features/product-images');
 type Reader = Parameters<typeof buildProductImagesChangeSet>[0];
 
 const H = (c: string) => c.repeat(32);

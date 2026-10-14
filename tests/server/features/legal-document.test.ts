@@ -6,8 +6,8 @@ import path from 'node:path';
 import type { Session } from '../../../src/server/sessions';
 
 // read_gpsr_document: Dateitext (TXT, XLSX, CSV) als klar eingerahmte DATEN mit Kandidaten; Marker im Dokument werden entschärft.
-process.env.AICB_DATA ??= fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-recht-'));
-const { recht } = await import('../../../src/server/features/recht');
+process.env.AICB_DATA ??= fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-legal-'));
+const { legal } = await import('../../../src/server/features/legal');
 const { saveFile } = await import('../../../src/server/files');
 
 type Res = { isError?: boolean; content: { type: string; text: string }[] };
@@ -15,7 +15,7 @@ const session = {
   sw: { base: 'http://shop', search: async () => ({ data: [] }), get: async () => null, salesChannels: async () => [], req: async () => null },
   askUser: async () => 'Nein', requestChange: async () => { throw new Error('nicht erwartet'); },
 } as unknown as Session;
-const tools = recht.tools(session);
+const tools = legal.tools(session);
 const raw = async (name: string, args: Record<string, unknown>) => (await tools.find(t => t.name === name)!.handler(args, {})) as Res;
 const call = async (name: string, args: Record<string, unknown>) => JSON.parse((await raw(name, args)).content[0].text);
 const DOC = (name: string) => `<<<DOKUMENT ${name}>>>\n`, END = '\n<<<ENDE DOKUMENT>>>';

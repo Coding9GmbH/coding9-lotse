@@ -10,7 +10,7 @@ import { fail, guard, ok, type AnyTool } from '../tool-kit';
 import type { Session } from '../sessions';
 import type { Feature } from './types';
 
-export const KIND_HERSTELLER = 'manufacturers';
+export const KIND_MANUFACTURERS = 'manufacturers';
 const ENTITY = 'product-manufacturer';
 const NOUN = { one: 'Hersteller', many: 'Hersteller' };
 export const MANUFACTURER_TOOLS = ['get_manufacturer', 'propose_manufacturer_changes'];
@@ -85,10 +85,10 @@ export async function buildManufacturerChangeSet(ro: ShopReader, a: Manufacturer
   }
   if (!items.length) throw new Error(`Nichts zu ändern: ${skipped.map(s => `${s.id}: ${s.reason}`).join('; ') || 'keine Änderungen'}`);
   const n = new Set(items.map(i => i.entityId)).size;
-  return { cs: { id: newId(), kind: KIND_HERSTELLER, entity: ENTITY, noun: NOUN, applyLabel: `${n} Hersteller übernehmen`, title: a.title, reason: a.reason ?? null, items, skipped, atomic: false }, payload: null };
+  return { cs: { id: newId(), kind: KIND_MANUFACTURERS, entity: ENTITY, noun: NOUN, applyLabel: `${n} Hersteller übernehmen`, title: a.title, reason: a.reason ?? null, items, skipped, atomic: false }, payload: null };
 }
 
-registerApplier(KIND_HERSTELLER, (swW, cs, _payload, selected, ctx) => applyEach(cs, selected, async (it): Promise<UndoOp> => {
+registerApplier(KIND_MANUFACTURERS, (swW, cs, _payload, selected, ctx) => applyEach(cs, selected, async (it): Promise<UndoOp> => {
   const raw = it.afterRaw as { create: Record<string, unknown> } | string | null;
   if (raw && typeof raw === 'object' && 'create' in raw) {
     await swW.create(ENTITY, { id: it.entityId, ...raw.create });
@@ -125,4 +125,4 @@ create: neue Hersteller (Name Pflicht; vorhandene Namen werden übersprungen). u
   ] as AnyTool[];
 }
 
-export const hersteller: Feature = { key: 'hersteller', platforms: ['shopware'], toolNames: MANUFACTURER_TOOLS, tools };
+export const manufacturers: Feature = { key: 'manufacturers', platforms: ['shopware'], toolNames: MANUFACTURER_TOOLS, tools };

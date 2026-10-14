@@ -9,8 +9,8 @@ import type { AssocTree } from '../policy';
 import { fail, guard, nextOffsetOf, ok, pageOf, type AnyTool } from '../tool-kit';
 import type { Session } from '../sessions';
 import type { Feature } from './types';
-import { KIND_STAMMDATEN, NewRegistry, nameOf, planProduct, productFilter, productLabel, type Catalog, type DataOps, type ProductFilter, type PropIn } from './stammdaten-plan';
-import { neededCreates, type StammdatenPayload } from './stammdaten-apply'; // registriert zugleich den Applier
+import { KIND_PRODUCT_DATA, NewRegistry, nameOf, planProduct, productFilter, productLabel, type Catalog, type DataOps, type ProductFilter, type PropIn } from './product-data-plan';
+import { neededCreates, type ProductDataPayload } from './product-data-apply'; // registriert zugleich den Applier
 
 export const PRODUCT_ASSOC: AssocTree = {
   properties: { associations: { group: {} } }, categories: {}, tags: {}, manufacturer: {}, deliveryTime: {}, tax: {}, visibilities: {},
@@ -74,7 +74,7 @@ async function targetIds(ro: ShopReader, t: DataTarget): Promise<string[]> {
   return uniq(ids);
 }
 
-export async function buildProductDataChangeSet(ro: ShopReader, { title, reason, changes }: ProductDataArgs, genId: () => string = newId): Promise<{ cs: ChangeSet; payload: StammdatenPayload }> {
+export async function buildProductDataChangeSet(ro: ShopReader, { title, reason, changes }: ProductDataArgs, genId: () => string = newId): Promise<{ cs: ChangeSet; payload: ProductDataPayload }> {
   if (!changes?.length) throw new Error('changes ist leer');
   const pairs: { pid: string; ops: DataOps }[] = [];
   for (const t of changes) { const ops: DataOps = { ...t }; delete (ops as DataTarget).productIds; delete (ops as DataTarget).filter; for (const pid of await targetIds(ro, t)) pairs.push({ pid, ops }); }
@@ -98,7 +98,7 @@ export async function buildProductDataChangeSet(ro: ShopReader, { title, reason,
   }
   if (!items.length) throw new Error(`Keine Änderung nötig bzw. nichts anwendbar (${unchanged} unverändert, ${skipped.length} übersprungen${skipped.length ? `: ${skipped.slice(0, 4).map(s => s.reason).join('; ')}` : ''})`);
   return {
-    cs: { id: newId(), kind: KIND_STAMMDATEN, entity: 'product', noun: { one: 'Produkt', many: 'Produkte' }, applyLabel: 'Stammdaten übernehmen', title, reason, items, skipped, unchanged, atomic: false },
+    cs: { id: newId(), kind: KIND_PRODUCT_DATA, entity: 'product', noun: { one: 'Produkt', many: 'Produkte' }, applyLabel: 'Stammdaten übernehmen', title, reason, items, skipped, unchanged, atomic: false },
     payload: { creates: neededCreates(items, reg.list) }, // nur Neuanlagen, die ein Item nutzt (inkl. Gruppe einer neuen Option)
   };
 }
@@ -170,7 +170,7 @@ const page = (limit?: number, offset?: number) => pageOf(offset, Math.min(Math.m
 const paged = (pg: ReturnType<typeof page>, r: { data: unknown[]; total?: number }) => ({ total: r.total, returned: r.data.length, offset: pg.offset, ...(pg.note ? { note: pg.note } : {}), nextOffset: nextOffsetOf(pg.offset, r.data.length, pg.limit, r.total) });
 const termFilter = (term?: string) => (term ? [{ type: 'contains', field: 'name', value: term }] : []);
 
-export const STAMMDATEN_TOOLS = ['list_property_groups', 'list_manufacturers', 'list_tags', 'list_delivery_times', 'list_taxes', 'get_product_details', 'find_products_by_data', 'propose_product_data'];
+export const PRODUCT_DATA_TOOLS = ['list_property_groups', 'list_manufacturers', 'list_tags', 'list_delivery_times', 'list_taxes', 'get_product_details', 'find_products_by_data', 'propose_product_data'];
 
 function tools(session: Session): AnyTool[] {
   const { sw } = session;
@@ -241,4 +241,4 @@ Nicht enthalten: Preise/Bestand (einzeln propose_product_changes, in Masse propo
   ] as AnyTool[];
 }
 
-export const stammdaten: Feature = { key: 'stammdaten', platforms: ['shopware'], toolNames: STAMMDATEN_TOOLS, tools };
+export const productData: Feature = { key: 'product-data', platforms: ['shopware'], toolNames: PRODUCT_DATA_TOOLS, tools };

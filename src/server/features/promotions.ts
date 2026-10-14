@@ -579,8 +579,8 @@ async function codeCounts(sw: ShopReader, ids: string[]) {
 }
 const codeInfo = (p: SwEntity, c?: { generated: number; redeemed: number }) => (!p.useCodes ? { type: 'none' } : p.useIndividualCodes ? { type: 'individual', pattern: p.individualCodePattern, generated: c?.generated ?? 0, redeemed: c?.redeemed ?? 0 } : { type: 'fixed', code: p.code });
 
-export const promotionen: Feature = {
-  key: 'promotionen',
+export const promotions: Feature = {
+  key: 'promotions',
   platforms: ['shopware'],
   toolNames: ['list_promotions', 'get_promotion', 'propose_promotion', 'propose_promotion_status'],
   tools: session => {

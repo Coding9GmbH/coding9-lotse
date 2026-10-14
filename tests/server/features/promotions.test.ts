@@ -5,7 +5,7 @@ import {
   validateDiscount, discountEntity, discountSnapshot, statusFilter, promotionStatus, promotionEntity, buildPromotionChangeSet, buildStatusChangeSet,
   draftWarning, activeText, overlapText, ruleSnapshot, ruleDescription, promotionRulesDelete,
   type CreatePayload, type UpdatePart,
-} from '../../../src/server/features/promotionen';
+} from '../../../src/server/features/promotions';
 import type { ShopReader, Shopware, SwEntity } from '../../../src/server/shopware';
 import { applyChangeSet, undoOps } from '../../../src/server/changes';
 import type { UndoOp } from '@/lib/protocol';

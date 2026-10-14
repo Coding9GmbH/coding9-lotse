@@ -9,7 +9,7 @@ import { HEX32, newId, SYSTEM_LANGUAGE, type Shopware, type ShopReader, type SwE
 import { ok, guard, type AnyTool } from '../tool-kit';
 import type { Session } from '../sessions';
 import type { Feature } from './types';
-import { checkSeg, configLinks, mapConfigLinks, plain, seoKey, seoVariants, shopPath, slotTexts, type Cfg, type Domain, type LinkIndex, type SeoHit, type SlotSeg } from './sprachen-html';
+import { checkSeg, configLinks, mapConfigLinks, plain, seoKey, seoVariants, shopPath, slotTexts, type Cfg, type Domain, type LinkIndex, type SeoHit, type SlotSeg } from './translations-html';
 
 export { SYSTEM_LANGUAGE };
 const SC_TYPES: Record<string, string> = { '8a243080f92e4c719546314b577cf82b': 'Storefront', 'f183ee5650cf4bdb8a774337575067a6': 'Headless', 'ed535e5722134ac1aa6524f73e26881b': 'Produktvergleich' };
@@ -435,8 +435,8 @@ const resolvePageId = async (ro: ShopReader, a: { cmsPageId?: string; categoryId
   return id as string;
 };
 
-export const sprachen: Feature = {
-  key: 'sprachen',
+export const translations: Feature = {
+  key: 'translations',
   platforms: ['shopware'],
   toolNames: ['list_languages', 'get_translations', 'propose_translations', 'get_page_texts', 'propose_page_translation'],
   tools: (session: Session) => {

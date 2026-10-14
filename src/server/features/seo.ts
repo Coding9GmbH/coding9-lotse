@@ -8,7 +8,7 @@ import { HEX32, SYSTEM_LANGUAGE, type ShopReader, type SwEntity } from '../shopw
 import { singleton } from '../state';
 import { ok, fail, guard, nextOffsetOf, pageOf, type AnyTool } from '../tool-kit';
 import type { Feature } from './types';
-import { altIsFileName } from './bilder';
+import { altIsFileName } from './product-images';
 import { applySeoUrl, buildSeoUrlChangeSet, duplicates, evaluate, KIND, summarize, type SeoUrlPayload } from './seo-rules';
 
 registerApplier(KIND, (swW, cs, _payload, selected, ctx) => applyEach(cs, selected, it => applySeoUrl(swW, it.afterRaw as SeoUrlPayload), ctx));

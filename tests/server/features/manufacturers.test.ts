@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { Shopware, ShopReader, SwEntity } from '../../../src/server/shopware';
 
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-hersteller-'));
-const { buildManufacturerChangeSet } = await import('../../../src/server/features/hersteller');
+const { buildManufacturerChangeSet } = await import('../../../src/server/features/manufacturers');
 const { applyChangeSet, undoOps } = await import('../../../src/server/changes');
 
 const M1 = 'a'.repeat(32), MEDIA = 'b'.repeat(32);

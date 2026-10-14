@@ -3,7 +3,7 @@
 import type { ChangeItem } from '@/lib/protocol';
 import { HEX32, type SwEntity } from '../shopware';
 
-export const KIND_STAMMDATEN = 'product-data';
+export const KIND_PRODUCT_DATA = 'product-data';
 export const VISIBILITY = { all: 30, search: 20, link: 10 } as const;
 export type VisibilityLevel = keyof typeof VISIBILITY;
 const VIS_LABEL: Record<number, string> = { 30: 'überall', 20: 'nur Suche', 10: 'nur Direktlink' };

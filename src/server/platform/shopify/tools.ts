@@ -4,7 +4,7 @@ import 'server-only';
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { MAX_ITEMS } from '../../changes';
-import { viewedImages } from '../../features/bilder';
+import { viewedImages } from '../../features/product-images';
 import type { Session } from '../../sessions';
 import { fail, guard, ok, type AnyTool } from '../../tool-kit';
 import { shortId, toGid, type Json } from './client';

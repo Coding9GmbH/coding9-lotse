@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkSeg, configLinks, decode, mapConfigLinks, mapUrl, plain, rebuild, segmentHtml, slotTexts, type LinkIndex } from '../../../src/server/features/sprachen-html';
+import { checkSeg, configLinks, decode, mapConfigLinks, mapUrl, plain, rebuild, segmentHtml, slotTexts, type LinkIndex } from '../../../src/server/features/translations-html';
 
 test('decode: benannte und numerische Entities; ungültige Codepunkte bleiben wörtlich stehen statt zu werfen', () => {
   assert.equal(decode('&auml; &#65; &#x1F600; &amp; x &unknown;'), 'ä A 😀 & x &unknown;');

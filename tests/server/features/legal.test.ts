@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {
   basePriceCandidate, basePriceText, contrastRatio, evaluateLegalPage, footerLinks, gpsrManufacturer, gpsrProduct, htmlA11y, isLinked, LEGAL_PAGES,
   parseQuantity, resolveTheme, suggestColor, themeContrast, unitKeyOf, validateGpsrValue,
-} from '../../../src/server/features/recht-rules';
-import { buildBasePriceChangeSet, buildGpsrChangeSet, basePriceRow, basePriceRows, RECHT_CHECKS } from '../../../src/server/features/recht';
+} from '../../../src/server/features/legal-rules';
+import { buildBasePriceChangeSet, buildGpsrChangeSet, basePriceRow, basePriceRows, LEGAL_CHECKS } from '../../../src/server/features/legal';
 import { applyChangeSet } from '../../../src/server/changes';
 import { perRun } from '../../../src/server/shopcheck-run';
 import type { Shopware, ShopReader, SwEntity } from '../../../src/server/shopware';
@@ -251,7 +251,7 @@ test('Recht-Prüfungen: ein Katalog-Scan je Durchlauf mit Feldauswahl; GPSR, Gru
     get: async () => null, salesChannels: async () => [], req: async () => null,
   };
   type F = { id: string; count: number; total: number; severity: string };
-  const sw = perRun(ro), run = async (id: string, r: ShopReader = sw) => [await RECHT_CHECKS.find(c => c.id === id)!.run(r) ?? []].flat() as F[];
+  const sw = perRun(ro), run = async (id: string, r: ShopReader = sw) => [await LEGAL_CHECKS.find(c => c.id === id)!.run(r) ?? []].flat() as F[];
   const [gpsr, grund, texte] = await Promise.all([run('recht.gpsr'), run('recht.grundpreis'), run('bfsg.texte')]);
   assert.equal(calls.filter(x => x.entity === 'product').length, 1, 'ein Produkt-Scan für drei Prüfungen');
   const scans = calls.filter(x => x.entity !== 'unit');

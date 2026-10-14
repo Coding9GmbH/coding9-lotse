@@ -74,7 +74,7 @@ test('Werkzeuge je Plattform: Kern + Plattform + Features, ohne Doppelte; Shopwa
   assert.deepEqual(getPlatform('shopify').features?.map(f => f.key), ['shopify-import']);
   for (const n of ['search_products', 'get_product', 'list_products', 'search_categories', 'get_category', 'search_media', 'propose_product_changes', 'propose_new_products', 'propose_category_changes', 'propose_product_images', 'propose_alt_texts', 'propose_translations', 'propose_promotion', 'seo_audit', 'find_image_gaps'])
     assert.ok(toolNamesFor('shopify').includes(n), `Shopify: gemeinsamer Name ${n}`);
-  assert.deepEqual(featuresFor(getPlatform('shopify')).map(f => f.key).sort(), ['gsc', 'shopcheck', 'shopify-import', 'sistrix', 'site-check', 'wissen']);
+  assert.deepEqual(featuresFor(getPlatform('shopify')).map(f => f.key).sort(), ['gsc', 'knowledge-base', 'shopcheck', 'shopify-import', 'sistrix', 'site-check']);
   // keine doppelten Werkzeugnamen je Plattform (Kern + Adapter + Features)
   for (const k of PLATFORM_KINDS) { const names = toolNamesFor(k); assert.equal(new Set(names).size, names.length, `${k}: doppelte Werkzeugnamen ${names.filter((n, i) => names.indexOf(n) !== i).join(', ')}`); }
   // jedes Werkzeug hat eine Anzeige im Chat (TOOL_LABELS)

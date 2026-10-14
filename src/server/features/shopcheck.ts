@@ -16,10 +16,10 @@ import { CHECK_FIELDS, CHECK_OPS, conditionsText, CUSTOM_PREFIX, parseCheckInput
 import { addCustom, checkList, customFinding, listCustom, removeCustom, setCheckEnabled, updateCustom } from '../custom-checks';
 import type { ShopReader, SwEntity } from '../shopware';
 import { fail, guard, ok, type AnyTool } from '../tool-kit';
-import { GAP_FILTER } from './bilder';
+import { GAP_FILTER } from './product-images';
 import { auditPages } from './seo';
 import { DEFS, makeFinding, productLabel, scanHits, SCAN_INCLUDES, toScanRow, type Hit, type ScanRow } from './shopcheck-rules';
-import { loadLanguages, SYSTEM_LANGUAGE } from './sprachen';
+import { loadLanguages, SYSTEM_LANGUAGE } from './translations';
 import type { Feature } from './types';
 
 export const SCAN_MAX = 2500, SCAN_PAGE = 250, PAGES_MAX = 200;

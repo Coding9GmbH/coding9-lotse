@@ -4,7 +4,7 @@ import 'server-only';
 import type { ChangeAsset, ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { slugify as slug } from '@/lib/text';
 import { MAX_ITEMS, WRITE_CONCURRENCY, assertFresh, cut, errMsg, partialTicker, pool, type ApplyCtx, type ApplyResult } from '../../changes';
-import { checkAlt } from '../../features/bilder';
+import { checkAlt } from '../../features/product-images';
 import { stagedMeta } from '../../media';
 import { newId } from '../../shopware';
 import { shortId, toGid, type Json, type ShopifyClient } from './client';

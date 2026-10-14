@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { ShopReader, SwEntity } from '../../../src/server/shopware';
 import { undoOps } from '../../../src/server/changes';
 import type { Shopware } from '../../../src/server/shopware';
-import { applyVariants, buildVariantsChangeSet, combinations, loadFamily, nextSuffix, variantSnapshot, type NewVariant, type VariantsPayload } from '../../../src/server/features/varianten-variants';
+import { applyVariants, buildVariantsChangeSet, combinations, loadFamily, nextSuffix, variantSnapshot, type NewVariant, type VariantsPayload } from '../../../src/server/features/variant-matrix';
 
 const hex = (n: number) => n.toString(16).padStart(32, '0');
 const PARENT = hex(1), FARBE = hex(10), SAND = hex(11), SALBEI = hex(12), GROESSE = hex(20), S = hex(21), M = hex(22);

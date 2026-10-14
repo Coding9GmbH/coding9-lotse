@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Shopware, ShopReader, SwEntity } from '../../../src/server/shopware';
 import type { Criteria } from '../../../src/server/policy';
 import type { ChangeItem } from '@/lib/protocol';
-import { buildPageTranslationChangeSet, buildTranslationChangeSet, fallbackChain, languageOverview, ownOf, planTranslationWrite, readPageTexts, readTranslations, resolveLang, resolveRaw, SYSTEM_LANGUAGE, type Lang, type SlotRaw, type TrRaw } from '../../../src/server/features/sprachen';
+import { buildPageTranslationChangeSet, buildTranslationChangeSet, fallbackChain, languageOverview, ownOf, planTranslationWrite, readPageTexts, readTranslations, resolveLang, resolveRaw, SYSTEM_LANGUAGE, type Lang, type SlotRaw, type TrRaw } from '../../../src/server/features/translations';
 
 const EN = SYSTEM_LANGUAGE, DE = 'de'.padEnd(32, '0'), FR = 'f'.padEnd(32, '0');
 const LANGS = [{ id: EN, name: 'English', locale: { code: 'en-GB' }, parentId: null }, { id: DE, name: 'Deutsch', locale: { code: 'de-DE' }, parentId: null }, { id: FR, name: 'Français', locale: { code: 'fr-FR' }, parentId: null }];

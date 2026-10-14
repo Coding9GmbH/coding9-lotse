@@ -292,8 +292,8 @@ export const GAP_FILTER = {
   alt: ALT_GAP, // Produkte ganz ohne Bild zählen nicht (Join liefert sonst alt = null)
 };
 
-export const bilder: Feature = {
-  key: 'bilder',
+export const productImages: Feature = {
+  key: 'product-images',
   platforms: ['shopware'],
   toolNames: ['get_product_images', 'find_image_gaps', 'propose_product_images', 'propose_alt_texts'],
   tools: session => {

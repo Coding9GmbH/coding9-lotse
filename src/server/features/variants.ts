@@ -7,8 +7,8 @@ import type { ChangeOutcome, Session } from '../sessions';
 import type { SwEntity } from '../shopware';
 import { ok, guard, type AnyTool } from '../tool-kit';
 import type { Feature } from './types';
-import { VARIANTS_KIND, applyVariants, buildVariantsChangeSet, loadFamily, variantsView, type VariantsPayload } from './varianten-variants';
-import { BULK_KIND, BULK_MAX, applyBulk, bulkChangeSet, describeChange, effective, resolveProducts, validateChange, type BulkChange, type BulkFilter, type BulkPayload } from './varianten-bulk';
+import { VARIANTS_KIND, applyVariants, buildVariantsChangeSet, loadFamily, variantsView, type VariantsPayload } from './variant-matrix';
+import { BULK_KIND, BULK_MAX, applyBulk, bulkChangeSet, describeChange, effective, resolveProducts, validateChange, type BulkChange, type BulkFilter, type BulkPayload } from './bulk-edit';
 
 registerApplier(VARIANTS_KIND, (swW, cs, payload, selected, ctx) => applyVariants(swW, cs, payload as VariantsPayload, selected, ctx));
 registerApplier(BULK_KIND, (swW, cs, payload, selected, ctx) => applyBulk(swW, cs, payload as BulkPayload, selected, ctx));
@@ -31,8 +31,8 @@ async function deliveryTimes(session: Session) {
   return (await session.sw.search('delivery-time', { limit: 100 })).data;
 }
 
-export const varianten: Feature = {
-  key: 'varianten',
+export const variants: Feature = {
+  key: 'variants',
   platforms: ['shopware'],
   toolNames: ['get_variants', 'list_variant_properties', 'propose_variants', 'preview_bulk_filter', 'propose_bulk_product_change'],
   tools: session => {

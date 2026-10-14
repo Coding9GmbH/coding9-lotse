@@ -6,7 +6,7 @@ import type { ShopReader, SwEntity } from '../../../src/server/shopware';
 import { runHealth } from '@/lib/shopcheck';
 import { perRun, runChecks } from '../../../src/server/shopcheck-run';
 import { SCAN_MAX, SCAN_PAGE, scanProducts } from '../../../src/server/features/shopcheck';
-import { SYSTEM_LANGUAGE } from '../../../src/server/features/sprachen';
+import { SYSTEM_LANGUAGE } from '../../../src/server/features/translations';
 
 /** Fake-Shop: total aktive Produkte, jedes 10. mit Preis 0 */
 function fakeShop(total: number) {

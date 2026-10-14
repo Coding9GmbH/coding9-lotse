@@ -2,36 +2,36 @@ import 'server-only';
 // Register aller Feature-Module. Jedes Modul registriert seine Applier (registerApplier) und Shop-Prüfungen (registerCheck) beim Import.
 // Feature.platforms wählt die Plattform: ['shopware'] (liest über session.sw) oder 'all' (Kern, nur session.lookup). Reihenfolge = Werkzeug-Reihenfolge.
 import type { Feature } from './types';
-import { bilder } from './bilder';
+import { productImages } from './product-images';
 import { seo } from './seo';
-import { stammdaten } from './stammdaten';
-import { hersteller } from './hersteller';
-import { sprachen } from './sprachen';
-import { varianten } from './varianten';
+import { productData } from './product-data';
+import { manufacturers } from './manufacturers';
+import { translations } from './translations';
+import { variants } from './variants';
 import { streams } from './streams';
-import { promotionen } from './promotionen';
+import { promotions } from './promotions';
 import { shopcheck } from './shopcheck';
-import { recht } from './recht';
+import { legal } from './legal';
 import { importFeature } from './import';
 import { gsc } from './gsc';
 import { sistrix } from './sistrix';
 import { siteCheck } from './site-audit';
-import { wissen } from './wissen';
+import { knowledgeBase } from './knowledge-base';
 
 export const FEATURES: Feature[] = [
-  bilder,
+  productImages,
   seo,
-  stammdaten,
-  hersteller,
-  sprachen,
-  varianten,
+  productData,
+  manufacturers,
+  translations,
+  variants,
   streams,
-  promotionen,
+  promotions,
   shopcheck,
-  recht,
+  legal,
   importFeature,
   gsc,
   sistrix,
   siteCheck,
-  wissen,
+  knowledgeBase,
 ];

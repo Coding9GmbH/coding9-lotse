@@ -3,9 +3,9 @@ import 'server-only';
 import type { ChangeItem, ChangeSet, UndoOp } from '@/lib/protocol';
 import { assertFresh, errMsg, partialTicker, pool, registerApplier, WRITE_CONCURRENCY, type ApplyCtx, type ApplyResult } from '../changes';
 import { newId, type Shopware, type SwEntity } from '../shopware';
-import { cleanPrices, KIND_STAMMDATEN, snapshot, type ItemRaw, type NewEntity } from './stammdaten-plan';
+import { cleanPrices, KIND_PRODUCT_DATA, snapshot, type ItemRaw, type NewEntity } from './product-data-plan';
 
-export interface StammdatenPayload { creates: NewEntity[] }
+export interface ProductDataPayload { creates: NewEntity[] }
 const CREATE_ORDER: NewEntity['entity'][] = ['property-group', 'property-group-option', 'product-manufacturer', 'tag'];
 export const APPLY_ASSOC = { properties: {}, categories: {}, tags: {}, visibilities: {}, prices: {}, crossSellings: { associations: { assignedProducts: {}, translations: {} } } };
 
@@ -123,7 +123,7 @@ export async function applyItem(swW: Shopware, cur: SwEntity, raw: ItemRaw, undo
   }
 }
 
-export async function applyProductData(swW: Shopware, cs: ChangeSet, payload: StammdatenPayload, selected: Set<string>, ctx?: ApplyCtx): Promise<ApplyResult> {
+export async function applyProductData(swW: Shopware, cs: ChangeSet, payload: ProductDataPayload, selected: Set<string>, ctx?: ApplyCtx): Promise<ApplyResult> {
   const items = cs.items.filter(i => selected.has(i.id) && i.entity !== 'info');
   const results: ApplyResult['results'] = [], undo: UndoOp[] = [], tick = partialTicker(ctx, items.length, { results, undo });
   // 1) Gemeinsame Neuanlagen (Eigenschaften, Hersteller, Tags), nur was ausgewählte Items brauchen
@@ -149,4 +149,4 @@ export async function applyProductData(swW: Shopware, cs: ChangeSet, payload: St
   return { results, undo };
 }
 
-registerApplier(KIND_STAMMDATEN, (swW, cs, payload, selected, ctx) => applyProductData(swW, cs, payload as StammdatenPayload, selected, ctx));
+registerApplier(KIND_PRODUCT_DATA, (swW, cs, payload, selected, ctx) => applyProductData(swW, cs, payload as ProductDataPayload, selected, ctx));

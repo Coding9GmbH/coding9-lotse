@@ -4,12 +4,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-stammdaten-'));
-const { productFilter, planProduct, NewRegistry, cleanPrices, KIND_STAMMDATEN, snapshot } = await import('../../../src/server/features/stammdaten-plan');
-const { buildProductDataChangeSet, stammdaten } = await import('../../../src/server/features/stammdaten');
-const { applyItem, applyProductData, neededCreates, crossRecreate } = await import('../../../src/server/features/stammdaten-apply');
-type Catalog = import('../../../src/server/features/stammdaten-plan').Catalog;
-type ItemRaw = import('../../../src/server/features/stammdaten-plan').ItemRaw;
+process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-product-data-'));
+const { productFilter, planProduct, NewRegistry, cleanPrices, KIND_PRODUCT_DATA, snapshot } = await import('../../../src/server/features/product-data-plan');
+const { buildProductDataChangeSet, productData } = await import('../../../src/server/features/product-data');
+const { applyItem, applyProductData, neededCreates, crossRecreate } = await import('../../../src/server/features/product-data-apply');
+type Catalog = import('../../../src/server/features/product-data-plan').Catalog;
+type ItemRaw = import('../../../src/server/features/product-data-plan').ItemRaw;
 type UndoOp = import('@/lib/protocol').UndoOp;
 type Reader = Parameters<typeof buildProductDataChangeSet>[0];
 type Writer = Parameters<typeof applyItem>[0];
@@ -167,7 +167,7 @@ test('Builder: productIds + Filter, doppelte Felder übersprungen, Neuanlagen nu
     { productIds: [H('a')], properties: { add: ['Farbe: Taupe'] }, tags: { add: ['Neu'] } },
     { filter: { productNumbers: ['B-1', 'V-1'] }, tags: { add: ['Neu'] } },
   ] }, seq());
-  assert.equal(cs.kind, KIND_STAMMDATEN); assert.deepEqual(cs.noun, { one: 'Produkt', many: 'Produkte' });
+  assert.equal(cs.kind, KIND_PRODUCT_DATA); assert.deepEqual(cs.noun, { one: 'Produkt', many: 'Produkte' });
   assert.deepEqual(cs.items.map(i => i.id), [`${H('a')}:properties`, `${H('a')}:tags`, `${H('b')}:tags`]);
   assert.match(cs.skipped[0].reason, /mehrfach angegeben/);
   assert.deepEqual(payload.creates.map(c => c.data.name), ['Taupe', 'Neu']);
@@ -240,7 +240,7 @@ test('applyItem: Cross-Selling ändern/löschen – Zuordnungen, Positionen, Wie
 
 test('Datenschutz: Stammdaten-Beziehungen erlaubt, Kunden-/Bestelldaten bleiben gesperrt', async () => {
   const { createGuard } = await import('../../../src/server/policy');
-  const { PRODUCT_ASSOC } = await import('../../../src/server/features/stammdaten');
+  const { PRODUCT_ASSOC } = await import('../../../src/server/features/product-data');
   const g = createGuard();
   assert.doesNotThrow(() => g.checkSearch('product', { associations: { ...PRODUCT_ASSOC, crossSellings: { associations: { assignedProducts: { associations: { product: {} } } } } } }));
   assert.doesNotThrow(() => g.checkSearch('property-group', { associations: { options: {} } }));
@@ -266,7 +266,7 @@ const pagedReader = (n: number) => {
   return ro;
 };
 const run = async (ro: ReturnType<typeof pagedReader>, name: string, args: Record<string, unknown>) => {
-  const t = stammdaten.tools({ sw: ro } as never).find(x => x.name === name)!;
+  const t = productData.tools({ sw: ro } as never).find(x => x.name === name)!;
   const r = await t.handler(args as never, {});
   return JSON.parse((r.content[0] as { text: string }).text);
 };

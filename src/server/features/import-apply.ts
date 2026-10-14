@@ -5,7 +5,7 @@ import { DEFAULT_CURRENCY, WRITE_CONCURRENCY, errMsg, pool, registerApplier, typ
 import { importFromUrl } from '../media';
 import { newId, type Shopware, type SwEntity } from '../shopware';
 import { singleton } from '../state';
-import { cleanPrices, planWrite } from './varianten-bulk';
+import { cleanPrices, planWrite } from './bulk-edit';
 import { IMPORT_KIND, isSelected, type CreatePlan, type ImageJob, type ImportPayload, type ImportPlan, type UpdatePlan, type VariantPlan } from './import-plan';
 
 export interface ImportReport {

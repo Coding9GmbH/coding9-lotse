@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { ShopLookup } from '../../../src/server/platform/types';
 
 process.env.AICB_DATA ??= fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-wissen-'));
-const { resolveLinks, wrapHits, neutral } = await import('../../../src/server/features/wissen');
+const { resolveLinks, wrapHits, neutral } = await import('../../../src/server/features/knowledge-base');
 
 /** Fake-Lookup: kennt p1/p2 (ids), HH-1 (Nummer) und Kategorie c1 */
 const lookup = {

@@ -61,7 +61,7 @@ const { reconfigureAll } = await import('../../src/server/platform');
 const { getSession, decideChange, undoChangeSet } = await import('../../src/server/sessions');
 const { kvGet } = await import('../../src/server/db');
 const { stagedFile } = await import('../../src/server/media');
-const { buildProductImagesChangeSet } = await import('../../src/server/features/bilder');
+const { buildProductImagesChangeSet } = await import('../../src/server/features/product-images');
 const { POST: upload } = await import('../../src/app/api/upload/route');
 await import('../../src/server/features'); // registriert den Executor für Produktbilder
 updateSettings({ platform: 'shopware', shopware: { url: base, user: 'admin', password: 'geheim' } });
