@@ -134,7 +134,8 @@ export interface AppConfig { admin: string; storefront: string; imageGen: boolea
 export interface CategoryRow { id: string; name: string; parentId: string | null; active: boolean; type: string; cmsPage: string | null }
 export interface ProductRow { id: string; name: string; number: string; img?: string; cmsPage: string | null }
 
-export type ScopeKey = 'products' | 'categories' | 'cms' | 'media' | 'shop' | 'marketing';
+/** Zugriffsbereiche der KI: Shop-Daten (Entitäten) und Integrationen (gsc, sistrix: nur Daten, keine Shop-Entitäten) */
+export type ScopeKey = 'products' | 'manufacturers' | 'categories' | 'cms' | 'media' | 'shop' | 'marketing' | 'gsc' | 'sistrix';
 export interface ScopeInfo { label: string; hint: string }
 
 /** Einstellungen, wie die Oberfläche sie sieht: Geheimnisse nur als „vorhanden ja/nein“. */

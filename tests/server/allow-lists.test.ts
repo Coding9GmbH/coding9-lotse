@@ -14,12 +14,16 @@ const entitiesOf = (scopes: { [k: string]: { entities: readonly string[] } }) =>
 const entriesOf = (roots: Record<string, string | null>) => Object.entries(roots).sort(([a], [b]) => a.localeCompare(b));
 
 const SHOPWARE_ENTITIES = {
-  products: ['product', 'product-manufacturer', 'product-media', 'tax', 'property-group', 'property-group-option', 'product-configurator-setting', 'product-visibility', 'product-cross-selling', 'product-cross-selling-assigned-products', 'product-stream', 'product-stream-filter', 'delivery-time', 'tag', 'unit'],
+  products: ['product', 'product-media', 'tax', 'property-group', 'property-group-option', 'product-configurator-setting', 'product-visibility', 'product-cross-selling', 'product-cross-selling-assigned-products', 'product-stream', 'product-stream-filter', 'delivery-time', 'tag', 'unit'],
+  // Hersteller haben einen eigenen Schalter; Integrationen (gsc, sistrix) sind reine Daten-Schalter ohne Shop-Entitäten
+  manufacturers: ['product-manufacturer'],
   categories: ['category'],
   cms: ['cms-page', 'cms-section', 'cms-block', 'cms-slot', 'landing-page', 'seo-url'],
   media: ['media', 'media-folder', 'media-default-folder'],
   marketing: ['promotion', 'promotion-discount', 'promotion-discount-prices', 'promotion-sales-channel', 'promotion-setgroup', 'promotion-individual-code', 'rule', 'rule-condition'],
   shop: ['sales-channel', 'sales-channel-domain', 'theme', 'language', 'locale', 'currency'],
+  gsc: [],
+  sistrix: [],
 };
 
 const SHOPWARE_GET_ALLOW = [/^\/_info\/version$/, /^\/_action\/theme\/[0-9a-f]{32}\/configuration$/];

@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
 // Barrierefreiheit (Rauchtest): nur kritische Verstöße lassen den Test scheitern, der Rest steht im Bericht
-for (const path of ['/', '/settings', '/wissen']) {
+for (const path of ['/', '/settings', '/settings/ki-zugriff', '/settings/integrationen', '/settings/protokolle', '/wissen']) {
   test(`axe: keine kritischen Verstöße auf ${path}`, async ({ page }, info) => {
     await page.goto(path);
     await expect(page.getByRole('heading').first()).toBeVisible();

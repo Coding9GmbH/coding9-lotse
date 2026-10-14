@@ -210,12 +210,15 @@ export const de = {
    */
   scopes: {
     base: {
-      products: { label: 'Produkte', hint: 'Name, Nr., Preise, Bestand, Texte, Bilder, Eigenschaften, Varianten, Hersteller, Steuersätze, Lieferzeiten, Tags, Cross-Selling, Produktstreams' },
+      products: { label: 'Produkte', hint: 'Name, Nr., Preise, Bestand, Texte, Bilder, Eigenschaften, Varianten, Steuersätze, Lieferzeiten, Tags, Cross-Selling, Produktstreams' },
+      manufacturers: { label: 'Hersteller', hint: 'Marken mit Name, Beschreibung, Webseite, Logo und Pflichtangaben (GPSR)' },
       categories: { label: 'Kategorien', hint: 'Struktur, Texte, SEO-Felder' },
       cms: { label: 'Einkaufswelten-Layouts', hint: 'Seiten, Sections, Blöcke, Slots, Landingpages, SEO-URLs' },
       media: { label: 'Medienbibliothek', hint: 'Dateinamen, URLs, Alt-Texte' },
       marketing: { label: 'Marketing', hint: 'Promotionen, Rabatte, Gutscheincodes (ohne Bestell- und Kundendaten)' },
       shop: { label: 'Shop-Grunddaten', hint: 'Verkaufskanäle & Domains, Sprachen, Währungen, Theme-Einstellungen (Farben, Schriften)' },
+      gsc: { label: 'Search Console', hint: 'Klicks, Impressionen, Klickrate und Position deiner Seiten (Google Search Console)' },
+      sistrix: { label: 'Sistrix', hint: 'Sichtbarkeitsindex, Wettbewerber, Keyword-Potenzial und OnPage-Crawl (Sistrix)' },
     },
     shopify: {
       cms: { label: 'Seiten', hint: 'Seiten, Kollektionen und Produktvorlagen' },
@@ -429,12 +432,15 @@ export const en: typeof de = {
   },
   scopes: {
     base: {
-      products: { label: 'Products', hint: 'Name, no., prices, stock, copy, images, properties, variants, manufacturers, tax rates, delivery times, tags, cross-selling, product streams' },
+      products: { label: 'Products', hint: 'Name, no., prices, stock, copy, images, properties, variants, tax rates, delivery times, tags, cross-selling, product streams' },
+      manufacturers: { label: 'Manufacturers', hint: 'Brands with name, description, website, logo and mandatory details (GPSR)' },
       categories: { label: 'Categories', hint: 'Structure, copy, SEO fields' },
       cms: { label: 'Shopping Experience layouts', hint: 'Pages, sections, blocks, slots, landing pages, SEO URLs' },
       media: { label: 'Media library', hint: 'File names, URLs, alt texts' },
       marketing: { label: 'Marketing', hint: 'Promotions, discounts, voucher codes (no order or customer data)' },
       shop: { label: 'Shop basics', hint: 'Sales channels & domains, languages, currencies, theme settings (colors, fonts)' },
+      gsc: { label: 'Search Console', hint: 'Clicks, impressions, click-through rate and position of your pages (Google Search Console)' },
+      sistrix: { label: 'Sistrix', hint: 'Visibility index, competitors, keyword potential and OnPage crawl (Sistrix)' },
     },
     shopify: {
       cms: { label: 'Pages', hint: 'Pages, collections and product templates' },

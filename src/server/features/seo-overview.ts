@@ -8,6 +8,7 @@ import { getGscConfig, searchAnalyticsCached } from './gsc-google';
 import { findOpportunities } from './gsc';
 import { addressParam, getSistrixConfig, rowsOf, sistrixCached, type Row } from './sistrix-api';
 import { pickProject } from './sistrix';
+import { getSettings } from '../settings';
 
 const HOURS6 = 6 * 60 * 60_000;
 const KIND_LABEL: Record<string, string> = { product: 'Produkt', category: 'Kategorie', landing: 'Landingpage', home: 'Startseite' };
@@ -84,7 +85,8 @@ async function sistrixItems(lookup: ShopLookup): Promise<SeoItem[]> {
 
 /** Alle Hebel, je Quelle nach Wirkung sortiert; ein Ausfall einer Quelle blockiert die andere nicht */
 export async function seoOverview(lookup: ShopLookup): Promise<SeoOverview> {
-  const gsc = !!getGscConfig(), sistrix = !!getSistrixConfig()?.domain;
+  const sc = getSettings().scopes; // KI-Zugriff aus = Lotse zeigt und sendet nichts aus dieser Quelle
+  const gsc = !!getGscConfig() && sc.gsc !== false, sistrix = !!getSistrixConfig()?.domain && sc.sistrix !== false;
   const errors: SeoOverview['errors'] = [];
   const [g, s] = await Promise.all([
     gsc ? gscItems(lookup).catch(e => { errors.push({ source: 'gsc', error: e instanceof Error ? e.message : String(e) }); return [] as SeoItem[]; }) : [],

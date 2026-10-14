@@ -3,6 +3,12 @@
 
 export const de = {
   title: 'Einstellungen',
+  sections: {
+    general: { nav: 'Allgemein', title: 'Allgemein', lead: 'Sprache, Shop und KI verbinden, Bild-KI.' },
+    access: { nav: 'KI-Zugriff', title: 'KI-Zugriff', lead: 'Lege fest, was die KI lesen darf: Bereiche deines Shops (inklusive Hersteller) und die Daten verbundener Integrationen. Geschrieben wird nur nach deiner Freigabe.' },
+    integrations: { nav: 'Integrationen', title: 'Integrationen', lead: 'Search Console und Sistrix liefern echte Such- und Marktdaten für SEO-Vorschläge, Shop-Check und die SEO-Übersicht.' },
+    logs: { nav: 'Protokolle', title: 'Protokolle', lead: 'Was die KI im Shop gelesen hat und welche Änderungen freigegeben, abgelehnt oder rückgängig gemacht wurden.' },
+  },
   lead: 'Änderungen werden automatisch gespeichert. Zugangsdaten werden verschlüsselt lokal gespeichert und nie an die KI weitergegeben. Gespeicherte Schlüssel werden hier nicht angezeigt.',
   loadFailed: (e: string) => `Einstellungen konnten nicht geladen werden: ${e}`,
   loading: 'Lade …',
@@ -78,6 +84,11 @@ export const de = {
     heading: 'KI-Zugriff',
     hint: 'Welche Bereiche des Shops darf die KI **lesen**? Geschrieben wird ohnehin nur nach deiner Freigabe.',
     locked: '🔒 Kunden-, Bestell- und Zahlungsdaten sowie Zugangsdaten sind immer gesperrt, unabhängig von diesen Schaltern.',
+    integrationsHeading: 'Integrationen',
+    integrationsHint: 'Darf die KI die Daten verbundener Dienste **lesen**? Ist ein Schalter aus, verschwinden die zugehörigen Werkzeuge, Prüfungen, Beispiele und der Bereich in der SEO-Übersicht.',
+  },
+  integrations: {
+    hint: 'Externe Dienste, aus denen Lotse echte Such- und Marktdaten bezieht. Beide sind optional und nur lesend. Ob die KI die Daten nutzen darf, steuerst du unter KI-Zugriff.',
   },
   secret: {
     saved: 'gespeichert',
@@ -159,6 +170,12 @@ export const de = {
 
 export const en: typeof de = {
   title: 'Settings',
+  sections: {
+    general: { nav: 'General', title: 'General', lead: 'Language, connect shop and AI, image AI.' },
+    access: { nav: 'AI access', title: 'AI access', lead: 'Decide what the AI may read: areas of your shop (including manufacturers) and the data of connected integrations. Writing only happens after your approval.' },
+    integrations: { nav: 'Integrations', title: 'Integrations', lead: 'Search Console and Sistrix provide real search and market data for SEO suggestions, the shop check and the SEO overview.' },
+    logs: { nav: 'Logs', title: 'Logs', lead: 'What the AI read in the shop and which changes were approved, rejected or undone.' },
+  },
   lead: 'Changes are saved automatically. Credentials are stored encrypted on this machine and never passed to the AI. Saved keys are not shown here.',
   loadFailed: (e: string) => `Settings could not be loaded: ${e}`,
   loading: 'Loading…',
@@ -234,6 +251,11 @@ export const en: typeof de = {
     heading: 'AI access',
     hint: 'Which areas of the shop may the AI **read**? Writing only ever happens after your approval.',
     locked: '🔒 Customer, order and payment data as well as credentials are always locked, regardless of these switches.',
+    integrationsHeading: 'Integrations',
+    integrationsHint: 'May the AI **read** the data of connected services? When a switch is off, the related tools, checks, examples and the area in the SEO overview disappear.',
+  },
+  integrations: {
+    hint: 'External services Lotse uses for real search and market data. Both are optional and read-only. Whether the AI may use the data is controlled under AI access.',
   },
   secret: {
     saved: 'saved',

@@ -8,13 +8,15 @@ import type { CheckFinding } from '@/lib/protocol';
 import { registerCheck } from '../checks';
 import type { ShopLookup } from '../platform/types';
 import { getPlatform } from '../platform';
+import { getSettings } from '../settings';
 import { ok, guard, type AnyTool } from '../tool-kit';
 import type { Feature } from './types';
 import { propose, refView } from './gsc';
 import { addressParam, getSistrixConfig, normDomain, rowsOf, sistrixCached, type Row, type SistrixConfig } from './sistrix-api';
 
-const NOT_CONNECTED = 'Sistrix ist nicht verbunden. Der Nutzer kann es unter Einstellungen → Sistrix einrichten (API-Schlüssel + Domain des Shops).';
-const need = (): SistrixConfig => { const c = getSistrixConfig(); if (!c) throw new Error(NOT_CONNECTED); return c; };
+const NOT_CONNECTED = 'Sistrix ist nicht verbunden. Der Nutzer kann es unter Einstellungen → Integrationen → Sistrix einrichten (API-Schlüssel + Domain des Shops).';
+const BLOCKED = 'Der Zugriff der KI auf Sistrix ist ausgeschaltet. Der Nutzer kann ihn unter Einstellungen → KI-Zugriff aktivieren.';
+const need = (): SistrixConfig => { if (getSettings().scopes.sistrix === false) throw new Error(BLOCKED); const c = getSistrixConfig(); if (!c) throw new Error(NOT_CONNECTED); return c; };
 const CREDIT_NOTE = 'Sistrix rechnet pro gelieferter Zeile in Credits ab; Anfragen sind gedeckelt und werden 10 Minuten zwischengespeichert.';
 const clamp = (n: number | undefined, def: number, max: number) => Math.min(Math.max(Math.round(n ?? def), 1), max);
 
@@ -73,7 +75,7 @@ export async function visibilityOverview(cfg: SistrixConfig, weeks = 8) {
 
 // ---- Shop-Check (nur, wenn verbunden) ----
 const DROP_PCT = 10, DROP_HIGH_PCT = 25, DROP_WEEKS = 5;
-registerCheck({ id: 'sistrix.visibility-drop', area: 'Sistrix', platforms: 'all', run: async () => {
+registerCheck({ id: 'sistrix.visibility-drop', area: 'Sistrix', scopes: ['sistrix'], platforms: 'all', run: async () => {
   const cfg = getSistrixConfig(); if (!cfg?.domain) return null;
   const r = await sistrixCached(cfg, 'domain.visibilityindex', { ...addressParam(cfg.domain), history: true, limit: DROP_WEEKS });
   const s = visibilitySeries(rowsOf(r.answer, 'sichtbarkeitsindex', 'visibilityindex'));
@@ -92,7 +94,7 @@ registerCheck({ id: 'sistrix.visibility-drop', area: 'Sistrix', platforms: 'all'
     fixPrompt: 'Zeige mir die Sichtbarkeits-Entwicklung aus Sistrix und finde mögliche Ursachen (Konkurrenz, OnPage-Fehler, Chancen).' };
   return f;
 } });
-registerCheck({ id: 'sistrix.onpage-errors', area: 'Sistrix', platforms: 'all', run: async () => {
+registerCheck({ id: 'sistrix.onpage-errors', area: 'Sistrix', scopes: ['sistrix'], platforms: 'all', run: async () => {
   const cfg = getSistrixConfig(); if (!cfg?.domain) return null;
   const p = await findProject(cfg);
   if (!p || 'choose' in p) return null;
