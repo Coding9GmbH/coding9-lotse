@@ -289,7 +289,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       openContext: () => setContextOpen(true),
       openStyleguide: () => { if (sg) setSgOpen(true); else if (sgLoaded && !busy) onboard(); },
       openRules: () => setSgOpen(true),
-      prefill: text => { setInput(text); inputRef.current?.focus(); },
+      prefill: (text, fix) => { pendingFix.current = fix ? { ...fix, prompt: text } : null; setInput(text); inputRef.current?.focus(); },
     };
   });
   useEffect(() => {
@@ -300,7 +300,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       openContext: () => handlers.current?.openContext(),
       openStyleguide: () => handlers.current?.openStyleguide(),
       openRules: () => handlers.current?.openRules(),
-      prefill: text => handlers.current?.prefill(text),
+      prefill: (text, fix) => handlers.current?.prefill(text, fix),
     });
     return () => shell.registerWorkspace(null);
   }, [shell.registerWorkspace]); // eslint-disable-line react-hooks/exhaustive-deps -- nur bei Mount/Unmount
@@ -316,7 +316,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     else if (intent.type === 'open') h.openChat(intent.id);
     else if (intent.type === 'context') h.openContext();
     else if (intent.type === 'rules') h.openRules();
-    else if (intent.type === 'prompt') { h.newChat(); h.prefill(intent.text); }
+    else if (intent.type === 'prompt') { h.newChat(); h.prefill(intent.text, intent.fix); }
     else h.openStyleguide();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- einmalig beim Start
 
@@ -339,7 +339,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     if (e.type === 'drop') void attachments.addFiles(Array.from(e.dataTransfer.files));
   };
 
-  const fixFinding = (f: CheckFinding) => { pendingFix.current = { id: f.id, title: f.title, prompt: f.fixPrompt }; setInput(f.fixPrompt); inputRef.current?.focus(); };
+  const fixTask = (f: { id: string; title: string; prompt: string }) => { pendingFix.current = f; setInput(f.prompt); inputRef.current?.focus(); };
+  const fixFinding = (f: CheckFinding) => fixTask({ id: f.id, title: f.title, prompt: f.fixPrompt });
   const fixLink = !home ? fixForChat(fixes, chatId) : null;
   const placeholder = locked ? t.lockedPlaceholder : question ? t.answerPlaceholder : target ? placeholderFor(target.kind, target.name, locale) : defaultPlaceholder(locale);
   const chips = !busy && target ? suggestions(target.kind, locale) : [];
@@ -368,7 +369,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
               {status}
               <ChatLog className={styles.homeLog} items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)}>
                 <HomeContent health={homeHealth} loadFailed={shell.healthFailed} hasStyleguide={sgLoaded ? !!sg : null} product={exampleProduct ?? t.exampleProduct} category={exampleCategory}
-                  recent={chats ?? []} onExample={t => { setInput(t); inputRef.current?.focus(); }} onFix={fixFinding} fixes={fixes} onOpenChat={id => void openChat(id)} onOnboard={onboard} />
+                  recent={chats ?? []} onExample={t => { setInput(t); inputRef.current?.focus(); }} onFix={fixFinding} onTask={fixTask} fixes={fixes} onOpenChat={id => void openChat(id)} onOnboard={onboard} />
               </ChatLog>
             </>
           ) : (

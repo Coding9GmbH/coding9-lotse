@@ -11,11 +11,11 @@ const DEFAULT_API = 'https://api.sistrix.com';
 const TIMEOUT_MS = 30_000;
 export const apiBase = () => (process.env.LOTSE_SISTRIX_API_BASE || DEFAULT_API).replace(/\/+$/, '');
 
-interface StoredSistrix { key?: string; domain?: string; country?: string; updatedAt?: string }
+interface StoredSistrix { key?: string; domain?: string; country?: string; /** Optimizer-Projekt (Hash), leer = automatisch zur Domain */ project?: string; updatedAt?: string }
 const KV = 'sistrix';
 const stored = () => kvGet<StoredSistrix>(KV) ?? {};
 
-export interface SistrixConfig { key: string; domain: string; country: string }
+export interface SistrixConfig { key: string; domain: string; country: string; project?: string }
 
 /** API-Schlüssel grob prüfen (Länge/Zeichen), Format ist von Sistrix nicht zugesichert. */
 export function normKey(k: string): string {
@@ -56,22 +56,24 @@ export function addressParam(target: string): Record<string, string> {
 
 export function getSistrixConfig(): SistrixConfig | null {
   const s = stored(), key = unseal(s.key);
-  return key ? { key, domain: (s.domain ?? '').replace(/^([^/]+)\/+$/, '$1'), country: s.country ?? '' } : null; // „shop.de/“ aus älteren Eingaben ist der Host
+  return key ? { key, domain: (s.domain ?? '').replace(/^([^/]+)\/+$/, '$1'), country: s.country ?? '', ...(s.project ? { project: s.project } : {}) } : null; // „shop.de/“ aus älteren Eingaben ist der Host
 }
 export const sistrixConnected = () => !!getSistrixConfig();
 
 export function sistrixPublic(): SistrixPublic {
   const s = stored();
-  return { hasKey: !!s.key, domain: s.domain ?? '', country: s.country ?? '', connected: !!(s.key && s.domain), updatedAt: s.updatedAt ?? null };
+  return { hasKey: !!s.key, domain: s.domain ?? '', country: s.country ?? '', project: s.project ?? '', connected: !!(s.key && s.domain), updatedAt: s.updatedAt ?? null };
 }
 
 /** Speichern: key leer/undefined = unverändert, null = Verbindung trennen. */
-export function saveSistrix(p: { key?: string | null; domain?: string; country?: string }) {
+export function saveSistrix(p: { key?: string | null; domain?: string; country?: string; project?: string }) {
   if (p.key === null) { kvSet(KV, {}); clearSistrixCache(); return; }
   const out: StoredSistrix = { ...stored() };
   if (p.key) out.key = seal(normKey(p.key)) ?? undefined;
   if (p.domain !== undefined) out.domain = normDomain(p.domain);
   if (p.country !== undefined) out.country = normCountry(p.country);
+  if (p.domain !== undefined && out.domain !== stored().domain) delete out.project; // andere Domain: Projekt neu zuordnen
+  if (p.project !== undefined) { const h = p.project.trim(); if (h && !/^[A-Za-z0-9._-]{1,100}$/.test(h)) throw new Error('Ungültiges Optimizer-Projekt.'); if (h) out.project = h; else delete out.project; }
   out.updatedAt = new Date().toISOString();
   kvSet(KV, out); clearSistrixCache();
 }

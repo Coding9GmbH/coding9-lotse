@@ -53,7 +53,7 @@ test('Speichern: verschlüsselt, nach außen nur „vorhanden“, Trennen leert 
   assert.equal(A.sistrixPublic().connected, false);
   A.saveSistrix({ key: KEY, domain: 'Shop.de', country: 'DE' });
   const pub = A.sistrixPublic();
-  assert.deepEqual({ ...pub, updatedAt: null }, { hasKey: true, domain: 'shop.de', country: 'de', connected: true, updatedAt: null });
+  assert.deepEqual({ ...pub, updatedAt: null }, { hasKey: true, domain: 'shop.de', country: 'de', project: '', connected: true, updatedAt: null });
   assert.ok(!JSON.stringify(pub).includes(KEY));
   const raw = JSON.stringify(kvGet('sistrix'));
   assert.ok(!raw.includes(KEY) && raw.includes('enc:v1:'));
@@ -130,19 +130,23 @@ test('OnPage: Projekt zur Domain, Zusammenfassung, dann URLs einer Fehlerart', a
   fake.data['project.overview'] = [{ hash: 'h-other', name: 'andere.de' }, { hash: 'h-shop', name: 'www.shop.de' }];
   fake.data['project.onpage.crawl'] = [{ type: 'error', name: 'http_404', count: '7' }, { type: 'warning', name: 'title_too_long', count: '40' }];
   fake.data['project.onpage.overview'] = [{ time: '2026-09-01', pages: '900', error: '7', warnings: '40', notice: '3' }, { time: '2026-10-01', pages: '910', error: '7', warnings: '40', notice: '2' }];
-  fake.data['project.onpage.issue'] = [{ url: PAGE, status_code: '404', link_from: 'https://www.shop.de/' }];
+  fake.data['project.onpage.issue'] = [{ url: PAGE, status_code: '404', link_from: ['https://www.shop.de/'] }];
   const s = await run('sistrix_onpage');
   assert.equal(s.json.project, 'www.shop.de'); assert.equal(s.json.lastCrawl.time, '2026-10-01');
   assert.equal(s.json.issues[0].name, 'title_too_long', 'nach Anzahl sortiert');
   const i = await run('sistrix_onpage', { issue: 'http_404' });
   assert.equal(calls('project.onpage.issue').at(-1)!.params.project, 'h-shop');
-  assert.equal(i.json.items[0].shop.id, 'p1');
+  assert.equal(i.json.items[0].shop.id, 'p1', 'verschachtelte Antwort: URLs kommen an');
+  assert.equal(i.json.items[0].status_code, 404);
   const unk = await run('sistrix_onpage', { issue: 'gibt_es_nicht' });
   assert.match(unk.json.message, /Unbekannte Fehlerart.*http_404/);
   A.clearSistrixCache(); // Daten ändern sich: sonst kommt die Projektliste aus dem Cache
   fake.data['project.overview'] = [{ hash: 'h1', name: 'a.de' }, { hash: 'h2', name: 'b.de' }];
   const many = await run('sistrix_onpage');
   assert.match(many.json.message, /Mehrere Projekte/);
+  A.saveSistrix({ project: 'h2' }); // im SEO-Bereich gewählt: gilt ohne Angabe für alle Werkzeuge und den Shop-Check
+  assert.equal((await run('sistrix_onpage')).json.project, 'b.de');
+  A.saveSistrix({ project: '' });
   A.clearSistrixCache();
   fake.data['project.overview'] = [];
   assert.match((await run('sistrix_onpage', { project: 'x' })).json.message, /kein Optimizer-Projekt/);

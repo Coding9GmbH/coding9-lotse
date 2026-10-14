@@ -1,14 +1,16 @@
 import 'server-only';
 // SEO-Übersicht („SEO“ in der Navigation): bündelt die besten Hebel aus Search Console (Chancen, Inhaltslücken) und Sistrix (Chancen, OnPage)
 // zu fertigen Aufträgen, die der Nutzer mit einem Klick in einen neuen Chat legt. Nur lesen; geschrieben wird erst nach Freigabe im Chat.
-import type { SeoItem, SeoOverview } from '@/lib/protocol';
+import { SEO_DONE_RECHECK_DAYS, type SeoItem, type SeoMark, type SeoOnpage, type SeoOverview } from '@/lib/protocol';
 import type { ShopLookup } from '../platform/types';
 import { BASE_DAYS, contentGaps, MIN_IMPRESSIONS, pct, range, round } from './gsc-logic';
-import { getGscConfig, searchAnalyticsCached } from './gsc-google';
+import { clearGscCache, getGscConfig, searchAnalyticsCached } from './gsc-google';
 import { findOpportunities } from './gsc';
-import { addressParam, getSistrixConfig, rowsOf, sistrixCached, type Row } from './sistrix-api';
+import { addressParam, clearSistrixCache, getSistrixConfig, rowsOf, sistrixCached, type Row, type SistrixConfig } from './sistrix-api';
 import { pickProject } from './sistrix';
 import { getSettings } from '../settings';
+import { kvGet, kvSet } from '../db';
+import { singleton } from '../state';
 
 const HOURS6 = 6 * 60 * 60_000;
 const KIND_LABEL: Record<string, string> = { product: 'Produkt', category: 'Kategorie', landing: 'Landingpage', home: 'Startseite' };
@@ -48,10 +50,10 @@ async function gscItems(lookup: ShopLookup): Promise<SeoItem[]> {
 const kwOf = (r: Row, domain: string): string => { for (const k of ['kw', 'keyword', 'term']) if (typeof r[k] === 'string') return r[k] as string; const d = r.domain; return typeof d === 'string' && d !== domain ? d : ''; };
 const urlOf = (r: Row): string | null => { for (const k of ['url', 'address', 'page']) { const v = r[k]; if (typeof v === 'string' && /^https?:\/\//i.test(v)) return v; } return null; };
 
-async function sistrixItems(lookup: ShopLookup): Promise<SeoItem[]> {
-  const cfg = getSistrixConfig(); if (!cfg?.domain) return [];
+async function sistrixItems(lookup: ShopLookup, ttl: number): Promise<{ items: SeoItem[]; onpage: SeoOnpage }> {
+  const cfg = getSistrixConfig(); if (!cfg?.domain) return { items: [], onpage: { status: 'none' } };
   const out: SeoItem[] = [];
-  const opp = rowsOf((await sistrixCached(cfg, 'domain.opportunities', { ...addressParam(cfg.domain), limit: 10 }, HOURS6)).answer, 'opportunity', 'opportunities');
+  const opp = rowsOf((await sistrixCached(cfg, 'domain.opportunities', { ...addressParam(cfg.domain), limit: 10 }, ttl)).answer, 'opportunity', 'opportunities');
   const urls = [...new Set(opp.map(urlOf).filter((u): u is string => !!u))];
   const map = urls.length ? await lookup.mapUrls(urls, { metas: true }).catch(() => null) : null;
   for (const r of opp) {
@@ -66,32 +68,114 @@ async function sistrixItems(lookup: ShopLookup): Promise<SeoItem[]> {
       prompt: `Sistrix sieht für das Keyword „${kw}“ Potenzial auf ${KIND_LABEL[ref.kind]} „${ref.name}“ (ID ${ref.id})${pos !== null ? `, aktuell Position ${num(pos)}` : ''}${gain !== null ? `, Gewinn ${num(gain)} von 100` : ''}. Lies die Seite mit ${TOOL_FOR[ref.kind] ?? 'dem passenden Lesewerkzeug'}, prüfe, ob das Keyword in Titel, Überschrift, Text und Metas vorkommt, und schlage gezielte Verbesserungen als Änderungsset vor (${META_RULES}). Nichts erfinden, nur belegte Fakten.`,
     });
   }
-  // OnPage-Crawl des Optimizers (nur wenn es ein Projekt zur Domain gibt)
-  const pr = pickProject(rowsOf((await sistrixCached(cfg, 'project.overview', {}, HOURS6)).answer, 'project', 'projects'), cfg.domain);
-  if (pr && !('choose' in pr)) {
-    const crawl = rowsOf((await sistrixCached(cfg, 'project.onpage.crawl', { project: pr.hash }, HOURS6)).answer, 'issue', 'issues', 'crawl');
-    for (const c of crawl.filter(x => typeof x.count === 'number' && x.count > 0).sort((a, b) => (String(a.type) === 'error' ? 0 : 1) - (String(b.type) === 'error' ? 0 : 1) || (Number(b.count) || 0) - (Number(a.count) || 0)).slice(0, 5)) {
-      const name = String(c.name ?? ''); if (!name) continue;
-      out.push({
-        id: `sistrix:onpage:${name}`, source: 'sistrix', kind: 'onpage', impact: (String(c.type) === 'error' ? 10_000 : 0) + (Number(c.count) || 0), // Fehler vor Warnungen
-        title: `OnPage: ${name}`, detail: `${String(c.type) === 'error' ? 'Fehler' : 'Warnung'} im letzten Sistrix-Crawl`,
-        metrics: [{ label: 'Fundstellen', value: String(c.count) }],
-        prompt: `Der Sistrix-OnPage-Crawl meldet „${name}“ (${String(c.type) === 'error' ? 'Fehler' : 'Warnung'}, ${c.count} Fundstellen). Rufe sistrix_onpage mit issue="${name}" auf, ordne die URLs dem Shop zu und behebe, was über Texte lösbar ist (Meta-Daten, Überschriften, Alt-Texte), als Änderungsset. Technische Ursachen (Server, Weiterleitungen, Canonical) nur benennen, nicht behaupten, sie zu beheben.`,
-      });
-    }
+  const on = await onpageItems(cfg, ttl);
+  return { items: [...out, ...on.items], onpage: on.onpage };
+}
+
+const nOrNull = (v: unknown) => (typeof v === 'number' ? v : null);
+
+/** Technische Probleme aus dem OnPage-Crawl des Sistrix-Optimizers. Ohne eindeutiges Projekt sagt der Status, warum nichts kommt. */
+async function onpageItems(cfg: SistrixConfig, ttl: number): Promise<{ items: SeoItem[]; onpage: SeoOnpage }> {
+  const all = rowsOf((await sistrixCached(cfg, 'project.overview', {}, ttl)).answer, 'project', 'projects')
+    .map(p => ({ hash: String(p.hash ?? ''), name: String(p.name ?? p.domain ?? '') })).filter(p => p.hash);
+  const pr = pickProject(all.map(p => ({ ...p })), cfg.domain, cfg.project);
+  if (!pr) return { items: [], onpage: { status: 'none' } };
+  if ('choose' in pr) return { items: [], onpage: { status: 'choose', projects: all } };
+  const projects = all.length > 1 ? all : undefined;
+  // Übersicht und Crawl kosten keine Credits
+  const crawls = rowsOf((await sistrixCached(cfg, 'project.onpage.overview', { project: pr.hash }, ttl)).answer, 'crawl', 'crawls')
+    .sort((a, b) => String(b.time ?? b.date ?? '').localeCompare(String(a.time ?? a.date ?? '')));
+  const lc = crawls[0];
+  const lastCrawl = lc ? { date: String(lc.time ?? lc.date ?? ''), pages: nOrNull(lc.pages), errors: nOrNull(lc.error ?? lc.errors), warnings: nOrNull(lc.warnings ?? lc.warning), notices: nOrNull(lc.notice ?? lc.notices) } : null;
+  const crawl = rowsOf((await sistrixCached(cfg, 'project.onpage.crawl', { project: pr.hash }, ttl)).answer, 'issue', 'issues', 'crawl');
+  if (!crawl.length) return { items: [], onpage: { status: 'empty', project: pr, projects, lastCrawl } };
+  const typeOf = (c: Row) => String(c.type ?? '').toLowerCase();
+  const rank = (c: Row) => (typeOf(c) === 'error' ? 0 : typeOf(c) === 'warning' ? 1 : 2);
+  const items: SeoItem[] = [];
+  for (const c of crawl.filter(x => typeof x.count === 'number' && x.count > 0 && rank(x) < 2).sort((a, b) => rank(a) - rank(b) || (Number(b.count) || 0) - (Number(a.count) || 0)).slice(0, 15)) {
+    const name = String(c.name ?? ''); if (!name) continue;
+    const err = rank(c) === 0, label = err ? 'Fehler' : 'Warnung';
+    items.push({
+      id: `sistrix:onpage:${name}`, source: 'sistrix', kind: 'onpage', impact: (err ? 10_000 : 0) + (Number(c.count) || 0), // Fehler vor Warnungen
+      title: `${label}: ${name}`, detail: '', // Crawl-Datum und Projekt stehen einmal im Kopf der Gruppe
+      metrics: [{ label: 'Fundstellen', value: String(c.count) }],
+      prompt: `Der Sistrix-OnPage-Crawl meldet „${name}“ (${label}, ${c.count} Fundstellen). Rufe sistrix_onpage mit issue="${name}"${all.length > 1 ? ` und project="${pr.hash}"` : ''} auf, ordne die URLs dem Shop zu und behebe, was über Texte lösbar ist (Meta-Daten, Überschriften, Alt-Texte), als Änderungsset. Technische Ursachen (Server, Weiterleitungen, Canonical) nur benennen, nicht behaupten, sie zu beheben.`,
+    });
+  }
+  return { items, onpage: { status: 'ok', project: pr, projects, lastCrawl } };
+}
+
+// ---- Zwischenspeicher und Markierungen ----
+// Das Ergebnis liegt dauerhaft in der DB: Aufrufe des SEO-Bereichs kosten keine Credits. Neu geholt wird per „Aktualisieren“,
+// nach einem Tag oder wenn sich die Anbindung ändert. Markierungen (erledigt/ignoriert) überleben das Neuholen.
+const STORE = 'seo-overview', MARKS = 'seo-marks', MAX_AGE = 24 * 60 * 60_000, DAY = 24 * 60 * 60_000;
+interface Stored { fp: string; overview: SeoOverview }
+type Marks = Record<string, SeoMark>;
+const getMarks = (): Marks => kvGet<Marks>(MARKS) ?? {};
+
+/** Anbindung, Domain, Projekt und KI-Zugriff: ändert sich etwas davon, passt der gespeicherte Stand nicht mehr */
+function fingerprint(): string {
+  const g = getGscConfig(), x = getSistrixConfig(), sc = getSettings().scopes;
+  return JSON.stringify([g?.property ?? null, g?.key.client_email ?? null, x?.domain ?? null, x?.country ?? null, x?.project ?? null, sc.gsc !== false, sc.sistrix !== false]);
+}
+
+const withMarks = (o: SeoOverview, m: Marks): SeoOverview => ({ ...o, items: o.items.map(i => ({ ...i, mark: m[i.id] })) });
+
+/** Nach frischem Abholen: was nicht mehr gemeldet wird, ist erledigt (Markierung fällt weg); „Erledigt“, das nach einer Woche noch gemeldet wird, kommt zurück */
+export function reconcileMarks(o: SeoOverview, marks: Marks, now = Date.now()): Marks {
+  const failed = new Set(o.errors.map(e => e.source)), present = new Map(o.items.map(i => [i.id, i]));
+  const out: Marks = {};
+  for (const [id, m] of Object.entries(marks)) {
+    const src = id.split(':')[0] as 'gsc' | 'sistrix', item = present.get(id);
+    if (!item) { if (failed.has(src) || !o[src]) out[id] = m; continue; } // Quelle fehlte: Markierung behalten
+    if (m.state === 'done' && now - Date.parse(m.at) >= SEO_DONE_RECHECK_DAYS * DAY) continue;
+    out[id] = m;
   }
   return out;
 }
 
+/** Erledigt/ignoriert setzen oder (null) aufheben */
+export function setSeoMark(id: string, state: SeoMark['state'] | null): SeoMark | null {
+  const m = getMarks();
+  if (state) m[id] = { state, at: new Date().toISOString() }; else delete m[id];
+  kvSet(MARKS, m);
+  return m[id] ?? null;
+}
+
+/** Nur gespeicherter, noch passender Stand (Arbeitsfläche): holt nie neu und kostet daher keine Credits */
+export function seoOverviewStored(): SeoOverview | null {
+  const st = kvGet<Stored>(STORE);
+  return st?.fp === fingerprint() ? { ...withMarks(st.overview, getMarks()), cached: true } : null;
+}
+
+/** Gespeicherten Stand liefern oder neu holen (refresh = an allen Zwischenspeichern vorbei). Gleichzeitige Abrufe teilen sich eine Abholung. */
+export async function seoOverviewCached(lookup: ShopLookup, refresh = false): Promise<SeoOverview> {
+  const fp = fingerprint(), st = kvGet<Stored>(STORE);
+  if (!refresh && st?.fp === fp && Date.now() - Date.parse(st.overview.generatedAt) < MAX_AGE) return { ...withMarks(st.overview, getMarks()), cached: true };
+  const inflight = singleton('seo-inflight', () => ({ p: null as Promise<SeoOverview> | null }));
+  inflight.p ??= (async () => {
+    try {
+      if (refresh) { clearSistrixCache(); clearGscCache(); }
+      const o = await seoOverview(lookup, refresh);
+      if (!o.errors.length) kvSet(STORE, { fp, overview: o } satisfies Stored); // mit Fehlern nicht speichern: der nächste Aufruf versucht es erneut
+      const m = reconcileMarks(o, getMarks()); kvSet(MARKS, m);
+      return withMarks(o, m);
+    } finally { inflight.p = null; }
+  })();
+  return inflight.p;
+}
+
 /** Alle Hebel, je Quelle nach Wirkung sortiert; ein Ausfall einer Quelle blockiert die andere nicht */
-export async function seoOverview(lookup: ShopLookup): Promise<SeoOverview> {
+export async function seoOverview(lookup: ShopLookup, fresh = false): Promise<SeoOverview> {
   const sc = getSettings().scopes; // KI-Zugriff aus = Lotse zeigt und sendet nichts aus dieser Quelle
   const gsc = !!getGscConfig() && sc.gsc !== false, sistrix = !!getSistrixConfig()?.domain && sc.sistrix !== false;
   const errors: SeoOverview['errors'] = [];
+  const ttl = fresh ? 0 : HOURS6;
+  let onpage: SeoOnpage | undefined;
   const [g, s] = await Promise.all([
     gsc ? gscItems(lookup).catch(e => { errors.push({ source: 'gsc', error: e instanceof Error ? e.message : String(e) }); return [] as SeoItem[]; }) : [],
-    sistrix ? sistrixItems(lookup).catch(e => { errors.push({ source: 'sistrix', error: e instanceof Error ? e.message : String(e) }); return [] as SeoItem[]; }) : [],
+    sistrix ? sistrixItems(lookup, ttl).then(r => { onpage = r.onpage; return r.items; }).catch(e => { errors.push({ source: 'sistrix', error: e instanceof Error ? e.message : String(e) }); return [] as SeoItem[]; }) : [],
   ]);
   const byImpact = (a: SeoItem, b: SeoItem) => b.impact - a.impact;
-  return { gsc, sistrix, items: [...g.sort(byImpact), ...s.sort(byImpact)], errors, generatedAt: new Date().toISOString() };
+  return { gsc, sistrix, items: [...g.sort(byImpact), ...s.sort(byImpact)], errors, generatedAt: new Date().toISOString(), ...(onpage ? { onpage } : {}) };
 }

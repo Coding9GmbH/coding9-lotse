@@ -5,6 +5,22 @@ Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die V
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
 Jede Änderung bekommt einen eigenen Abschnitt mit neuer Versionsnummer (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
+## [Unveröffentlicht]
+
+### Hinzugefügt
+- SEO-Bereich: technische Probleme aus dem OnPage-Crawl des Sistrix-Optimizers (Fehler und Warnungen mit Fundstellen, letzter Crawl mit Seiten-, Fehler- und Warnungszahl).
+- SEO-Bereich: Gibt es im Sistrix-Konto mehrere Optimizer-Projekte, wählst du das Projekt des Shops direkt dort aus; die Wahl gilt auch für die KI-Werkzeuge und den Shop-Check.
+- SEO-Bereich: Hebel lassen sich als „Erledigt“ (taucht wieder auf, wenn die Quelle ihn eine Woche später noch meldet) oder „Ignoriert“ (dauerhaft) ausblenden und jederzeit wieder einblenden; was eine Quelle nicht mehr meldet, verschwindet von selbst.
+- SEO-Bereich zeigt die SEO-Befunde aus dem Shop-Check, die Arbeitsfläche eine Karte mit den wichtigsten offenen SEO-Hebeln; „In Bearbeitung“ gilt in beiden Richtungen.
+
+### Geändert
+- SEO-Bereich übersichtlicher: Kennzahlen als Filter, Gruppen für Technik, Keywords, Meta-Daten und Shop-Check, je fünf Einträge mit „Alle anzeigen“.
+- SEO-Daten werden gespeichert und erst per „Neu abholen“, nach einem Tag oder bei geänderter Anbindung neu geholt; ein Seitenaufruf kostet so keine Sistrix-Credits mehr.
+
+### Behoben
+- Sistrix-OnPage-Fehler fehlten im SEO-Bereich stillschweigend, wenn mehrere Optimizer-Projekte existieren und keines nach der Domain benannt ist.
+- Die betroffenen URLs einer OnPage-Fehlerart kamen bei der KI nicht an, weil Sistrix sie verschachtelt liefert.
+
 ## [0.7.2] – 2026-10-14
 
 ### Behoben
@@ -146,6 +162,7 @@ Jede Änderung bekommt einen eigenen Abschnitt mit neuer Versionsnummer (siehe [
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
+[Unveröffentlicht]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.7.2...HEAD
 [0.7.2]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.6.0...v0.7.0
