@@ -5,6 +5,22 @@ Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die V
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
 Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag geschrieben (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
+## [0.8.1] – 2026-10-15
+
+### Sicherheit
+- Lieferanten-Import: HTML aus Importdateien wird jetzt über eine Allowlist bereinigt; bisherige Umgehungen der Blockliste (etwa `<svg onload>`, `<img onerror>`, verschachtelte Script-Tags) sind geschlossen.
+- Schutz vor extrem langsamer Verarbeitung (ReDoS) bei manipuliertem HTML mit ungeschlossenen Tags.
+- Schutz vor Server-Side-Request-Forgery: Weiterleitungen beim Abruf von Shop-Seiten, im Shop-Proxy und bei Stylesheets der Styleguide-Analyse werden geprüft und nur zu vertrauenswürdigen Adressen verfolgt.
+- Seitenübergreifende (Cross-Site) GET-Anfragen an die API werden abgewiesen.
+- Auswertung hochgeladener Rechtstext-Dateien nutzt die abgesicherten Parser mit Zip-Bomb-Schutz sowie Seiten- und Textlimits.
+- Abruf generierter Bilder und OpenMage-Medien hat Größen- und Zeitlimits.
+- Die Schlüsseldatei wird auf Länge geprüft und mit restriktiven Rechten (0600) angelegt; fehlgeschlagenes Entschlüsseln wird protokolliert.
+
+### Behoben
+- Das Upload-Limit gilt jetzt einheitlich für Upload und Bildaufbereitung.
+- `&amp;lt;` wurde in Texten doppelt dekodiert.
+- Abgelehnte Antworten des Shops (429/503) geben die Verbindung sofort wieder frei.
+
 ## [0.8.0] – 2026-10-14
 
 ### Hinzugefügt
@@ -169,6 +185,7 @@ Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag gesch
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
+[0.8.1]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.7.0...v0.7.1
