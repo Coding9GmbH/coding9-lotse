@@ -29,7 +29,7 @@ export async function startFakeSistrix(o: { apiKey: string; data?: FakeSistrix['
     f.calls.push({ method, params });
     if (f.failNext) { const e = f.failNext; f.failNext = undefined; return send(200, { status: 'fail', error: [{ error_code: e.code, error_message: e.message }] }); }
     if (method === 'credits') return send(200, { method: ['credits'], answer: [{ credits: [{ value: 1234 }] }], credits: [{ used: '0' }] });
-    const rows = (f.data[method] ?? []).slice(0, Number(params.limit ?? 100));
+    const limit = Number(params.limit ?? 100), page = Math.max(Number(params.page ?? 1), 1), rows = (f.data[method] ?? []).slice((page - 1) * limit, page * limit);
     const key = method.split('.').at(-1)!;
     // like Sistrix: the URLs of an issue type are nested in {count, "optimizer.onpage.issue": [...]}
     if (method === 'project.onpage.issue') return send(200, { method: [['optimizer.onpage.issue']], answer: [{ 'optimizer.onpage.issue': [{ count: rows.length, 'optimizer.onpage.issue': rows }] }], credits: [{ used: '0' }] });

@@ -12,7 +12,7 @@ import { getSettings } from '../settings';
 import { ok, guard, type AnyTool } from '../tool-kit';
 import type { Feature } from './types';
 import { propose, refView } from './gsc';
-import { addressParam, getSistrixConfig, normDomain, rowsOf, sistrixCached, type Row, type SistrixConfig } from './sistrix-api';
+import { addressParam, cleanRow, getSistrixConfig, normDomain, rowsOf, sistrixCached, type Row, type SistrixConfig } from './sistrix-api';
 
 const NOT_CONNECTED = 'Sistrix ist nicht verbunden. Der Nutzer kann es unter Einstellungen → Integrationen → Sistrix einrichten (API-Schlüssel + Domain des Shops).';
 const BLOCKED = 'Der Zugriff der KI auf Sistrix ist ausgeschaltet. Der Nutzer kann ihn unter Einstellungen → KI-Zugriff aktivieren.';
@@ -57,12 +57,59 @@ export async function findProject(cfg: SistrixConfig, wanted?: string, ttlMs?: n
   return pickProject(rowsOf(r.answer, 'project', 'projects'), cfg.domain, wanted ?? cfg.project);
 }
 
-/** URLs of an issue type: Sistrix nests them ({count, "optimizer.onpage.issue": [...]}) */
-export function issueRows(answer: Record<string, unknown>): Row[] {
+/** Raw rows of a list response: Sistrix nests some of them ({count, "optimizer.onpage.issue": [...]}), others are flat */
+function rawRows(answer: Record<string, unknown>, ...names: string[]): Record<string, unknown>[] {
+  const objs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x)) : []);
   const outer = Object.values(answer).find(Array.isArray) as unknown[] | undefined;
   const first = outer?.[0];
   const inner = first && typeof first === 'object' ? Object.values(first as Record<string, unknown>).find(v => Array.isArray(v) && v.some(x => x && typeof x === 'object')) : undefined;
-  return inner ? rowsOf(inner) : rowsOf(answer, 'issue', 'issues', 'url', 'urls');
+  if (inner) return objs(inner);
+  for (const n of [...names, ...Object.keys(answer)]) { const l = objs(answer[n]); if (l.length) return l; }
+  return [];
+}
+
+/** URLs of an issue type */
+export const issueRows = (answer: Record<string, unknown>): Row[] => rawRows(answer, 'issue', 'issues', 'url', 'urls').map(cleanRow);
+
+/** Pages an issue URL was found on, if Sistrix nests them in the issue row (cleanRow drops lists, so read them from the raw row) */
+const SOURCE_KEYS = /^(from|source|sources|origin|link_?from|linked_?from|found_?on|referr?er|referr?ers|parent|parents|embedded_?on|used_?on)$/i;
+export function nestedSources(raw: Record<string, unknown>): string[] {
+  const out = new Set<string>();
+  const add = (v: unknown): void => {
+    if (typeof v === 'string') { if (/^https?:\/\//i.test(v.trim())) out.add(v.trim()); }
+    else if (Array.isArray(v)) v.forEach(add);
+    else if (v && typeof v === 'object') { const u = urlOf(cleanRow(v)) ?? (v as Record<string, unknown>).from; if (typeof u === 'string') add(u); }
+  };
+  for (const [k, v] of Object.entries(raw)) if (SOURCE_KEYS.test(k)) add(v);
+  return [...out];
+}
+
+/** URL for comparison: without scheme, www., fragment and trailing slash; host in lower case */
+export const linkKey = (u: string) => { const s = u.trim().replace(/#.*$/, '').replace(/^(https?:)?\/\//i, '').replace(/^www\./i, ''); const i = s.indexOf('/'); return (i < 0 ? s.toLowerCase() : s.slice(0, i).toLowerCase() + s.slice(i)).replace(/\/+$/, ''); };
+
+const LINKS_PER_PAGE = 1000, LINKS_MAX_PAGES = 3, SOURCES_PER_URL = 10;
+/** Pages that link to or embed the given URLs, from the crawl's link list (project.onpage.links: from, to, type, text).
+ *  Paged and capped; stops as soon as every target has a source. */
+export async function linkSources(cfg: SistrixConfig, project: string, targets: string[]) {
+  const want = new Map(targets.map(t => [linkKey(t), t])), found = new Map<string, Row[]>();
+  let scanned = 0, credits: number | null = null, complete = false;
+  for (let page = 1; page <= LINKS_MAX_PAGES; page++) {
+    const r = await sistrixCached(cfg, 'project.onpage.links', { project, limit: LINKS_PER_PAGE, page });
+    if (r.creditsUsed !== null) credits = (credits ?? 0) + r.creditsUsed;
+    const links = rawRows(r.answer, 'link', 'links').map(cleanRow);
+    scanned += links.length;
+    for (const l of links) {
+      const to = typeof l.to === 'string' ? l.to : typeof l.target === 'string' ? l.target : null, from = l.from ?? l.source ?? l.origin;
+      const t = to ? want.get(linkKey(to)) : undefined;
+      if (!t || typeof from !== 'string') continue;
+      const list = found.get(t) ?? [];
+      if (list.length < SOURCES_PER_URL && !list.some(x => x.url === from)) list.push({ url: from, ...(l.type != null ? { type: l.type } : {}), ...(l.text ? { text: l.text } : {}) });
+      found.set(t, list);
+    }
+    if (links.length < LINKS_PER_PAGE) { complete = true; break; }
+    if (found.size === want.size) break;
+  }
+  return { found, scanned, complete, creditsUsed: credits };
 }
 
 const isIssueError = (r: Row) => String(r.type ?? '').toLowerCase() === 'error';
@@ -179,8 +226,9 @@ export const sistrix: Feature = {
             notes: [CREDIT_NOTE, 'Traffic und Klicks sind Schätzungen. Das Suchvolumen selbst liefert diese Methode nicht; für Mengenvergleiche den geschätzten Traffic nutzen.'] });
         })),
 
-      tool('sistrix_onpage', 'Liest die OnPage-Ergebnisse des Sistrix-Optimizers (Crawl). Ohne issue: Zusammenfassung des letzten Crawls (Fehler, Warnungen, Hinweise mit Anzahl). Mit issue: die betroffenen URLs dieses Problems, dem Shop zugeordnet. Ändert nichts und startet keinen Crawl.',
-        { project: z.string().optional().describe('Projektname oder -hash; nötig, wenn mehrere Projekte existieren und keines zur Domain passt'), issue: z.string().max(120).optional().describe('Name einer Fehlerart aus der Zusammenfassung'), limit: z.number().optional().describe('Standard 25, max. 100') },
+      tool('sistrix_onpage', 'Liest die OnPage-Ergebnisse des Sistrix-Optimizers (Crawl). Ohne issue: Zusammenfassung des letzten Crawls (Fehler, Warnungen, Hinweise mit Anzahl). Mit issue: die betroffenen URLs dieses Problems, dem Shop zugeordnet; ist die URL keine Shopseite (defektes Bild, Datei, externer Link), stehen unter foundOn die Seiten, die sie einbinden oder verlinken, ebenfalls dem Shop zugeordnet. Ändert nichts und startet keinen Crawl.',
+        { project: z.string().optional().describe('Projektname oder -hash; nötig, wenn mehrere Projekte existieren und keines zur Domain passt'), issue: z.string().max(120).optional().describe('Name einer Fehlerart aus der Zusammenfassung'), limit: z.number().optional().describe('Standard 25, max. 100'),
+          findSources: z.boolean().optional().describe('Standard true: für URLs, die keine Shopseite sind (Bilder, Dateien, externe Links), die einbindenden Seiten aus der Link-Liste des Crawls suchen') },
         guard(async a => {
           const cfg = need(), p = await findProject(cfg, a.project);
           if (!p) return ok({ projects: [], message: NO_PROJECT });
@@ -194,8 +242,28 @@ export const sistrix: Feature = {
           if (crawl.length && !crawl.some(x => x.name === a.issue)) return ok({ project: p.name, message: `Unbekannte Fehlerart. Verfügbar: ${crawl.map(x => String(x.name)).join(', ')}` });
           const limit = clamp(a.limit, 25, 100);
           const r = await sistrixCached(cfg, 'project.onpage.issue', { project: p.hash, issue: a.issue, limit });
-          const rows = issueRows(r.answer), shop = await mapped(lookup, rows);
-          return ok({ project: p.name, issue: a.issue, count: rows.length, creditsUsed: r.creditsUsed, items: rows.map(x => ({ ...x, shop: shop(x) })), notes: [CREDIT_NOTE] });
+          const raw = rawRows(r.answer, 'issue', 'issues', 'url', 'urls'), rows = raw.map(cleanRow), shop = await mapped(lookup, rows);
+          const nested = raw.map(nestedSources);
+          // A URL that is not a shop page (image, file, external link) is only fixable on the page that embeds it: find those pages in the crawl's link list
+          const orphans = a.findSources === false ? [] : rows.map((x, i) => (!shop(x) && !nested[i].length ? urlOf(x) : null)).filter((u): u is string => !!u).slice(0, 25);
+          const links = orphans.length ? await linkSources(cfg, p.hash, orphans).catch((e: Error) => ({ error: e.message })) : null;
+          const sourcesOf = (x: Row, i: number): Row[] => { const u = urlOf(x); return nested[i].length ? nested[i].map(url => ({ url })) : (links && 'found' in links && u ? links.found.get(u) ?? [] : []); };
+          const allSources = rows.flatMap((x, i) => sourcesOf(x, i));
+          const srcShop = await mapped(lookup, allSources);
+          const items = rows.map((x, i) => {
+            const own = shop(x), src = sourcesOf(x, i).map(s => ({ ...s, shop: srcShop(s), change: PROPOSE[srcShop(s)?.kind ?? ''] ?? 'Seite nicht im Shop gefunden: dem Nutzer nennen' }));
+            return { ...x, shop: own, ...(own ? {} : { foundOn: src }) };
+          });
+          const notes = [CREDIT_NOTE];
+          if (links && 'error' in links) notes.push(`Verweisende Seiten nicht abrufbar (project.onpage.links): ${links.error}`);
+          else if (links) {
+            notes.push(`Verweisende Seiten aus der Link-Liste des Crawls gesucht (${links.scanned} Links geprüft${links.complete ? ', vollständig' : `, gedeckelt auf ${LINKS_PER_PAGE * LINKS_MAX_PAGES}`}).`);
+            if (orphans.some(u => !links.found.has(u))) notes.push(links.complete
+              ? 'Für einige URLs enthält die Link-Liste keine Quelle: vermutlich per Skript, CSS oder iFrame eingebunden (z. B. Video-Vorschaubild). Im Sistrix-Optimizer unter der Fehlerart die Quelle ansehen oder den Nutzer nach der Seite fragen.'
+              : 'Nicht alle Quellen gefunden: die Link-Liste ist größer als die Obergrenze. Im Sistrix-Optimizer unter der Fehlerart nachsehen oder den Nutzer nach der Seite fragen.');
+          }
+          if (items.some(x => 'foundOn' in x)) notes.push('foundOn = Seiten, die die URL einbinden oder verlinken. Behebbar ist es dort: Bild/Link auf der Seite ersetzen oder entfernen (Inhalt der Seite ändern), nicht über Meta-Daten.');
+          return ok({ project: p.name, issue: a.issue, count: rows.length, creditsUsed: r.creditsUsed, ...(links && 'creditsUsed' in links && links.creditsUsed !== null ? { creditsUsedSources: links.creditsUsed } : {}), items, notes });
         })),
     ] as AnyTool[];
   },
