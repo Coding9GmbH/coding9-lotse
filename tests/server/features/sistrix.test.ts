@@ -152,6 +152,55 @@ test('OnPage: project for the domain, summary, then URLs of one issue type', asy
   assert.match((await run('sistrix_onpage', { project: 'x' })).json.message, /kein Optimizer-Projekt/);
 });
 
+test('OnPage: for a broken image or file the embedding pages are found and mapped to the shop', async () => {
+  A.clearSistrixCache();
+  const IMG = 'https://img.youtube.com/vi/abc/maxresdefault.jpg', LOST = 'https://www.shop.de/media/weg.jpg';
+  fake.data['project.overview'] = [{ hash: 'h-shop', name: 'www.shop.de' }];
+  fake.data['project.onpage.crawl'] = [{ type: 'error', name: 'image_not_found', count: '2' }];
+  fake.data['project.onpage.issue'] = [{ url: IMG, status_code: '404' }, { url: LOST, status_code: '404' }];
+  fake.data['project.onpage.links'] = [
+    { from: 'https://www.shop.de/', to: 'https://www.shop.de/kontakt', type: 'a', status_code: '200' },
+    { from: PAGE, to: 'https://IMG.youtube.com/vi/abc/maxresdefault.jpg', type: 'img', status_code: '404' },
+    { from: PAGE, to: IMG, type: 'img', status_code: '404' },
+  ];
+  const r = await run('sistrix_onpage', { issue: 'image_not_found' });
+  assert.equal(r.err, false);
+  const [img, lost] = r.json.items;
+  assert.equal(img.shop, null);
+  assert.deepEqual(img.foundOn.map((s: { url: string }) => s.url), [PAGE], 'deduplicated, host case ignored');
+  assert.equal(img.foundOn[0].shop.id, 'p1'); assert.equal(img.foundOn[0].change, 'propose_product_changes'); assert.equal(img.foundOn[0].type, 'img');
+  assert.deepEqual(lost.foundOn, []);
+  assert.ok(r.json.notes.some((n: string) => /Skript, CSS oder iFrame/.test(n)), 'says why a source is missing');
+  const c = calls('project.onpage.links').at(-1)!.params;
+  assert.deepEqual([c.project, c.limit, c.page], ['h-shop', '1000', '1']);
+  // sources nested in the issue row: no link list needed
+  A.clearSistrixCache();
+  const n = calls('project.onpage.links').length;
+  fake.data['project.onpage.issue'] = [{ url: IMG, status_code: '404', link_from: [PAGE] }];
+  const nested = await run('sistrix_onpage', { issue: 'image_not_found' });
+  assert.equal(nested.json.items[0].foundOn[0].shop.id, 'p1');
+  assert.equal(calls('project.onpage.links').length, n);
+  // can be switched off
+  A.clearSistrixCache();
+  fake.data['project.onpage.issue'] = [{ url: IMG, status_code: '404' }];
+  await run('sistrix_onpage', { issue: 'image_not_found', findSources: false });
+  assert.equal(calls('project.onpage.links').length, n);
+  A.clearSistrixCache();
+  fake.data['project.onpage.crawl'] = [{ type: 'error', name: 'http_404', count: '7' }, { type: 'warning', name: 'title_too_long', count: '40' }];
+});
+
+test('link sources: paged until every target is found, capped', async () => {
+  A.clearSistrixCache();
+  const T = 'https://cdn.example.com/x.png';
+  fake.data['project.onpage.links'] = [...Array.from({ length: 1000 }, (_, i) => ({ from: `https://www.shop.de/p${i}`, to: `https://www.shop.de/q${i}` })), { from: PAGE, to: T }];
+  const n = calls('project.onpage.links').length;
+  const r = await S.linkSources(A.getSistrixConfig()!, 'h-shop', [T]);
+  assert.equal(calls('project.onpage.links').length, n + 2, 'second page read');
+  assert.equal(r.found.get(T)?.[0].url, PAGE); assert.equal(r.complete, true); assert.equal(r.scanned, 1001);
+  assert.equal(S.linkKey('HTTPS://WWW.Shop.de/A/#x'), 'shop.de/A');
+  A.clearSistrixCache();
+});
+
 test('errors from Sistrix arrive in understandable form, without connection the tool says so', async () => {
   fake.failNext = { code: '202', message: 'Not enough credits' };
   const r = await run('sistrix_competitors', { limit: 3 });

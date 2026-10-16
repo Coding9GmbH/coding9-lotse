@@ -151,7 +151,7 @@ async function onpageItems(cfg: SistrixConfig, ttl: number): Promise<{ items: Se
       id: `sistrix:onpage:${name}`, source: 'sistrix', kind: 'onpage', impact: (err ? 10_000 : 0) + (Number(c.count) || 0), // errors before warnings
       title: `${label}: ${name}`, detail: '', // crawl date and project appear once in the group header
       metrics: [{ label: 'Fundstellen', value: String(c.count) }],
-      prompt: `Der Sistrix-OnPage-Crawl meldet „${name}“ (${label}, ${c.count} Fundstellen). Rufe sistrix_onpage mit issue="${name}"${all.length > 1 ? ` und project="${pr.hash}"` : ''} auf, ordne die URLs dem Shop zu und behebe, was über Texte lösbar ist (Meta-Daten, Überschriften, Alt-Texte), als Änderungsset. Technische Ursachen (Server, Weiterleitungen, Canonical) nur benennen, nicht behaupten, sie zu beheben.`,
+      prompt: `Der Sistrix-OnPage-Crawl meldet „${name}“ (${label}, ${c.count} Fundstellen). Rufe sistrix_onpage mit issue="${name}"${all.length > 1 ? ` und project="${pr.hash}"` : ''} auf, ordne die URLs dem Shop zu und behebe, was über Texte lösbar ist (Meta-Daten, Überschriften, Alt-Texte), als Änderungsset. Ist die URL keine Shopseite (defektes Bild, Datei, Link), liegt die Ursache auf den Seiten unter foundOn: dort das Bild oder den Link im Inhalt ersetzen oder entfernen. Technische Ursachen (Server, Weiterleitungen, Canonical) nur benennen, nicht behaupten, sie zu beheben.`,
     });
   }
   return { items, onpage: { status: 'ok', project: pr, projects, lastCrawl } };
