@@ -155,6 +155,7 @@ If the **Sales** switch under Settings → AI access is on, Lotse reads only **t
 | **Logs** | **Access** (every read access by the AI, rejected ones marked) and **Changes** (approved, rejected, undone, changed) |
 | **Search Console** (optional) | Access for opportunities, content gaps and impact measurement |
 | **GitHub** (optional, under Integrations) | Fine-grained token for code changes to plugins and themes. On GitHub under *Settings → Developer settings → Fine-grained tokens*, select only the repositories you need and set **Contents** and **Pull requests** to *Read and write*. The token is stored encrypted, tested automatically (shows the GitHub login and repositories without write access) and never shown again, not even to the AI. Lotse only writes to its own `lotse/…` branches, never to `main` |
+| **Sandbox** (optional) | Switches on **Sandbox Coding** (off by default): code tasks in their own Shopware containers (Dockware) on this machine, plus memory, CPUs and the idle pause (stopped, not deleted). Needs Docker access, see [Self-hosting](self-hosting.md#enable-sandbox-coding). Set the image, environment variables and own setup commands in the **Sandbox Coding** tab; secret values are encrypted and never shown |
 | **Language** | German or English for the interface and AI replies (see below) |
 
 Customer, order, payment and credential data are permanently blocked and cannot be unlocked.

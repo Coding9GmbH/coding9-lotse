@@ -129,7 +129,7 @@ export type AiProvider = 'claude' | 'codex';
 /** shopware = connection to the active shop (legacy name, applies to every platform); platform = which platform is connected */
 /** Optional integrations: only when connected does the UI show matching examples */
 export interface Integrations { gsc: boolean; sistrix: boolean; github: boolean }
-export interface Health { shopware: { url: string; ok: boolean; configured: boolean; error?: string }; ai: { configured: boolean; provider?: AiProvider; /** cost brake (Claude with a monthly budget only): spent/limit in USD this month */ budget?: { spent: number; limit: number; warn: boolean; blocked: boolean } }; platform?: { kind: PlatformKind; label: string; available: boolean }; integrations?: Integrations }
+export interface Health { shopware: { url: string; ok: boolean; configured: boolean; error?: string }; ai: { configured: boolean; provider?: AiProvider; /** cost brake (Claude with a monthly budget only): spent/limit in USD this month */ budget?: { spent: number; limit: number; warn: boolean; blocked: boolean } }; platform?: { kind: PlatformKind; label: string; available: boolean }; integrations?: Integrations; /** Sandbox Coding: switched on, Docker reachable (null = not checked), GitHub connected, configured image */ sandbox?: { enabled: boolean; docker: boolean | null; github: boolean; image: string | null } }
 /** The platform's path templates ({id} is replaced): admin links and storefront paths for category/product */
 export interface PlatformPaths { adminCategory: string; adminProduct: string; adminCms: string; category: string; product: string }
 export interface AppConfig { admin: string; storefront: string; imageGen: boolean; docker: boolean; version: string; platform?: PlatformKind; paths?: PlatformPaths }
@@ -218,6 +218,35 @@ export interface GithubPublic { hasToken: boolean; /** GitHub user of the token,
 export interface GithubTestResult extends TestResult { login: string | null; /** repositories the token can see */ repos: number | null; /** visible repositories without write access (max. 20) */ readOnly: string[] }
 export interface GithubRepo { fullName: string; private: boolean; defaultBranch: string; /** may push (from GitHub's permissions) */ push: boolean; pushedAt: string | null }
 export interface GithubBranch { name: string; protected: boolean }
+// ---- Sandbox Coding: one container per task from a fixed template; secrets of the environment never reach the browser ----
+export type SandboxStepKey = 'check-image' | 'clone' | 'detect-layout' | 'start-container' | 'wait-ready' | 'install-plugin' | 'import-db' | 'set-domain' | 'custom-after-db' | 'theme-compile' | 'custom-final' | 'ready';
+export type SandboxCommandKey = 'theme-compile' | 'cache-clear' | 'plugin-refresh' | 'theme-refresh' | 'lint-twig' | 'php-lint';
+/** When an own setup command runs: after the database (before theme:compile) or at the very end of the setup */
+export type CommandPhase = 'after-db' | 'final';
+export interface TemplateDescriptor { id: string; platform: 'shopware'; defaultImage: string; imagePattern: string; steps: { id: SandboxStepKey; custom?: CommandPhase; optional?: boolean }[]; commands: { id: SandboxCommandKey; args: string[] }[] }
+/** Environment variable for the task containers; a secret value is never sent back (value '' + hasValue) */
+export interface SandboxEnvVar { key: string; secret: boolean; value: string; hasValue: boolean }
+export interface SandboxCommand { id: string; label: string; command: string; phase: CommandPhase; timeoutSec: number }
+/** off = switched off in the settings, env = LOTSE_SANDBOX=0, open-bind = reachable from the network without LOTSE_PASSWORD */
+export type SandboxOffReason = 'off' | 'env' | 'open-bind';
+export interface SandboxStatus { enabled: boolean; reason?: SandboxOffReason; message?: string }
+export interface SandboxEnvPublic {
+  /** the switch in the settings (status says whether it is effective) */ enabled: boolean; status: SandboxStatus;
+  templateId: string; image: string; memoryMb: number; cpus: number; idleMinutes: number; /** LOTSE_SANDBOX_MAX: containers running at the same time */ maxRunning: number;
+  envVars: SandboxEnvVar[]; commands: SandboxCommand[]; updatedAt: string | null;
+}
+/** network = Lotse runs in Docker and reaches the sandboxes over the internal network; local = ports on 127.0.0.1 only */
+export interface SandboxDocker { reachable: boolean; apiVersion: string | null; version: string | null; mode: 'network' | 'local'; error?: string }
+/** GET /api/sandbox/env */
+export interface SandboxEnvView { env: SandboxEnvPublic; docker: SandboxDocker | null; imagePresent: boolean | null; templates: TemplateDescriptor[] }
+/** PUT /api/sandbox/env: secret value empty/undefined = unchanged; a command without id is new */
+export interface SandboxEnvPatch {
+  enabled?: boolean; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number;
+  envVars?: { key: string; secret: boolean; value?: string }[];
+  commands?: { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec?: number }[];
+}
+/** NDJSON lines of POST /api/sandbox/env/check */
+export type SandboxCheckEvent = { t: 'progress'; text: string; pct?: number } | { t: 'result'; ok: boolean; message: string; docker: SandboxDocker; imagePresent: boolean; pulled?: boolean };
 /** SEO overview: levers from Search Console and Sistrix as ready-made tasks (prompt) for a new chat */
 export interface SeoItem { id: string; source: 'gsc' | 'sistrix' | 'site'; kind: 'meta' | 'gap' | 'striking' | 'cannibal' | 'decline' | 'keyword' | 'onpage' | 'site'; title: string; detail: string; metrics: { label: string; value: string }[]; /** sort value (estimated impact) */ impact: number; prompt: string; /** done/ignored by the user: hidden */ mark?: SeoMark }
 /** Done = hidden until a fetch at least SEO_DONE_RECHECK_DAYS later still reports the lever; ignored = hidden permanently */

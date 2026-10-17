@@ -46,6 +46,8 @@ interface Shell {
   styleguideKnown: boolean;
   /** Shop/AI set up? Known immediately from the server, later updated from the status. */
   setup: { shopware: boolean; ai: boolean } | null;
+  /** Sandbox Coding switched on (from the server first, then from the status) */
+  sandbox: boolean;
   setStyleguide: (sg: Styleguide | null) => void;
   activeChatId: string | null;
   setActiveChatId: (id: string | null) => void;
@@ -156,6 +158,8 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
   const setStyleguide = useCallback((sg: Styleguide | null) => { setStyleguideState(sg); setStyleguideKnown(true); }, []);
   const setup = useMemo(() => (health ? { shopware: health.shopware.configured, ai: health.ai.configured } : initial?.setup ?? null), [health, initial]);
 
+  const sandbox = health ? !!health.sandbox?.enabled : !!initial?.sandbox;
+
   const value = useMemo<Shell>(() => {
     // Run directly on the workspace, otherwise queue it and switch there
     const via = (run: (b: WorkspaceBridge) => void, fallback: WorkspaceIntent) => {
@@ -164,7 +168,7 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
       else { intent.current = fallback; router.push('/'); }
     };
     return {
-      health, healthFailed, refreshHealth, chats: allChats, chatError, reloadChats, moreChats, moreState, loadMoreChats, doneIds, styleguide, styleguideKnown, setup, setStyleguide, activeChatId, setActiveChatId, contextName, setContextName,
+      health, healthFailed, refreshHealth, chats: allChats, chatError, reloadChats, moreChats, moreState, loadMoreChats, doneIds, styleguide, styleguideKnown, setup, sandbox, setStyleguide, activeChatId, setActiveChatId, contextName, setContextName,
       collapsed, toggleCollapsed, mobileOpen, setMobileOpen,
       registerWorkspace: b => { bridge.current = b; },
       takeIntent: () => { const i = intent.current; intent.current = null; return i; },
@@ -184,7 +188,7 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
         },
       },
     };
-  }, [health, healthFailed, refreshHealth, allChats, chatError, reloadChats, moreChats, moreState, loadMoreChats, doneIds, styleguide, styleguideKnown, setup, setStyleguide, activeChatId, contextName, collapsed, toggleCollapsed, mobileOpen, router, setActiveChatId]);
+  }, [health, healthFailed, refreshHealth, allChats, chatError, reloadChats, moreChats, moreState, loadMoreChats, doneIds, styleguide, styleguideKnown, setup, sandbox, setStyleguide, activeChatId, contextName, collapsed, toggleCollapsed, mobileOpen, router, setActiveChatId]);
 
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

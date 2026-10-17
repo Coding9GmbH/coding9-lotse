@@ -101,11 +101,44 @@ Der Proxy zeigt dann auf `http://lotse:3333`. Es gelten dieselben Hinweise wie o
 - **Zugriff einschränken**, wenn möglich: VPN, Tailscale/WireGuard oder IP-Freigabe am Proxy. Je kleiner der Kreis, desto weniger hängt am Passwort.
 - **Eigene Integration mit eingeschränkter Rolle** für den Shop-Zugang verwenden, nicht den Admin-Login (siehe [SECURITY.md](../SECURITY.md)).
 
+## Sandbox Coding aktivieren
+
+Sandbox Coding startet pro Code-Aufgabe einen eigenen Shopware-Container (`dockware/play`), in dem die KI an einem Plugin oder Theme arbeitet. Dafür braucht Lotse Zugriff auf Docker. Die Funktion ist **standardmäßig aus** und wird unter **Einstellungen → Sandbox** eingeschaltet.
+
+> **Docker-Zugriff ist Root-Zugriff auf den Host.** Wer Lotse bedienen kann, kann Container starten. Der Socket-Proxy unten ist eine zusätzliche Schutzschicht; die eigentliche Grenze ist die Container-Spezifikation, die nur der Lotse-Server baut: ein fest eingestelltes, versioniertes `dockware/play`-Image, keine Host-Pfade, keine Privilegien, keine Geräte, Ressourcen-Limits und nur Container mit dem Label `lotse.managed=1`. Die KI bekommt nie Docker-Zugriff.
+
+Lotse schaltet die Sandbox **nicht** ein (und sperrt sie, falls schon an), solange es ohne `LOTSE_PASSWORD` aus dem Netzwerk erreichbar ist (offene Adresse oder `ALLOWED_HOSTS`). `LOTSE_SANDBOX=0` schaltet sie hart ab, unabhängig vom Schalter.
+
+**Variante 1: Lotse in Docker (empfohlen).** `make sandbox-up` startet Lotse zusammen mit [`docker-compose.sandbox.yml`](../docker-compose.sandbox.yml):
+
+```sh
+make sandbox-up
+# entspricht: docker compose -f docker-compose.yml -f docker-compose.sandbox.yml up -d
+```
+
+- Ein Socket-Proxy (`tecnativa/docker-socket-proxy`, per Digest fest) bekommt den Docker-Socket; Lotse spricht ihn über `DOCKER_HOST=tcp://docker-proxy:2375` in einem internen Netz an. Erlaubt sind nur Container (inkl. Start/Stopp), Images, Netzwerke und Exec; Volumes, Build, Swarm, Secrets, System u. a. sind gesperrt.
+- Die Aufgaben-Container hängen am internen Netz `lotse-sandbox` (`internal: true`): kein Internet, kein Live-Shop, keine veröffentlichten Ports. Lotse erreicht sie direkt; die Vorschau läuft über Lotse.
+- Die normale `docker-compose.yml` bleibt unverändert gehärtet (schreibgeschützt, keine Capabilities, kein Socket).
+
+**Variante 2: Lotse direkt auf dem Host.** Lotse nutzt `DOCKER_HOST` (Standard `unix:///var/run/docker.sock`); der Benutzer, unter dem Lotse läuft, braucht Zugriff auf den Socket. Jeder Aufgaben-Container veröffentlicht Port 80 nur auf `127.0.0.1` (auf einem Port, den Lotse wählt).
+
+**Weitere Einstellungen**
+
+| Variable | Bedeutung |
+|---|---|
+| `LOTSE_SANDBOX` | `0` = hart aus. Leer = der Schalter in den Einstellungen entscheidet. |
+| `DOCKER_HOST` | `unix:///pfad/docker.sock` oder `tcp://host:port`. Andere Schemata (ssh, TLS) werden nicht unterstützt. |
+| `LOTSE_SANDBOX_MAX` | Gleichzeitig laufende Container (Standard 2). Ein weiterer pausiert den am längsten unbenutzten. |
+| `LOTSE_SANDBOX_IDLE_MINUTES` | Standard für die Pause nach Inaktivität (30 Minuten); der Wert in den Einstellungen hat Vorrang. Pausiert heißt gestoppt, nicht gelöscht. |
+| `LOTSE_SANDBOX_NETWORK` | `network` (internes Netz) oder `local` (Ports auf 127.0.0.1). Leer = automatisch. |
+
+Im Reiter **Sandbox Coding** legst du das Image fest (nur `dockware/play:<Version>`, kein `latest`; Standard `dockware/play:6.7.2.2`), dazu Umgebungsvariablen (geheime Werte verschlüsselt, nie wieder angezeigt, nie an die KI) und eigene Einrichtungsbefehle. „Umgebung prüfen“ testet Docker und lädt das Image (einige GB). Beim Ausschalten werden laufende Container gestoppt, nicht gelöscht. `make sandbox-clean` entfernt alle Container mit dem Label `lotse.managed=1`.
+
 ## Daten, Sicherung, Updates
 
 - **Daten** liegen im Docker-Volume `lotse-data` (`/data`): Datenbank (Chats, Audit-Log), Wissensbasis, Styleguide, Regeln, eigene Prüfungen, verschlüsselte Zugangsdaten **und `secret.key`**. Ohne `secret.key` sind gespeicherte Zugangsdaten unbrauchbar: Sicherung immer das ganze Volume.
   `make backup` legt ein Archiv unter `./backups` ab, `make restore FILE=backups/lotse-….tgz` spielt es zurück (stoppt Lotse dabei kurz).
-  Die Datenbank läuft im WAL-Modus; ein bloßes Kopieren der Dateien im laufenden Betrieb kann einen halben Stand erwischen. Darum erstellt `make backup` bei laufendem Lotse zuerst per `VACUUM INTO` einen stimmigen Schnappschuss (`docker/db-snapshot.mjs`, im Container nach `/data/.backup/`, danach wieder entfernt) und sichert ihn als `aicb.db` zusammen mit allen übrigen Dateien (`secret.key`, Wissen, Claude-Sitzungen …). Ist Lotse gestoppt, wird die Datenbank direkt gesichert. Ältere Archive lassen sich weiterhin einspielen.
+  Die Datenbank läuft im WAL-Modus; ein bloßes Kopieren der Dateien im laufenden Betrieb kann einen halben Stand erwischen. Darum erstellt `make backup` bei laufendem Lotse zuerst per `VACUUM INTO` einen stimmigen Schnappschuss (`docker/db-snapshot.mjs`, im Container nach `/data/.backup/`, danach wieder entfernt) und sichert ihn als `aicb.db` zusammen mit allen übrigen Dateien (`secret.key`, Wissen, Claude-Sitzungen …). Ist Lotse gestoppt, wird die Datenbank direkt gesichert. Ältere Archive lassen sich weiterhin einspielen. Arbeitskopien von Sandbox Coding (`workspaces/`, `git/`) und Datenbank-Dumps (`dumps/`) sichert `make backup` bewusst nicht.
   Eigene Sicherung ohne `make`: `docker compose exec -T lotse node --input-type=module - < docker/db-snapshot.mjs`, dann `/data` ohne `aicb.db`, `aicb.db-wal` und `aicb.db-shm` sichern und `/data/.backup/aicb.db` als `aicb.db` dazulegen.
 - **Kostenbremse:** `LOTSE_AI_BUDGET_USD` (oder Einstellungen → KI verbinden) begrenzt die Claude-Kosten je Kalendermonat (UTC). Lotse speichert die Kosten jeder Runde in der Datenbank (`ai_usage`, 400 Tage); `GET /api/usage` liefert Monat, Tag und die letzten 30 Tage. Die Kosten sind Schätzungen des Agent SDK; Bild-KI und der Verbindungstest zählen nicht mit. Jede Runde bekommt höchstens die Hälfte des noch freien Budgets als Grenze (laufende Runden reservieren ihren Anteil), so überschreiten auch parallele Chats das Budget nicht. Eine abgebrochene Runde ohne Kostenmeldung zählt mit der nächsten Runde desselben Chats.
 - **Aufbewahrung der Protokolle:** Das Zugriffsprotokoll wird nach `LOTSE_LOG_RETENTION_DAYS` Tagen gelöscht (Standard 180), das Änderungsprotokoll nach `LOTSE_AUDIT_RETENTION_DAYS` Tagen (Standard 365, mindestens 30). `0` = nie löschen. Aufgeräumt wird beim Start und danach höchstens einmal am Tag. „Rückgängig“ ist davon nicht betroffen: Die Vorher-Werte stehen im Chat, nicht im Protokoll.

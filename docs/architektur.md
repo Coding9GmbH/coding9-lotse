@@ -51,6 +51,7 @@ Stack: Next.js 16 · React 19 · TypeScript (strict) · SQLite (`node:sqlite`) �
 | Shop-Schonung | `changes.ts`, Clients | Drosselung (`LOTSE_WRITE_CONCURRENCY`), max. 300 Einträge je Set (`MAX_ITEMS`), Timeouts, Backoff bei 429/503 |
 | Zugangsdaten | `db.ts` | AES-256-GCM, Schlüssel `secret.key` im Datenvolume, nie an die KI, aus Fehlertexten entfernt |
 | Git und GitHub | `git.ts`, `github.ts` | `git.ts` ist die einzige Stelle, die git startet: ohne Shell, minimale Umgebung, ohne System-/globale Konfiguration, Hooks, fsmonitor und Credential-Helper, nur https. Der GitHub-Token geht nur als `http.<host>/.extraheader` per `GIT_CONFIG_*` in die Umgebung eines einzelnen git-Prozesses, nie in argv, URLs, `.git/config` oder Ausgaben (alles läuft durch `redact()`). Git-Ordner liegt außerhalb des Arbeitsordners; Repository- und Branch-Namen werden geprüft, Push nur nach `refs/heads/lotse/*`, kein Force-Push (nur `--force-with-lease` auf den zuletzt selbst gepushten Stand) |
+| Sandbox Coding | `sandbox/env.ts`, `sandbox/runner.ts`, `sandbox/docker-engine.ts`, `sandbox/templates/` | Standardmäßig aus (Schalter in den Einstellungen, `LOTSE_SANDBOX=0` hart aus, gesperrt ohne `LOTSE_PASSWORD` bei offener Adresse). `runner.ts` ist die einzige Docker-Schnittstelle (Engine-API über `node:http`, Unix-Socket oder `tcp://` zum Socket-Proxy; Fake für Tests mit `LOTSE_SANDBOX_RUNNER=fake`): feste Operationen, nur Container mit Label `lotse.managed=1`, Spezifikation ohne Host-Pfade/Privilegien. Vorlagen sind Code (nur `dockware-play`: Image-Muster, Schritte, Befehls-Freigabeliste mit geprüften Argumenten). Umgebung in kv `sandbox`: Image, Limits, Variablen (geheime versiegelt, in `redact()`), eigene Einrichtungsbefehle |
 | Vorschau-Isolation | `app/shop/**`, `DraftFrame.tsx` | Shop-HTML läuft in opakem Origin, siehe unten |
 
 Details und Meldeweg: [SECURITY.md](../SECURITY.md).
@@ -137,6 +138,7 @@ Andere Plattformen veröffentlichen über ihre eigenen Pfade (Shopify: Theme-Vor
 | `GET /api/audit`, `GET /api/access-log` | Protokolle |
 | `/api/gsc`, `/api/sistrix`, `/api/codex/login` | Search Console, Sistrix, Codex-Anmeldung |
 | `GET/PUT/DELETE /api/github`, `POST /api/github/test`, `GET /api/github/repos`, `GET /api/github/branches?repo=` | GitHub-Token (nur „vorhanden“ + Login), Verbindungstest, Repositorys, Branches |
+| `GET/PUT /api/sandbox/env`, `POST /api/sandbox/env/check` | Sandbox-Umgebung (Schalter, Image, Limits, Variablen nur maskiert, eigene Befehle; Docker wird nur bei eingeschalteter Sandbox angesprochen), „Umgebung prüfen“ als NDJSON mit Fortschritt (403 solange aus) |
 | `GET /api/seo`, `PUT /api/seo/marks`, `GET\|POST\|PUT /api/seo/impact` | SEO-Bereich: Hebel, Erledigt/Ignoriert, Wirkung angewendeter Änderungen (gespeichert / jetzt messen / ausblenden) |
 | `/api/mcp/{chat}` | MCP-Endpunkt für Codex (Token je Chat) |
 | `GET /shop/**` | Storefront-Proxy (nur GET) |

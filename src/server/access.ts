@@ -39,3 +39,10 @@ export const extraAllowedHosts = (raw: string | undefined) => (raw ?? '').split(
 
 /** Reachable from outside via ALLOWED_HOSTS, but without LOTSE_PASSWORD: anyone who reaches the name can approve changes. */
 export const openWithoutPassword = (env: Record<string, string | undefined>) => !env.LOTSE_PASSWORD && extraAllowedHosts(env.ALLOWED_HOSTS).length > 0;
+
+const LOOPBACK_BIND = ['127.0.0.1', 'localhost', '::1'];
+/** Address Lotse listens on: in the container LOTSE_BIND (the published port), otherwise HOSTNAME/HOST as `next start` uses them. */
+export const bindAddress = (env: Record<string, string | undefined>) => (env.AICB_DOCKER === '1' ? (env.LOTSE_BIND ?? '').trim() : env.HOSTNAME || env.HOST || 'localhost');
+export const loopbackBind = (env: Record<string, string | undefined>) => LOOPBACK_BIND.includes(bindAddress(env));
+/** Reachable from the network (open bind or ALLOWED_HOSTS) without LOTSE_PASSWORD. */
+export const exposedWithoutPassword = (env: Record<string, string | undefined>) => !env.LOTSE_PASSWORD && (!loopbackBind(env) || openWithoutPassword(env));

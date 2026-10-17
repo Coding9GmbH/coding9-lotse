@@ -101,11 +101,44 @@ The proxy then points to `http://lotse:3333`. The same notes as above apply (`Ho
 - **Restrict access** where possible: VPN, Tailscale/WireGuard or an IP allowlist at the proxy. The smaller the circle, the less depends on the password.
 - **Use a dedicated integration with a restricted role** for shop access, not the admin login (see [SECURITY.en.md](../../SECURITY.en.md)).
 
+## Enable Sandbox Coding
+
+Sandbox Coding starts a separate Shopware container (`dockware/play`) per code task, in which the AI works on a plugin or theme. For this, Lotse needs access to Docker. The feature is **off by default** and is switched on under **Settings → Sandbox**.
+
+> **Docker access is root access to the host.** Anyone who can use Lotse can start containers. The socket proxy below is an additional layer; the real boundary is the container spec that only the Lotse server builds: a configured, versioned `dockware/play` image, no host paths, no privileges, no devices, resource limits, and only containers labelled `lotse.managed=1`. The AI never gets Docker access.
+
+Lotse does **not** switch the sandbox on (and blocks it if it is already on) while it is reachable from the network without `LOTSE_PASSWORD` (open address or `ALLOWED_HOSTS`). `LOTSE_SANDBOX=0` switches it off hard, regardless of the switch.
+
+**Option 1: Lotse in Docker (recommended).** `make sandbox-up` starts Lotse together with [`docker-compose.sandbox.yml`](../../docker-compose.sandbox.yml):
+
+```sh
+make sandbox-up
+# same as: docker compose -f docker-compose.yml -f docker-compose.sandbox.yml up -d
+```
+
+- A socket proxy (`tecnativa/docker-socket-proxy`, pinned by digest) gets the Docker socket; Lotse talks to it via `DOCKER_HOST=tcp://docker-proxy:2375` on an internal network. Only containers (incl. start/stop), images, networks and exec are allowed; volumes, build, swarm, secrets, system and others are blocked.
+- Task containers are attached to the internal network `lotse-sandbox` (`internal: true`): no internet, no live shop, no published ports. Lotse reaches them directly; the preview goes through Lotse.
+- The normal `docker-compose.yml` stays hardened as before (read-only, no capabilities, no socket).
+
+**Option 2: Lotse directly on the host.** Lotse uses `DOCKER_HOST` (default `unix:///var/run/docker.sock`); the user Lotse runs as needs access to the socket. Each task container publishes port 80 on `127.0.0.1` only (on a port Lotse picks).
+
+**More settings**
+
+| Variable | Meaning |
+|---|---|
+| `LOTSE_SANDBOX` | `0` = hard off. Empty = the switch in the settings decides. |
+| `DOCKER_HOST` | `unix:///path/docker.sock` or `tcp://host:port`. Other schemes (ssh, TLS) are not supported. |
+| `LOTSE_SANDBOX_MAX` | Containers running at the same time (default 2). Another one pauses the least recently used. |
+| `LOTSE_SANDBOX_IDLE_MINUTES` | Default idle pause (30 minutes); the value in the settings takes precedence. Paused means stopped, not deleted. |
+| `LOTSE_SANDBOX_NETWORK` | `network` (internal network) or `local` (ports on 127.0.0.1). Empty = automatic. |
+
+In the **Sandbox Coding** tab you set the image (only `dockware/play:<version>`, no `latest`; default `dockware/play:6.7.2.2`), plus environment variables (secret values encrypted, never shown again, never given to the AI) and your own setup commands. “Check environment” tests Docker and pulls the image (several GB). Switching off stops running containers; they are not deleted. `make sandbox-clean` removes all containers labelled `lotse.managed=1`.
+
 ## Data, backups, updates
 
 - **Data** lives in the Docker volume `lotse-data` (`/data`): database (chats, audit log), knowledge base, style guide, rules, custom checks, encrypted credentials **and `secret.key`**. Without `secret.key`, stored credentials are useless: always back up the whole volume.
   `make backup` writes an archive to `./backups`, `make restore FILE=backups/lotse-….tgz` restores it (briefly stopping Lotse).
-  The database runs in WAL mode; simply copying its files while Lotse runs can capture a half-written state. So while Lotse is running, `make backup` first creates a consistent snapshot with `VACUUM INTO` (`docker/db-snapshot.mjs`, inside the container at `/data/.backup/`, removed afterwards) and archives it as `aicb.db` together with all other files (`secret.key`, knowledge, Claude sessions …). If Lotse is stopped, the database is backed up directly. Older archives can still be restored.
+  The database runs in WAL mode; simply copying its files while Lotse runs can capture a half-written state. So while Lotse is running, `make backup` first creates a consistent snapshot with `VACUUM INTO` (`docker/db-snapshot.mjs`, inside the container at `/data/.backup/`, removed afterwards) and archives it as `aicb.db` together with all other files (`secret.key`, knowledge, Claude sessions …). If Lotse is stopped, the database is backed up directly. Older archives can still be restored. Sandbox Coding working copies (`workspaces/`, `git/`) and database dumps (`dumps/`) are deliberately left out of `make backup`.
   Your own backup without `make`: `docker compose exec -T lotse node --input-type=module - < docker/db-snapshot.mjs`, then back up `/data` without `aicb.db`, `aicb.db-wal` and `aicb.db-shm` and add `/data/.backup/aicb.db` as `aicb.db`.
 - **Cost brake:** `LOTSE_AI_BUDGET_USD` (or Settings → Connect AI) limits Claude costs per calendar month (UTC). Lotse stores the cost of every run in the database (`ai_usage`, 400 days); `GET /api/usage` returns month, day and the last 30 days. Costs are Agent SDK estimates; image AI and the connection test are not included. Each run gets at most half of the budget still free as its limit (running runs reserve their share), so parallel chats cannot exceed the budget either. An aborted run without a cost report is counted with the next run of the same chat.
 - **Log retention:** the access log is pruned after `LOTSE_LOG_RETENTION_DAYS` days (default 180), the change log after `LOTSE_AUDIT_RETENTION_DAYS` days (default 365, at least 30). `0` = never prune. Pruning runs at startup and then at most once a day. "Undo" is not affected: the previous values are stored in the chat, not in the log.

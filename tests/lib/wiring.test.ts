@@ -36,3 +36,14 @@ test('settings: no save button anymore, save status at the top', () => {
   assert.match(view, /<SaveState /);
   assert.doesNotMatch(read('src/components/settings/GscSettings.tsx'), />Speichern</);
 });
+
+test('Sandbox Coding: nav entry only while switched on (no shop needed), own settings section', () => {
+  const nav = read('src/components/shell/SideNav.tsx');
+  assert.match(nav, /\{s\.sandbox && \(/);
+  assert.match(nav, /<Link href="\/sandbox-coding"/);
+  assert.match(read('src/components/shell/ShellProvider.tsx'), /const sandbox = health \? !!health\.sandbox\?\.enabled : !!initial\?\.sandbox;/);
+  const view = read('src/components/settings/SettingsView.tsx');
+  assert.match(view, /sandbox: '\/settings\/sandbox'/);
+  assert.match(view, /section === 'sandbox' && <SandboxSettings \/>/);
+  assert.match(read('src/app/api/sandbox/env/check/route.ts'), /const off = sandboxForbidden\(\);\s+if \(off\) return off;/);
+});
