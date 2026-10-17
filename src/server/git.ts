@@ -79,7 +79,8 @@ export function runGit(args: string[], o: GitOpts = {}): Promise<{ stdout: strin
         const out = scrubOut(stdout, token), errText = scrubOut(stderr, token);
         if (!err) return resolve({ stdout: out, stderr: errText });
         const e = err as NodeJS.ErrnoException & { code?: number | string; killed?: boolean };
-        const why = e.name === 'AbortError' ? 'abgebrochen' : e.killed ? 'Zeitüberschreitung' : e.code === 'ENOENT' ? 'git ist nicht installiert' : (errText.trim().split('\n').slice(-4).join(' ') || scrubOut(e.message, token));
+        const refused = out.split('\n').filter(l => l.startsWith('!')).join(' '); // push --porcelain reports rejected refs on stdout
+        const why = e.name === 'AbortError' ? 'abgebrochen' : e.killed ? 'Zeitüberschreitung' : e.code === 'ENOENT' ? 'git ist nicht installiert' : ([refused, errText.trim().split('\n').slice(-4).join(' ')].filter(Boolean).join(' ') || scrubOut(e.message, token));
         reject(new GitError(`git ${args[0]}: ${why}`.replace(/\s+/g, ' ').slice(0, 300), e.code ?? null));
       });
   });

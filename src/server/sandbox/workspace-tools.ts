@@ -187,7 +187,7 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
       { title: z.string().min(1).max(120).describe('Titel des Pull Requests (kurz, Deutsch)'), body: z.string().max(5000).describe('Beschreibung: was, warum, wie geprüft (Markdown)') },
       act('propose_publish', async ({ title, body }) => {
         host.emit({ t: 'publish_proposal', title: title.trim(), body: redact(body).trim() });
-        return ok('Vorschlag angezeigt. Der Nutzer entscheidet über das Veröffentlichen.');
+        return ok('Vorschlag angezeigt. Der Nutzer prüft ihn im Reiter „Pull Request“ und veröffentlicht selbst (oder nicht).');
       })),
   ] as AnyTool[];
 }

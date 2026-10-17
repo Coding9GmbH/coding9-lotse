@@ -25,7 +25,7 @@ import { streamFileTar } from './tar';
 import { getTemplate, resolveCommand } from './templates';
 import { waitReady } from './templates/dockware';
 import type { StepCtx } from './templates/types';
-import { appendLog, emitTask, getTask, httpStatusOf, listTasks, mustTask, now, sandboxOrigin, saveTask, setTaskDump, taskPaths, turnRunning, type CodeTask, type StoredStep } from './tasks';
+import { appendLog, emitTask, getTask, httpStatusOf, listTasks, mustTask, now, publishRunning, sandboxOrigin, saveTask, setTaskDump, taskPaths, turnRunning, type CodeTask, type StoredStep } from './tasks';
 
 export class TaskConflict extends Error { readonly status = 409; }
 /** Statuses in which the task's container is about to run even if it is not started yet. */
@@ -339,6 +339,7 @@ export async function finishTask(id: string): Promise<CodeTask> {
   mustTask(id);
   const J = jobs();
   if (J.finishing.has(id)) throw new TaskConflict('Die Aufgabe wird bereits abgeschlossen.');
+  if (publishRunning(id)) throw new TaskConflict('Gerade wird veröffentlicht – bitte warten, bis der Pull Request angelegt ist.');
   J.finishing.add(id); // from here no new setup or wake-up can start
   try {
     await abortAndWait(J.setup.get(id));

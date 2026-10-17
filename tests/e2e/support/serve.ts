@@ -2,7 +2,7 @@
  * Starts everything the E2E tests need in one process (Playwright webServer):
  *  - Shopify fake (seed "Haus Holm") on E2E_SHOP_PORT
  *  - Anthropic fake (scripted model) on E2E_AI_PORT; the real Claude Code process talks to it via ANTHROPIC_BASE_URL
- *  - GitHub fake (REST API) on a free port, via LOTSE_GITHUB_API_BASE, plus a bare git repository with a theme plugin
+ *  - GitHub fake (REST API) on E2E_GITHUB_PORT, via LOTSE_GITHUB_API_BASE, plus a bare git repository with a theme plugin
  *    (acme/shop-theme) as file:// clone source (LOTSE_TEST_FILE_REMOTES, only together with the fake Docker runner)
  *  - Lotse (`next start`, with E2E_DEV=1 `next dev`) on E2E_PORT with a fresh, empty data folder (AICB_DATA)
  * Exits together with Lotse; the fakes run in the same process and end with it.
@@ -26,7 +26,7 @@ const themeRepo = makePluginRepo(remoteRoot, { repo: 'acme/shop-theme', name: 'A
 
 const shop = await startFakeShopify({ port: E2E.shopPort, log: false });
 const ai = await startFakeAnthropic({ port: E2E.aiPort, quiet: process.env.E2E_VERBOSE !== '1' });
-const gh = await startFakeGithub({ token: E2E_GITHUB_TOKEN, login: 'octo-lotse', repos: [{ fullName: 'acme/shop-theme' }, { fullName: 'acme/legacy-plugin', push: false }] });
+const gh = await startFakeGithub({ token: E2E_GITHUB_TOKEN, login: 'octo-lotse', port: E2E.githubPort, repos: [{ fullName: 'acme/shop-theme' }, { fullName: 'acme/legacy-plugin', push: false }] });
 console.log(`[e2e] Shopify-Fake ${shop.url} · Anthropic-Fake ${ai.url} · Daten ${E2E.dataDir}`);
 
 const next = path.join(process.cwd(), 'node_modules', 'next', 'dist', 'bin', 'next');

@@ -116,6 +116,14 @@ export function noteSandboxAttached(chatId: string, t: { id: string; title: stri
   for (const l of s.listeners) { try { l(ev); } catch { s.listeners.delete(l); } }
 }
 
+/** An event from outside a turn (e.g. the pull request the user published): saved in the history at once and sent to open views. */
+export function noteChatEvent(chatId: string, ev: ChatEvent) {
+  const s = getSession(chatId);
+  s.events.push(ev);
+  persist(s);
+  for (const l of s.listeners) { try { l(ev); } catch { s.listeners.delete(l); } }
+}
+
 /** Aborts a running turn; open questions/approvals count as rejected. */
 export function stopChat(id: string): boolean {
   const s = peekSession(id);

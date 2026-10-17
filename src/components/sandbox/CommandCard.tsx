@@ -43,15 +43,17 @@ export function SandboxStatusLine({ state, message }: { state: 'waking' | 'ready
   return <p className={`${styles.sbx} ${styles[`sbx_${state}`]}`} role="status"><i aria-hidden="true" />{t[state]}{state === 'failed' && message ? `: ${message}` : ''}</p>;
 }
 
-/** The AI's proposal for a pull request: title and description only, nothing is published from here. */
-export function PublishProposalCard({ title, body }: { title: string; body: string }) {
+/** The AI's proposal for a pull request: title and description only, nothing is published from here. With a sandbox attached,
+ *  "Prüfen und veröffentlichen" opens the "Pull Request" tab with it (only the click there publishes). */
+export function PublishProposalCard({ title, body, onReview }: { title: string; body: string; onReview?: () => void }) {
   const t = useI18n().t.sandbox.code.publish;
   return (
     <section className={styles.pub} aria-label={t.heading}>
       <h3>{t.heading}</h3>
       <p><b>{title}</b></p>
       {body && <p className={styles.pubBody}>{body}</p>}
-      <p className={styles.pubNote}>{t.note}</p>
+      {onReview ? <div className={styles.pubBtns}><Button size="sm" variant="primary" onClick={onReview}>{t.review}</Button></div> : <p className={styles.pubNote}>{t.note}</p>}
+      {onReview && <p className={styles.pubNote}>{t.reviewNote}</p>}
     </section>
   );
 }

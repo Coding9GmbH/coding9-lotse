@@ -72,7 +72,10 @@ export async function ghFetch<T = unknown>(path: string, init: { method?: string
   let json: unknown = null;
   try { json = text ? JSON.parse(text) : null; } catch { /* handled below */ }
   if (!r.ok) {
-    const msg = json && typeof json === 'object' && typeof (json as { message?: unknown }).message === 'string' ? (json as { message: string }).message : '';
+    const j = json && typeof json === 'object' ? json as { message?: unknown; errors?: { message?: unknown }[] } : {};
+    // 422 carries the reason in errors[] ("A pull request already exists for …", "No commits between …")
+    const detail = Array.isArray(j.errors) ? j.errors.map(e => (typeof e?.message === 'string' ? e.message : '')).filter(Boolean).join('; ') : '';
+    const msg = [typeof j.message === 'string' ? j.message : '', detail].filter(Boolean).join(': ');
     if (r.status >= 300 && r.status < 400) throw new Error('GitHub leitet um: Repository wurde umbenannt oder verschoben, bitte neu auswählen.');
     if (r.status === 401) throw new Error('GitHub lehnt den Token ab (ungültig, abgelaufen oder widerrufen).');
     if (r.status === 404) throw new Error('Nicht gefunden oder kein Zugriff: Ist das Repository für den Token freigegeben?');
@@ -137,4 +140,44 @@ export async function testGithub(): Promise<GithubTestResult> {
   if (!repos.length) return { ok: false, login, repos: 0, readOnly, message: `Verbunden als ${login}, aber der Token sieht kein Repository. Repositorys beim Token freigeben. ${PERMISSION_HINT}` };
   const ro = readOnly.length ? ` Ohne Schreibrecht: ${readOnly.slice(0, 5).join(', ')}${readOnly.length > 5 ? ' …' : ''}.` : '';
   return { ok: true, login, repos: repos.length, readOnly, message: `Verbunden als ${login}, ${repos.length} ${repos.length === 1 ? 'Repository' : 'Repositorys'} sichtbar.${ro} ${PERMISSION_HINT}` };
+}
+
+// ---- Pull requests (Sandbox Coding): head is always a lotse/… branch of the same repository, built by the caller ----
+interface RawPull { number?: unknown; html_url?: unknown; title?: unknown; state?: unknown; merged?: unknown; merged_at?: unknown; draft?: unknown; head?: { sha?: unknown; ref?: unknown } }
+export interface Pull { number: number; url: string; title: string; state: 'open' | 'closed' | 'merged'; draft: boolean; headSha: string | null }
+const toPull = (p: RawPull): Pull => {
+  if (typeof p?.number !== 'number' || typeof p.html_url !== 'string') throw new Error('GitHub: unerwartete Antwort (kein Pull Request).');
+  return { number: p.number, url: p.html_url, title: typeof p.title === 'string' ? p.title : '', state: p.merged === true || typeof p.merged_at === 'string' ? 'merged' : p.state === 'closed' ? 'closed' : 'open',
+    draft: p.draft === true, headSha: typeof p.head?.sha === 'string' ? p.head.sha : null };
+};
+const assertPullNo = (n: number) => { if (!Number.isInteger(n) || n < 1) throw new Error('Ungültige Pull-Request-Nummer.'); return n; };
+
+/** The open pull request whose head is `branch` of the repository itself (owner:branch), or null. */
+export async function findOpenPull(repo: string, branch: string): Promise<Pull | null> {
+  const owner = assertRepoName(repo).split('/')[0];
+  const { data } = await ghFetch<RawPull[]>(`${repoPath(repo)}/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}&per_page=10`);
+  if (!Array.isArray(data)) throw new Error('GitHub: unerwartete Antwort (keine Liste).');
+  return data.length ? toPull(data[0]) : null;
+}
+export async function createPull(repo: string, p: { title: string; body: string; head: string; base: string }): Promise<Pull> {
+  return toPull((await ghFetch<RawPull>(`${repoPath(repo)}/pulls`, { method: 'POST', body: { title: p.title, body: p.body, head: p.head, base: p.base, draft: false, maintainer_can_modify: false } })).data);
+}
+export async function updatePull(repo: string, n: number, p: { title: string; body: string }): Promise<Pull> {
+  return toPull((await ghFetch<RawPull>(`${repoPath(repo)}/pulls/${assertPullNo(n)}`, { method: 'PATCH', body: { title: p.title, body: p.body } })).data);
+}
+export async function getPull(repo: string, n: number): Promise<Pull> {
+  return toPull((await ghFetch<RawPull>(`${repoPath(repo)}/pulls/${assertPullNo(n)}`)).data);
+}
+/** Check runs of a commit, counted: success (also neutral/skipped), failure (failure, timed out, cancelled, action required), pending. */
+export async function checkSummary(repo: string, sha: string): Promise<{ total: number; success: number; failure: number; pending: number }> {
+  if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('Ungültiger Commit.');
+  const { data } = await ghFetch<{ check_runs?: { status?: unknown; conclusion?: unknown }[] }>(`${repoPath(repo)}/commits/${sha}/check-runs?per_page=100`);
+  const runs = Array.isArray(data?.check_runs) ? data.check_runs : [];
+  const s = { total: runs.length, success: 0, failure: 0, pending: 0 };
+  for (const r of runs) {
+    if (r.status !== 'completed') s.pending++;
+    else if (['success', 'neutral', 'skipped'].includes(String(r.conclusion))) s.success++;
+    else s.failure++;
+  }
+  return s;
 }

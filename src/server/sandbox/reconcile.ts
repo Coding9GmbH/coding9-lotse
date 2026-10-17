@@ -1,5 +1,5 @@
 import 'server-only';
-// After a Lotse restart: steps that were running become "interrupted"; labelled containers without a task (or of a finished task)
+// After a Lotse restart: steps (and a publish) that were running become "interrupted"; labelled containers without a task (or of a finished task)
 // are removed; the containers of the other tasks keep their state (a running one stays ready, a stopped one is paused).
 // Also starts the idle sweeper (one interval per process, unref: never keeps the process alive), which also deletes stale dumps.
 // Dumps are swept at startup whether Sandbox Coding is on or not: a leftover file must never outlive its 24 h.
@@ -11,7 +11,7 @@ import { sandboxEnabled } from './env';
 import { pauseIdle } from './jobs';
 import { TASK_LABEL } from './labels';
 import { getRunner } from './runner';
-import { getTask, hasListeners, listTasks, saveTask, turnRunning, type CodeTask } from './tasks';
+import { getTask, hasListeners, listTasks, publishRunning, saveTask, turnRunning, type CodeTask } from './tasks';
 
 const SWEEP_MS = 60_000, DUMP_SWEEP_MS = 10 * 60_000;
 const state = () => singleton<{ done: Promise<void> | null; sweeper: NodeJS.Timeout | null }>('sandboxReconcile', () => ({ done: null, sweeper: null }));
@@ -24,6 +24,11 @@ export function interruptStale(tasks: CodeTask[] = listTasks()): string[] {
     for (const s of t.steps) if (s.state === 'running') { s.state = 'interrupted'; s.error = 'Lotse wurde neu gestartet.'; }
     t.status = t.status === 'waking' ? 'paused' : 'interrupted';
     saveTask(t, false); changed.push(t.id);
+  }
+  for (const t of tasks) { // a publish cut off by the restart: the retry continues idempotently (publish.ts)
+    if (t.publish?.state !== 'running' || publishRunning(t.id)) continue;
+    t.publish = { ...t.publish, state: 'interrupted', error: 'Lotse wurde beim Veröffentlichen neu gestartet – bitte erneut veröffentlichen.' };
+    saveTask(t, false); if (!changed.includes(t.id)) changed.push(t.id);
   }
   return changed;
 }

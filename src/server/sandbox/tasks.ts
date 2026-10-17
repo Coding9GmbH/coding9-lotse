@@ -5,7 +5,7 @@ import 'server-only';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
-import type { CodeTaskPublic, CodeTaskStatus, TaskDumpPublic, CommandPhase, TaskEvent, TaskLayout, TaskStep } from '@/lib/protocol';
+import type { CodeTaskPublic, CodeTaskStatus, TaskDumpPublic, CommandPhase, TaskEvent, TaskLayout, TaskPublish, TaskStep } from '@/lib/protocol';
 import { codeTaskByChat, codeTaskGet, codeTaskList, codeTaskPut, dataDir, macOf, type CodeTaskRow } from '../db';
 import { assertLotseBranch } from '../git';
 import { singleton } from '../state';
@@ -29,6 +29,8 @@ export interface CodeTask extends CodeTaskRow {
   /** where Lotse ran when the container was created; port: only containers from before the internal network (refused) */ mode: NetworkMode | null; port: number | null;
   lastActiveAt: string; finishedAt: string | null;
   /** missing in rows from before dumps existed */ dump?: StoredDump | null;
+  /** title of the pull request (number, URL and pushed SHA are columns) */ prTitle?: string | null;
+  /** publishing (running, failed or interrupted by a restart); null after success */ publish?: TaskPublish | null;
 }
 
 export const now = () => new Date().toISOString();
@@ -100,6 +102,17 @@ const turns = () => singleton<Set<string>>('sandboxTaskTurns', () => new Set());
 export const markTurn = (id: string, on: boolean) => { if (on) turns().add(id); else turns().delete(id); };
 export const turnRunning = (id: string) => turns().has(id);
 
+// ---- Publishing running for a task (publish.ts): no agent turn, finish or second publish meanwhile ----
+const publishing = () => singleton<Map<string, Promise<unknown>>>('sandboxTaskPublishing', () => new Map());
+export const publishRunning = (id: string) => publishing().has(id);
+/** Resolves when the task's running publish (if any) has ended. */
+export const publishSettled = (id: string): Promise<void> => (publishing().get(id) ?? Promise.resolve()).then(() => {}, () => {});
+export function markPublishing<T>(id: string, p: Promise<T>): Promise<T> {
+  publishing().set(id, p);
+  void p.finally(() => { if (publishing().get(id) === p) publishing().delete(id); }).catch(() => {});
+  return p;
+}
+
 export function listen(id: string, fn: (ev: TaskEvent) => void): () => void {
   const L = live().listeners;
   let set = L.get(id);
@@ -123,7 +136,7 @@ export function publicTask(t: CodeTask, o: { logs?: boolean } = {}): CodeTaskPub
     steps: t.steps.map(({ id, key, label, state, startedAt, endedAt, log, error }) => ({ id, key, ...(label ? { label } : {}), state, ...(startedAt ? { startedAt } : {}), ...(endedAt ? { endedAt } : {}), log: o.logs === false ? [] : log, ...(error ? { error } : {}) })),
     container: t.containerId ? { running: t.containerRunning } : null,
     preview: previewPath(t.id), dump: t.dump ? publicTaskDump(t.dump) : null, prUrl: t.prUrl, createdAt: t.createdAt, updatedAt: t.updatedAt, lastActiveAt: t.lastActiveAt, finishedAt: t.finishedAt,
-    chatId: t.chatId,
+    chatId: t.chatId, pr: t.prNumber && t.prUrl ? { number: t.prNumber, url: t.prUrl, title: t.prTitle ?? t.title } : null, publish: t.publish ?? null,
   };
 }
 
