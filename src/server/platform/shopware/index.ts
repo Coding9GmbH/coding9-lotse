@@ -13,6 +13,7 @@ import { clearShopCache } from './cache';
 import { shopwareLookup } from './lookup';
 import { shopwarePages } from './pages';
 import { shopwareSales } from './sales';
+import { shopwareBrandSources } from '../../styleguide';
 import { SHOPWARE_TOOL_NAMES, shopwareTools } from './tools';
 
 /** Guarded read client as in the chat: allow-list (policy.ts), scopes from the settings, access log under chat. */
@@ -53,6 +54,7 @@ export const shopware: PlatformAdapter = {
   tools: shopwareTools,
   loadChecks: async () => { await import('../../features'); },
   scanProducts: async r => (await import('./scan')).scanNeutral(r as ShopReader),
+  brand: r => shopwareBrandSources(r as ShopReader),
   // fixed query via the privileged client: the AI's read client has no access to orders (features/sales.ts)
   sales: range => shopwareSales(shop(), range),
 

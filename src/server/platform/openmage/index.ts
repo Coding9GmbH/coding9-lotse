@@ -16,6 +16,7 @@ import { OPENMAGE_CAPABILITIES, openmagePages } from './pages';
 import { openmageImport } from './importer';
 import { OPENMAGE_TOOL_NAMES, openmageReader, openmageTools } from './tools';
 import { openmageSales } from './sales';
+import { omBrandSources } from './brand';
 import { reg, undoOpenmage } from './write';
 import './catalog'; import './images'; import './promo'; import './variants'; import './bulk'; import './cms'; // register their executors
 
@@ -69,6 +70,7 @@ export const openmage: PlatformAdapter = {
   features: [openmageImport],
   loadChecks: async () => { await import('./checks'); },
   scanProducts: async r => (await import('./checks')).neutralScan(r as OmReader),
+  brand: r => omBrandSources(r as OmReader),
   // fixed module endpoint (sums per product) via the privileged client; the AI's read client denies /v1/sales
   sales: range => openmageSales(openmageClient(), range),
 

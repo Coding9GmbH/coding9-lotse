@@ -18,6 +18,7 @@ import { undoShopify } from './ops';
 import { shopifyPages } from './pages';
 import { applyShopifyPublish, type ShopifyPublishPayload } from './publish';
 import { shopifySales } from './sales';
+import { shopifyBrandSources } from './brand';
 import { applyBulk, applyProducts, applyVariants, createProduct, type NewProductPayload } from './products';
 import { ShopifyReader } from './reader';
 import { applyShopifyImport, IMPORT_KIND_SHOPIFY, shopifyImportFeature, type ShopifyImportPayload } from './import';
@@ -124,6 +125,7 @@ export const shopify: PlatformAdapter = {
   features: [shopifyImportFeature],
   loadChecks: async () => { await import('./checks'); },
   scanProducts: async r => (await import('./checks')).neutralScan(r as ShopifyReader),
+  brand: r => shopifyBrandSources(r as ShopifyReader, shopifyClient),
   // fixed query via the privileged client, needs read_orders; only sums per product leave it (features/sales.ts)
   sales: range => { const c = shopifyClient(); return shopifySales((d, v) => c.gql(d, v), range); },
 

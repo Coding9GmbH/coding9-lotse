@@ -46,7 +46,7 @@ Tools and domains (same names where the meaning matches; ✓ = available, – = 
 | Master data (manufacturers, properties, taxes …) | ✓ (`propose_product_data` etc.) | – | Read attributes (`list_product_attributes`) | Read attributes (`list_product_attributes`) |
 | Read/change CMS pages (`list_cms_pages`, `get_cms_page`, `read_page`) | ✓ (read) | – | ✓ (+ `propose_cms_page_changes`) | ✓ (+ `propose_cms_page_changes`, read blocks) |
 | Legal, GPSR, unit prices, accessibility | ✓ | – | – | – |
-| `get_brand_signals` (onboarding from the theme) | ✓ | – | – | – |
+| `get_brand_signals` (onboarding, core tool, sources via `brand`) | ✓ (theme configuration + copy) | ✓ (design values from `settings_data.json` + copy) | ✓ (storefront CSS + copy, no theme interface) | ✓ (storefront CSS + copy, no theme interface) |
 | Supplier import (`read_supplier_file`, `save_import_mapping`, `preview_import`, `propose_import`) | ✓ | ✓ (own feature `shopify-import`; existing variants by SKU/barcode, new variants of existing products only via `propose_variants`) | ✓ (matching by SKU, no creation of variants/attributes/categories) | ✓ (`import-openmage`, as Magento 2) |
 | Shop check (`run_shop_check`) | ✓ | ✓ (`shopify/checks.ts`) | ✓ (`magento/checks.ts`) | ✓ (`openmage/checks.ts`) |
 | Sales (`sales_report`, switch “Sales”) | ✓ (order line items, variants → parent) | ✓ (`read_orders`, 60 days without `read_all_orders`) | ✓ (`/V1/orders` with `fields`, ACL Sales → Orders; quantity from the parent row, revenue of all rows to the parent product) | ✓ (module endpoint `/v1/sales`, module 1.3.0+) |
@@ -118,6 +118,7 @@ Code style as in the repo: strict TypeScript, compact, German comments, `import 
 | `toolNames`, `tools(session)` | yes | The platform's tools (section 4); `toolNames` must match `tools()` exactly |
 | `features?` | no | additional feature modules (like `src/server/features`), e.g. images, promotions |
 | `loadChecks()` | yes | imports the modules that register shop checks (may be empty) |
+| `brand(reader)` | no | Sources for `get_brand_signals`: `theme()` (design settings in the admin, only colors/fonts/shapes) and `samples()` (copy of up to 6 active products and categories, `sampleText`) via the guarded read client; without it the onboarding only reads the storefront |
 | `sales(range)` | yes | Sales without personal data (`features/sales.ts`): totals per product (`productId` as in `scanProducts`, variants under their parent, `quantity`, `revenue`, `orders`) for `from`–`to` (UTC days), without cancelled orders. Fixed query via the privileged client, never criteria from the AI, never customer, address or order number fields; cap → `capped`. If the shop lacks the permission, an understandable error |
 | `scanProducts(reader)` | yes | active products as `NeutralProduct` (name, description, metas, price, list price, stock, image) for custom checks; reads via the run's guarded read client, once per run (cap like the built-in checks). `null` = not readable on the platform |
 | `apply(cs, payload, selected, ctx)` | yes | write an approved change set (section 5). Call `ctx.progress(done, total, partial)` after each item/chunk, `partial = { results, undo }` with the state so far: the session saves it in batches in `changeset_runs` (SQLite) so that a crash midway does not lose any undo. Helpers in `changes.ts`: `applyEach` (ticks by itself), `partialTicker(ctx, total, { results, undo })` for custom loops, `trackedUndo(ctx, total, results?)` for executors with several write steps per record (promotion, publishing: every `push` reports immediately). The next time the chat is loaded, an interrupted run becomes the result `partial`/`failed` with the saved undo steps; without a saved intermediate state the result honestly says “unknown, check in the shop” (never “nothing written”). Pending approvals are then treated as rejected (“restart, please propose again”) |
@@ -189,7 +190,7 @@ Environment variables `SHOPWARE_*`, `SHOPIFY_*`, `MAGENTO_*`, `OPENMAGE_*`, `SHO
 | `get_category` | read | `{ id }` → name, description, metas, subcategories |
 | `search_media` | read | `{ term?, limit? }` → `{ mediaId, url, alt }` |
 | `read_page` | read | `{ url }` of a page of the **own** shop (`assertShopUrl` from `storefront.ts`), text, headings, images, links |
-| `get_brand_signals` | read | Onboarding: theme colors/fonts, logo, real copy (see `collectSignals` in `styleguide.ts` as a model) |
+| `get_brand_signals` | read | Onboarding: core tool (`tools.ts`), storefront part (logo, CSS, navigation, page structure) platform-neutral in `collectSignals` (`styleguide.ts`); the adapter provides theme settings (`theme`) and text samples (`samples`) via `brand(reader)`, see `shopify/brand.ts` |
 | `propose_product_changes` | proposal | `{ title, reason, changes: [{ id, fields }] }`, fields at least `name, description, metaTitle, metaDescription, price, listPrice, stock, active`; price rules via `resolvePrice` (`changes.ts`) |
 | `propose_new_products` | proposal | as in Shopware: inactive by default, stock 0, never estimate prices |
 | `propose_category_changes` | proposal | `name, description, metaTitle, metaDescription, active` |
@@ -403,7 +404,7 @@ Important Magento rules the adapter implements:
 - **Links** (`links.ts`): check internal links via GraphQL `route` (missing, product disabled/invisible, category inactive, redirect → link directly); in `prepareDraft`, `buildPublish` and in the shop check.
 - **Shop check** (`checks.ts`, `checks-rules.ts`): metas, title length/duplicates, thin copy, images/alt texts, stock 0 with “in stock” (MSI), price 0, special price not below price, links in descriptions and CMS pages (one link cache per run: each path is resolved only once across all products and pages), category metas/texts, translations per store view with a different locale; `fixPrompt` names Magento tools. `find_image_gaps` pages with page size = `limit` and returns all matches of the page; `list_products` filters the price range (pre-filtered server-side) and `maxStock` per page and says so in the result (`note`).
 - **Import** (`importer.ts`): file/mapping as in `features/import.ts` (`supplierFileTools`), matching by SKU, new products as drafts (`createProduct`), updates only for changed fields (`writeScoped`), prices in the shop's price basis, stock/categories/images, groups + sample, writing in chunks with progress, exact undo. No variants, no new attributes/option values, no categories.
-- **Still open:** `get_brand_signals` and theme CSS for the preview (the preview uses the style guide variables), translating CMS content.
+- **Still open:** theme CSS for the preview (the preview uses the style guide variables), translating CMS content. `get_brand_signals` exists on all platforms since it became a core tool.
 
 ---
 
@@ -441,6 +442,6 @@ Magento:
 - The check for taken `identifier`s is deliberately cautious and also blocks identifiers that only occur in other store views (`cmsPage/search` does not return a `store_id`).
 - Preview: product sliders appear as Lotse product boxes in the Lotse preview and as a Magento widget in the shop; the change card and prompt point this out.
 - On classic CMS pages (without Page Builder), new `{{…}}` directives from the AI are now also defused; existing ones are kept.
-- `get_brand_signals`, theme CSS for the preview and translating CMS content are still missing (see section 12).
+- Theme CSS for the preview and translating CMS content are still missing (see section 12).
 
-Both: `get_brand_signals` (onboarding from the theme) so far only exists for Shopware; on Shopify and Magento the preview uses the style guide variables instead of the theme CSS.
+Both: on Shopify and Magento the preview uses the style guide variables instead of the theme CSS. The style guide onboarding (`get_brand_signals`) works on all platforms; Magento and OpenMage have no interface for the theme's design settings, so colors and fonts come from the storefront CSS there.
