@@ -13,6 +13,7 @@ const fake = await startFakeOpenmage({ orders: [
   { day: '2026-09-20', canceled: true, items: [{ product_id: 2, qty: 5, revenue: 90 }] },
   { day: '2026-10-05', items: [{ product_id: 2, qty: 1, revenue: 18 }] }, // outside the period
 ] });
+test.after(() => fake.close());
 const { OmClient } = await import('../../../../src/server/platform/openmage/client');
 const { openmageSales } = await import('../../../../src/server/platform/openmage/sales');
 const { createOmGuard, OmReader } = await import('../../../../src/server/platform/openmage/reader');

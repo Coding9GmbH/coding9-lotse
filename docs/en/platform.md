@@ -49,7 +49,7 @@ Tools and domains (same names where the meaning matches; ✓ = available, – = 
 | `get_brand_signals` (onboarding from the theme) | ✓ | – | – | – |
 | Supplier import (`read_supplier_file`, `save_import_mapping`, `preview_import`, `propose_import`) | ✓ | ✓ (own feature `shopify-import`; existing variants by SKU/barcode, new variants of existing products only via `propose_variants`) | ✓ (matching by SKU, no creation of variants/attributes/categories) | ✓ (`import-openmage`, as Magento 2) |
 | Shop check (`run_shop_check`) | ✓ | ✓ (`shopify/checks.ts`) | ✓ (`magento/checks.ts`) | ✓ (`openmage/checks.ts`) |
-| Sales (`sales_report`, switch “Sales”) | ✓ (order line items, variants → parent) | ✓ (`read_orders`, 60 days without `read_all_orders`) | ✓ (`/V1/orders` with `fields`, ACL Sales → Orders) | ✓ (module endpoint `/v1/sales`) |
+| Sales (`sales_report`, switch “Sales”) | ✓ (order line items, variants → parent) | ✓ (`read_orders`, 60 days without `read_all_orders`) | ✓ (`/V1/orders` with `fields`, ACL Sales → Orders) | ✓ (module endpoint `/v1/sales`, module 1.3.0+) |
 | Custom checks via chat, checks on/off (`create_check`, `set_check_enabled`) | ✓ (`shopware/scan.ts`) | ✓ (`neutralScan` in `checks.ts`) | ✓ (`neutralScan`) | ✓ (`neutralScan`) |
 | Core: pages, style guide, image AI, knowledge base, Search Console | ✓ | ✓ | ✓ | ✓ |
 
