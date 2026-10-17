@@ -15,6 +15,12 @@ const MORE_LINES = `query SalesLines($id: ID!, $after: String) { order(id: $id) 
 export const NO_ORDERS = 'Shopify erlaubt Lotse keine Bestellungen zu lesen: Für den Abverkauf braucht die App die Berechtigung read_orders (Lotse liest daraus nur Summen je Produkt, keine Kundendaten).';
 const DAYS_60 = 'Shopify liefert ohne die Berechtigung read_all_orders nur Bestellungen der letzten 60 Tage.';
 
+/** Does the app have read_all_orders? (not readable = no) */
+async function hasAllOrders(q: Q): Promise<boolean> {
+  try { return ((await q<Json>('query Scopes { currentAppInstallation { accessScopes { handle } } }')).currentAppInstallation?.accessScopes ?? []).some((x: Json) => x.handle === 'read_all_orders'); }
+  catch { return false; }
+}
+
 export async function shopifySales(q: Q, r: SalesRange, o: { pages?: number; now?: Date } = {}): Promise<SalesReport> {
   const per = new Map<string, { quantity: number; revenue: number; orders: Set<string> }>(), counted = new Set<string>(), currencies = new Set<string>();
   const add = (order: string, li: Json) => {
@@ -45,7 +51,8 @@ export async function shopifySales(q: Q, r: SalesRange, o: { pages?: number; now
     throw e;
   }
   const rows: SalesRow[] = [...per].map(([productId, v]) => ({ productId, quantity: v.quantity, revenue: Math.round(v.revenue * 100) / 100, orders: v.orders.size }));
-  const old = Date.parse(`${r.from}T00:00:00Z`) < (o.now ?? new Date()).getTime() - 60 * 86_400_000;
+  // older than 60 days: only a limit without read_all_orders (permissions unreadable → mention it to be safe)
+  const old = Date.parse(`${r.from}T00:00:00Z`) < (o.now ?? new Date()).getTime() - 60 * 86_400_000 && !(await hasAllOrders(q));
   const notes = [...(old ? [DAYS_60] : []), ...(currencies.size > 1 ? ['Bestellungen in mehreren Währungen: Umsätze sind ohne Umrechnung addiert.'] : [])];
   return { rows, orders: counted.size, currency: currencies.size === 1 ? [...currencies][0] : null, capped, ...(notes.length ? { notes } : {}) };
 }

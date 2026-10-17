@@ -44,6 +44,7 @@ export function SeoView() {
 
   const load = (refresh = false) => {
     setError(''); setBusy(true);
+    if (refresh) api.seoImpact().then(setEffects, () => {}); // fetching again also refreshes the impact list (stored state, no Google request)
     return api.seoOverview(refresh).then(setData, e => setError(errorText(e))).finally(() => setBusy(false));
   };
   useEffect(() => {

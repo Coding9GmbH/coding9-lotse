@@ -10,7 +10,7 @@ import { registerCheck } from '../checks';
 import { accessAdd } from '../db';
 import { getPlatform } from '../platform';
 import type { PlatformKind, SalesReport } from '../platform/types';
-import { getSettings } from '../settings';
+import { getSettings, platformConfig, shopOrigin } from '../settings';
 import { singleton } from '../state';
 import { guard, lim, ok, type AnyTool } from '../tool-kit';
 import { DEFAULT_DAYS, MAX_DAYS, mergeRows, money, PROBLEM_TEXT, salesRange, slowMovers, topSellers, weakTopSellers, type SortBy } from './sales-logic';
@@ -20,9 +20,12 @@ const BLOCKED = 'Der Zugriff der KI auf Abverkaufsdaten ist ausgeschaltet. Der N
 export const salesAllowed = () => getSettings().scopes.sales === true;
 const HOUR = 60 * 60_000;
 
+/** The connected shop (platform, address, store view): another shop on the same platform must never get the cached sums */
+const connectionKey = (platform: PlatformKind) => { const c = platformConfig(platform); return [platform, shopOrigin(c.url || c.storeDomain), c.storeCode ?? ''].join('|'); };
+
 /** Sales of a period from the adapter, cached for an hour per platform and period (several checks and tool calls share one read) */
 export async function salesReport(platform: PlatformKind, days = DEFAULT_DAYS, now = new Date(), chat = 'sales'): Promise<SalesReport & { from: string; to: string; days: number }> {
-  const r = salesRange(days, now), key = `${platform}:${r.from}:${r.to}`;
+  const r = salesRange(days, now), key = `${connectionKey(platform)}:${r.from}:${r.to}`;
   const cache = singleton('sales-cache', () => new Map<string, { at: number; p: Promise<SalesReport> }>());
   let hit = cache.get(key);
   if (!hit || now.getTime() - hit.at > HOUR) {
@@ -34,12 +37,17 @@ export async function salesReport(platform: PlatformKind, days = DEFAULT_DAYS, n
 }
 export const clearSalesCache = () => singleton('sales-cache', () => new Map()).clear();
 
-// One product scan per read client (shop check run or chat session), like the custom checks
-const scans = new WeakMap<object, Promise<NeutralScan>>();
-function scanOf(platform: PlatformKind, reader: unknown): Promise<NeutralScan> {
-  const k = reader as object;
-  if (!scans.has(k)) scans.set(k, getPlatform(platform).scanProducts(reader));
-  return scans.get(k)!;
+// One product scan per read client (shop check run or chat session), like the custom checks; in a chat at most 5 minutes old,
+// so texts improved in the same chat count when asked again
+const SCAN_TTL = 5 * 60_000;
+const scans = new WeakMap<object, { at: number; p: Promise<NeutralScan> }>();
+export function scanOf(platform: PlatformKind, reader: unknown, now = Date.now()): Promise<NeutralScan> {
+  const k = reader as object, hit = scans.get(k);
+  if (hit && now - hit.at < SCAN_TTL) return hit.p;
+  const p = getPlatform(platform).scanProducts(reader);
+  scans.set(k, { at: now, p });
+  p.catch(() => { if (scans.get(k)?.p === p) scans.delete(k); }); // a failed read is not remembered
+  return p;
 }
 
 const label = (p: { label: string } | null, id: string) => p?.label ?? `Produkt ${id}`;

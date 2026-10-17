@@ -15,7 +15,7 @@ import { targetHint } from './target-hint';
 import { pingCodex, runCodex } from './agent-codex';
 import type { Session } from './sessions';
 import { errMsg } from './util';
-import { budgetGate, recordTurn, turnCost } from './usage';
+import { budgetGate, recordTurn, releaseBudget, turnCost } from './usage';
 
 // Save immediately (approvals, questions, drafts); all other history events batched (persistSoon), live-only events not at all
 const PERSIST_ON = new Set(['draft', 'styleguide', 'approval', 'changeset', 'changeset_result', 'question']);
@@ -66,7 +66,7 @@ export function startChat({ chatId, message, target, onboarding, locale }: ChatR
   const prompt = hint ? `${hint}\n${message}` : message;
   const provider = getSettings().ai.provider, t0 = Date.now();
   // Cost brake (usage.ts): Claude only (Codex = subscription without USD costs). Used-up budget → no turn; otherwise the remaining budget is the turn's limit
-  const gate = provider === 'claude' ? budgetGate() : { blocked: false as const };
+  const gate = provider === 'claude' ? budgetGate(new Date(), chatId) : { blocked: false as const };
   log.info('Chat-Runde gestartet', { chatId, provider, platform: s.platform, ...(onboarding ? { onboarding: true } : {}), ...(gate.blocked ? { budgetBlocked: true } : {}) });
   const done = (async () => {
     let end: RunEnd = { error: null }, cost: number | null = null;
@@ -79,8 +79,9 @@ export function startChat({ chatId, message, target, onboarding, locale }: ChatR
       // `done` only once the turn is really over: whoever fetches the history afterwards no longer sees the chat as running
       s.running = false; s.abort = null;
       if (!gate.blocked) {
-        cost = turnCost(end.cost, s.costTotal);
-        if (end.cost != null) s.costTotal = end.cost;
+        const t = turnCost(end, { total: s.costTotal ?? null, session: s.costSession ?? null }, s.sdkSessionId);
+        cost = t.cost; s.costTotal = t.next.total; s.costSession = t.next.session;
+        releaseBudget(chatId);
         recordTurn({ chatId, provider, model: end.model, cost, usage: end.usage });
       }
       const error = end.error ?? (ac.signal.aborted ? messages(s.locale).server.runCancelled : null);

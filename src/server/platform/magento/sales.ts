@@ -8,7 +8,7 @@ import type { Criteria } from './criteria';
 
 export const SALES_PAGE = 100, SALES_PAGES = 50; // at most 5,000 orders per period
 /** Field selection (Magento "fields" parameter): only what the sums need */
-export const SALES_FIELDS = 'items[entity_id,state,base_currency_code,items[product_id,parent_item_id,qty_ordered,qty_canceled,base_row_total,base_row_total_incl_tax,base_discount_amount]],total_count';
+export const SALES_FIELDS = 'items[entity_id,state,base_currency_code,items[item_id,product_id,parent_item_id,qty_ordered,qty_canceled,base_row_total,base_row_total_incl_tax,base_discount_amount]],total_count';
 const DENIED = 'Magento erlaubt Lotse keine Bestellungen zu lesen: Für den Abverkauf braucht die Integration Zugriff auf Vertrieb → Bestellungen (Lotse liest daraus nur Summen je Produkt, keine Kundendaten).';
 
 export const salesCriteria = (r: SalesRange, currentPage: number): Criteria => ({
@@ -35,13 +35,17 @@ export async function magentoSales(c: MagentoClient, r: SalesRange): Promise<Sal
       const oid = String(o.entity_id ?? '');
       if (typeof o.base_currency_code === 'string' && o.base_currency_code) currencies.add(o.base_currency_code);
       orders.add(oid);
-      for (const it of (o.items as Record<string, unknown>[] | undefined) ?? []) {
-        if (it.parent_item_id != null && it.parent_item_id !== '') continue; // configurable/bundle: the parent row carries quantity and price
-        const id = it.product_id == null ? '' : String(it.product_id); if (!id) continue;
-        const ordered = num(it.qty_ordered) ?? 0, qty = Math.max(0, ordered - (num(it.qty_canceled) ?? 0)); if (!qty) continue;
+      // Quantity from the top-level row; revenue from ALL rows, credited to the top-level product: configurables and fixed-price
+      // bundles carry the price on the parent (children 0), dynamic-price bundles on the children (parent 0)
+      const items = (o.items as Record<string, unknown>[] | undefined) ?? [], byItem = new Map(items.map(it => [String(it.item_id ?? ''), it]));
+      for (const it of items) {
+        const child = it.parent_item_id != null && it.parent_item_id !== '', top = child ? byItem.get(String(it.parent_item_id)) : it;
+        const id = top?.product_id == null ? '' : String(top.product_id); if (!id) continue;
+        const ordered = num(it.qty_ordered) ?? 0, left = Math.max(0, ordered - (num(it.qty_canceled) ?? 0)); if (!left) continue;
         const row = (num(it.base_row_total_incl_tax) ?? num(it.base_row_total) ?? 0) - (num(it.base_discount_amount) ?? 0);
         const cur = per.get(id) ?? { quantity: 0, revenue: 0, orders: new Set<string>() };
-        cur.quantity += qty; cur.revenue += ordered ? (row * qty) / ordered : 0; cur.orders.add(oid);
+        if (!child) cur.quantity += left;
+        cur.revenue += ordered ? (row * left) / ordered : 0; cur.orders.add(oid);
         per.set(id, cur);
       }
     }

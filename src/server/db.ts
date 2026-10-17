@@ -72,7 +72,7 @@ export const kvSet = (key: string, value: unknown) => kvSetOn(db(), key, value);
 export type StoredEvent = ChatEvent;
 export interface StoredChat {
   id: string; title: string | null; target: Target | null; createdAt: string; updatedAt: string;
-  sdkSessionId: string | null; costTotal?: number | null; codexThreadId?: string | null; draft: PageSpec | null; events: StoredEvent[];
+  sdkSessionId: string | null; costTotal?: number | null; costSession?: string | null; codexThreadId?: string | null; draft: PageSpec | null; events: StoredEvent[];
 }
 const evType = (e: StoredEvent) => (e as { t: string }).t;
 function chatPutOn(d: DatabaseSync, c: StoredChat) {

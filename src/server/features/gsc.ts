@@ -30,8 +30,10 @@ export const propose = (label: string): Record<string, string> => ({ product: 'p
 /** Read side: platform-neutral (ShopLookup); a Shopware read client is accepted as before */
 type Shop = ShopReader | ShopLookup;
 const KIND_OF: Record<string, LinkKind> = { product: 'product', category: 'category', 'landing-page': 'landing' };
-/** Fields whose change can move search traffic: metas, name/title, texts and FAQ (not prices, stock or status) */
-export const MEASURED_FIELDS = new Set(['metaTitle', 'metaDescription', 'keywords', 'name', 'description', 'shortDescription', 'faq']);
+/** Fields whose change can move search traffic: metas, name/title, texts and FAQ (not prices, stock or status); title/content/contentHeading = CMS pages (Magento, OpenMage) */
+export const MEASURED_FIELDS = new Set(['metaTitle', 'metaDescription', 'keywords', 'name', 'description', 'shortDescription', 'faq', 'title', 'content', 'contentHeading']);
+/** HTML fields: no drift comparison (the shop normalizes markup) */
+const HTML_FIELDS = new Set(['description', 'shortDescription', 'content']);
 /** At most this many pages per change set get a baseline (two Search Console queries each) */
 export const MAX_BASELINES = 50;
 
@@ -54,7 +56,8 @@ export async function recordBaseline(cfg: Cfg, ro: Shop, a: { entity: Baseline['
   const b: Baseline = { id: `b_${now.getTime().toString(36)}${Math.random().toString(36).slice(2, 6)}`, entity: a.entity, entityId: a.entityId, label: a.label, urls: rows.length ? rows.map(x => x.keys[0]) : urls, pathRegex: re, fields: a.fields,
     changedAt: now.toISOString(), changeSetId: a.changeSetId, chatId: a.chatId, before: { ...m, startDate: r.startDate, endDate: r.endDate, days: r.days }, site };
   // Earlier, not yet measured baselines of the same page are skewed from now on
-  const all = listBaselines().map(x => (x.entityId === a.entityId && !x.measured ? { ...x, measured: { at: now.toISOString(), verdict: 'überholt: Seite erneut geändert, bevor gemessen wurde' } } : x));
+  // same entity type: on Magento/OpenMage product 3 and category 3 are different pages
+  const all = listBaselines().map(x => (x.entity === a.entity && x.entityId === a.entityId && !x.measured ? { ...x, measured: { at: now.toISOString(), verdict: 'überholt: Seite erneut geändert, bevor gemessen wurde' } } : x));
   saveBaselines([...all, b]);
   return b;
 }
@@ -67,7 +70,7 @@ export async function baselinesFor(cfg: Cfg, items: ChangeItem[], ctx: { ro: Sho
     if (!it.field || !MEASURED_FIELDS.has(it.field) || !it.entityId || !KIND_OF[it.entity]) continue;
     const k = `${it.entity}:${it.entityId}`, g = groups.get(k) ?? { entity: it.entity as Baseline['entity'], entityId: it.entityId, label: it.label, fields: [] };
     // afterRaw only for plain strings: the drift check compares it with today's value (FAQ objects and HTML stay without)
-    g.fields.push({ field: it.field, before: it.before, after: it.after, afterRaw: typeof it.afterRaw === 'string' && it.field !== 'description' ? it.afterRaw : undefined });
+    g.fields.push({ field: it.field, before: it.before, after: it.after, afterRaw: typeof it.afterRaw === 'string' && !HTML_FIELDS.has(it.field) ? it.afterRaw : undefined });
     groups.set(k, g);
   }
   for (const t of ctx.targets ?? []) {
@@ -98,7 +101,9 @@ export async function measure(cfg: Cfg, ro: Shop, b: Baseline, now = new Date())
   const res = compareEffect({ ...b.before, days: b.before.days }, { ...after, days: w.days }, b.site && siteAfter ? { before: { ...b.site, days: b.before.days }, after: { ...siteAfter, days: w.days } } : undefined);
   // Has the change been overwritten or undone in the meantime?
   const cur = await asLookup(ro).current(b.entity, b.entityId).catch(() => null);
-  const drift = cur ? b.fields.filter(f => f.afterRaw != null && (cur.translated?.[f.field] ?? cur[f.field] ?? null) !== f.afterRaw).map(f => f.field) : [];
+  // only fields the platform's current() returns (Magento/OpenMage don't return e.g. keywords): a missing field is no evidence of a change
+  const has = (f: string) => !!cur && (f in cur || (!!cur.translated && f in cur.translated));
+  const drift = cur ? b.fields.filter(f => f.afterRaw != null && has(f.field) && (cur.translated?.[f.field] ?? cur[f.field] ?? null) !== f.afterRaw).map(f => f.field) : [];
   if (drift.length) res.notes.unshift(`Achtung: ${drift.join(', ')} hat heute einen anderen Wert als nach der Änderung (rückgängig gemacht oder erneut geändert). Die Messung bezieht sich nicht mehr eindeutig auf diese Änderung.`);
   if (w.status === 'vorläufig') res.notes.unshift(`Vorläufig: erst ${w.days} von ${b.before.days} Tagen nach der Änderung verfügbar (vergleicht Durchschnitt pro Tag). Vollständig ab ${w.completeFrom}.`);
   const last: Baseline['last'] = { at: now.toISOString(), status: w.status, verdict: res.verdict, change: { clicksPerDay: res.change.clicksPerDay, ctr: res.change.ctr, position: res.change.position }, after, drift: drift.length > 0 };
@@ -111,13 +116,15 @@ const VERDICT: Record<Verdict, NonNullable<SeoImpact['verdict']>> = { verbessert
 const perDay = (n: number, days: number) => round(n / Math.max(1, days), 2);
 
 export function impactView(b: Baseline, now = new Date()): SeoImpact {
-  const w = measureWindow(b, now), superseded = !!b.measured && !b.last && /überholt/.test(b.measured.verdict);
-  const status: SeoImpact['status'] = superseded ? 'superseded' : b.last?.status === 'vollständig' ? 'complete' : w.status === 'zu früh' ? 'too-early' : 'preliminary';
+  // superseded also after a preliminary measurement; measured without last = final measurement from before the SEO section existed
+  const w = measureWindow(b, now), superseded = /überholt/.test(b.measured?.verdict ?? ''), legacy = !!b.measured && !superseded && !b.last;
+  const status: SeoImpact['status'] = superseded ? 'superseded' : b.last?.status === 'vollständig' || legacy ? 'complete' : w.status === 'zu früh' ? 'too-early' : 'preliminary';
   return {
     id: b.id, entity: b.entity, entityId: b.entityId, label: b.label, kind: baselineKind(b.fields), fields: b.fields.map(f => f.field), changedAt: b.changedAt, ...(b.chatId ? { chatId: b.chatId } : {}),
     status, measurableFrom: w.measurableFrom, completeFrom: w.completeFrom,
     before: { clicksPerDay: perDay(b.before.clicks, b.before.days), ctr: round(b.before.ctr * 100, 2), position: round(b.before.position) },
     ...(b.last ? { verdict: VERDICT[b.last.verdict], change: b.last.change, measuredAt: b.last.at, ...(b.last.drift ? { drift: true } : {}) } : {}),
+    ...(legacy && VERDICT[b.measured!.verdict as Verdict] ? { verdict: VERDICT[b.measured!.verdict as Verdict], measuredAt: b.measured!.at } : {}),
     ...(b.dismissed ? { dismissed: true } : {}),
   };
 }
