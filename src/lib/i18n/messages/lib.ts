@@ -150,7 +150,7 @@ export const de = {
     byId: {
       'recht.gpsr': 'GPSR-Pflichtangaben', 'recht.grundpreis': 'Grundpreisangaben', 'recht.rechtstexte': 'Rechtstexte',
       'bfsg.texte': 'Barrierefreiheit: Texte', 'bfsg.kontrast': 'Barrierefreiheit: Kontraste',
-      'gsc.low-ctr': 'Search Console: niedrige Klickrate', 'gsc.measure-due': 'Search Console: Messung fällig',
+      'gsc.low-ctr': 'Search Console: niedrige Klickrate', 'gsc.measure-due': 'Search Console: Messung fällig', 'gsc.impact-worse': 'Search Console: Änderung hat geschadet',
       'sistrix.visibility-drop': 'Sistrix: Sichtbarkeit gesunken', 'sistrix.onpage-errors': 'Sistrix: OnPage-Fehler',
     },
   },
@@ -380,7 +380,7 @@ export const en: typeof de = {
     byId: {
       'recht.gpsr': 'GPSR mandatory details', 'recht.grundpreis': 'Unit price details', 'recht.rechtstexte': 'Legal pages',
       'bfsg.texte': 'Accessibility: text', 'bfsg.kontrast': 'Accessibility: contrast',
-      'gsc.low-ctr': 'Search Console: low click-through rate', 'gsc.measure-due': 'Search Console: measurement due',
+      'gsc.low-ctr': 'Search Console: low click-through rate', 'gsc.measure-due': 'Search Console: measurement due', 'gsc.impact-worse': 'Search Console: change did harm',
       'sistrix.visibility-drop': 'Sistrix: visibility dropped', 'sistrix.onpage-errors': 'Sistrix: OnPage errors',
     },
   },

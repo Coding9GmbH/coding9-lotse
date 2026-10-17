@@ -48,7 +48,10 @@ export interface ChangeSet {
   platform?: PlatformKind;
   /** Contains JavaScript (script, event handler, javascript: URL, js field): the card shows a clear warning with the load URLs */
   script?: ScriptRisk;
+  /** Existing pages whose layout or page content this set replaces (publish_page): impact measurement remembers their search data before the change */
+  measureTargets?: MeasureTarget[];
 }
+export interface MeasureTarget { entity: 'product' | 'category'; id: string; label: string }
 export type ChangeStatus = 'applied' | 'partial' | 'failed' | 'rejected';
 /** Undo step: patch/delete/create on an entity or a raw Admin API call (req, e.g. delete an assignment) */
 export interface UndoOp {
@@ -217,5 +220,21 @@ export const SEO_DONE_RECHECK_DAYS = 7;
 /** OnPage crawl (Sistrix Optimizer): ok, no project, several projects without assignment (selection needed) or no crawl yet */
 export interface SeoOnpage { status: 'ok' | 'none' | 'choose' | 'empty'; project?: { hash: string; name: string }; projects?: { hash: string; name: string }[]; lastCrawl?: { date: string; pages: number | null; errors: number | null; warnings: number | null; notices: number | null } | null }
 export interface SeoOverview { gsc: boolean; sistrix: boolean; /** technical check of the live pages ran */ site?: boolean; items: SeoItem[]; errors: { source: 'gsc' | 'sistrix' | 'site'; error: string }[]; generatedAt: string; onpage?: SeoOnpage; /** live pages: checked pages and time */ siteChecked?: { base: string; pages: { kind: string; url: string }[] }; /** from the cache (costs no credits); "Aktualisieren" (refresh) refetches */ cached?: boolean }
+/** Impact of an applied change in Search Console: 28 days before vs. the same period after (SEO section → Wirkung) */
+export interface SeoImpact {
+  id: string; entity: 'product' | 'category' | 'landing-page'; entityId: string; label: string;
+  /** meta = meta title/description, content = name/description/FAQ, layout = new layout or page content */
+  kind: 'meta' | 'content' | 'layout'; fields: string[]; changedAt: string; chatId?: string;
+  /** too-early = not enough days after the change yet; superseded = changed again before it was measured */
+  status: 'too-early' | 'preliminary' | 'complete' | 'superseded';
+  measurableFrom: string; completeFrom: string;
+  verdict?: 'better' | 'worse' | 'unclear' | 'little-data';
+  before: { clicksPerDay: number; ctr: number; position: number };
+  change?: { clicksPerDay: string; ctr: string; position: number };
+  /** the field has a different value today (undone or changed again) */
+  drift?: boolean;
+  measuredAt?: string; dismissed?: boolean;
+}
+export interface SeoImpactList { connected: boolean; items: SeoImpact[] }
 /** Home page card: visibility history (oldest week first) */
 export interface SistrixOverview { connected: boolean; domain?: string; country?: string; weeks?: number; series?: { date: string; value: number }[]; latest?: { date: string; value: number } | null; changePct?: number | null; creditsUsed?: number | null; error?: string }

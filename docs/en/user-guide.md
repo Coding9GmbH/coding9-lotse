@@ -136,6 +136,9 @@ Lotse turns this into conditions on fixed fields and shows you **the rule in wor
 
 Conditions can be combined with **and** (all) or **or** (at least one); comparisons: <, ≤, >, ≥, =, ≠. Unknown values never match; nothing is guessed. Custom checks see active products, not categories, pages or links. At most 20 custom checks with 5 conditions each.
 
+### Impact of changes (Search Console)
+If Search Console is connected, Lotse remembers the search data of the previous 28 days when you apply a change: for meta title and description, name, description, short description and FAQ, and for new layouts or page content of existing categories and products (at most 50 pages per change set, only pages Google already knows). Under **SEO → Impact of your changes** you see the state of each change: *Waiting for data* (with the date from which it can be measured), *Preliminary* (from 14 days) or *Measured* (after 28 days), with clicks per day, click-through rate and position compared, and a verdict (*Improved*, *Got worse*, *No clear effect*, *Too little data*). **Measure now** asks Search Console about all open changes without writing anything. If a change did harm, **Open chat** takes you to the change set, where you can undo it; the shop check reports such changes too. Measurements can be hidden.
+
 ## 9. Settings
 
 | Section | Contents |

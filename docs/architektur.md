@@ -131,6 +131,7 @@ Andere Plattformen veröffentlichen über ihre eigenen Pfade (Shopify: Theme-Vor
 | `GET /api/categories`, `GET /api/products` | Kontext-Auswahl |
 | `GET /api/audit`, `GET /api/access-log` | Protokolle |
 | `/api/gsc`, `/api/sistrix`, `/api/codex/login` | Search Console, Sistrix, Codex-Anmeldung |
+| `GET /api/seo`, `PUT /api/seo/marks`, `GET\|POST\|PUT /api/seo/impact` | SEO-Bereich: Hebel, Erledigt/Ignoriert, Wirkung angewendeter Änderungen (gespeichert / jetzt messen / ausblenden) |
 | `/api/mcp/{chat}` | MCP-Endpunkt für Codex (Token je Chat) |
 | `GET /shop/**` | Storefront-Proxy (nur GET) |
 

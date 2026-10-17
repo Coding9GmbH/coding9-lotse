@@ -125,6 +125,8 @@ test('collection: own template with theme sections + Lotse content above/below t
   assert.match(String(draft.html), /Becher „Morgen“/, 'preview with real products of the collection');
   const out = json(await call('publish_page', { target: 'category', categoryId: C.wohn }));
   assert.equal(out.status, 'applied', JSON.stringify(out));
+  const pubCs = (events.filter(e => e.t === 'changeset').at(-1) as Extract<ChatEvent, { t: 'changeset' }>).cs;
+  assert.deepEqual(pubCs.measureTargets?.map(t => [t.entity, t.id]), [['category', '480000000001']], 'impact measurement: the collection whose template is replaced');
   const col = fake.state.collections.get(480000000001)!;
   assert.equal(col.templateSuffix, 'lotse-wohnaccessoires');
   assert.equal(col.seo.title, 'Wohnaccessoires aus Keramik und Wolle | Haus Holm');

@@ -136,6 +136,9 @@ Lotse formuliert daraus Bedingungen über feste Felder und zeigt dir **vor dem S
 
 Bedingungen lassen sich mit **und** (alle) oder **oder** (mindestens eine) verknüpfen; Vergleiche: <, ≤, >, ≥, =, ≠. Unbekannte Werte treffen nie zu, es wird nichts geraten. Eigene Prüfungen sehen aktive Produkte, keine Kategorien, Seiten oder Links. Höchstens 20 eigene Prüfungen mit je 5 Bedingungen.
 
+### Wirkung von Änderungen (Search Console)
+Ist die Search Console verbunden, merkt sich Lotse beim Anwenden die Suchdaten der 28 Tage davor: für Meta-Title und -Description, Name, Beschreibung, Kurzbeschreibung und FAQ sowie für neue Layouts bzw. Seiteninhalte bestehender Kategorien und Produkte (höchstens 50 Seiten je Änderungsset, nur Seiten, die Google schon kennt). Im Bereich **SEO → Wirkung deiner Änderungen** siehst du je Änderung den Stand: *Wartet auf Daten* (mit Datum, ab wann gemessen werden kann), *Vorläufig* (ab 14 Tagen) oder *Gemessen* (nach 28 Tagen), mit Klicks pro Tag, Klickrate und Position im Vergleich und einer Einschätzung (*Verbessert*, *Verschlechtert*, *Kein klarer Effekt*, *Zu wenig Daten*). **Jetzt messen** fragt die Search Console für alle offenen Änderungen ab, ohne etwas zu schreiben. Hat eine Änderung geschadet, führt **Zum Chat** zum Änderungsset, wo du sie rückgängig machen kannst; der Shop-Check meldet solche Änderungen zusätzlich. Messungen lassen sich ausblenden.
+
 ## 9. Einstellungen
 
 | Abschnitt | Inhalt |

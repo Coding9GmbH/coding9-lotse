@@ -4,13 +4,14 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import { loadFixes, type FixMap } from '@/lib/fixes';
-import type { CheckFinding, CheckSeverity, SeoItem, SeoMark, SeoOnpage, SeoOverview } from '@/lib/protocol';
+import type { CheckFinding, CheckSeverity, SeoImpactList, SeoItem, SeoMark, SeoOnpage, SeoOverview } from '@/lib/protocol';
 import { countText, severityLabel } from '@/lib/shopcheck';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { INTL_LOCALE, type Locale } from '@/lib/i18n';
 import { Button } from '@/components/ui/Button';
 import { useShell } from '@/components/shell/ShellProvider';
 import { SEO_CHECK_AREAS, seoGroup, type SeoGroup } from './groups';
+import { ImpactSection } from './ImpactSection';
 import styles from './Seo.module.css';
 
 const COLLAPSED = 5;
@@ -35,7 +36,8 @@ export function SeoView() {
   const [checks, setChecks] = useState<CheckFinding[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(true);
-  const [filter, setFilter] = useState<SeoGroup | null>(null);
+  const [filter, setFilter] = useState<SeoGroup | 'impact' | null>(null);
+  const [effects, setEffects] = useState<SeoImpactList | null>(null);
   const [open, setOpen] = useState<Partial<Record<SeoGroup, boolean>>>({});
   const [showHidden, setShowHidden] = useState(false);
   const [fixes, setFixes] = useState<FixMap>({});
@@ -47,6 +49,7 @@ export function SeoView() {
   useEffect(() => {
     let off = false;
     api.seoOverview().then(d => { if (!off) setData(d); }, e => { if (!off) setError(errorText(e)); }).finally(() => { if (!off) setBusy(false); });
+    api.seoImpact().then(d => { if (!off) setEffects(d); }, () => {});
     api.shopCheck().then(s => { if (!off) setChecks((s.run?.findings ?? []).filter(f => f.count > 0 && SEO_CHECK_AREAS.has(f.area))); }, () => {});
     // only after loading: localStorage doesn't exist during server rendering
     queueMicrotask(() => { if (!off) setFixes(loadFixes()); });
@@ -112,7 +115,7 @@ export function SeoView() {
     );
   };
 
-  const tile = (g: SeoGroup | null, label: string, n: number, warn = false) => (
+  const tile = (g: SeoGroup | 'impact' | null, label: string, n: number, warn = false) => (
     <button type="button" className={`${styles.tile}${warn && n ? ` ${styles.tileWarn}` : ''}`} aria-pressed={filter === g} onClick={() => setFilter(filter === g ? null : g)}>
       <span className={styles.tileN}>{n}</span><span className={styles.tileL}>{label}</span>
     </button>
@@ -142,6 +145,7 @@ export function SeoView() {
             {data.sistrix && tile('keyword', t.tiles.keyword, openCount('keyword'))}
             {data.gsc && tile('content', t.filters.content, openCount('content'))}
             {checks.length > 0 && tile('check', t.tiles.check, openCount('check'))}
+            {effects?.connected && tile('impact', t.impact.tile, effects.items.filter(i => !i.dismissed).length, effects.items.some(i => !i.dismissed && i.verdict === 'worse' && i.status !== 'superseded'))}
           </div>
         )}
 
@@ -161,6 +165,8 @@ export function SeoView() {
             </section>
           );
         })}
+
+        {data && !none && effects?.connected && (!filter || filter === 'impact') && <ImpactSection data={effects} onChange={setEffects} />}
 
         {data && !none && (
           <p className={styles.foot}>

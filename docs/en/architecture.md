@@ -131,6 +131,7 @@ Other platforms publish via their own paths (Shopify: theme templates, Magento/O
 | `GET /api/categories`, `GET /api/products` | Context selection |
 | `GET /api/audit`, `GET /api/access-log` | Logs |
 | `/api/gsc`, `/api/sistrix`, `/api/codex/login` | Search Console, Sistrix, Codex sign-in |
+| `GET /api/seo`, `PUT /api/seo/marks`, `GET\|POST\|PUT /api/seo/impact` | SEO area: levers, done/ignored, impact of applied changes (stored / measure now / hide) |
 | `/api/mcp/{chat}` | MCP endpoint for Codex (token per chat) |
 | `GET /shop/**` | Storefront proxy (GET only) |
 

@@ -153,6 +153,17 @@ export interface Baseline {
   before: Metrics & { startDate: string; endDate: string; days: number };
   site?: Metrics;
   measured?: { at: string; verdict: string };
+  /** Latest measurement (also preliminary): shown in the SEO section without asking Google again */
+  last?: { at: string; status: 'vorläufig' | 'vollständig'; verdict: Verdict; change: { clicksPerDay: string; ctr: string; position: number }; after: Metrics; drift: boolean };
+  /** Hidden by the user in the SEO section (the AI still sees it) */
+  dismissed?: string;
+}
+export type Verdict = 'verbessert' | 'verschlechtert' | 'kein klarer Effekt' | 'zu wenig Daten';
+
+/** What kind of change a baseline measures: metas only, texts (name, description, FAQ) or a new layout/page content */
+export function baselineKind(fields: Pick<Baseline['fields'][number], 'field'>[]): 'meta' | 'content' | 'layout' {
+  if (fields.some(f => f.field === 'layout')) return 'layout';
+  return fields.every(f => f.field === 'metaTitle' || f.field === 'metaDescription' || f.field === 'keywords') ? 'meta' : 'content';
 }
 
 /** Measurement period after the change: from the following day, same length as the baseline; preliminary from 14 days of data. */
@@ -178,7 +189,7 @@ export function compareEffect(before: Metrics & { days: number }, after: Metrics
   const z = ctrZ(before.clicks, before.impressions, after.clicks, after.impressions);
   const posDelta = after.position - before.position;
   const expB = expectedCtr(before.position), expA = expectedCtr(after.position);
-  let verdict: 'verbessert' | 'verschlechtert' | 'kein klarer Effekt' | 'zu wenig Daten';
+  let verdict: Verdict;
   if (Math.min(before.impressions, after.impressions) < MIN_IMPRESSIONS) { verdict = 'zu wenig Daten'; notes.push(`Weniger als ${MIN_IMPRESSIONS} Impressionen in einem Zeitraum: Unterschiede sind Zufall, keine Aussage möglich.`); }
   else if (Math.abs(z) < 1.96) { verdict = 'kein klarer Effekt'; notes.push('Der Unterschied der Klickrate liegt im Rahmen normaler Schwankung (nicht signifikant).'); }
   else verdict = z > 0 ? 'verbessert' : 'verschlechtert';

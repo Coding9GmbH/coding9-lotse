@@ -1,9 +1,10 @@
 import 'server-only';
-// Google Search Console: real search data instead of rules of thumb. Performance, opportunities (weak click rate), content gaps, success measurement of meta changes.
+// Google Search Console: real search data instead of rules of thumb. Performance, opportunities (weak click rate), content gaps,
+// impact measurement of applied changes (metas, texts, layouts).
 // Read only (Google + shop). Shop changes still go through propose_product_changes / propose_category_changes.
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
-import type { ChangeItem, CheckFinding } from '@/lib/protocol';
+import type { ChangeItem, CheckFinding, MeasureTarget, SeoImpact } from '@/lib/protocol';
 import { onApplied, pool } from '../changes';
 import { registerCheck } from '../checks';
 import { kvGet, kvSet } from '../db';
@@ -16,7 +17,7 @@ import { ok, guard, type AnyTool } from '../tool-kit';
 import type { Feature } from './types';
 import { getSettings } from '../settings';
 import { getGscConfig, searchAnalyticsCached, type Dim, type DimFilter, type Operator, type Row, type ServiceKey } from './gsc-google';
-import { addDays, aggregate, BASE_DAYS, cannibalization, compareEffect, contentGaps, declines, isoDay, LAG_DAYS, MIN_IMPRESSIONS, measureWindow, opportunities, pathRegex, pct, range, round, strikingDistance, view, type Baseline, type Metrics } from './gsc-logic';
+import { addDays, aggregate, BASE_DAYS, baselineKind, cannibalization, compareEffect, contentGaps, declines, isoDay, LAG_DAYS, MIN_IMPRESSIONS, measureWindow, opportunities, pathRegex, pct, range, round, strikingDistance, view, type Baseline, type Metrics, type Verdict } from './gsc-logic';
 import type { PageRef } from './gsc-map';
 
 type Cfg = { key: ServiceKey; property: string };
@@ -29,7 +30,10 @@ export const propose = (label: string): Record<string, string> => ({ product: 'p
 /** Read side: platform-neutral (ShopLookup); a Shopware read client is accepted as before */
 type Shop = ShopReader | ShopLookup;
 const KIND_OF: Record<string, LinkKind> = { product: 'product', category: 'category', 'landing-page': 'landing' };
-const META_FIELDS = new Set(['metaTitle', 'metaDescription']);
+/** Fields whose change can move search traffic: metas, name/title, texts and FAQ (not prices, stock or status) */
+export const MEASURED_FIELDS = new Set(['metaTitle', 'metaDescription', 'keywords', 'name', 'description', 'shortDescription', 'faq']);
+/** At most this many pages per change set get a baseline (two Search Console queries each) */
+export const MAX_BASELINES = 50;
 
 // ---- Baselines for success measurement ----
 const KV = 'gsc_baselines';
@@ -37,7 +41,7 @@ export const listBaselines = (): Baseline[] => kvGet<Baseline[]>(KV) ?? [];
 const saveBaselines = (b: Baseline[]) => kvSet(KV, b.slice(-500));
 const metrics = (rows: Row[]): Metrics => aggregate(rows);
 
-/** Remembers clicks/impressions/CTR/position of the last 28 days for a page whose metas were just changed. Only if Google knows the page. */
+/** Remembers clicks/impressions/CTR/position of the last 28 days for a page that was just changed. Only if Google knows the page. */
 export async function recordBaseline(cfg: Cfg, ro: Shop, a: { entity: Baseline['entity']; entityId: string; label: string; fields: Baseline['fields']; changeSetId: string; chatId?: string }, now = new Date()): Promise<Baseline | null> {
   const kind = KIND_OF[a.entity];
   const { paths, urls } = await asLookup(ro).entityPaths(kind, a.entityId);
@@ -55,19 +59,33 @@ export async function recordBaseline(cfg: Cfg, ro: Shop, a: { entity: Baseline['
   return b;
 }
 
-/** Observer: applied change sets with meta title/description of products, categories, landing pages */
-export async function baselinesFor(cfg: Cfg, items: ChangeItem[], ctx: { ro: Shop; chatId?: string; changeSetId: string }, now = new Date()) {
-  const groups = new Map<string, ChangeItem[]>();
-  for (const it of items) if (it.field && META_FIELDS.has(it.field) && it.entityId && KIND_OF[it.entity]) groups.set(`${it.entity}:${it.entityId}`, [...(groups.get(`${it.entity}:${it.entityId}`) ?? []), it]);
+/** Observer: applied change sets with SEO-relevant fields (metas, texts, FAQ) of products, categories, landing pages,
+ *  plus existing pages whose layout/page content a publish replaced (targets). At most MAX_BASELINES pages per set. */
+export async function baselinesFor(cfg: Cfg, items: ChangeItem[], ctx: { ro: Shop; chatId?: string; changeSetId: string; targets?: MeasureTarget[]; layout?: string }, now = new Date()) {
+  const groups = new Map<string, { entity: Baseline['entity']; entityId: string; label: string; fields: Baseline['fields'] }>();
+  for (const it of items) {
+    if (!it.field || !MEASURED_FIELDS.has(it.field) || !it.entityId || !KIND_OF[it.entity]) continue;
+    const k = `${it.entity}:${it.entityId}`, g = groups.get(k) ?? { entity: it.entity as Baseline['entity'], entityId: it.entityId, label: it.label, fields: [] };
+    // afterRaw only for plain strings: the drift check compares it with today's value (FAQ objects and HTML stay without)
+    g.fields.push({ field: it.field, before: it.before, after: it.after, afterRaw: typeof it.afterRaw === 'string' && it.field !== 'description' ? it.afterRaw : undefined });
+    groups.set(k, g);
+  }
+  for (const t of ctx.targets ?? []) {
+    const k = `${t.entity}:${t.id}`, g = groups.get(k) ?? { entity: t.entity, entityId: t.id, label: t.label, fields: [] };
+    g.fields.push({ field: 'layout', before: 'bisheriger Seiteninhalt', after: ctx.layout ?? 'neuer Seiteninhalt' });
+    groups.set(k, g);
+  }
   const out: Baseline[] = [];
-  for (const its of groups.values()) {
-    const b = await recordBaseline(cfg, ctx.ro, { entity: its[0].entity as Baseline['entity'], entityId: its[0].entityId!, label: its[0].label, changeSetId: ctx.changeSetId, chatId: ctx.chatId,
-      fields: its.map(i => ({ field: i.field!, before: i.before, after: i.after, afterRaw: typeof i.afterRaw === 'string' ? i.afterRaw : undefined })) }, now).catch(() => null);
+  for (const g of [...groups.values()].slice(0, MAX_BASELINES)) {
+    const b = await recordBaseline(cfg, ctx.ro, { ...g, changeSetId: ctx.changeSetId, chatId: ctx.chatId }, now).catch(() => null);
     if (b) out.push(b);
   }
   return out;
 }
-onApplied('gsc', async (cs, items, { ro, lookup, chatId }) => { const cfg = allowed() ? getGscConfig() : null; if (cfg) await baselinesFor(cfg, items, { ro: lookup ?? ro, chatId, changeSetId: cs.id }); });
+onApplied('gsc', async (cs, items, { ro, lookup, chatId }) => {
+  const cfg = allowed() ? getGscConfig() : null;
+  if (cfg) await baselinesFor(cfg, items, { ro: lookup ?? ro, chatId, changeSetId: cs.id, targets: cs.measureTargets, layout: cs.title });
+});
 
 /** Measure success: baseline vs. equally long period after the change (after 14 days of data at the earliest). */
 export async function measure(cfg: Cfg, ro: Shop, b: Baseline, now = new Date()) {
@@ -83,8 +101,42 @@ export async function measure(cfg: Cfg, ro: Shop, b: Baseline, now = new Date())
   const drift = cur ? b.fields.filter(f => f.afterRaw != null && (cur.translated?.[f.field] ?? cur[f.field] ?? null) !== f.afterRaw).map(f => f.field) : [];
   if (drift.length) res.notes.unshift(`Achtung: ${drift.join(', ')} hat heute einen anderen Wert als nach der Änderung (rückgängig gemacht oder erneut geändert). Die Messung bezieht sich nicht mehr eindeutig auf diese Änderung.`);
   if (w.status === 'vorläufig') res.notes.unshift(`Vorläufig: erst ${w.days} von ${b.before.days} Tagen nach der Änderung verfügbar (vergleicht Durchschnitt pro Tag). Vollständig ab ${w.completeFrom}.`);
-  if (w.status === 'vollständig' && !b.measured) saveBaselines(listBaselines().map(x => (x.id === b.id ? { ...x, measured: { at: now.toISOString(), verdict: res.verdict } } : x)));
+  const last: Baseline['last'] = { at: now.toISOString(), status: w.status, verdict: res.verdict, change: { clicksPerDay: res.change.clicksPerDay, ctr: res.change.ctr, position: res.change.position }, after, drift: drift.length > 0 };
+  saveBaselines(listBaselines().map(x => (x.id !== b.id ? x : { ...x, last, ...(w.status === 'vollständig' && !x.measured ? { measured: { at: now.toISOString(), verdict: res.verdict } } : {}) })));
   return { ...head, status: w.status, after: { ...res.after, period: `${w.startDate} bis ${w.endDate}` }, verdict: res.verdict, change: res.change, zScore: res.zScore, notes: res.notes, beforeDetail: res.before };
+}
+
+// ---- Impact list for the SEO section: stored state only, never a request to Google ----
+const VERDICT: Record<Verdict, NonNullable<SeoImpact['verdict']>> = { verbessert: 'better', verschlechtert: 'worse', 'kein klarer Effekt': 'unclear', 'zu wenig Daten': 'little-data' };
+const perDay = (n: number, days: number) => round(n / Math.max(1, days), 2);
+
+export function impactView(b: Baseline, now = new Date()): SeoImpact {
+  const w = measureWindow(b, now), superseded = !!b.measured && !b.last && /überholt/.test(b.measured.verdict);
+  const status: SeoImpact['status'] = superseded ? 'superseded' : b.last?.status === 'vollständig' ? 'complete' : w.status === 'zu früh' ? 'too-early' : 'preliminary';
+  return {
+    id: b.id, entity: b.entity, entityId: b.entityId, label: b.label, kind: baselineKind(b.fields), fields: b.fields.map(f => f.field), changedAt: b.changedAt, ...(b.chatId ? { chatId: b.chatId } : {}),
+    status, measurableFrom: w.measurableFrom, completeFrom: w.completeFrom,
+    before: { clicksPerDay: perDay(b.before.clicks, b.before.days), ctr: round(b.before.ctr * 100, 2), position: round(b.before.position) },
+    ...(b.last ? { verdict: VERDICT[b.last.verdict], change: b.last.change, measuredAt: b.last.at, ...(b.last.drift ? { drift: true } : {}) } : {}),
+    ...(b.dismissed ? { dismissed: true } : {}),
+  };
+}
+/** Newest change first */
+export const impactList = (now = new Date()): SeoImpact[] => [...listBaselines()].reverse().map(b => impactView(b, now));
+
+/** Measure all open changes that already have enough days (not final, not superseded, not hidden); at most `limit` per call */
+export async function measureOpen(cfg: Cfg, ro: Shop, now = new Date(), limit = 30) {
+  const open = [...listBaselines()].reverse().filter(b => !b.measured && !b.dismissed && measureWindow(b, now).status !== 'zu früh').slice(0, limit);
+  const failed: { id: string; error: string }[] = [];
+  await pool(open, 3, b => measure(cfg, ro, b, now).catch(e => { failed.push({ id: b.id, error: e instanceof Error ? e.message : String(e) }); }));
+  return { measured: open.length - failed.length, failed };
+}
+
+/** Hide/show a measurement in the SEO section (the AI still sees it); false if the id is unknown */
+export function dismissImpact(id: string, dismissed: boolean, now = new Date()): boolean {
+  const all = listBaselines(); if (!all.some(b => b.id === id)) return false;
+  saveBaselines(all.map(b => (b.id !== id ? b : { ...b, dismissed: dismissed ? now.toISOString() : undefined })));
+  return true;
 }
 
 // ---- Opportunities + content gaps (also for the shop check) ----
@@ -152,10 +204,21 @@ registerCheck({ id: 'gsc.measure-due', area: 'Search Console', scopes: ['gsc'], 
   const all = listBaselines(), due = all.filter(b => !b.measured && measureWindow(b).status === 'vollständig');
   if (!all.length) return null;
   return { id: 'gsc.measure-due', area: 'Search Console', severity: 'niedrig', count: due.length, total: all.length,
-    title: due.length ? `Messung fällig: ${due.length} Meta-${due.length === 1 ? 'Änderung' : 'Änderungen'} älter als 28 Tage` : 'Keine Erfolgsmessung fällig',
+    title: due.length ? `Messung fällig: ${due.length} ${due.length === 1 ? 'Änderung' : 'Änderungen'} älter als 28 Tage` : 'Keine Erfolgsmessung fällig',
     sample: due.slice(0, 5).map(b => ({ id: b.entityId, label: `${b.label} (geändert am ${b.changedAt.slice(0, 10)})` })),
     hint: 'Vergleicht Klicks, Klickrate und Position vor und nach der Änderung, damit du siehst, was gewirkt hat.',
-    fixPrompt: 'Miss den Erfolg meiner Meta-Änderungen mit den Search-Console-Daten und fasse zusammen, was gewirkt hat.' };
+    fixPrompt: 'Miss den Erfolg meiner Änderungen (Metas, Texte, Layouts) mit den Search-Console-Daten und fasse zusammen, was gewirkt hat.' };
+} });
+
+registerCheck({ id: 'gsc.impact-worse', area: 'Search Console', scopes: ['gsc'], platforms: 'all', run: async () => {
+  if (!getGscConfig()) return null;
+  const all = listBaselines(); if (!all.length) return null;
+  const worse = all.filter(b => !b.dismissed && b.last?.status === 'vollständig' && b.last.verdict === 'verschlechtert' && !b.last.drift);
+  return { id: 'gsc.impact-worse', area: 'Search Console', severity: worse.length ? 'mittel' : 'niedrig', count: worse.length, total: all.length,
+    title: worse.length ? `${worse.length} ${worse.length === 1 ? 'Änderung hat' : 'Änderungen haben'} laut Search Console geschadet` : 'Keine gemessene Änderung hat geschadet',
+    sample: worse.slice(-5).reverse().map(b => ({ id: b.entityId, label: `${b.label} (geändert am ${b.changedAt.slice(0, 10)}, Klicks pro Tag ${b.last!.change.clicksPerDay})` })),
+    hint: 'Die Klickrate ist nach der Änderung deutlich gesunken, stärker als normale Schwankung. Prüfen, ob die alte Fassung besser war; Rückgängig geht im Chat der Änderung.',
+    fixPrompt: 'Welche meiner Änderungen haben laut Search Console geschadet (gsc_measure_effect mit includeMeasured)? Vergleiche je Seite alte und neue Fassung, nenne mögliche Gründe und schlage vor, ob ich die Änderung im ursprünglichen Chat rückgängig machen oder gezielt verbessern sollte.' };
 } });
 
 // ---- Tools ----
@@ -235,7 +298,7 @@ export const gsc: Feature = {
           });
         })),
 
-      tool('gsc_measure_effect', 'Misst den Erfolg von Meta-Title/-Description-Änderungen: Beim Anwenden eines Änderungssets merkt sich Lotse automatisch Klicks/Impressionen/CTR/Position der 28 Tage davor (nur Seiten, die Google kennt). Vergleicht mit dem gleich langen Zeitraum danach (vorläufig ab 14 Tagen Daten), inkl. Signifikanz und Shop-Trend. Ohne Argumente: alle offenen Messungen. Ändert nichts im Shop.',
+      tool('gsc_measure_effect', 'Misst den Erfolg angewendeter Änderungen an Meta-Title/-Description, Name, Beschreibung und FAQ sowie neuer Layouts/Seiteninhalte bestehender Kategorien und Produkte: Beim Anwenden merkt sich Lotse automatisch Klicks/Impressionen/CTR/Position der 28 Tage davor (nur Seiten, die Google kennt, höchstens 50 je Änderungsset). Vergleicht mit dem gleich langen Zeitraum danach (vorläufig ab 14 Tagen Daten), inkl. Signifikanz und Shop-Trend. Ohne Argumente: alle offenen Messungen. Ändert nichts im Shop.',
         { baselineId: z.string().optional(), entityId: z.string().optional().describe('Nur Messungen dieses Produkts/dieser Kategorie'), includeMeasured: z.boolean().optional().describe('Auch bereits abgeschlossene erneut zeigen'), limit: z.number().optional().describe('Standard 10, max. 30') },
         guard(async a => {
           const cfg = need();
