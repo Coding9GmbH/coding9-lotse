@@ -113,6 +113,14 @@ test('git_diff shows the changes against the base branch, never secret files', a
   assert.doesNotMatch(d.text, /APP_SECRET|\.env/);
 });
 
+test('git_diff at the same moment as the Änderungen tab: no index.lock clash', async () => {
+  const { taskDiff } = await import('../../src/server/sandbox/diff');
+  for (let i = 0; i < 6; i++) fs.writeFileSync(path.join(T.taskPaths(task.id).worktree, `neu-${i}.txt`), `${i}\n`); // new files: intent-to-add writes the index
+  const all = await Promise.all([call('git_diff'), taskDiff(T.getTask(task.id)!, 200_000), call('git_diff'), taskDiff(T.getTask(task.id)!, 200_000), call('git_diff')]);
+  for (const r of all) assert.ok('files' in r ? r.files.some(f => f.path === 'neu-5.txt') : !r.error && r.text.includes('neu-5.txt'), JSON.stringify(r).slice(0, 300));
+  for (let i = 0; i < 6; i++) fs.unlinkSync(path.join(T.taskPaths(task.id).worktree, `neu-${i}.txt`));
+});
+
 test('read_sandbox_page: text of the task storefront (after theme:compile the fake shows the template)', async () => {
   const r = await call('read_sandbox_page', { path: '/' });
   assert.equal(r.error, false, r.text);

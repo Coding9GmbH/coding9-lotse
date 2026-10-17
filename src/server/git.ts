@@ -131,8 +131,22 @@ const assertIdentity = (p: GitIdentity, what: string): GitIdentity => {
   return { name: p.name.trim(), email: p.email };
 };
 
+// Commands that write a task's index (diff's intent-to-add, commit's add) run one after another per git dir: two at once
+// fail with "index.lock: File exists" (the Änderungen tab and the agent's git_diff ask at the same moment).
+const indexQueues = () => singleton('git-index-queues', () => new Map<string, Promise<unknown>>());
+function serialIndex<T>(gitDir: string, fn: () => Promise<T>): Promise<T> {
+  const Q = indexQueues(), key = path.resolve(gitDir);
+  const next = (Q.get(key) ?? Promise.resolve()).catch(() => {}).then(fn), tail = next.catch(() => {});
+  Q.set(key, tail);
+  void tail.then(() => { if (Q.get(key) === tail) Q.delete(key); });
+  return next;
+}
+
 /** Stage everything and commit. null = nothing changed. */
 export async function commitAll(worktree: string, gitDir: string, message: string, author: GitIdentity, coAuthor?: GitIdentity): Promise<string | null> {
+  return serialIndex(gitDir, () => commitAllNow(worktree, gitDir, message, author, coAuthor));
+}
+async function commitAllNow(worktree: string, gitDir: string, message: string, author: GitIdentity, coAuthor?: GitIdentity): Promise<string | null> {
   const o = { cwd: assertAbs(worktree, 'Arbeitsordner'), gitDir: assertAbs(gitDir, 'Git-Ordner') };
   const id = assertIdentity(author, 'Autor'), co = coAuthor ? assertIdentity(coAuthor, 'Co-Autor') : null;
   const msg = cleanMessage(message);
@@ -159,8 +173,10 @@ export async function pushBranch(t: PushTarget, o: { signal?: AbortSignal } = {}
 export async function diffAgainstBase(worktree: string, gitDir: string, baseBranch: string): Promise<{ numstat: string; status: string; patch: string }> {
   const o = { cwd: assertAbs(worktree, 'Arbeitsordner'), gitDir: assertAbs(gitDir, 'Git-Ordner') };
   const ref = `refs/remotes/origin/${await assertBaseBranch(baseBranch)}`;
-  await runGit(['add', '--intent-to-add', '--', '.'], o);
-  const base = ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--find-renames', ref];
-  const [numstat, status, patch] = await Promise.all([runGit([...base, '--numstat'], o), runGit([...base, '--name-status'], o), runGit(base, o)]);
-  return { numstat: numstat.stdout, status: status.stdout, patch: patch.stdout };
+  return serialIndex(o.gitDir, async () => {
+    await runGit(['add', '--intent-to-add', '--', '.'], o);
+    const base = ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--find-renames', ref];
+    const [numstat, status, patch] = await Promise.all([runGit([...base, '--numstat'], o), runGit([...base, '--name-status'], o), runGit(base, o)]);
+    return { numstat: numstat.stdout, status: status.stdout, patch: patch.stdout };
+  });
 }

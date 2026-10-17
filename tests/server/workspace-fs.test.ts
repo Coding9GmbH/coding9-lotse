@@ -100,6 +100,15 @@ test('search: regex hits with path and line, no denied or binary files, capped',
   assert.equal(W.searchFiles(root, 'x', { now: () => (t += 10_000) }).truncated, true, 'time cap');
 });
 
+test('search: a catastrophic pattern is interrupted within the time cap (no blocked event loop)', () => {
+  const dir = fs.mkdtempSync(path.join(tmp, 'redos-'));
+  fs.writeFileSync(path.join(dir, 'evil.txt'), `${'a'.repeat(60)}!\nok\n`);
+  const t0 = Date.now(), r = W.searchFiles(dir, '(a+)+$');
+  assert.ok(Date.now() - t0 < W.FS_LIMITS.searchMs + 1500, `took ${Date.now() - t0} ms`);
+  assert.deepEqual(r, { hits: [], truncated: true, files: 1 });
+  assert.deepEqual(W.searchFiles(dir, '^ok$').hits, ['evil.txt:2: ok']);
+});
+
 test('glob patterns', () => {
   assert.ok(W.globRe('*.twig').test('a/b/c.twig'));
   assert.ok(W.globRe('src/**/*.scss').test('src/Resources/app/x.scss'));

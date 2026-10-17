@@ -12,7 +12,7 @@ for (const k of Object.keys(process.env)) if (/^(SHOPWARE_|SHOPIFY_|MAGENTO_|OPE
 process.env.AI_PROVIDER = 'codex'; // not signed in: a turn ends right after the preparation, without an AI process
 const S = await sandboxForTests();
 const { J, T, E } = S;
-const { getSession, peekSession, persist, sweepIdleSessions } = await import('../../src/server/sessions');
+const { getSession, peekSession, persist, stopChat, sweepIdleSessions } = await import('../../src/server/sessions');
 const { claudeOptions, startChat, WEB_TOOLS, CODE_MAX_TURNS } = await import('../../src/server/agent');
 const { codexInstructions, codexThreadOptions, CODE_NOTE } = await import('../../src/server/agent-codex');
 const { codexConfig, mcpTokenFor } = await import('../../src/server/codex');
@@ -133,6 +133,27 @@ test('a turn wakes a paused container first (no new setup); a Codex turn without
   assert.equal(s.running, false);
   assert.equal(s.title, 'Header anpassen', 'the task title');
   assert.ok(chatGet(chatId)!.events.some(e => e.t === 'sandbox_status'), 'status persisted');
+});
+
+test('Stop while the container wakes ends the turn at once; the wake finishes in the background', async () => {
+  await J.pauseTask(task.id);
+  const orig = S.fake.start.bind(S.fake); let release = () => {};
+  S.fake.start = async (id: string) => { await new Promise<void>(r => (release = r)); return orig(id); };
+  try {
+    const s = getSession(chatId), seen: ChatEvent[] = [];
+    s.listeners.add(ev => seen.push(ev));
+    const { done } = startChat({ chatId, message: 'Noch etwas', taskId: task.id });
+    await S.until(() => seen.some(e => e.t === 'sandbox_status' && e.state === 'waking'));
+    assert.equal(stopChat(chatId), true);
+    await done;
+    const last = seen.at(-1);
+    assert.ok(last?.t === 'done' && last.error === 'Abgebrochen.', JSON.stringify(last));
+    assert.deepEqual(seen.filter(e => e.t === 'sandbox_status').map(e => e.t === 'sandbox_status' && e.state), ['waking', 'failed']);
+    assert.equal(s.running, false);
+    assert.equal(T.getTask(task.id)!.status, 'waking', 'the wake goes on');
+  } finally { S.fake.start = orig; release(); }
+  await J.ensureAwake(task.id);
+  assert.equal(T.getTask(task.id)!.status, 'ready');
 });
 
 test('no turn while Sandbox Coding is off or the task is not ready', async () => {

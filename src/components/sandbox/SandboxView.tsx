@@ -192,7 +192,7 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
           <input aria-label={t.key} placeholder={t.key} value={v.key} spellCheck={false} onChange={e => setVar(i, { key: e.target.value.toUpperCase() })} />
           <input aria-label={`${t.value} ${v.key}`} placeholder={v.secret && v.hasValue ? t.secretSaved : v.wasSecret ? t.unsecret : t.value} type={v.secret ? 'password' : 'text'} autoComplete="off" spellCheck={false}
             value={v.value} onChange={e => setVar(i, { value: e.target.value })} />
-          <label className={styles.secret}><input type="checkbox" checked={v.secret} onChange={e => setVar(i, { secret: e.target.checked })} /> {t.secret}</label>
+          <label className={styles.secret} title={t.secretHint}><input type="checkbox" checked={v.secret} onChange={e => setVar(i, { secret: e.target.checked })} /> {t.secret}</label>
           <button type="button" className={styles.x} aria-label={t.removeVar(v.key)} onClick={() => set(f => ({ ...f, vars: f.vars.filter((_, j) => j !== i) }))}><IconClose size={16} /></button>
         </div>
       ))}

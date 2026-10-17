@@ -6,6 +6,7 @@ import 'server-only';
 // - limits: read 256 KB, write 512 KB, no binary files, at most 5,000 listing entries; walks never follow symlinks
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 import type { FileChangeKind } from '@/lib/protocol';
 import { isSecretPath } from './sync';
 
@@ -164,7 +165,16 @@ export function deleteText(root: string, rel: string): Change {
   return { path: r.rel, kind: 'delete', ...lineDelta(before && !isBinary(before) ? before.toString('utf8') : null, null) };
 }
 
-/** Regex search over text files below `dir` (no symlinks, no denied or binary files, vendor/node_modules only if asked for). */
+// The AI picks the pattern: a catastrophic one ((a+)+$ on "aaa…!") would block the event loop inside one RegExp#test call.
+// Matching therefore runs in a vm context whose timeout interrupts V8 even mid-backtracking.
+const scanScript = new vm.Script('(() => { const out = []; for (let i = 0; i < lines.length && out.length < max; i++) if (re.test(lines[i])) out.push(i); return out; })()');
+function matchLines(re: RegExp, lines: string[], max: number, timeoutMs: number): number[] | null {
+  try { return scanScript.runInContext(vm.createContext({ re, lines, max }), { timeout: Math.max(1, Math.floor(timeoutMs)) }) as number[]; }
+  catch (e) { if ((e as { code?: string }).code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') return null; throw e; }
+}
+
+/** Regex search over text files below `dir` (no symlinks, no denied or binary files, vendor/node_modules only if asked for).
+ *  Time cap: between entries and, via matchLines, inside a single match. */
 export function searchFiles(root: string, pattern: string, o: { dir?: string; glob?: string; ignoreCase?: boolean; now?: () => number } = {}): { hits: string[]; truncated: boolean; files: number } {
   if (!pattern || pattern.length > 500) throw new Error('Suchmuster fehlt oder ist zu lang.');
   let re: RegExp;
@@ -187,12 +197,12 @@ export function searchFiles(root: string, pattern: string, o: { dir?: string; gl
       const buf = fs.readFileSync(abs);
       if (isBinary(buf)) continue;
       files++;
-      const lines = buf.toString('utf8').split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].length > 2000 ? lines[i].slice(0, 2000) : lines[i];
-        if (!re.test(line)) continue;
+      const lines = buf.toString('utf8').split('\n').map(l => (l.length > 2000 ? l.slice(0, 2000) : l));
+      const found = matchLines(re, lines, FS_LIMITS.searchHits - hits.length + 1, end - now());
+      if (!found) { truncated = true; return; }
+      for (const i of found) {
         if (hits.length >= FS_LIMITS.searchHits) { truncated = true; return; }
-        hits.push(`${rel}:${i + 1}: ${line.trim().slice(0, FS_LIMITS.line)}`);
+        hits.push(`${rel}:${i + 1}: ${lines[i].trim().slice(0, FS_LIMITS.line)}`);
       }
     }
   };
