@@ -46,6 +46,9 @@ export const MIGRATIONS: ((d: DatabaseSync) => void)[] = [
     CREATE INDEX IF NOT EXISTS audit_ts ON audit(ts);
     CREATE INDEX IF NOT EXISTS chats_updated ON chats(updated_at DESC, id DESC);`),
   /* 3: who applied/undid (login user name, otherwise NULL) */ d => { if (!hasColumn(d, 'audit', 'actor')) d.exec('ALTER TABLE audit ADD COLUMN actor TEXT'); },
+  /* 4: AI cost per chat turn (cost brake, usage.ts) */ d => d.exec(`
+    CREATE TABLE IF NOT EXISTS ai_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, chat_id TEXT, provider TEXT NOT NULL, model TEXT, cost_usd REAL, input INTEGER, output INTEGER, cache_read INTEGER, cache_write INTEGER);
+    CREATE INDEX IF NOT EXISTS ai_usage_ts ON ai_usage(ts);`),
 ];
 export const schemaVersion = (d: DatabaseSync) => (d.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
 export function runMigrations(d: DatabaseSync) {
@@ -69,7 +72,7 @@ export const kvSet = (key: string, value: unknown) => kvSetOn(db(), key, value);
 export type StoredEvent = ChatEvent;
 export interface StoredChat {
   id: string; title: string | null; target: Target | null; createdAt: string; updatedAt: string;
-  sdkSessionId: string | null; codexThreadId?: string | null; draft: PageSpec | null; events: StoredEvent[];
+  sdkSessionId: string | null; costTotal?: number | null; codexThreadId?: string | null; draft: PageSpec | null; events: StoredEvent[];
 }
 const evType = (e: StoredEvent) => (e as { t: string }).t;
 function chatPutOn(d: DatabaseSync, c: StoredChat) {
@@ -111,10 +114,22 @@ export interface AccessEntry { chat?: string | null; op: string; entity: string;
 export const accessAdd = (a: AccessEntry) => { maybePrune(); db().prepare('INSERT INTO access_log (ts, chat, op, entity, n, scrubbed, denied) VALUES (?, ?, ?, ?, ?, ?, ?)').run(new Date().toISOString(), a.chat ?? null, a.op, a.entity, a.n ?? 0, a.scrubbed ?? 0, a.denied ?? null); };
 export const accessList = (limit = 100) => db().prepare('SELECT ts, chat, op, entity, n, scrubbed, denied FROM access_log ORDER BY id DESC LIMIT ?').all(limit) as unknown as AccessLogRow[];
 
+// ---- AI usage per chat turn (cost brake): cost_usd = cost of this turn (Claude), NULL if unknown (Codex subscription) ----
+export interface UsageEntry { chatId?: string | null; provider: string; model?: string | null; costUsd?: number | null; input?: number; output?: number; cacheRead?: number; cacheWrite?: number; ts?: string }
+export const usageAdd = (u: UsageEntry) => { db().prepare('INSERT INTO ai_usage (ts, chat_id, provider, model, cost_usd, input, output, cache_read, cache_write) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  .run(u.ts ?? new Date().toISOString(), u.chatId ?? null, u.provider, u.model ?? null, u.costUsd ?? null, u.input ?? null, u.output ?? null, u.cacheRead ?? null, u.cacheWrite ?? null); };
+/** Sum since `from` (ISO), optionally per provider */
+export function usageSince(from: string, provider?: string): { cost: number; turns: number } {
+  const r = db().prepare(`SELECT COALESCE(SUM(cost_usd), 0) AS cost, COUNT(*) AS turns FROM ai_usage WHERE ts >= ?${provider ? ' AND provider = ?' : ''}`).get(...(provider ? [from, provider] : [from])) as { cost: number; turns: number };
+  return { cost: Number(r.cost) || 0, turns: Number(r.turns) || 0 };
+}
+/** Cost per UTC day since `from` (only days with turns) */
+export const usageByDay = (from: string) => (db().prepare("SELECT substr(ts, 1, 10) AS day, COALESCE(SUM(cost_usd), 0) AS cost, COUNT(*) AS turns FROM ai_usage WHERE ts >= ? GROUP BY day ORDER BY day").all(from) as unknown as { day: string; cost: number; turns: number }[]);
+
 // ---- Retention: delete old log rows (at startup and then at most once a day, on the next write) ----
 // LOTSE_LOG_RETENTION_DAYS (access log, default 180) and LOTSE_AUDIT_RETENTION_DAYS (change log, default 365, minimum 30).
 // 0 = never delete. Undo doesn't need the audit (previous values are in the chat); still, entries of chats with an open run are kept.
-const DAY = 86_400_000;
+const DAY = 86_400_000, USAGE_DAYS = 400;
 const days = (v: string | undefined, def: number, min = 1) => { const n = v == null || v.trim() === '' ? def : Number(v); return !Number.isFinite(n) || n < 0 ? def : n === 0 ? 0 : Math.max(min, Math.floor(n)); };
 export const retention = () => ({ access: days(process.env.LOTSE_LOG_RETENTION_DAYS, 180), audit: days(process.env.LOTSE_AUDIT_RETENTION_DAYS, 365, 30) });
 const logPrune = () => singleton('logPrune', () => ({ at: 0 }));
@@ -122,6 +137,7 @@ export function pruneLogsOn(d: DatabaseSync, now = Date.now()): { access: number
   const r = retention(), cut = (n: number) => new Date(now - n * DAY).toISOString();
   const access = r.access ? Number(d.prepare('DELETE FROM access_log WHERE ts < ?').run(cut(r.access)).changes) : 0;
   const audit = r.audit ? Number(d.prepare("DELETE FROM audit WHERE ts < ? AND COALESCE(CASE WHEN json_valid(json) THEN json_extract(json, '$.chatId') END, '') NOT IN (SELECT chat_id FROM changeset_runs)").run(cut(r.audit)).changes) : 0;
+  d.prepare('DELETE FROM ai_usage WHERE ts < ?').run(cut(USAGE_DAYS)); // cost history: enough for this and last year's months
   return { access, audit };
 }
 export const pruneLogs = (now = Date.now()) => { logPrune().at = now; return pruneLogsOn(db(), now); };

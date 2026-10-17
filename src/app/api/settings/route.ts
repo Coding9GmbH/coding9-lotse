@@ -19,7 +19,7 @@ const patchSchema = z.object({
   magento: platformSchema('magento'),
   openmage: platformSchema('openmage'),
   shopware: z.object({ url: plain, publicUrl: plain, user: plain, clientId: plain, password: secret, clientSecret: secret }).optional(),
-  ai: z.object({ provider: z.enum(['claude', 'codex']).optional(), model: plain, codexModel: plain, apiKey: secret }).optional(),
+  ai: z.object({ provider: z.enum(['claude', 'codex']).optional(), model: plain, codexModel: plain, budget: z.string().trim().regex(/^(\d{1,7}([.,]\d{1,2})?)?$/, 'Budget: Betrag in US-Dollar, z. B. 50 oder 49,90').optional(), apiKey: secret }).optional(),
   image: z.object({ model: plain, openaiKey: secret }).optional(),
   scopes: z.record(z.string(), z.boolean()).optional(),
 });

@@ -5,7 +5,7 @@ import { buildPatch, connectionTestBlock, formFromSettings, gscKeyComplete, isDi
 
 const saved: PublicSettings = {
   shopware: { url: 'https://shop.test', publicUrl: '', user: '', clientId: 'SWIA1', hasPassword: false, hasClientSecret: true, configured: true },
-  ai: { provider: 'claude', hasApiKey: true, model: '', viaEnv: false, docker: false, codexModel: '', codexLoggedIn: false },
+  ai: { provider: 'claude', hasApiKey: true, model: '', viaEnv: false, docker: false, codexModel: '', codexLoggedIn: false, budget: '', budgetViaEnv: false },
   image: { hasKey: false, model: '' },
   scopes: { products: true, manufacturers: true, categories: true, cms: true, media: true, marketing: true, shop: false, gsc: true, sistrix: true, sales: false, web: false },
   scopeInfo: {

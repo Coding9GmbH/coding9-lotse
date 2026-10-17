@@ -124,7 +124,8 @@ Other platforms publish via their own paths (Shopify: theme templates, Magento/O
 | `GET /api/chats`, `POST /api/reset` | History, clear chat |
 | `POST /api/answer`, `POST /api/approve`, `POST /api/changesets/undo` | Answer follow-up question, approval, undo |
 | `POST /api/files`, `POST /api/upload` | Attachments, images |
-| `GET/PUT /api/settings`, `GET /api/config`, `GET /api/health`, `GET /api/ping` | Settings, path templates/version, status, health check |
+| `GET/PUT /api/settings`, `GET /api/config`, `GET /api/health`, `GET /api/ping` | Settings, path templates/version, status (incl. cost brake), health check |
+| `GET /api/usage` | AI costs: month, today, last 30 days, monthly budget |
 | `GET/PUT /api/styleguide` | Style guide |
 | `/api/knowledge`, `PATCH|DELETE /api/knowledge/docs/{id}`, `POST /api/knowledge/rules`, `PUT|DELETE /api/knowledge/rules/{id}` | Knowledge base and rules |
 | `/api/shopcheck`, `/api/shopcheck/checks[/{id}]` | Shop check, checks |

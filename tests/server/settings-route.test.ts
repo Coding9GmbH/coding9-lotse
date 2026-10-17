@@ -66,3 +66,9 @@ test('PUT: while a change set is being written, switching the shop connection is
     assert.equal(getSettings().shopware.url, 'http://anderer.shop');
   } finally { ADAPTERS.shopware.apply = origApply; }
 });
+
+test('PUT: monthly AI budget accepts amounts with dot or comma, rejects anything else', async () => {
+  for (const v of ['50', '49,90', '12.5', '']) assert.equal((await put({ ai: { budget: v } })).status, 200, v);
+  assert.equal(getSettings().ai.budget, '');
+  for (const v of ['-5', 'viel', '1e9', '12,345']) assert.equal((await put({ ai: { budget: v } })).status, 400, v);
+});

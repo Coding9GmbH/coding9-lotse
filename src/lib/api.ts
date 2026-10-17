@@ -4,7 +4,7 @@ import type { CheckListItem } from './custom-checks';
 import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget } from './knowledge';
 import type { CodexLoginState, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
-  PublicSettings, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome,
+  PublicSettings, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
 } from './protocol';
 
 export class ApiError extends Error {
@@ -74,6 +74,8 @@ export const api = {
   seoImpact: () => request<SeoImpactList>('/api/seo/impact'),
   seoImpactMeasure: () => request<SeoImpactList & { measured: number; failed: { id: string; error: string }[] }>('/api/seo/impact', { method: 'POST' }),
   seoImpactDismiss: (id: string, dismissed: boolean) => request<SeoImpactList>('/api/seo/impact', json('PUT', { id, dismissed })),
+  /** AI costs this month and the monthly budget (cost brake) */
+  usage: () => request<UsageStatus>('/api/usage'),
   accessLog: () => request<AccessLogRow[]>('/api/access-log'),
   audit: () => request<AuditRow[]>('/api/audit'),
   shopCheck: () => request<ShopCheckState>('/api/shopcheck'),

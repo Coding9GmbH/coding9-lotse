@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
-import type { PublicSettings, ScopeKey, TestResult } from '@/lib/protocol';
+import type { PublicSettings, ScopeKey, TestResult, UsageStatus } from '@/lib/protocol';
+import { INTL_LOCALE } from '@/lib/i18n';
 import { PLATFORM_KINDS, platformSettings, scopeDisplay, type PlatformField, type PlatformKind } from '@/lib/platforms';
 import { egressNotice } from '@/lib/privacy-copy';
 import { aiModels, authOf, autosaveDirty, autosavePatch, connectionTestBlock, fieldValue, formFromSettings, hasSecret, platformAvailable, platformPending, savedConfigured, secretsDropped, secretState, withAuth, withFieldValue, withSecret, type SecretKey, type SettingsForm } from '@/lib/settings-form';
@@ -167,6 +168,7 @@ export function SettingsView({ section = 'general' }: { section?: SettingsSectio
                     <p className={styles.hint}>{ts.ai.codexTools}</p>
                   </>
                 )}
+                <BudgetField value={form.ai.budget} onChange={budget => setAi({ budget })} saved={saved} provider={form.ai.provider} />
                 <TestRow state={tests.ai} onTest={() => void test('ai')} disabled={saving || dirty || (form.ai.provider === 'codex' && !saved.ai.codexLoggedIn)} title={connectionTestBlock(dirty, locale) ?? undefined} />
               </section>
 
@@ -295,6 +297,27 @@ function ShopSection({ form, saved, set, test, onTest, saving, dirty, pending, s
 
 /** **bold** in help texts from lib/platforms.ts */
 const rich = (t: string) => t.split('**').map((part, i) => (i % 2 ? <b key={i}>{part}</b> : part));
+
+/** Cost brake: monthly budget (USD) for Claude plus this month's spend; re-reads the usage after saving */
+function BudgetField({ value, onChange, saved, provider }: { value: string; onChange: (v: string) => void; saved: PublicSettings; provider: PublicSettings['ai']['provider'] }) {
+  const { t, locale } = useI18n(), ts = t.settings.ai;
+  const [u, setU] = useState<UsageStatus | null>(null);
+  useEffect(() => { let off = false; api.usage().then(x => { if (!off) setU(x); }, () => {}); return () => { off = true; }; }, [saved]);
+  const usd = (n: number) => n.toLocaleString(INTL_LOCALE[locale], { style: 'currency', currency: 'USD' });
+  const hint = <>{ts.budgetHint}{saved.ai.budgetViaEnv && <> {ts.budgetEnv(saved.ai.budget)}</>}</>;
+  return (
+    <>
+      <Field label={ts.budget} hint={hint}>
+        <input inputMode="decimal" value={value} onChange={e => onChange(e.target.value)} placeholder={ts.budgetPlaceholder} spellCheck={false} />
+      </Field>
+      {provider === 'codex' ? <p className={styles.hint}>{ts.usageCodex}</p> : u && (
+        <p className={styles.hint} role="status">
+          {ts.usageMonth(usd(u.month.cost), u.month.turns)}{u.budget ? ts.usageOf(usd(u.budget), Math.round((u.used ?? 0) * 100)) : ''} · {ts.usageToday(usd(u.today.cost))}
+        </p>
+      )}
+    </>
+  );
+}
 
 function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactElement }) {
   return (
