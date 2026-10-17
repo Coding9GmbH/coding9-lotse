@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -51,7 +52,7 @@ after(async () => { R.resetReconcile(); await fake.close(); await gh.close(); fs
 const until = async (fn: () => boolean, ms = 10_000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw new Error('timeout'); await new Promise(r => setTimeout(r, 10)); } };
 const settled = (id: string) => until(() => !J.setupRunning(id) && T.getTask(id)!.status !== 'setting_up');
 const execs = (id?: string) => fake.calls.filter(c => c.op === 'exec' && (!id || c.id === id)).map(c => c.argv!);
-const newTask = (title = 'Footer-Farbe anpassen') => T.createTask({ title, goal: 'Der Footer soll grün werden.', repo: 'acme/shop-theme', baseBranch: 'main' });
+const newTask = (title = 'Footer-Farbe anpassen') => T.createTask({ chatId: crypto.randomUUID(), title, goal: 'Der Footer soll grün werden.', repo: 'acme/shop-theme', baseBranch: 'main' });
 const post = (h: (req: Request, ctx: any) => Promise<Response>, url: string, body: unknown, id?: string) =>
   h(new Request(`http://127.0.0.1${url}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
 
@@ -85,10 +86,12 @@ test('happy path: all steps in order, plugin synced as www-data without .git/sec
   const argv = execs(done.containerId!).map(a => (a[0] === 'mysql' ? (a.at(-1)!.includes('installed_at') ? 'PLUGIN_STATE' : 'SET_DOMAIN') : a));
   assert.deepEqual(argv, SETUP_ARGV);
   assert.ok(fake.calls.filter(c => c.op === 'exec').every(c => c.user === 'www-data'), 'every exec as www-data');
-  // container spec: server-built, loopback port, limits, no privileges
+  // container spec: server-built, only the internal network (also on bare metal), no published port, limits, no privileges
   const spec = fake.calls.find(c => c.op === 'create')!.detail as any;
   assert.equal(spec.Labels['lotse.task'], t.id);
-  assert.equal(spec.HostConfig.PortBindings['80/tcp'][0].HostIp, '127.0.0.1');
+  assert.equal(spec.HostConfig.NetworkMode, 'lotse-sandbox');
+  assert.equal(spec.HostConfig.PortBindings, undefined);
+  assert.equal(fake.networks.get('lotse-sandbox')?.internal, true, 'the internal network was created');
   assert.ok(!('Privileged' in spec.HostConfig) && !('Binds' in spec.HostConfig));
   // archive: only plugin files, owned by uid/gid 33
   const arch = fake.archives.find(a => a.id === done.containerId)!;
@@ -305,7 +308,7 @@ test('reconcile after a restart: running steps interrupted, orphan containers re
   const stale = newTask('Unterbrochen');
   stale.status = 'setting_up'; stale.steps[1].state = 'running'; stale.steps[0].state = 'done';
   db.codeTaskPut(stale);
-  const orphan = await fake.create({ name: 'lotse-sbx-t-orphan000000', Image: 'dockware/shopware:6.7.15.1', Labels: { 'lotse.managed': '1', 'lotse.task': 't_orphan000000' } });
+  const orphan = await fake.create({ name: 'lotse-sbx-t-orphan000000', Image: 'dockware/shopware:6.7.15.1', Labels: { 'lotse.managed': '1', 'lotse.task': 't_orphan000000' }, HostConfig: { NetworkMode: 'lotse-sandbox' } });
   assert.deepEqual(R.interruptStale(), [stale.id]);
   const s = T.getTask(stale.id)!;
   assert.equal(s.status, 'interrupted');
@@ -349,7 +352,7 @@ test('logs are redacted before they are stored or streamed', async () => {
 });
 
 test('detect-layout: a full Shopware project stops with a clear German error', async () => {
-  const t = T.createTask({ title: 'Ganzer Shop', goal: '', repo: 'acme/full-shop', baseBranch: 'main' });
+  const t = T.createTask({ chatId: crypto.randomUUID(), title: 'Ganzer Shop', goal: '', repo: 'acme/full-shop', baseBranch: 'main' });
   J.runSteps(t.id); await settled(t.id);
   const cur = T.getTask(t.id)!;
   assert.equal(cur.status, 'failed');
@@ -371,7 +374,7 @@ const fakeFiles = (cid: string) => [...fake.containers.get(cid)!.files.keys()];
 test('dump: streamed into the container as www-data (0600), exact constant import argv, deleted on host and in the container', async () => {
   fake.script = argv => (argv[1] === '--version' ? { output: 'Shopware 6.7.15.1 (env: dev, debug: true)' } : undefined);
   const dump = await readyDump(7);
-  const t = T.createTask({ title: 'Mit Dump', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id });
+  const t = T.createTask({ chatId: crypto.randomUUID(), title: 'Mit Dump', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id });
   J.runSteps(t.id); await settled(t.id);
   const done = T.getTask(t.id)!;
   assert.equal(done.status, 'ready', done.error ?? '');
@@ -399,7 +402,7 @@ test('dump: streamed into the container as www-data (0600), exact constant impor
 test('dump: a failed import deletes the dump too; a retry asks for a new upload', async () => {
   fake.script = argv => (argv[0] === 'bash' && argv[1] === '-c' ? { exitCode: 1, output: 'ERROR 1064 (42000) at line 2: syntax error' } : undefined);
   const dump = await readyDump(7);
-  const t = T.createTask({ title: 'Kaputter Dump', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id });
+  const t = T.createTask({ chatId: crypto.randomUUID(), title: 'Kaputter Dump', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id });
   J.runSteps(t.id); await settled(t.id);
   let cur = T.getTask(t.id)!;
   assert.equal(cur.status, 'failed');
@@ -426,7 +429,7 @@ test('dump: a failed import deletes the dump too; a retry asks for a new upload'
 test('dump: a different Shopware minor version blocks until "Trotzdem fortfahren"; the dump waits meanwhile', async () => {
   fake.script = argv => (argv[1] === '--version' ? { output: 'Shopware 6.7.15.1 (env: dev, debug: true)' } : undefined);
   const dump = await readyDump(6);
-  const t = T.createTask({ title: 'Alte Version', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id });
+  const t = T.createTask({ chatId: crypto.randomUUID(), title: 'Alte Version', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id });
   J.runSteps(t.id); await settled(t.id);
   let cur = T.getTask(t.id)!;
   assert.equal(cur.status, 'failed');
@@ -464,8 +467,8 @@ test('dump: a different Shopware minor version blocks until "Trotzdem fortfahren
 test('dump: finishing a task deletes a dump that was not imported yet; a dump cannot belong to two tasks', async () => {
   fake.script = argv => (argv[1] === '--version' ? { output: 'Shopware 6.7.15.1' } : undefined);
   const dump = await readyDump(6);
-  const t = T.createTask({ title: 'Wartender Dump', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id });
-  assert.throws(() => T.createTask({ title: 'Zweite', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id }), /anderen Aufgabe/);
+  const t = T.createTask({ chatId: crypto.randomUUID(), title: 'Wartender Dump', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id });
+  assert.throws(() => T.createTask({ chatId: crypto.randomUUID(), title: 'Zweite', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id }), /anderen Aufgabe/);
   J.runSteps(t.id); await settled(t.id);
   assert.ok(fs.existsSync(D.dumpFile(dump.id)));
   await J.finishTask(t.id);
@@ -476,15 +479,15 @@ test('dump: finishing a task deletes a dump that was not imported yet; a dump ca
 });
 
 test('routes: 403 while off, create checks repository access, start/events, switching off pauses tasks', async () => {
-  const created = await post(tasksRoute.POST, '/api/sandbox/tasks', { title: 'Über Route', goal: 'x', repo: 'acme/shop-theme', baseBranch: 'main' });
+  const created = await post(tasksRoute.POST, '/api/sandbox/tasks', { chatId: crypto.randomUUID(), title: 'Über Route', goal: 'x', repo: 'acme/shop-theme', baseBranch: 'main' });
   assert.equal(created.status, 201);
   const { task } = await created.json() as any;
   assert.equal(task.status, 'setting_up');
   assert.ok(!JSON.stringify(task).includes('framework:demodata'), 'stored commands are not sent to the browser');
-  const denied = await post(tasksRoute.POST, '/api/sandbox/tasks', { title: 'Fremd', repo: 'other/repo', baseBranch: 'main' });
+  const denied = await post(tasksRoute.POST, '/api/sandbox/tasks', { chatId: crypto.randomUUID(), title: 'Fremd', repo: 'other/repo', baseBranch: 'main' });
   assert.equal(denied.status, 400);
   assert.match((await denied.json() as any).error, /Kein Zugriff auf other\/repo/);
-  assert.equal((await post(tasksRoute.POST, '/api/sandbox/tasks', { title: 'X', repo: 'acme/shop-theme', baseBranch: '-x' })).status, 400);
+  assert.equal((await post(tasksRoute.POST, '/api/sandbox/tasks', { chatId: crypto.randomUUID(), title: 'X', repo: 'acme/shop-theme', baseBranch: '-x' })).status, 400);
   await settled(task.id);
   const conflict = await post(startRoute.POST, `/api/sandbox/tasks/${task.id}/start`, {}, task.id);
   assert.equal(conflict.status, 409);

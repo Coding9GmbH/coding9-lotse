@@ -169,6 +169,7 @@ export function detectLayout(worktree: string): TaskLayout {
 
 const DROP_CAPS = ['NET_RAW', 'MKNOD', 'AUDIT_WRITE', 'SYS_CHROOT', 'SETFCAP'];
 /** Create body for one task container. Pure: only the validated task id, the configured image, limits and environment.
+ *  Attached to the internal network lotse-sandbox only.
  *  No binds, no devices, not privileged. Dockware starts its services with sudo, so no-new-privileges is not possible;
  *  instead capabilities the services do not need are dropped on top of Docker's defaults. */
 export function buildSpec(o: SpecInput): ContainerSpec {
@@ -180,9 +181,9 @@ export function buildSpec(o: SpecInput): ContainerSpec {
     RestartPolicy: { Name: 'no' }, LogConfig: { Type: 'json-file', Config: { 'max-size': '10m', 'max-file': '2' } },
   };
   const base = { name: alias, Image: o.image, Hostname: alias, Labels: { ...MANAGED, [TASK_LABEL]: o.taskId, 'lotse.template': 'dockware' }, Env: [...o.env] };
-  if (o.mode === 'network') return { ...base, HostConfig: { ...host, NetworkMode: SANDBOX_NET }, NetworkingConfig: { EndpointsConfig: { [SANDBOX_NET]: { Aliases: [alias] } } } };
-  if (!Number.isInteger(o.port) || o.port! < 1024 || o.port! > 65535) throw new Error('Kein freier Port für die Sandbox.');
-  return { ...base, ExposedPorts: { '80/tcp': {} }, HostConfig: { ...host, NetworkMode: 'bridge', PortBindings: { '80/tcp': [{ HostIp: '127.0.0.1', HostPort: String(o.port) }] } } };
+  // Always only the internal network (no route to the internet or the live shop), no published ports: Lotse reaches the storefront
+  // there, by alias inside the compose setup or by the container's IP from the host.
+  return { ...base, HostConfig: { ...host, NetworkMode: SANDBOX_NET }, NetworkingConfig: { EndpointsConfig: { [SANDBOX_NET]: { Aliases: [alias] } } } };
 }
 
 export const dockware: SandboxTemplate = {

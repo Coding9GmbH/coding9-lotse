@@ -42,7 +42,6 @@ export interface StepCtx {
 /** Input of the pure container spec builder: only server-side values (validated task id, configured image, limits). */
 export interface SpecInput {
   taskId: string; image: string; memoryMb: number; cpus: number; env: string[];
-  mode: 'network' | 'local'; /** local mode: host port on 127.0.0.1 */ port?: number;
 }
 
 export interface TemplateStep {

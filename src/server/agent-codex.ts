@@ -10,35 +10,47 @@ import type { Locale } from '@/lib/i18n/locales';
 import type { RunEnd, RunUsage } from './agent';
 import { getSettings, redact } from './settings';
 import { errMsg } from './util';
+import { relOf } from './sandbox/native-tools';
+import { taskPaths } from './sandbox/tasks';
+import { resolveInWorkspace } from './sandbox/workspace-fs';
+import { syncChanged } from './sandbox/workspace-tools';
 
 // Addition to the system prompt: otherwise Codex assumes its role as a coding agent
 const CODEX_NOTE = `\n\n## Laufzeit
 Du läufst in Lotse, nicht als Programmier-Assistent. Du hast ausschließlich die Werkzeuge des MCP-Servers „shop“ (z. B. search_products, draft_page, ask_user, propose_product_changes). Führe keine Befehle aus, lies oder schreibe keine Dateien und frage nicht nach solchen Rechten. Das ist hier technisch gesperrt.`;
 const CODEX_WEB_NOTE = ' Zusätzlich darfst du die Websuche verwenden (Internetrecherche ist eingeschaltet).';
-// Code chats (Sandbox Coding): same tools as Claude via MCP; Codex' own shell, apply_patch and file access stay blocked
+// Chats with an attached sandbox: Codex edits the task's worktree with its own patches (only there: permission profile + check below),
+// reads it and runs commands only through the MCP tools; its own shell would run on the Lotse host and stays disabled.
 export const CODE_NOTE = `\n\n## Laufzeit
-Du läufst in Lotse als Coding-Assistent für genau diese Aufgabe. Du hast ausschließlich die Werkzeuge des MCP-Servers „shop“ (list_files, read_file, search_files, edit_file, write_file, delete_file, git_diff, run_command, read_sandbox_page, get_environment, ask_user, propose_publish). Eigene Befehle, eigene Dateizugriffe (Shell, apply_patch) und Netzwerk sind technisch gesperrt und brechen die Runde ab: Dateien änderst du nur mit edit_file/write_file/delete_file, Befehle nur mit run_command.`;
+Du läufst in Lotse als Coding-Assistent in der Sandbox dieses Chats. Dein Arbeitsverzeichnis ist das Repository; Dateien änderst du mit deinen eigenen Patches (apply_patch) – nur innerhalb des Repositorys, ohne .git und geheime Dateien. Lesen und suchen mit list_files/read_file/search_files, Befehle NUR mit sandbox_bash (läuft im Container der Sandbox, ohne Internet). Eine eigene Shell gibt es hier nicht: Befehle außerhalb von sandbox_bash und Patches außerhalb des Repositorys brechen die Runde ab.`;
 
 /** Internal address at which the Codex process reaches Lotse (same machine/container). */
 const internalUrl = () => (process.env.LOTSE_INTERNAL_URL || `http://127.0.0.1:${process.env.PORT || 3333}`).replace(/\/$/, '');
 
-/** Developer instructions: the shop prompt with CODEX_NOTE, or in a code chat the code prompt with CODE_NOTE. */
-export const codexInstructions = (s: Pick<Session, 'mode' | 'taskId' | 'platform' | 'locale'> | null, web = false) =>
-  (s?.mode === 'code' ? codeSystemFor(s.taskId, s.locale, web) + CODE_NOTE : buildSystem(s?.platform, s?.locale, web) + CODEX_NOTE) + (web ? CODEX_WEB_NOTE : '');
+/** Developer instructions: the shop prompt with CODEX_NOTE, or with an attached sandbox the code prompt with CODE_NOTE. */
+export const codexInstructions = (s: Pick<Session, 'taskId' | 'platform' | 'locale'> | null, web = false) =>
+  (s?.taskId ? codeSystemFor(s.taskId, s.locale, web) + CODE_NOTE : buildSystem(s?.platform, s?.locale, web) + CODEX_NOTE) + (web ? CODEX_WEB_NOTE : '');
 
-function client(chatId: string, instructions: string, web = false) {
-  const cfg = codexConfig({ mcpUrl: `${internalUrl()}/api/mcp/${encodeURIComponent(chatId)}`, instructions, web });
+function client(chatId: string, instructions: string, web = false, workspace?: string) {
+  const cfg = codexConfig({ mcpUrl: `${internalUrl()}/api/mcp/${encodeURIComponent(chatId)}`, instructions, web, workspace });
   const codex = new Codex({ env: codexEnv({ LOTSE_MCP_TOKEN: mcpTokenFor(chatId) }), config: cfg.config, configOverrides: cfg.configOverrides });
-  const opts = codexThreadOptions(cfg.workingDirectory, getSettings().ai.codexModel, web);
+  const opts = codexThreadOptions(cfg.workingDirectory, getSettings().ai.codexModel, web, !!workspace);
   return { codex, opts };
 }
 
-/** Thread options for every run. Read-only sandbox, no network for commands, no approval prompt; web search only with `web` (web research). */
-export function codexThreadOptions(workingDirectory: string, model?: string, web = false): ThreadOptions {
+/** Thread options for every run. Read-only sandbox (a sandbox chat: workspace-write, i.e. its worktree), no network for commands,
+ *  no approval prompt; web search only with `web` (web research). */
+export function codexThreadOptions(workingDirectory: string, model?: string, web = false, write = false): ThreadOptions {
   return {
-    workingDirectory, skipGitRepoCheck: true, sandboxMode: 'read-only', approvalPolicy: 'never',
+    workingDirectory, skipGitRepoCheck: true, sandboxMode: write ? 'workspace-write' : 'read-only', approvalPolicy: 'never',
     networkAccessEnabled: false, webSearchMode: web ? 'live' : 'disabled', ...(model ? { model } : {}),
   };
+}
+
+const KIND = { add: 'create', update: 'edit', delete: 'delete' } as const;
+/** Paths of a Codex patch relative to the worktree; throws if one lies outside or is .git/a secret/vendor. */
+export function patchPaths(root: string, changes: { path: string }[]): string[] {
+  return changes.map(c => resolveInWorkspace(root, relOf(root, c.path), { forWrite: true }).rel);
 }
 
 const resultText = (item: Extract<ThreadItem, { type: 'mcp_tool_call' }>) =>
@@ -50,10 +62,10 @@ const resultText = (item: Extract<ThreadItem, { type: 'mcp_tool_call' }>) =>
 export function onCodexItem(
   item: ThreadItem,
   evType: 'item.started' | 'item.updated' | 'item.completed',
-  state: { texts: Map<string, number>; tools: Set<string>; web?: boolean },
+  state: { texts: Map<string, number>; tools: Set<string>; web?: boolean; /** worktree of the attached sandbox (patches allowed there) */ sandbox?: string },
   emit: (ev: ChatEvent) => void,
   locale?: Locale,
-): { abort?: string } {
+): { abort?: string; /** patched paths (relative): mirror them into the container */ files?: string[] } {
   switch (item.type) {
     case 'agent_message': {
       const sent = state.texts.get(item.id);
@@ -73,7 +85,15 @@ export function onCodexItem(
       if (!state.tools.has(item.id)) { state.tools.add(item.id); emit({ t: 'tool', id: item.id, name: 'web_search', input: { query: item.query } }); }
       return {};
     }
-    case 'command_execution': case 'file_change':
+    case 'file_change': {
+      if (!state.sandbox) return { abort: messages(locale).server.codexBlockedTool };
+      if (evType !== 'item.completed' || item.status !== 'completed') return {};
+      let files: string[];
+      try { files = patchPaths(state.sandbox, item.changes); } catch { return { abort: messages(locale).server.codexOutsideWorkspace }; }
+      item.changes.forEach((c, i) => emit({ t: 'file_change', path: files[i], kind: KIND[c.kind], added: 0, removed: 0 }));
+      return { files };
+    }
+    case 'command_execution':
       return { abort: messages(locale).server.codexBlockedTool };
     case 'reasoning': case 'todo_list': case 'error':
       return {};
@@ -96,7 +116,8 @@ export async function runCodex(s: Session, prompt: string, signal: AbortSignal, 
     let failed: string | null = null, usage: RunUsage | undefined;
     const model = getSettings().ai.codexModel || undefined, web = getSettings().scopes.web;
     try {
-      const { codex, opts } = client(s.id, codexInstructions(s, web), web);
+      const workspace = s.taskId ? taskPaths(s.taskId).worktree : undefined;
+      const { codex, opts } = client(s.id, codexInstructions(s, web), web, workspace);
       const thread = s.codexThreadId ? codex.resumeThread(s.codexThreadId, opts) : codex.startThread(opts);
       const { events } = await thread.runStreamed(prompt, { signal: ac.signal });
       for await (const ev of events) {
@@ -105,8 +126,9 @@ export async function runCodex(s: Session, prompt: string, signal: AbortSignal, 
         if (ev.type === 'error') { failed = ev.message; continue; }
         if (ev.type === 'turn.completed') { const u = ev.usage; usage = { input: u.input_tokens, output: u.output_tokens, cacheRead: u.cached_input_tokens, cacheWrite: u.cache_write_input_tokens }; continue; }
         if (ev.type !== 'item.started' && ev.type !== 'item.updated' && ev.type !== 'item.completed') continue;
-        const stop = onCodexItem(ev.item, ev.type, { texts, tools, web }, emit, s.locale);
+        const stop = onCodexItem(ev.item, ev.type, { texts, tools, web, sandbox: workspace }, emit, s.locale);
         if (stop.abort) { failed = stop.abort; ac.abort(); }
+        if (stop.files?.length && s.taskId) await syncChanged(s.taskId, stop.files);
       }
       persist(s);
       return { error: failed, ...(model ? { model } : {}), ...(usage ? { usage } : {}) };

@@ -43,7 +43,7 @@ const server = http.createServer(async (req, res) => {
     return res.end('{"status":"Pull complete","id":"aaa"}\n{"status":"Pull complete","id":"bbb"}\n{"status":"Status: Downloaded newer image"}\n');
   }
   if (r === '/containers/json') return send(res, 200, [
-    { Id: 'mine', Names: ['/lotse-t1'], Image: IMAGE, State: 'running', Labels: containers.mine.labels, Ports: [{ PrivatePort: 80, PublicPort: 49152 }] },
+    { Id: 'mine', Names: ['/lotse-t1'], Image: IMAGE, State: 'running', Labels: containers.mine.labels, NetworkSettings: { Networks: { 'lotse-sandbox': { IPAddress: '172.30.0.5' } } } },
     { Id: 'foreign', Names: ['/other'], Image: 'nginx', State: 'running', Labels: containers.foreign.labels }, // a proxy that ignores filters
   ]);
   if (r === '/containers/create') return send(res, 201, { Id: 'new1' });
@@ -51,7 +51,7 @@ const server = http.createServer(async (req, res) => {
   if (c) {
     const box = containers[c[1]];
     if (!box) return send(res, 404, { message: 'No such container' });
-    if (c[2] === 'json') return send(res, 200, { Id: c[1], Name: `/${c[1]}`, Config: { Image: IMAGE, Labels: box.labels }, State: { Status: box.state, Running: box.state === 'running' }, NetworkSettings: { Ports: { '80/tcp': [{ HostIp: '127.0.0.1', HostPort: '49152' }] } } });
+    if (c[2] === 'json') return send(res, 200, { Id: c[1], Name: `/${c[1]}`, Config: { Image: IMAGE, Labels: box.labels }, State: { Status: box.state, Running: box.state === 'running' }, NetworkSettings: { Networks: { bridge: { IPAddress: '172.17.0.9' }, 'lotse-sandbox': { IPAddress: '172.30.0.5' } } } });
     if (c[2] === 'stop') { box.state = 'exited'; return send(res, 204); }
     if (c[2] === 'exec') { lastExecBody = JSON.parse(body); return send(res, 201, { Id: 'exec1' }); }
     if (c[2] === '' && req.method === 'DELETE') { delete containers[c[1]]; return send(res, 204); }
@@ -142,7 +142,8 @@ test('exec: upgrade, demux, stdin, exit code; argv as an array (no shell)', asyn
 
 test('list: filter by label, and unlabelled containers are dropped even if the daemon returns them', async () => {
   const list = await d.list({ 'lotse.task': 't1' });
-  assert.deepEqual(list.map(c => [c.id, c.name, c.port]), [['mine', 'lotse-t1', 49152]]);
+  assert.deepEqual(list.map(c => [c.id, c.name, c.address]), [['mine', 'lotse-t1', { host: '172.30.0.5', port: 80 }]]);
+  assert.deepEqual((await d.inspect('mine'))?.address, { host: '172.30.0.5', port: 80 }, 'only the address on lotse-sandbox, never another network');
   const q = calls.findLast(c => c.startsWith('GET /v1.41/containers/json'))!;
   const filters = JSON.parse(new URLSearchParams(q.split('?')[1]).get('filters')!);
   assert.deepEqual(filters.label.sort(), ['lotse.managed=1', 'lotse.task=t1']);
@@ -163,7 +164,7 @@ test('stop/exec/remove/archive on an unlabelled container are refused before any
 });
 
 test('create: only labelled, allowed image, no host access', async () => {
-  const base = { name: 'lotse-t1', Image: IMAGE, Labels: { 'lotse.managed': '1' } };
+  const base = { name: 'lotse-t1', Image: IMAGE, Labels: { 'lotse.managed': '1' }, HostConfig: { NetworkMode: 'lotse-sandbox' } };
   assert.equal(await d.create(base), 'new1');
   const before = calls.length;
   await assert.rejects(d.create({ ...base, Labels: {} }), /Lotse-Label/);
@@ -171,6 +172,8 @@ test('create: only labelled, allowed image, no host access', async () => {
   await assert.rejects(d.create({ ...base, HostConfig: { Privileged: true } }), /Privileged/);
   await assert.rejects(d.create({ ...base, HostConfig: { Binds: ['/:/host'] } }), /Binds/);
   await assert.rejects(d.create({ ...base, HostConfig: { NetworkMode: 'host' } }), /NetworkMode=host/);
+  await assert.rejects(d.create({ ...base, HostConfig: { NetworkMode: 'bridge' } }), /NetworkMode=bridge/, 'the default bridge has internet access');
+  await assert.rejects(d.create({ ...base, HostConfig: {} }), /muss lotse-sandbox sein/, 'missing = default bridge');
   await assert.rejects(d.create({ ...base, name: 'web' }), /Container-Name/);
   // allow-list: Docker matches keys case-insensitively, so other spellings are refused, as is anything not on the list
   const bad = (spec: Record<string, unknown>, re: RegExp) => assert.rejects(d.create({ ...base, ...spec } as never), re, JSON.stringify(spec));
@@ -182,18 +185,17 @@ test('create: only labelled, allowed image, no host access', async () => {
   for (const mode of ['container:lotse', 'none', 'lotse_docker-api', 'HOST']) await bad({ HostConfig: { NetworkMode: mode } }, /NetworkMode=/);
   for (const k of ['PidMode', 'IpcMode', 'SecurityOpt', 'Sysctls', 'CgroupParent', 'Runtime', 'PublishAllPorts', 'Devices', 'Mounts', 'VolumesFrom', 'UsernsMode'])
     await bad({ HostConfig: { [k]: k === 'PublishAllPorts' ? true : ['x'] } }, new RegExp(`${k} ist nicht erlaubt`));
-  await bad({ HostConfig: { PortBindings: { '80/tcp': [{ HostPort: '8080' }] } } }, /127\.0\.0\.1/);
-  await bad({ HostConfig: { PortBindings: { '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '8080' }] } } }, /127\.0\.0\.1/);
+  await bad({ HostConfig: { NetworkMode: 'lotse-sandbox', PortBindings: { '80/tcp': [{ HostIp: '127.0.0.1', HostPort: '8080' }] } } }, /PortBindings ist nicht erlaubt/);
+  await bad({ ExposedPorts: { '80/tcp': {} } }, /ExposedPorts ist nicht erlaubt/);
   await bad({ HostConfig: { LogConfig: { Type: 'syslog', Config: { 'syslog-address': 'tcp://x' } } } }, /Type/);
   await bad({ NetworkingConfig: { EndpointsConfig: { 'lotse_docker-api': {} } } }, /lotse_docker-api ist nicht erlaubt/);
   await bad({ NetworkingConfig: { EndpointsConfig: { 'lotse-sandbox': { IPAMConfig: { IPv4Address: '10.0.0.1' } } } } }, /IPAMConfig/);
   await bad({ Volumes: { '/data': {} } }, /Volumes ist nicht erlaubt/);
   assert.equal(calls.length, before, 'nothing sent');
-  // what the template builds: limits, own network or loopback ports
-  assert.equal(await d.create({ ...base, Env: ['A=1'], Hostname: 'lotse-t1', ExposedPorts: { '80/tcp': {} },
+  // what the template builds: limits, the internal network only
+  assert.equal(await d.create({ ...base, Env: ['A=1'], Hostname: 'lotse-t1',
     HostConfig: { Memory: 4096 * 2 ** 20, NanoCpus: 2e9, PidsLimit: 2048, NetworkMode: 'lotse-sandbox', RestartPolicy: { Name: 'no' }, Tmpfs: { '/tmp': 'size=512m' }, LogConfig: { Type: 'json-file', Config: { 'max-size': '10m' } } },
     NetworkingConfig: { EndpointsConfig: { 'lotse-sandbox': { Aliases: ['lotse-t1'] } } } }), 'new1');
-  assert.equal(await d.create({ ...base, HostConfig: { NetworkMode: 'bridge', PortBindings: { '80/tcp': [{ HostIp: '127.0.0.1', HostPort: '40123' }] } } }), 'new1');
 });
 
 test('unreachable socket: clear German message', async () => {

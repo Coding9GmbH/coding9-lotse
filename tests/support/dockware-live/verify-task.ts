@@ -7,6 +7,7 @@
 //   LOTSE_DOCKWARE_LIVE=1 npx tsx --conditions=react-server tests/support/dockware-live/verify-task.ts
 //   Optional: LOTSE_DOCKWARE_IMAGE (default dockware/shopware:6.7.15.1, must be pulled), DOCKER_HOST.
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -43,7 +44,7 @@ const sh = async (id: string, cmd: string) => (await r.exec(id, ['bash', '-lc', 
 let taskId = '';
 try {
   const t0 = Date.now();
-  const t = T.createTask({ title: 'Live-Test Dockware', goal: 'Setup prüfen', repo: repo.repo, baseBranch: 'main' });
+  const t = T.createTask({ chatId: crypto.randomUUID(), title: 'Live-Test Dockware', goal: 'Setup prüfen', repo: repo.repo, baseBranch: 'main' });
   taskId = t.id;
   J.runSteps(t.id);
   let last = '';

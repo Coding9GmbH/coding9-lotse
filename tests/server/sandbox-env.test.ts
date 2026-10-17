@@ -200,7 +200,7 @@ test('network: created internal + labelled; a foreign or open network is refused
 });
 
 test('switching off stops running containers (not removed) and closes the routes again', async () => {
-  const id = await fake.create({ name: 'lotse-t-abc', Image: 'dockware/play:6.6.10.4', Labels: { 'lotse.managed': '1', 'lotse.task': 't_abc' } });
+  const id = await fake.create({ name: 'lotse-t-abc', Image: 'dockware/play:6.6.10.4', Labels: { 'lotse.managed': '1', 'lotse.task': 't_abc' }, HostConfig: { NetworkMode: 'lotse-sandbox' } });
   await fake.start(id);
   const r = await put({ enabled: false });
   assert.equal(r.body.env.status.enabled, false);
@@ -211,13 +211,13 @@ test('switching off stops running containers (not removed) and closes the routes
 
 test('fake runner: storefront serves synced files; exec scripted and recorded', async () => {
   const r = new FakeRunner();
-  const id = await r.create({ name: 'lotse-t-x', Image: 'dockware/play:6.7.2.2', Labels: { 'lotse.managed': '1' } });
+  const id = await r.create({ name: 'lotse-t-x', Image: 'dockware/play:6.7.2.2', Labels: { 'lotse.managed': '1' }, HostConfig: { NetworkMode: 'lotse-sandbox' } });
   await r.start(id);
   const hdr = Buffer.alloc(512); hdr.write('index.html'); hdr.write('00000000016\0', 124); hdr.write('0', 156);
   const body = Buffer.alloc(512); body.write('<h1>Hallo</h1>');
   await r.putArchive(id, '/var/www/html/public', Buffer.concat([hdr, body, Buffer.alloc(1024)]));
-  const port = (await r.inspect(id))!.port!;
-  assert.equal(await (await fetch(`http://127.0.0.1:${port}/`)).text(), '<h1>Hallo</h1>');
+  const addr = (await r.inspect(id))!.address!;
+  assert.equal(await (await fetch(`http://${addr.host}:${addr.port}/`)).text(), '<h1>Hallo</h1>');
   r.script = argv => (argv[1] === 'theme:compile' ? { exitCode: 1, output: 'SCSS error' } : undefined);
   assert.deepEqual(await r.exec(id, ['bin/console', 'theme:compile'], { user: 'www-data', timeoutMs: 1000 }), { exitCode: 1, output: 'SCSS error', truncated: false });
   assert.deepEqual(r.calls.filter(c => c.op === 'exec').map(c => c.argv), [['bin/console', 'theme:compile']]);

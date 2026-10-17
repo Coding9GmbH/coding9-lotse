@@ -18,6 +18,8 @@ const schema = z.object({
   memoryMb: z.number().optional(),
   cpus: z.number().optional(),
   idleMinutes: z.number().optional(),
+  defaultRepo: z.string().max(200).optional(),
+  defaultBranch: z.string().max(200).optional(),
   envVars: z.array(z.object({ key: z.string().max(100), secret: z.boolean(), value: z.string().max(10_000).optional() })).max(100).optional(),
   commands: z.array(z.object({ id: z.string().max(40).optional(), label: z.string().max(200), command: z.string().max(5000), phase: z.enum(['after-db', 'final']), timeoutSec: z.number().optional() })).max(50).optional(),
 }).strict();

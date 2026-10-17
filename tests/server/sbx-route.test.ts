@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -46,8 +47,8 @@ fake.storefront = (req, res) => {
 /** A task whose container runs (as after the setup), or with the given status. */
 async function readyTask(status: 'ready' | 'paused' | 'failed' | 'done' = 'ready') {
   answer = DEFAULT;
-  const t = T.createTask({ title: 'Vorschau', goal: '', repo: 'acme/shop-theme', baseBranch: 'main' });
-  const spec = { name: `lotse-sbx-${t.id.replace(/_/g, '-')}`, Image: 'dockware/shopware:6.7.15.1', Labels: { 'lotse.managed': '1', 'lotse.task': t.id } };
+  const t = T.createTask({ chatId: crypto.randomUUID(), title: 'Vorschau', goal: '', repo: 'acme/shop-theme', baseBranch: 'main' });
+  const spec = { name: `lotse-sbx-${t.id.replace(/_/g, '-')}`, Image: 'dockware/shopware:6.7.15.1', Labels: { 'lotse.managed': '1', 'lotse.task': t.id }, HostConfig: { NetworkMode: 'lotse-sandbox' } };
   t.containerId = await fake.create(spec);
   if (status !== 'paused') await fake.start(t.containerId);
   const wt = T.taskPaths(t.id).worktree;

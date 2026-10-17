@@ -54,6 +54,10 @@
 /* ---- Tasks ---- */
 .headBtn { margin-left: auto; }
 .taskList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.taskList li { display: flex; gap: 8px; align-items: center; }
+.taskList li > .taskRow { flex: 1; min-width: 0; }
+.taskPr { font-size: 13px; font-weight: 600; flex: none; }
+.defaultsRow { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 8px; margin-bottom: 8px; }
 .taskRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title status" "meta status"; gap: 2px 12px; align-items: center; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); text-decoration: none; }
 .taskRow:hover { border-color: var(--green); }
 .taskTitle { grid-area: title; font-weight: 600; overflow-wrap: anywhere; }
@@ -117,18 +121,14 @@
 .dumpNote { font-size: 13px; color: var(--green-d); margin: 4px 0 0; }
 .dumpWarn { margin: 6px 0 0; padding: 8px 10px; background: var(--coral-bg); border-radius: 8px; font-size: 13px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
-/* Code chat next to preview/changes (CodeWorkspace) */
-.codeGrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; margin-bottom: 16px; }
-@media (min-width: 1100px) { .codeGrid { grid-template-columns: minmax(340px, 420px) minmax(0, 1fr); } }
-.codeChat { display: flex; flex-direction: column; height: min(80vh, 860px); min-height: 420px; padding: 14px 0 0; margin-bottom: 0; overflow: hidden; }
-.codeChat .cardHead { padding: 0 16px; margin-bottom: 4px; flex-wrap: wrap; }
-.codeLog { padding: 8px 16px 12px; }
-.codeIntro { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
-.codeIntro .linkBtn { border: 0; background: none; padding: 0; font: inherit; font-size: 13px; cursor: pointer; }
-.codeChat .card textarea { width: auto; }
-.badge { font-size: 12px; color: var(--mute); background: var(--bg); border: 1px solid var(--line); border-radius: 99px; padding: 2px 9px; margin-left: auto; }
-.codeSide { min-width: 0; }
-.codeSide > .card { margin-bottom: 0; }
+/* Right panel of a chat with an attached sandbox (SandboxPanel) */
+.panelTabs { display: flex; gap: 4px; align-items: center; padding: 8px 14px 0; flex: none; flex-wrap: wrap; }
+.panelTabs button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 99px; padding: 4px 13px; font: inherit; font-size: 14px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.panelTabs button[aria-selected="true"] { background: var(--dark); color: var(--bg); border-color: var(--dark); }
+.panelLink { margin-left: auto; font-size: 13px; }
+.panelNote { margin: 6px 14px 0; }
+.panelBody { flex: 1; min-height: 0; overflow: auto; padding: 10px 14px 14px; }
+.panelBody > [role=tabpanel] > .card, .panelBody > .card { margin-bottom: 0; }
 .tabs { display: flex; gap: 4px; margin-bottom: 8px; }
 .tabs button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 99px; padding: 5px 14px; font: inherit; font-size: 14px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
 .tabs button[aria-selected="true"] { background: var(--dark); color: var(--bg); border-color: var(--dark); }

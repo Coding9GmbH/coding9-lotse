@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { ago, groupByDay, hostOf, swatches } from '@/lib/format';
 import { catalogState, shellFlags } from '@/lib/load-state';
@@ -41,7 +41,6 @@ function status(h: Health | null, healthFailed: boolean, t: Messages['nav']['sta
  * While the shop or AI is missing, only the setup is reachable: everything that needs both stays locked. */
 export function SideNav() {
   const s = useShell();
-  const router = useRouter();
   const path = usePathname();
   const { t: all, locale } = useI18n();
   const t = all.nav;
@@ -184,7 +183,7 @@ export function SideNav() {
                 <ul>
                   {g.items.map(c => (
                     <HistoryRow key={c.id} chat={c} state={c.status ?? (s.doneIds.has(c.id) ? 'done' : undefined)} active={onWorkspace && c.id === s.activeChatId} confirming={confirmId === c.id}
-                      onOpen={() => (c.mode === 'code' && c.taskId ? router.push(`/sandbox-coding/${c.taskId}`) : s.nav.openChat(c.id))} onAskDelete={() => setConfirmId(c.id)} onCancel={() => setConfirmId(null)}
+                      onOpen={() => s.nav.openChat(c.id)} onAskDelete={() => setConfirmId(c.id)} onCancel={() => setConfirmId(null)}
                       onDelete={() => { setConfirmId(null); s.nav.deleteChat(c.id); }} />
                   ))}
                 </ul>
@@ -245,7 +244,7 @@ function HistoryRow({ chat: c, state, active, confirming, onOpen, onAskDelete, o
           {state && <span className={cx(styles.stateText, styles[state])}>{t.nav.state[state]} · </span>}
           {c.target?.name && <>{c.target.name} · </>}<time dateTime={c.updatedAt} suppressHydrationWarning>{ago(c.updatedAt, undefined, locale)}</time>
           {c.published > 0 && <span className={styles.pub} title={t.nav.published(c.published)}> · ✓ {c.published}</span>}
-          {c.mode === 'code' && <span className={styles.code} title={t.nav.codeChat}> · {t.nav.codeBadge}</span>}
+          {c.taskId && <span className={styles.code} title={t.nav.codeChat}> · {t.nav.codeBadge}</span>}
         </small>
       </button>
       <button type="button" className={styles.del} onClick={onAskDelete} aria-label={t.nav.deleteChat(c.title)} title={t.common.delete}><IconTrash size={15} /></button>

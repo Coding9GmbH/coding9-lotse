@@ -7,15 +7,15 @@ import { getEventListeners } from 'node:events';
 import '../isolate-data';
 /* eslint-disable @typescript-eslint/no-explicit-any -- container spec as loose JSON */
 
-// Template dockware: the container spec is built only from server values (no privileges, binds, devices; ports only on
-// loopback in local mode, none in network mode) and passes the allow-list guard; detectLayout for plugin, theme, invalid name, full project.
+// Template dockware: the container spec is built only from server values (no privileges, binds, devices, no published ports; only the
+// internal network lotse-sandbox, in both modes) and passes the allow-list guard; detectLayout for plugin, theme, invalid name, full project.
 const { buildSpec, detectLayout, sleep } = await import('../../src/server/sandbox/templates/dockware');
 const { assertSafeSpec } = await import('../../src/server/sandbox/guards');
 
 const base = { taskId: 't_abcdefghij12', image: 'dockware/shopware:6.7.15.1', memoryMb: 4096, cpus: 2, env: ['FOO=bar'] };
 
-test('buildSpec network mode: own network + alias, no ports, labels, limits, dropped capabilities', () => {
-  const s = buildSpec({ ...base, mode: 'network' }) as any;
+test('buildSpec: only the internal network + alias, no ports, labels, limits, dropped capabilities', () => {
+  const s = buildSpec(base) as any;
   assert.equal(s.name, 'lotse-sbx-t-abcdefghij12');
   assert.equal(s.Image, 'dockware/shopware:6.7.15.1');
   assert.deepEqual(s.Labels, { 'lotse.managed': '1', 'lotse.task': 't_abcdefghij12', 'lotse.template': 'dockware' });
@@ -32,19 +32,18 @@ test('buildSpec network mode: own network + alias, no ports, labels, limits, dro
   assert.doesNotThrow(() => assertSafeSpec(s));
 });
 
-test('buildSpec local mode: port 80 on 127.0.0.1 only; invalid input refused', () => {
-  const s = buildSpec({ ...base, mode: 'local', port: 41234 }) as any;
-  assert.equal(s.HostConfig.NetworkMode, 'bridge');
-  assert.deepEqual(s.HostConfig.PortBindings, { '80/tcp': [{ HostIp: '127.0.0.1', HostPort: '41234' }] });
-  assert.equal(s.NetworkingConfig, undefined);
-  assert.doesNotThrow(() => assertSafeSpec(s));
-  assert.throws(() => buildSpec({ ...base, mode: 'local' }), /Port/);
-  assert.throws(() => buildSpec({ ...base, mode: 'network', image: 'dockware/shopware:latest' }), /Image/);
-  assert.throws(() => buildSpec({ ...base, mode: 'network', image: 'evil/image:1.0' }), /Image/);
-  assert.throws(() => buildSpec({ ...base, mode: 'network', taskId: '../x' }), /Aufgaben-ID/);
+test('buildSpec refuses invalid input; the guard refuses ports, the default bridge and a missing network', () => {
+  const s = buildSpec(base) as any;
+  assert.throws(() => buildSpec({ ...base, image: 'dockware/shopware:latest' }), /Image/);
+  assert.throws(() => buildSpec({ ...base, image: 'evil/image:1.0' }), /Image/);
+  assert.throws(() => buildSpec({ ...base, taskId: '../x' }), /Aufgaben-ID/);
   // the guard refuses what the builder never produces
   assert.throws(() => assertSafeSpec({ ...s, HostConfig: { ...s.HostConfig, CapAdd: ['SYS_ADMIN'] } }), /CapAdd/);
   assert.throws(() => assertSafeSpec({ ...s, HostConfig: { ...s.HostConfig, CapDrop: ['ALL; rm'] } }), /CapDrop/);
+  assert.throws(() => assertSafeSpec({ ...s, HostConfig: { ...s.HostConfig, NetworkMode: 'bridge' } }), /NetworkMode/);
+  assert.throws(() => assertSafeSpec({ ...s, HostConfig: { ...s.HostConfig, NetworkMode: undefined } }), /lotse-sandbox/);
+  assert.throws(() => assertSafeSpec({ ...s, HostConfig: { ...s.HostConfig, PortBindings: { '80/tcp': [{ HostIp: '127.0.0.1', HostPort: '8080' }] } } }), /PortBindings/);
+  assert.throws(() => assertSafeSpec({ ...s, ExposedPorts: { '80/tcp': {} } }), /ExposedPorts/);
 });
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-layout-'));

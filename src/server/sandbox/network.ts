@@ -1,9 +1,10 @@
 import 'server-only';
-// Where the sandboxes live on the network.
-// network: Lotse itself runs in Docker (docker-compose.sandbox.yml) and reaches the containers over the internal bridge
-//          "lotse-sandbox" (Internal: no route to the internet or the live shop), no published ports.
-// local:   Lotse runs directly on the host (bare metal); each container publishes port 80 on 127.0.0.1 only,
-//          on a port Lotse picks. Containers still get no host paths and no privileges.
+// Where the sandboxes live on the network. In both modes every task container is attached ONLY to the internal bridge
+// "lotse-sandbox" (Internal: no route to the internet or the live shop) and publishes no ports.
+// network: Lotse itself runs in Docker (docker-compose.sandbox.yml), is attached to lotse-sandbox and reaches the containers there.
+// local:   Lotse runs directly on a Linux host (bare metal) and reaches the container's IP on lotse-sandbox through the bridge
+//          interface of the host. Where the host has no route into Docker's networks (Docker Desktop on macOS/Windows), the setup
+//          stops with a clear message instead of falling back to a network with internet access.
 import net from 'node:net';
 import { sandboxSubnet } from '../access';
 import { MANAGED } from './guards';
@@ -30,15 +31,24 @@ export async function ensureNetwork(r: SandboxRunner = getRunner(), subnet = san
   return { created: false };
 }
 
-/** Free port on 127.0.0.1 for the local mode (the task registry remembers it). */
-export function allocateLocalPort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.unref();
-    s.on('error', reject);
-    s.listen(0, '127.0.0.1', () => { const { port } = s.address() as net.AddressInfo; s.close(() => resolve(port)); });
-  });
-}
+const ROUTE_WAIT_MS = 20_000;
+const UNREACHABLE = 'Lotse erreicht den Sandbox-Container nicht über das interne Docker-Netzwerk „lotse-sandbox“ (z. B. Docker Desktop auf macOS/Windows: der Host hat keine Route in Docker-Netzwerke). Lotse dann selbst in Docker betreiben (docker-compose.sandbox.yml, make sandbox-up). Ein Netzwerk mit Internetzugang wird bewusst nicht verwendet.';
 
-/** Port binding for the local mode: loopback only, never 0.0.0.0. */
-export const localPortBinding = (port: number) => ({ '80/tcp': [{ HostIp: '127.0.0.1', HostPort: String(port) }] });
+/** Is there a route to host:port? A refused connection counts as reachable (the web server inside is just not up yet);
+ *  host/network unreachable or silence until the deadline does not. */
+export async function probeRoute(host: string, port: number, o: { waitMs?: number; signal?: AbortSignal } = {}): Promise<void> {
+  const end = Date.now() + (o.waitMs ?? ROUTE_WAIT_MS);
+  for (;;) {
+    const r = await new Promise<'ok' | 'retry' | 'no-route'>(resolve => {
+      const sock = net.connect({ host, port });
+      const done = (v: 'ok' | 'retry' | 'no-route') => { sock.destroy(); resolve(v); };
+      sock.setTimeout(3000, () => done('retry'));
+      sock.once('connect', () => done('ok'));
+      sock.once('error', (e: NodeJS.ErrnoException) => done(e.code === 'ECONNREFUSED' || e.code === 'ECONNRESET' ? 'ok' : e.code === 'EHOSTUNREACH' || e.code === 'ENETUNREACH' ? 'no-route' : 'retry'));
+    });
+    if (r === 'ok') return;
+    if (r === 'no-route' || Date.now() > end) throw new Error(UNREACHABLE);
+    if (o.signal?.aborted) throw new Error('Abgebrochen.');
+    await new Promise(res => setTimeout(res, 1000));
+  }
+}

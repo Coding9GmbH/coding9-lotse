@@ -20,7 +20,7 @@ export interface ContainerSpec {
   HostConfig?: Record<string, unknown>;
   NetworkingConfig?: Record<string, unknown>;
 }
-export interface ContainerInfo { id: string; name: string; image: string; state: string; running: boolean; labels: Record<string, string>; /** host port published for 80/tcp (local mode) */ port: number | null }
+export interface ContainerInfo { id: string; name: string; image: string; state: string; running: boolean; labels: Record<string, string>; /** storefront address on the internal network lotse-sandbox (null = not attached there) */ address: { host: string; port: number } | null }
 export interface NetworkInfo { name: string; internal: boolean; labels: Record<string, string>; /** IPAM subnets (CIDR) */ subnets: string[] }
 export interface ExecOpts { user: string; workdir?: string; env?: string[]; timeoutMs: number; signal?: AbortSignal; stdin?: Buffer; /** keep at most this many bytes (the end of the output) */ maxOutput?: number }
 export interface ExecResult { exitCode: number; output: string; truncated: boolean }
