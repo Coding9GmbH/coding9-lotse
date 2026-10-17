@@ -38,7 +38,9 @@ The preview on the right has two views:
 - **Current**: the real page in the shop.
 - **Draft**: Lotse's draft, in your shop's theme.
 
-**Draft on the real page (Shopware).** Header, footer, menu, buy box, description/reviews, cross-selling, product listing and filters are the real parts of the target page. Only the content in between is replaced by your draft. If you don't name a product, Lotse picks a real active product with an image (for category layouts, its category). On the other platforms, the theme takes over the content via a `theme-main` block; there the preview shows placeholders for the parts the theme provides.
+**Draft on the real page (Shopware).** Header, footer, menu, buy box, description/reviews, cross-selling, product listing and filters are the real parts of the target page. Only the content in between is replaced by your draft. If you don't name a product, Lotse picks a real active product with an image (for category layouts, its category). 
+
+**Draft in the real theme (Shopify, Magento, OpenMage).** The preview shows the shop's real target page (product, category or collection; for landing pages the home page as the frame) with header, footer and theme CSS. Inside it is exactly the HTML that publishing writes: above and below the theme content (product list, product area, position of the `theme-main` block), for landing pages in place of the page content. If the page cannot be reached (e.g. a password-protected shop without a content area), Lotse shows the simple preview with the style guide colors.
 
 **JavaScript in the preview.** The shop's menu, sliders and gallery work, but isolated: the preview has no access to Lotse, cookies or your session, and third-party scripts (tracking, consent services) are not executed. Features that need requests to the shop (e.g. the cart flyout) do not work in the preview.
 
