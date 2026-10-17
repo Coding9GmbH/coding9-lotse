@@ -8,6 +8,7 @@ import { downloadImage, readStaged, stageFromUrl, stageImage, sanitizeSvg, gener
 import { expandSpec, PATTERNS, unknownPatterns } from './patterns';
 import { auditSpec, auditSummary } from './audit';
 import { unsupportedBlocks } from './page-html';
+import { themePreview } from './theme-preview';
 import { collectSignals, loadStyleguide, saveStyleguide } from './styleguide';
 import { getPlatform } from './platform';
 import { PUBLISH_PAGE_TYPE, type PlatformAdapter, type PublishTarget } from './platform/types';
@@ -22,7 +23,7 @@ const imageEvent = (m: StagedResult) => ({ t: 'image' as const, ...m, alt: m.alt
 // Connects session state (platform read client, draft, UI events) with the agent tools, provider-neutral (Claude: in-process MCP, Codex: MCP over HTTP).
 // Core tools here; platform-specific ones in the adapter (platform/<kind>/), feature areas in features/ (Feature.platforms).
 /** Version of the preview renderer (product boxes, patterns …); bump when the appearance changes. */
-export const PREVIEW_VERSION = 6;
+export const PREVIEW_VERSION = 7;
 
 /** Re-renders the preview of a chat's last draft with the current renderer (once per version). */
 export async function refreshDraftPreview(session: Session): Promise<boolean> {
@@ -49,6 +50,8 @@ export function installRenderDraft(session: Session, p: PlatformAdapter) {
   const pages = p.pages;
   session.renderDraft = async (spec: PageSpec, partial = false) => {
     const ctx = partial ? (session.lastCtx ?? { imageUrl: (im: ImageRef) => (typeof im === 'string' ? im : im?.url) }) : (session.lastCtx = await pages.previewData(session, spec));
+    // HTML platforms: draft in the real theme (target page of the shop + published HTML); fallback is the simple preview
+    if (p.capabilities.pageFormat === 'html') { const framed = await themePreview(session, p, spec, ctx, partial); if (framed) return framed; }
     return renderPreview(expandSpec(spec), { ...ctx, themeCss: await session.themeCss?.() });
   };
 }

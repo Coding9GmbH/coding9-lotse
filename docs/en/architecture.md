@@ -77,6 +77,7 @@ Three views, none with access to Lotse:
 | **Current** | Shop page via the proxy `/shop/…` in an iframe | `sandbox="allow-scripts allow-forms"` (no `allow-same-origin`) and CSP `sandbox allow-scripts allow-forms; script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'` via response header: opaque origin even on direct navigation, no third-party scripts |
 | **Draft** (simple) | `renderPreview` in `cms.ts` renders the spec in the shop's theme CSS | `srcdoc`, `sandbox="allow-scripts"` |
 | **Draft on the real page** (Shopware) | Real target page, only `.cms-sections` replaced | as draft |
+| **Draft in the real theme** (Shopify, Magento, OpenMage) | Real target page, published HTML in the content area (`theme-preview.ts`) | as draft |
 
 **Proxy `/shop`** (`app/shop/[[...path]]/route.ts`): fetches the storefront via the internal address, rewrites shop URLs to `/shop`, removes cookies and frame restrictions, sets the CSP, injects the frame script (`lib/preview-frame.ts`: highlighting, scroll, via `postMessage`) and serves images/fonts with CORS. Redirects: same origin as a `/shop` path; same site (parent domain, e.g. `stage.` → `www.`) followed server-side (at most 3 hops); foreign domains never. Root-relative paths of the shop (`/theme`, `/media`, `/thumbnail` …) are redirected to `/shop` by `proxy.ts`.
 
@@ -86,6 +87,8 @@ Three views, none with access to Lotse:
 3. `extractBlocks` extracts the real dynamic blocks (buy box, heading, description/reviews, cross-selling, product listing, filters), also for themes with custom block types (markup detection).
 4. `renderPreview` inserts the draft and the real blocks into `.cms-sections` (`spliceSections`). If it cannot find the CMS area, it falls back to the simple view.
 5. Without a named target, `withPreviewDefaults` picks an active product with a cover image.
+
+**Draft in the real theme** (`theme-preview.ts`, HTML platforms): target page via `lookup.entityPaths` (product, category/collection) or the home page for landing pages, fetched as above (redirects only within the shop, 12 s, 1.5 MB, 60 s cache, `stripScripts`, shop URLs to `/shop`). The content area is `<main>` (Shopify, Magento 2) or `.col-main` (OpenMage); `spliceMain` puts `renderPageParts` before and after the theme content there, landing pages replace it (`renderPageHtml`). Product content without `theme-main` (Magento, OpenMage) goes into the product description as when publishing (`.product.attribute.description .value` or `.box-description .std`). Protocol-relative shop addresses (`//host/…`, Shopify) also go through `/shop`, so the theme scripts stay. While streaming only from the cache; without a content area the simple rendering.
 
 Streaming: while writing, the server sends `draft_partial` (only `<body>` via `postMessage`, theme CSS and scroll position stay), then `draft` (new document, scroll position restored). `PREVIEW_VERSION` (`tools.ts`) forces stored drafts to be regenerated on load.
 

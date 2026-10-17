@@ -404,7 +404,7 @@ Important Magento rules the adapter implements:
 - **Links** (`links.ts`): check internal links via GraphQL `route` (missing, product disabled/invisible, category inactive, redirect → link directly); in `prepareDraft`, `buildPublish` and in the shop check.
 - **Shop check** (`checks.ts`, `checks-rules.ts`): metas, title length/duplicates, thin copy, images/alt texts, stock 0 with “in stock” (MSI), price 0, special price not below price, links in descriptions and CMS pages (one link cache per run: each path is resolved only once across all products and pages), category metas/texts, translations per store view with a different locale; `fixPrompt` names Magento tools. `find_image_gaps` pages with page size = `limit` and returns all matches of the page; `list_products` filters the price range (pre-filtered server-side) and `maxStock` per page and says so in the result (`note`).
 - **Import** (`importer.ts`): file/mapping as in `features/import.ts` (`supplierFileTools`), matching by SKU, new products as drafts (`createProduct`), updates only for changed fields (`writeScoped`), prices in the shop's price basis, stock/categories/images, groups + sample, writing in chunks with progress, exact undo. No variants, no new attributes/option values, no categories.
-- **Still open:** theme CSS for the preview (the preview uses the style guide variables), translating CMS content. `get_brand_signals` exists on all platforms since it became a core tool.
+- **Still open:** translating CMS content. The preview shows the draft in the real theme (`theme-preview.ts`). `get_brand_signals` exists on all platforms since it became a core tool.
 
 ---
 
@@ -442,6 +442,6 @@ Magento:
 - The check for taken `identifier`s is deliberately cautious and also blocks identifiers that only occur in other store views (`cmsPage/search` does not return a `store_id`).
 - Preview: product sliders appear as Lotse product boxes in the Lotse preview and as a Magento widget in the shop; the change card and prompt point this out.
 - On classic CMS pages (without Page Builder), new `{{…}}` directives from the AI are now also defused; existing ones are kept.
-- Theme CSS for the preview and translating CMS content are still missing (see section 12).
+- Translating CMS content is still missing (see section 12).
 
-Both: on Shopify and Magento the preview uses the style guide variables instead of the theme CSS. The style guide onboarding (`get_brand_signals`) works on all platforms; Magento and OpenMage have no interface for the theme's design settings, so colors and fonts come from the storefront CSS there.
+All HTML platforms: the preview shows the draft in the real theme (target page with `<main>` or `.col-main`); without a reachable content area it falls back to the style guide variables. The style guide onboarding (`get_brand_signals`) works on all platforms; Magento and OpenMage have no interface for the theme's design settings, so colors and fonts come from the storefront CSS there.

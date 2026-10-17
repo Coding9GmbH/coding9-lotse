@@ -77,6 +77,7 @@ Drei Darstellungen, alle ohne Zugriff auf Lotse:
 | **Aktuell** | Shop-Seite über den Proxy `/shop/…` im iframe | `sandbox="allow-scripts allow-forms"` (kein `allow-same-origin`) und CSP `sandbox allow-scripts allow-forms; script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'` per Antwort-Header: opaker Origin auch bei direkter Navigation, keine Drittanbieter-Skripte |
 | **Entwurf** (einfach) | `renderPreview` in `cms.ts` rendert die Spec im Theme-CSS des Shops | `srcdoc`, `sandbox="allow-scripts"` |
 | **Entwurf auf der echten Seite** (Shopware) | echte Zielseite, nur `.cms-sections` ersetzt | wie Entwurf |
+| **Entwurf im echten Theme** (Shopify, Magento, OpenMage) | echte Zielseite, veröffentlichtes HTML im Inhaltsbereich (`theme-preview.ts`) | wie Entwurf |
 
 **Proxy `/shop`** (`app/shop/[[...path]]/route.ts`): ruft die Storefront über die interne Adresse ab, schreibt Shop-URLs auf `/shop` um, entfernt Cookies und Frame-Sperren, setzt die CSP, injiziert das Rahmen-Skript (`lib/preview-frame.ts`, Markieren, Scroll, per `postMessage`) und gibt Bilder/Schriften mit CORS frei. Weiterleitungen: gleiche Herkunft als `/shop`-Pfad; gleiche Site (Eltern-Domain, z. B. `stage.` → `www.`) serverseitig gefolgt (höchstens 3 Hops); fremde Domains nie. Wurzelrelative Pfade des Shops (`/theme`, `/media`, `/thumbnail` …) leitet `proxy.ts` an `/shop` um.
 
@@ -86,6 +87,8 @@ Drei Darstellungen, alle ohne Zugriff auf Lotse:
 3. `extractBlocks` zieht die echten dynamischen Blöcke heraus (Kaufbox, Überschrift, Beschreibung/Bewertungen, Cross-Selling, Produktliste, Filter), auch für Themes mit eigenen Blocktypen (Markup-Erkennung).
 4. `renderPreview` setzt Entwurf und echte Blöcke in `.cms-sections` ein (`spliceSections`). Findet es den CMS-Bereich nicht, fällt es auf die einfache Darstellung zurück.
 5. Ohne genanntes Ziel wählt `withPreviewDefaults` ein aktives Produkt mit Titelbild.
+
+**Entwurf im echten Theme** (`theme-preview.ts`, HTML-Plattformen): Zielseite über `lookup.entityPaths` (Produkt, Kategorie/Kollektion) bzw. die Startseite bei Landingpages, Abruf wie oben (Weiterleitungen nur im Shop, 12 s, 1,5 MB, 60 s Zwischenspeicher, `stripScripts`, Shop-URLs auf `/shop`). Inhaltsbereich ist `<main>` (Shopify, Magento 2) bzw. `.col-main` (OpenMage); dort setzt `spliceMain` `renderPageParts` vor und hinter den Theme-Inhalt, Landingpages ersetzen ihn (`renderPageHtml`). Produktinhalte ohne `theme-main` (Magento, OpenMage) landen wie beim Veröffentlichen in der Produktbeschreibung (`.product.attribute.description .value` bzw. `.box-description .std`). Protokoll-relative Shop-Adressen (`//host/…`, Shopify) gehen ebenfalls über `/shop`, damit die Theme-Skripte erhalten bleiben. Beim Streaming nur aus dem Zwischenspeicher; ohne Inhaltsbereich die einfache Darstellung.
 
 Streaming: Beim Schreiben schickt der Server `draft_partial` (nur `<body>` per `postMessage`, Theme-CSS und Scroll bleiben), danach `draft` (Dokument neu, Scroll wiederhergestellt). `PREVIEW_VERSION` (`tools.ts`) erzwingt beim Laden eine Neuerzeugung gespeicherter Entwürfe.
 

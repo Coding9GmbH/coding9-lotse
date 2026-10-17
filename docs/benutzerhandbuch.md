@@ -38,7 +38,9 @@ Die Vorschau rechts hat zwei Ansichten:
 - **Aktuell**: die echte Seite im Shop.
 - **Entwurf**: der Entwurf von Lotse, im Theme deines Shops.
 
-**Entwurf auf der echten Seite (Shopware).** Kopf, Fuß, Menü, Kaufbox, Beschreibung/Bewertungen, Cross-Selling, Produktliste und Filter sind die echten Teile der Zielseite. Nur der Inhalt dazwischen wird durch deinen Entwurf ersetzt. Nennst du kein Produkt, wählt Lotse ein echtes aktives Produkt mit Bild (bei Kategorie-Layouts dessen Kategorie). Auf den anderen Plattformen übernimmt das Theme den Inhalt über einen `theme-main`-Block; dort zeigt die Vorschau Platzhalter für die Teile, die das Theme liefert.
+**Entwurf auf der echten Seite (Shopware).** Kopf, Fuß, Menü, Kaufbox, Beschreibung/Bewertungen, Cross-Selling, Produktliste und Filter sind die echten Teile der Zielseite. Nur der Inhalt dazwischen wird durch deinen Entwurf ersetzt. Nennst du kein Produkt, wählt Lotse ein echtes aktives Produkt mit Bild (bei Kategorie-Layouts dessen Kategorie). 
+
+**Entwurf im echten Theme (Shopify, Magento, OpenMage).** Die Vorschau zeigt die echte Zielseite des Shops (Produkt, Kategorie bzw. Kollektion; bei Landingpages die Startseite als Rahmen) mit Kopf, Fuß und Theme-CSS. Darin steht genau das HTML, das beim Veröffentlichen geschrieben wird: über und unter dem Theme-Inhalt (Produktliste, Produktbereich, Stelle des `theme-main`-Blocks), bei Produkten von Magento und OpenMage in der Produktbeschreibung, bei Landingpages anstelle des Seiteninhalts. Ist die Seite nicht erreichbar (z. B. passwortgeschützter Shop ohne Inhaltsbereich), zeigt Lotse die einfache Vorschau mit den Styleguide-Farben.
 
 **JavaScript in der Vorschau.** Menü, Slider und Galerie des Shops laufen, aber isoliert: die Vorschau hat keinen Zugriff auf Lotse, Cookies oder deine Sitzung, und Skripte von Drittanbietern (Tracking, Consent-Dienste) werden nicht ausgeführt. Funktionen, die Anfragen an den Shop brauchen (z. B. Warenkorb-Fenster), arbeiten in der Vorschau nicht.
 

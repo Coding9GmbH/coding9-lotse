@@ -404,7 +404,7 @@ Wichtige Magento-Regeln, die der Adapter umsetzt:
 - **Links** (`links.ts`): interne Links über GraphQL `route` prüfen (fehlt, Produkt deaktiviert/unsichtbar, Kategorie inaktiv, Weiterleitung → direkt verlinken); in `prepareDraft`, `buildPublish` und im Shop-Check.
 - **Shop-Check** (`checks.ts`, `checks-rules.ts`): Metas, Titel-Länge/Dubletten, dünne Texte, Bilder/Alt-Texte, Bestand 0 bei „auf Lager“ (MSI), Preis 0, Sonderpreis nicht unter Preis, Links in Beschreibungen und CMS-Seiten (ein Link-Cache je Durchlauf: jeder Pfad wird über alle Produkte und Seiten nur einmal aufgelöst), Kategorie-Metas/-Texte, Übersetzungen je Store-View mit anderer Locale; `fixPrompt` nennt Magento-Werkzeuge. `find_image_gaps` blättert mit Seitengröße = `limit` und liefert alle Treffer der Seite; `list_products` filtert Preisspanne (serverseitig vorgefiltert) und `maxStock` je Seite und sagt das im Ergebnis (`note`).
 - **Import** (`importer.ts`): Datei/Zuordnung wie `features/import.ts` (`supplierFileTools`), Abgleich per SKU, neue Produkte als Entwurf (`createProduct`), Updates nur geänderter Felder (`writeScoped`), Preise in der Preisbasis des Shops, Bestand/Kategorien/Bilder, Gruppen + Stichprobe, Schreiben in Blöcken mit Fortschritt, Rückgängig exakt. Keine Varianten, keine neuen Attribute/Auswahlwerte, keine Kategorien.
-- **Noch offen:** Theme-CSS der Vorschau (Vorschau nutzt die Styleguide-Variablen), Übersetzen von CMS-Inhalten. `get_brand_signals` gibt es seit dem Kern-Werkzeug auf allen Plattformen.
+- **Noch offen:** Übersetzen von CMS-Inhalten. Die Vorschau zeigt den Entwurf im echten Theme (`theme-preview.ts`). `get_brand_signals` gibt es seit dem Kern-Werkzeug auf allen Plattformen.
 
 ---
 
@@ -442,6 +442,6 @@ Magento:
 - Die Prüfung auf belegte `identifier` ist bewusst vorsichtig und blockiert auch Kennungen, die nur in anderen Store-Views vorkommen (`cmsPage/search` liefert keine `store_id`).
 - Vorschau: Produkt-Slider erscheinen in der Lotse-Vorschau als Lotse-Produktboxen, im Shop als Magento-Widget; Änderungskarte und Prompt weisen darauf hin.
 - Auf klassischen CMS-Seiten (ohne Page Builder) werden neue `{{…}}`-Direktiven der KI jetzt ebenfalls entschärft; vorhandene bleiben erhalten.
-- Theme-CSS der Vorschau und das Übersetzen von CMS-Inhalten fehlen noch (siehe Abschnitt 12).
+- Das Übersetzen von CMS-Inhalten fehlt noch (siehe Abschnitt 12).
 
-Beide: Die Vorschau nutzt auf Shopify und Magento die Styleguide-Variablen statt des Theme-CSS. Das Styleguide-Onboarding (`get_brand_signals`) läuft auf allen Plattformen; Magento und OpenMage haben keine Schnittstelle für die Design-Einstellungen des Themes, Farben und Schriften kommen dort aus dem Storefront-CSS.
+Alle HTML-Plattformen: Die Vorschau zeigt den Entwurf im echten Theme (Zielseite mit `<main>` bzw. `.col-main`); ohne erreichbaren Inhaltsbereich fällt sie auf die Styleguide-Variablen zurück. Das Styleguide-Onboarding (`get_brand_signals`) läuft auf allen Plattformen; Magento und OpenMage haben keine Schnittstelle für die Design-Einstellungen des Themes, Farben und Schriften kommen dort aus dem Storefront-CSS.
