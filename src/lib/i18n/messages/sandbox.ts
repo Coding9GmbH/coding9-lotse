@@ -338,7 +338,7 @@ export const de = {
   },
   steps,
   commands,
-  templates: { dockware: 'Dockware (Shopware)' } as Record<string, string>,
+  templates: { dockware: 'Dockware (Shopware)', 'shopify-theme': 'Shopify-Theme (vorbereitet, noch nicht verfügbar)' } as Record<string, string>,
 };
 
 export const en: typeof de = {
@@ -560,7 +560,7 @@ export const en: typeof de = {
     'lint-twig': 'Check Twig template',
     'php-lint': 'Check PHP syntax',
   },
-  templates: { dockware: 'Dockware (Shopware)' },
+  templates: { dockware: 'Dockware (Shopware)', 'shopify-theme': 'Shopify theme (prepared, not available yet)' },
   code: {
     button: 'Sandbox',
     buttonTitle: 'Attach a sandbox to this chat: a Shopware of its own for code changes to a plugin or theme',

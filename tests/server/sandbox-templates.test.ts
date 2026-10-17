@@ -1,15 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import '../isolate-data';
+import type { AnyTemplate, ContainerlessTemplate } from '../../src/server/sandbox/templates/types';
 
 // Template registry: only dockware (formerly dockware-play), unique steps, i18n for every step and command, strict image pattern,
 // allow-listed commands with argument patterns that keep shell syntax and paths outside the plugin out.
-const { TEMPLATES, getTemplate, describeTemplate, resolveCommand } = await import('../../src/server/sandbox/templates');
+const { REGISTRY, TEMPLATES, getTemplate, describeTemplate, resolveCommand } = await import('../../src/server/sandbox/templates');
 const { messages } = await import('../../src/lib/i18n');
 const t = getTemplate('dockware');
 const ctx = { pluginDir: 'custom/plugins/AcmeTheme' };
 
-test('registry holds only dockware; step ids unique; custom command slots around theme:compile', () => {
+test('runnable templates: only dockware; step ids unique; custom command slots around theme:compile', () => {
   assert.deepEqual(Object.keys(TEMPLATES), ['dockware']);
   assert.equal(getTemplate('dockware-play'), t, 'old id of stored settings and tasks');
   const ids = t.steps.map(s => s.id);
@@ -63,4 +67,39 @@ test('descriptor for the UI: plain data', () => {
   assert.equal(d.defaultImage, 'dockware/shopware:6.7.15.1');
   assert.deepEqual(JSON.parse(JSON.stringify(d)), d);
   assert.deepEqual(d.commands.find(c => c.id === 'lint-twig')?.args, ['path']);
+});
+
+test('registry: shopify-theme is a prepared, disabled template without a container; only dockware runs', () => {
+  assert.deepEqual(REGISTRY.map(x => [x.id, x.runtime, x.enabled]), [['dockware', 'container', true], ['shopify-theme', 'none', false]]);
+  assert.deepEqual(Object.keys(TEMPLATES), ['dockware'], 'enabled container templates only');
+  assert.throws(() => getTemplate('shopify-theme'), /Unbekannte Sandbox-Vorlage/);
+  assert.deepEqual(t.previewProvider, { kind: 'sandbox' });
+  const shopify = REGISTRY.find(x => x.id === 'shopify-theme') as ContainerlessTemplate;
+  assert.equal(shopify.target, 'unpublished-theme', 'never the live theme');
+  assert.equal(shopify.previewProvider.previewUrl({ shopDomain: 'acme.myshopify.com', themeId: 123 }), 'https://acme.myshopify.com/?preview_theme_id=123');
+  for (const bad of [{ shopDomain: 'evil.example', themeId: 1 }, { shopDomain: 'acme.myshopify.com/x?', themeId: 1 }, { shopDomain: 'acme.myshopify.com', themeId: 0 }, { shopDomain: 'acme.myshopify.com', themeId: 1.5 }])
+    assert.throws(() => shopify.previewProvider.previewUrl(bad), /Ungültig/, JSON.stringify(bad));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-theme-'));
+  try {
+    assert.throws(() => shopify.checkRepo(dir), /Kein Shopify-Theme erkannt: layout\/theme\.liquid fehlt/);
+    for (const f of ['layout/theme.liquid', 'config/settings_schema.json']) { fs.mkdirSync(path.join(dir, path.dirname(f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), '{}'); }
+    shopify.checkRepo(dir);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  for (const locale of ['de', 'en'] as const) assert.ok(messages(locale).sandbox.templates[shopify.labelKey], `${locale} label`);
+});
+
+test('types: a container-less template compiles without image, steps, commands or container spec', () => {
+  const stub = {
+    id: 'stub', labelKey: 'stub', platform: 'shopify', runtime: 'none', enabled: false, target: 'unpublished-theme',
+    previewProvider: { kind: 'platform', previewUrl: ({ shopDomain, themeId }) => `https://${shopDomain}/?preview_theme_id=${themeId}` },
+    checkRepo: () => {},
+  } satisfies ContainerlessTemplate;
+  const any: AnyTemplate = stub;
+  assert.equal(any.runtime === 'none' && any.previewProvider.kind, 'platform');
+  // @ts-expect-error a container template needs image, steps, commands and buildSpec
+  const broken: AnyTemplate = { ...stub, platform: 'shopware', runtime: 'container' };
+  assert.ok(broken);
+  // @ts-expect-error a container-less template only writes to an unpublished theme
+  const live: ContainerlessTemplate = { ...stub, target: 'live-theme' };
+  assert.ok(live);
 });

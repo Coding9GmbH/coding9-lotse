@@ -76,10 +76,21 @@ export interface CommandSpec {
   maxOutput: number;
 }
 
+/** Where a template's code runs: in a task container (Docker), or nowhere local ('none': the platform itself hosts the preview). */
+export type TemplateRuntime = 'container' | 'none';
+/** Where the preview comes from. 'sandbox': the task container's storefront through the /sbx proxy (preview.ts). 'platform': a preview
+ *  the platform hosts (Shopify: the storefront with ?preview_theme_id= of an unpublished theme); the URL is built from server-side values only. */
+export type PreviewProvider = { kind: 'sandbox' } | { kind: 'platform'; previewUrl: (o: { shopDomain: string; themeId: number }) => string };
+
 export interface SandboxTemplate {
   id: string;
   labelKey: string;
   platform: 'shopware';
+  runtime: 'container';
+  /** only enabled templates can be chosen and run (the registry may list prepared ones) */
+  enabled: boolean;
+  /** missing = { kind: 'sandbox' } */
+  previewProvider?: PreviewProvider;
   /** the one allowed image must match this, e.g. ^dockware/shopware:<version>$ */
   imagePattern: RegExp;
   defaultImage: string;
@@ -95,3 +106,22 @@ export interface SandboxTemplate {
   execUser: string;
   workdir: string;
 }
+
+/**
+ * A template without a container (runtime 'none'), e.g. a Shopify theme: no Docker, no commands, no setup steps in Lotse. The code is
+ * edited in the task workspace as usual; the platform renders the preview. The only write is a human-triggered executor that pushes
+ * the workspace to a theme Lotse created itself and that is never published (`target`); the live theme is never touched.
+ */
+export interface ContainerlessTemplate {
+  id: string;
+  labelKey: string;
+  platform: 'shopify';
+  runtime: 'none';
+  enabled: boolean;
+  previewProvider: Extract<PreviewProvider, { kind: 'platform' }>;
+  /** where the executor writes: always an unpublished theme created by Lotse */
+  target: 'unpublished-theme';
+  /** checks that the cloned repository is what the template expects; throws a clear German error otherwise */
+  checkRepo: (worktree: string) => void;
+}
+export type AnyTemplate = SandboxTemplate | ContainerlessTemplate;
