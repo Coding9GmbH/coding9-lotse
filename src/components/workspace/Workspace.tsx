@@ -387,7 +387,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     attachedTaskId: taskId, busy: busy || sbxBusy,
     handOff: f => {
       if (busyRef.current) return;
-      dispatch({ type: 'event', event: { t: 'pr_feedback', id: f.id, taskId: f.taskId, number: f.number, url: f.url, items: f.items, handedOver: true }, mode: 'live' });
+      // the card is marked by the server's pr_feedback event once the AI run really starts (a blocked turn leaves it to hand over again)
       void run(tsb.feedback.handOffText(f.number, f.items.length), { prFeedback: f.id });
     },
     finish: id => {
