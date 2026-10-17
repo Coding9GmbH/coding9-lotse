@@ -172,15 +172,21 @@ const encodings = (v: string | null | undefined): (string | null | undefined)[] 
   const b = Buffer.from(v), hex = b.toString('hex');
   return [v, b.toString('base64').replace(/=+$/, ''), b.toString('base64url'), hex, hex.toUpperCase()];
 };
-export function redact(text: unknown): string {
-  let t = String(text ?? ''); const g = getSettings();
+/** Every stored secret Lotse knows (connections, keys, GitHub token, secret sandbox variables in common encodings). */
+export function knownSecrets(): string[] {
+  const g = getSettings();
   const shopSecrets = (['shopify', 'magento', 'openmage'] as const).flatMap(k => secretKeys(k).map(f => g[k][f]));
   const sistrixKey = unseal(kvGet<{ key?: string }>('sistrix')?.key);
   const githubToken = unseal(kvGet<{ token?: string }>('github')?.token); // also as the Basic credential git sends
   const githubBasic = githubToken ? Buffer.from(`x-access-token:${githubToken}`).toString('base64') : null;
   // sandbox env vars marked secret, also base64/hex encoded: code in the container can read them (defense in depth only, no guarantee)
   const sandboxSecrets = (kvGet<{ envVars?: { secret?: boolean; value?: string }[] }>('sandbox')?.envVars ?? []).filter(v => v.secret).map(v => unseal(v.value)).flatMap(encodings);
-  for (const v of [g.shopware.password, g.shopware.clientSecret, ...shopSecrets, g.ai.apiKey, g.image.openaiKey, sistrixKey, githubToken, githubBasic, ...sandboxSecrets]) if (v && v.length > 3) t = t.split(v).join('•••');
+  return [g.shopware.password, g.shopware.clientSecret, ...shopSecrets, g.ai.apiKey, g.image.openaiKey, sistrixKey, githubToken, githubBasic, ...sandboxSecrets].filter((v): v is string => !!v && v.length > 3);
+}
+
+export function redact(text: unknown): string {
+  let t = String(text ?? '');
+  for (const v of knownSecrets()) t = t.split(v).join('•••');
   return t.replace(/Bearer\s+[A-Za-z0-9._~+/=-]{12,}/g, 'Bearer •••').replace(/(Authorization:\s*Basic\s+)[A-Za-z0-9+/=]{8,}/gi, '$1•••').replace(/sk-[A-Za-z0-9_-]{16,}/g, 'sk-•••')
     .replace(/\b(github_pat_|gh[pousr]_)[A-Za-z0-9_]{16,}/g, '$1•••').replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, '$1•••@');
 }

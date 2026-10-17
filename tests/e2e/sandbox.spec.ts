@@ -1,6 +1,7 @@
 import zlib from 'node:zlib';
 import { expect, test } from '@playwright/test';
 import { GITHUB_TOKEN } from './support/github';
+import { githubUrl } from './support/env';
 
 // Sandbox Coding with the in-memory runner (LOTSE_SANDBOX_RUNNER=fake): off by default, switched on in the settings,
 // environment saved (secret value never shown again), "Umgebung prüfen" pulls the image, switched off again.
@@ -208,6 +209,67 @@ test('Sandbox Coding: the agent edits the header template natively, compiles the
   await expect(page.getByRole('group', { name: `Geändert: ${header}, 1 Zeilen hinzu, 1 entfernt` })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Pausieren' })).toBeVisible();
 
+  page.once('dialog', d => void d.accept());
+  await page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Aufgabe abschließen' }).click();
+  await expect(page.getByRole('region', { name: 'Sandbox' })).toHaveCount(0);
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
+});
+
+// Publishing (scripted model): the AI edits the header and proposes a pull request ([e2e:pr]); the proposal card opens the
+// "Pull Request" tab prefilled, only the click there commits, pushes to lotse/… and opens the PR (GitHub fake); the PR card
+// shows number and link in the chat and the tab, the task list shows the number.
+test('Sandbox Coding: the AI proposes a pull request, the click publishes it, the PR card shows the link', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const lotse = { 'x-lotse': '1' };
+  expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true, defaultRepo: 'acme/shop-theme', defaultBranch: 'main' } })).ok()).toBeTruthy();
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sandbox', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
+  await dialog.getByLabel('Titel (optional)').fill('Gratis Versand');
+  await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
+  const panel = page.getByRole('region', { name: 'Sandbox' });
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+
+  const header = 'src/Resources/views/storefront/layout/header/header.html.twig';
+  await page.getByRole('textbox', { name: 'Nachricht an Lotse' }).fill(`Bitte umsetzen. [e2e:replace ${header} Lotse Test-Header|Gratis Versand] [e2e:pr Header: Gratis Versand|Im Header steht jetzt Gratis Versand.]`);
+  await page.getByRole('button', { name: 'Senden' }).click();
+  await expect(page.getByText('Fertig: 3 Schritte.')).toBeVisible({ timeout: 60_000 });
+  const proposal = page.getByRole('region', { name: 'Vorschlag für den Pull Request' });
+  await expect(proposal.getByText('Header: Gratis Versand')).toBeVisible();
+  const pulls = async () => ((await (await request.get(`${githubUrl}/__fake/calls`)).json()) as { method: string; path: string; body: { head?: string; base?: string } }[])
+    .filter(c => c.method === 'POST' && c.path === '/repos/acme/shop-theme/pulls');
+  const before = (await pulls()).length;
+  await proposal.getByRole('button', { name: 'Prüfen und veröffentlichen' }).click();
+
+  await expect(panel.getByRole('tab', { name: 'Pull Request' })).toHaveAttribute('aria-selected', 'true');
+  const form = panel.getByRole('form', { name: 'Pull Request' });
+  await expect(form.getByLabel('Titel')).toHaveValue('Header: Gratis Versand');
+  await expect(form.getByLabel('Beschreibung')).toHaveValue('Im Header steht jetzt Gratis Versand.');
+  await expect(form.getByText(header)).toBeVisible();
+  await expect(form.getByText(/^lotse\/gratis-versand-[a-z0-9]{6} → main$/)).toBeVisible();
+  expect((await pulls()).length).toBe(before); // nothing published before the click
+  await form.getByLabel('Titel').fill('Header: Gratis Versand ab 50 €');
+  await form.getByRole('button', { name: 'Pull Request erstellen' }).click();
+
+  const card = page.getByRole('log').getByRole('region', { name: /^Pull Request #\d+: Header: Gratis Versand ab 50 €$/ });
+  await expect(card).toBeVisible({ timeout: 30_000 });
+  await expect(card.getByText(/Pull Request angelegt · 1 Datei/)).toBeVisible();
+  await expect(card.getByRole('link', { name: 'Auf GitHub öffnen' })).toHaveAttribute('href', /^https:\/\/github\.com\/acme\/shop-theme\/pull\/\d+$/);
+  await expect(card.getByText('offen')).toBeVisible();
+  const posted = (await pulls()).slice(before);
+  expect(posted).toHaveLength(1);
+  expect(posted[0].body.head).toMatch(/^lotse\/gratis-versand-[a-z0-9]{6}$/);
+  expect(posted[0].body.base).toBe('main');
+  await expect(panel.getByRole('tab', { name: /Pull Request\s*#\d+/ })).toBeVisible();
+  await expect(form.getByRole('button', { name: 'Pull Request aktualisieren' })).toBeVisible();
+
+  // after a reload the card is replayed, the task list shows the number
+  await page.reload();
+  await expect(page.getByRole('log').getByRole('region', { name: /^Pull Request #\d+:/ })).toBeVisible();
+  await page.getByRole('region', { name: 'Sandbox' }).getByRole('link', { name: 'Alle Aufgaben' }).click();
+  await expect(page.locator('section[aria-labelledby="sbx-tasks"]').getByRole('link', { name: /^#\d+$/ }).first()).toBeVisible();
+  await page.locator('section[aria-labelledby="sbx-tasks"]').getByRole('link', { name: /Gratis Versand/ }).first().click();
   page.once('dialog', d => void d.accept());
   await page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Aufgabe abschließen' }).click();
   await expect(page.getByRole('region', { name: 'Sandbox' })).toHaveCount(0);

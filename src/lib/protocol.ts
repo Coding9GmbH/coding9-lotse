@@ -121,6 +121,8 @@ export type ChatEvent =
   | { t: 'preview_reload' }
   /** The AI proposes to publish its changes as a pull request (card only; publishing itself comes from the user) */
   | { t: 'publish_proposal'; title: string; body: string }
+  /** The user published the sandbox's changes: pull request created or updated (state as of that moment) */
+  | { t: 'pr'; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
   /** The AI proposes to attach a sandbox to this chat (start_sandbox): a card; only the user's click creates the task */
   | { t: 'sandbox_offer'; id: string; repo: string; baseBranch: string; reason: string }
   /** A sandbox was attached to this chat (by the user) */
@@ -279,7 +281,17 @@ export interface CodeTaskPublic {
   /** uploaded database dump of the task (metadata only) */ dump: TaskDumpPublic | null;
   prUrl: string | null; createdAt: string; updatedAt: string; lastActiveAt: string; finishedAt: string | null;
   /** the chat the sandbox is attached to (one sandbox per chat) */ chatId: string | null;
+  /** the task's pull request (null = not published yet) */ pr: TaskPr | null;
+  /** publishing right now, or the last attempt failed / was cut off by a restart (a retry continues idempotently) */ publish: TaskPublish | null;
 }
+export interface TaskPr { number: number; url: string; title: string }
+export type PublishStep = 'check' | 'commit' | 'push' | 'pr';
+export interface TaskPublish { state: 'running' | 'failed' | 'interrupted'; step: PublishStep; error?: string; at: string }
+/** POST /api/sandbox/tasks/[id]/publish: title and description only (branch and base are fixed by the server) */
+export interface PublishRequest { title: string; body: string }
+export interface PublishResult { task: CodeTaskPublic; pr: TaskPr; action: 'created' | 'updated'; /** changed files in the pull request */ files: number }
+/** GET /api/sandbox/tasks/[id]/pr: live state from GitHub (cached briefly); checks null = not readable with the token */
+export interface PrStatus { number: number; url: string; title: string; state: 'open' | 'closed' | 'merged'; draft: boolean; checks: { total: number; success: number; failure: number; pending: number } | null; fetchedAt: string }
 /** GET /api/sandbox/tasks/[id]/diff: changes in the workspace against the base branch (redacted, capped) */
 export interface TaskDiff { files: { path: string; added: number; removed: number; status: 'added' | 'modified' | 'deleted' | 'renamed' }[]; diff: string; truncated: boolean }
 /** Dump of a task: imported once and deleted right after the import (also on failure). versionMismatch blocks until "Trotzdem fortfahren". */

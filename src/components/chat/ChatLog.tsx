@@ -12,6 +12,8 @@ import { QuestionCard } from './QuestionCard';
 import { Steps } from './Steps';
 import { CommandCard, PublishProposalCard, SandboxAttachedLine, SandboxOfferCard, SandboxStatusLine, type SandboxOfferActions } from '@/components/sandbox/CommandCard';
 import { FileChangeCard } from '@/components/sandbox/FileChangeCard';
+import { PrCard } from '@/components/sandbox/PrCard';
+import type { PrProposal } from '@/components/sandbox/PublishCard';
 import styles from './ChatLog.module.css';
 
 interface Props {
@@ -27,6 +29,8 @@ interface Props {
   children?: React.ReactNode;
   /** start_sandbox cards: start (directly or via the dialog); missing = Sandbox Coding off */
   sandbox?: SandboxOfferActions;
+  /** publish_proposal cards: open the "Pull Request" tab with this proposal (publishes nothing); missing = no sandbox attached */
+  onReviewPublish?: (p: PrProposal) => void;
 }
 
 function AnswerStatus({ busy, hasAnswer }: { busy: boolean; hasAnswer: boolean }) {
@@ -41,10 +45,10 @@ function AnswerStatus({ busy, hasAnswer }: { busy: boolean; hasAnswer: boolean }
 
 const NEAR_END = 140;
 /** These entries always scroll the log to the end (own message, decision needed). */
-const FORCE_FOLLOW = new Set<LogItem['kind']>(['user', 'question', 'changeset', 'publish', 'sandbox_offer']);
+const FORCE_FOLLOW = new Set<LogItem['kind']>(['user', 'question', 'changeset', 'publish', 'pr', 'sandbox_offer']);
 
 /** Chat log. Stays "stuck" to the end as long as the user has not scrolled up. */
-export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStyleguide, busy = false, className, children, sandbox }: Props) {
+export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStyleguide, busy = false, className, children, sandbox, onReviewPublish }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const lastKey = useRef<string | null>(null);
@@ -84,7 +88,8 @@ export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStylegui
           case 'file': return <FileChangeCard key={item.key} path={item.path} kind={item.change} added={item.added} removed={item.removed} />;
           case 'command': return <CommandCard key={item.key} c={item} />;
           case 'sandbox': return <SandboxStatusLine key={item.key} state={item.state} message={item.message} />;
-          case 'publish': return <PublishProposalCard key={item.key} title={item.title} body={item.body} />;
+          case 'publish': return <PublishProposalCard key={item.key} title={item.title} body={item.body} onReview={onReviewPublish ? () => onReviewPublish({ key: item.key, title: item.title, body: item.body }) : undefined} />;
+          case 'pr': return <PrCard key={item.key} taskId={item.taskId} pr={item} done={{ action: item.action, files: item.files }} />;
           case 'sandbox_offer': return <SandboxOfferCard key={item.key} offer={item} actions={sandbox} />;
           case 'sandbox_attached': return <SandboxAttachedLine key={item.key} repo={item.repo} baseBranch={item.baseBranch} />;
         }

@@ -92,11 +92,16 @@ export function LogsPanel() {
               {audit.map((r, i) => (
                 <tr key={`${r.ts}-${i}`}>
                   <td className={styles.nowrap}>{dateTime(r.ts, locale)}{typeof r.recoveredFrom === 'string' && <small className={styles.sub}>{t.recovered(dateTime(r.recoveredFrom, locale))}</small>}</td>
-                  <td>{r.title ?? r.changeSet ?? t.untitled}{r.kind && <small className={styles.sub}>{r.kind}</small>}</td>
+                  <td>
+                    {r.title ?? r.changeSet ?? t.untitled}{r.kind && <small className={styles.sub}>{r.kind}</small>}
+                    {r.kind === 'code-pr' && typeof r.repo === 'string' && <small className={styles.sub}>{r.repo} · {String(r.branch ?? '')}</small>}
+                    {r.kind === 'code-pr' && typeof r.prUrl === 'string' && /^https?:\/\//.test(r.prUrl) && <small className={styles.sub}><a href={r.prUrl} target="_blank" rel="noopener noreferrer">{t.prLink(Number(r.prNumber) || 0)}</a></small>}
+                  </td>
                   <td><span className={`${styles.decision} ${styles[`d_${r.decision}`] ?? ''}`}>{t.decision[r.decision] ?? r.decision}</span>{typeof r.actor === 'string' && r.actor && <small className={styles.sub}>{t.actor(r.actor)}</small>}</td>
                   <td>
                     {r.status ? t.status[r.status] ?? r.status : ''}
                     {typeof r.applied === 'number' && <small className={styles.sub}>{t.applied(r.applied, r.failed ?? 0)}</small>}
+                    {r.kind === 'code-pr' && typeof (r.error ?? r.reason) === 'string' && <small className={styles.sub}>{String(r.error ?? r.reason)}</small>}
                   </td>
                 </tr>
               ))}

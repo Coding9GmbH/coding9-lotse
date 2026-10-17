@@ -12,7 +12,7 @@ import { chatReducer, initialChatState, isHome, isStillRunning, pendingQuestion,
 import { defaultPlaceholder, placeholderFor, suggestions } from '@/lib/labels';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { CHAT_COOKIE, setupReady } from '@/lib/nav';
-import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, CheckFinding, CodeTaskPublic, Health, Target } from '@/lib/protocol';
+import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, CheckFinding, CodeTaskPublic, Health, PublishResult, Target } from '@/lib/protocol';
 import { liveSrc, withBust } from '@/lib/urls';
 import { INTL_LOCALE } from '@/lib/i18n';
 import Link from 'next/link';
@@ -32,6 +32,7 @@ import { StyleguideDialog } from '@/components/dialogs/StyleguideDialog';
 import { AttachSandboxDialog } from '@/components/sandbox/AttachSandboxDialog';
 import { SandboxPanel } from '@/components/sandbox/SandboxPanel';
 import type { SandboxOfferActions } from '@/components/sandbox/CommandCard';
+import type { PrProposal } from '@/components/sandbox/PublishCard';
 import styles from './Workspace.module.css';
 
 // Active chat in a cookie: on the next load the server renders it right away
@@ -74,6 +75,9 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const [sbxTask, setSbxTask] = useState<CodeTaskPublic | null>(null);
   const [sbxDialog, setSbxDialog] = useState<{ repo: string; baseBranch: string } | null | false>(false);
   const [sbxBusy, setSbxBusy] = useState(false);
+  // "Prüfen und veröffentlichen" on a proposal card: that proposal (otherwise the latest) in the "Pull Request" tab, opened
+  const [picked, setPicked] = useState<PrProposal | null>(null);
+  const [openPr, setOpenPr] = useState(0);
   const pendingFix = useRef<{ id: string; title: string; prompt: string } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sentApprovals = useRef(new Set<string>());
@@ -378,6 +382,18 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     },
   } : undefined;
   const sandboxSetup = !!taskId && (!sbxTask || sbxTask.status === 'setting_up');
+  const latestProposal = useMemo(() => {
+    const p = state.items.findLast(i => i.kind === 'publish');
+    return p?.kind === 'publish' ? { key: p.key, title: p.title, body: p.body } : null;
+  }, [state.items]);
+  const proposal = picked && state.items.some(i => i.key === picked.key) ? picked : latestProposal;
+  const reviewPublish = (p: PrProposal) => { setPicked(p); setOpenPr(n => n + 1); if (narrow()) setPreviewOpen(true); };
+  // the publish response carries the PR (the chat stream is not connected between turns): the card comes from here
+  const published = (r: PublishResult) => {
+    setSbxTask(r.task);
+    dispatch({ type: 'event', event: { t: 'pr', taskId: r.task.id, ...r.pr, action: r.action, files: r.files }, mode: 'live' });
+    loadHistory();
+  };
 
   const fixTask = (f: { id: string; title: string; prompt: string }) => { pendingFix.current = f; setInput(f.prompt); inputRef.current?.focus(); };
   const fixFinding = (f: CheckFinding) => fixTask({ id: f.id, title: f.title, prompt: f.fixPrompt });
@@ -436,7 +452,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
                 </div>
               )}
               {target && !taskId && <TargetCard target={target} cfg={cfg} onClear={() => selectTarget(null)} />}
-              <ChatLog items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} sandbox={sandboxActions} />
+              <ChatLog items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} sandbox={sandboxActions} onReviewPublish={taskId ? reviewPublish : undefined} />
               {status}
               <Chips items={chips} onPick={s => { setInput(s); inputRef.current?.focus(); }} />
               {composer}
@@ -446,7 +462,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
 
         {taskId ? (
           <SandboxPanel key={taskId} taskId={taskId} className={styles.right} reload={state.previewReload} busy={busy} files={state.items.filter(i => i.kind === 'file').length}
-            onClose={overlay ? () => setPreviewOpen(false) : undefined} onTask={onSandboxTask}
+            onClose={overlay ? () => setPreviewOpen(false) : undefined} onTask={onSandboxTask} proposal={proposal} openPr={openPr} onPublished={published}
             onSendNotes={text => { if (busyRef.current) setInput(text); else { setPreviewOpen(false); void run(text); } }} />
         ) : <PreviewPane className={styles.right} tab={state.tab} onTab={t => dispatch({ type: 'set_tab', tab: t })} draft={state.draft}
           liveUrl={liveUrl} onOpenAudit={() => setAuditOpen(true)} busy={busy} onClose={overlay ? () => setPreviewOpen(false) : undefined}

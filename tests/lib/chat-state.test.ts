@@ -291,3 +291,20 @@ test('code chat cards: file changes, a command updated in place, sandbox status 
   assert.deepEqual(r.items.map(i => i.kind), live.items.map(i => i.kind));
   assert.equal(r.previewReload, 0, 'replay does not reload the preview');
 });
+
+test('pull request cards: proposal and PR card look the same live and replayed', () => {
+  const evs: ChatEvent[] = [
+    { t: 'publish_proposal', title: 'Header', body: 'grün' },
+    { t: 'done', error: null },
+    { t: 'pr', taskId: 't_aaaaaaaaaaaa', number: 7, url: 'https://github.com/acme/shop-theme/pull/7', title: 'Header', action: 'created', files: 2 },
+  ];
+  let live: ChatState = { ...initialChatState, busy: true };
+  for (const ev of evs) live = chatReducer(live, { type: 'event', event: ev });
+  const r = replay(evs);
+  assert.deepEqual(live.items.map(i => i.kind), ['publish', 'pr']);
+  assert.deepEqual(r.items.map(i => i.kind), ['publish', 'pr']);
+  assert.ok(r.items[0].kind === 'publish' && r.items[0].title === 'Header' && r.items[0].body === 'grün');
+  const { key: _k1, ...a } = live.items[1], { key: _k2, ...b } = r.items[1]; // eslint-disable-line @typescript-eslint/no-unused-vars
+  assert.deepEqual(a, b);
+  assert.ok(b.kind === 'pr' && b.number === 7 && b.action === 'created' && b.files === 2);
+});

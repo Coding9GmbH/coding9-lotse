@@ -35,3 +35,13 @@
 .offer p { margin: 0 0 6px; }
 .offerRepo code { font-size: 12px; overflow-wrap: anywhere; }
 .offerBtns { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.pr { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 13px; background: var(--panel); flex-shrink: 0; font-size: 14px; }
+.pr h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--green-d); margin: 0 0 4px; }
+.prHead { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; margin: 0 0 4px; }
+.prTitle { overflow-wrap: anywhere; min-width: 0; }
+.prState { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 8px; background: var(--green-bg); color: var(--green-d); }
+.pr_closed { background: var(--coral-bg); color: var(--warn); }
+.pr_merged { background: var(--bg); color: var(--ink); border: 1px solid var(--line); }
+.prLink { font-size: 13px; font-weight: 600; }
+.pubBtns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }

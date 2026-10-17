@@ -6,7 +6,7 @@ import { createLineSplitter } from './ndjson';
 import type { CodexLoginState, GithubBranch, GithubPublic, GithubRepo, GithubTestResult, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
   CodeTaskPublic, DumpPublic, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
-} from './protocol';
+  PrStatus, PublishRequest, PublishResult } from './protocol';
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -95,6 +95,9 @@ export const api = {
     replaceDb: (id: string, dumpId: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/dump`, json('POST', { dumpId })),
     dump: (id: string) => request<{ dump: DumpPublic }>(`/api/sandbox/dumps/${encodeURIComponent(id)}`),
     deleteDump: (id: string) => request<{ ok: true }>(`/api/sandbox/dumps/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    /** "Pull Request erstellen/aktualisieren": title and description only, the server fixes branch and base */
+    publish: (id: string, p: PublishRequest) => request<PublishResult>(`/api/sandbox/tasks/${encodeURIComponent(id)}/publish`, json('POST', p)),
+    prStatus: (id: string) => request<{ pr: PrStatus | null }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/pr`),
   },
   seoOverview: (refresh = false) => request<SeoOverview>(`/api/seo${refresh ? '?refresh=1' : ''}`),
   seoStored: () => request<SeoOverview | null>('/api/seo?stored=1'),

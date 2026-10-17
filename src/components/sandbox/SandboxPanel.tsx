@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
-import type { CodeTaskPublic } from '@/lib/protocol';
+import type { CodeTaskPublic, PublishResult } from '@/lib/protocol';
 import { useTaskEvents } from '@/hooks/useTaskEvents';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
@@ -12,13 +12,15 @@ import { IconClose } from '@/components/ui/icons';
 import pp from '@/components/preview/PreviewPane.module.css';
 import { DiffPanel } from './DiffPanel';
 import { DumpUpload } from './DumpUpload';
+import { PrCard } from './PrCard';
+import { PublishCard, type PrProposal } from './PublishCard';
 import { SandboxOff } from './SandboxOff';
 import { SandboxPreview } from './SandboxPreview';
 import { StepTimeline } from './StepTimeline';
 import { TaskStatus } from './TaskList';
 import styles from './Sandbox.module.css';
 
-type Tab = 'preview' | 'setup' | 'changes';
+type Tab = 'preview' | 'setup' | 'changes' | 'pr';
 type Action = 'start' | 'stop' | 'pause' | 'resume' | 'finish';
 /** Statuses in which the setup tab is the interesting one */
 const SETUP = new Set(['setting_up', 'failed', 'interrupted']);
@@ -27,9 +29,11 @@ const SETUP = new Set(['setting_up', 'failed', 'interrupted']);
  * Right panel of a chat with an attached sandbox (instead of the draft preview): a compact status line with the lifecycle buttons and
  * the tabs Vorschau (the task's storefront), Einrichtung (step timeline) and Änderungen (diff). During the setup it shows
  * "Einrichtung" and switches to "Vorschau" once the sandbox is ready. `files`: file cards so far (refreshes the diff).
+ * "Pull Request": the publish form (the AI's latest `proposal` prefilled) and the task's PR; `openPr` changing opens that tab.
  */
-export function SandboxPanel({ taskId, className, reload, files, busy, onSendNotes, onClose, onTask }: {
+export function SandboxPanel({ taskId, className, reload, files, busy, proposal, openPr = 0, onPublished, onSendNotes, onClose, onTask }: {
   taskId: string; className?: string; reload: number; files: number; busy: boolean;
+  proposal?: PrProposal | null; openPr?: number; onPublished?: (r: PublishResult) => void;
   onSendNotes?: (text: string) => void; onClose?: () => void; onTask?: (task: CodeTaskPublic) => void;
 }) {
   const { t: all } = useI18n();
@@ -43,6 +47,9 @@ export function SandboxPanel({ taskId, className, reload, files, busy, onSendNot
   const [newDump, setNewDump] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [idle, setIdle] = useState(30);
+  const [prSeen, setPrSeen] = useState(openPr);
+  const [prTick, setPrTick] = useState(0);
+  if (openPr !== prSeen) { setPrSeen(openPr); setTab('pr'); }
   useEffect(() => { api.sandbox.env().then(v => setIdle(v.env.idleMinutes), () => {}); }, []);
 
   // setup → ready switches to the preview (also when the setup tab was picked by hand meanwhile)
@@ -90,9 +97,9 @@ export function SandboxPanel({ taskId, className, reload, files, busy, onSendNot
         {close}
       </div>
       <div className={styles.panelTabs} role="tablist" aria-label={tc.tabs.label}>
-        {(['preview', 'setup', 'changes'] as Tab[]).map(k => (
+        {(['preview', 'setup', 'changes', 'pr'] as Tab[]).map(k => (
           <button key={k} type="button" role="tab" id={`sbx-tab-${k}`} aria-selected={shown === k} aria-controls={`sbx-panel-${k}`} onClick={() => setTab(k)}>
-            {tc.tabs[k]}{k === 'changes' && files > 0 && <span className={styles.tabCount}>{files}</span>}
+            {tc.tabs[k]}{k === 'changes' && files > 0 && <span className={styles.tabCount}>{files}</span>}{k === 'pr' && task.pr && <span className={styles.tabCount}>#{task.pr.number}</span>}
           </button>
         ))}
         <Link href="/sandbox-coding" className={styles.panelLink}>{t.back}</Link>
@@ -116,6 +123,10 @@ export function SandboxPanel({ taskId, className, reload, files, busy, onSendNot
         </section>
         <section role="tabpanel" id="sbx-panel-changes" aria-labelledby="sbx-tab-changes" hidden={shown !== 'changes'} className={styles.card}>
           {shown === 'changes' && <DiffPanel taskId={task.id} refresh={files + (busy ? 0 : 1)} />}
+        </section>
+        <section role="tabpanel" id="sbx-panel-pr" aria-labelledby="sbx-tab-pr" hidden={shown !== 'pr'} className={styles.card}>
+          {task.pr && <div className={styles.prBox}><PrCard taskId={task.id} pr={task.pr} refresh={prTick} /></div>}
+          {shown === 'pr' && s !== 'done' && <PublishCard task={task} proposal={proposal ?? null} onPublished={r => { setTask(r.task); setPrTick(n => n + 1); onPublished?.(r); }} />}
         </section>
       </div>
       <Dialog open={replacing} onClose={() => { setReplacing(false); setNewDump(null); }} title={all.sandbox.dump.replaceTitle} wide footer={

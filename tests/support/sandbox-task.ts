@@ -42,5 +42,5 @@ export async function sandboxForTests(o: { env?: { key: string; value: string; s
     return done;
   };
   const close = async () => { await fake.close(); await gh.close(); fs.rmSync(tmp, { recursive: true, force: true }); };
-  return { fake, E, J, T, until, readyTask, close };
+  return { fake, gh, theme, E, J, T, until, readyTask, close };
 }

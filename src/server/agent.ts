@@ -8,7 +8,7 @@ import { buildSystem, codeSystemFor } from './prompt';
 import { sandboxStatus } from './sandbox/env';
 import { ensureAwake, setupSettled, touchTask } from './sandbox/jobs';
 import { NATIVE_TOOLS, guardNative, nativeChange, textBefore } from './sandbox/native-tools';
-import { attachedTask, getTask, markTurn, taskPaths } from './sandbox/tasks';
+import { attachedTask, getTask, markTurn, publishRunning, publishSettled, taskPaths } from './sandbox/tasks';
 import { syncChanged } from './sandbox/workspace-tools';
 import { getSession, noteUiLocale, persist, persistSoon } from './sessions';
 import { messages } from '@/lib/i18n';
@@ -23,7 +23,7 @@ import { errMsg } from './util';
 import { budgetGate, recordTurn, releaseBudget, turnCost } from './usage';
 
 // Save immediately (approvals, questions, drafts); all other history events batched (persistSoon), live-only events not at all
-const PERSIST_ON = new Set(['draft', 'styleguide', 'approval', 'changeset', 'changeset_result', 'question', 'sandbox_status', 'publish_proposal', 'sandbox_offer']);
+const PERSIST_ON = new Set(['draft', 'styleguide', 'approval', 'changeset', 'changeset_result', 'question', 'sandbox_status', 'publish_proposal', 'pr', 'sandbox_offer']);
 const LIVE_ONLY = new Set(['draft_partial', 'start', 'changeset_progress', 'preview_reload']);
 /** Chats with a sandbox: more steps per turn (explore, edit, compile, check, fix) than a shop turn */
 export const CODE_MAX_TURNS = 120;
@@ -233,6 +233,7 @@ export async function prepareCodeTurn(s: Session, emit: (ev: ChatEvent) => void,
   if (!task) return t.codeTaskGone;
   if (task.status === 'done') return t.codeTaskDone;
   let waited = false;
+  if (publishRunning(task.id)) await until(publishSettled(task.id)); // the commit takes the worktree as it is: no edits meanwhile
   if (task.status === 'setting_up') {
     waited = true;
     emit({ t: 'sandbox_status', state: 'waking' });

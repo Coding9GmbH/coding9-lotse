@@ -148,3 +148,4 @@
 .dfPatch .dfDel { background: var(--coral-bg); }
 .dfHunk { color: var(--mute); }
 .dfMeta { color: var(--mute); font-weight: 600; }
+.prBox { margin-bottom: 14px; }
