@@ -15,7 +15,7 @@ import { singleton } from '../state';
 import { errMsg } from '../util';
 import { getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
 import { allocateLocalPort, ensureNetwork, networkMode } from './network';
-import { clearJar } from './preview';
+import { clearJar, forgetUpstream } from './preview';
 import { getRunner } from './runner';
 import { TASK_LABEL } from './labels';
 import { syncAll } from './sync';
@@ -87,6 +87,7 @@ const stopVictims = (victims: CodeTask[]) => Promise.all(victims.map(v => withTa
 async function stopContainer(t: CodeTask) {
   if (!t.containerId) return;
   await getRunner().stop(t.containerId);
+  forgetUpstream(t.containerId);
   const fresh = getTask(t.id);
   if (fresh) { fresh.containerRunning = false; saveTask(fresh); }
 }
@@ -166,7 +167,7 @@ async function ensureRunning(t: CodeTask, ctx: StepCtx) {
   if (!info) { t.containerId = null; t.containerRunning = false; saveTask(t); throw new Error('Der Container fehlt – ab „Container starten“ erneut versuchen.'); }
   if (info.running) return;
   ctx.log('Container ist gestoppt – starte ihn …');
-  await getRunner().start(t.containerId);
+  await getRunner().start(t.containerId); forgetUpstream(t.containerId);
   t.containerRunning = true; saveTask(t);
   await waitReady(ctx);
 }
@@ -282,7 +283,7 @@ async function wake(id: string, abort: AbortSignal) {
     if (abort.aborted) throw new Error('Abgebrochen.');
     if (!t.containerId || !t.layout) throw new Error('Kein Container – Einrichtung erneut versuchen.');
     const ctx = stepCtx(t, step, signal, 5 * 60_000);
-    await getRunner().start(t.containerId);
+    await getRunner().start(t.containerId); forgetUpstream(t.containerId);
     t.containerRunning = true; saveTask(t);
     await waitReady(ctx);
     await ctx.syncAll();

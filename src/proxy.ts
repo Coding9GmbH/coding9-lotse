@@ -121,9 +121,11 @@ export async function proxy(req: NextRequest) {
     if (writes && !pathname.startsWith('/api/mcp/') && req.headers.get('x-lotse') !== '1') return new NextResponse('Kennung der Oberfläche fehlt', { status: 403 });
   }
 
-  // MCP endpoint for Codex: own token per chat instead of browser login
+  // MCP endpoint for Codex: own token per chat instead of browser login. Sandbox preview: the key in the path stands in for the login
+  // (the route answers 404 to a wrong one and a right one only reaches that task's container); the preview's ajax (add to cart,
+  // offcanvas, search suggest) comes from an opaque origin and never carries the Basic credentials.
   const password = process.env.LOTSE_PASSWORD;
-  if (password && !pathname.startsWith('/api/mcp/')) {
+  if (password && !pathname.startsWith('/api/mcp/') && !own && !fromSbx) {
     const key = clientKey(peer, forwardedFor), wait = loginBlocked(key);
     if (wait) return new NextResponse('Zu viele Fehlversuche, bitte später erneut versuchen', { status: 429, headers: { 'retry-after': String(Math.ceil(wait / 1000)) } });
     const ok = await passwordOk(req.headers.get('authorization'), password);

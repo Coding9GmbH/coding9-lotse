@@ -48,7 +48,7 @@ test('sandbox preview: root paths requested from a /sbx/<id>.<key>/ document go 
   assert.equal(await rewritten(req(`/sbx/${seg}/x`, 'GET', { referer: 'http://localhost:3333/sbx/t_other0000000.0123456789abcdef0123/' })), null, 'prefixed paths stay');
 });
 
-test('sandbox preview: the opaque-origin preview may write (the route checks the key); other methods 405; login still required', async () => {
+test('sandbox preview: the opaque-origin preview may write (the route checks the key); other methods 405; with a password the key stands in for the login', async () => {
   const seg = 't_abcdefghijk1.0123456789abcdef0123';
   assert.equal(await status(req(`/sbx/${seg}/checkout/line-item/add`, 'POST', { origin: 'null', 'sec-fetch-site': 'cross-site' })), 200, 'form of the opaque-origin preview');
   assert.equal(await status(req(`/sbx/${seg}/x`, 'PROPFIND')), 405);
@@ -56,5 +56,11 @@ test('sandbox preview: the opaque-origin preview may write (the route checks the
   assert.equal(await status(req('/api/approve', 'POST', { origin: 'null', referer: `http://localhost:3333/sbx/${seg}/` })), 200, 'from a preview page: rewritten into the sandbox, not Lotse');
   assert.equal((await proxy(req('/api/approve', 'POST', { origin: 'null', referer: `http://localhost:3333/sbx/${seg}/` }))).headers.get('x-middleware-rewrite'), `http://localhost:3333/sbx/${seg}/api/approve`);
   process.env.LOTSE_PASSWORD = 'geheim';
-  try { assert.equal(await status(req(`/sbx/${seg}/`)), 401); } finally { delete process.env.LOTSE_PASSWORD; }
+  try {
+    // ajax of the opaque-origin preview carries no Basic credentials: passed on to the route (which checks the key)
+    assert.equal(await status(req(`/sbx/${seg}/checkout/line-item/add`, 'POST', { origin: 'null', 'x-requested-with': 'XMLHttpRequest' })), 200);
+    assert.equal((await proxy(req('/widgets/search', 'GET', { referer: `http://localhost:3333/sbx/${seg}/` }))).headers.get('x-middleware-rewrite'), `http://localhost:3333/sbx/${seg}/widgets/search`);
+    assert.equal(await status(req('/api/chats')), 401, 'everything else still needs the login');
+    assert.equal(await status(req('/sbx/t_abcdefghijk1/')), 401, 'without key no exception');
+  } finally { delete process.env.LOTSE_PASSWORD; }
 });

@@ -99,7 +99,9 @@
 .card .pvBar input { flex: 1 1 200px; width: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .pvToggle { min-height: 32px; min-width: 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; }
 .pvAdmin { font-size: 13px; color: var(--mute); }
-.pvView { background: var(--sand); border-radius: 10px; padding: 10px; }
+.pvView { position: relative; background: var(--sand); border-radius: 10px; padding: 10px; }
+.pvMarking .pvFrame { outline: 2px dashed var(--coral); outline-offset: 3px; }
+.pvBar .pvMarkOn { background: var(--coral); border-color: var(--coral); color: var(--dark); }
 .pvFrame { display: block; width: 100%; height: min(70vh, 720px); border: 1px solid var(--line); border-radius: 8px; background: #fff; transition: width .2s; }
 .pvMobile .pvFrame { width: 390px; max-width: 100%; margin: 0 auto; }
 .pvEmpty { min-height: 160px; display: grid; place-items: center; align-content: center; gap: 10px; text-align: center; color: var(--mute); font-size: 13px; }

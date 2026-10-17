@@ -14,9 +14,9 @@ export interface Annotation {
 }
 
 /** Builds an unambiguous message to Lotse from the collected requests. */
-export function annotationMessage(list: Annotation[], where: 'draft' | 'live', locale: Locale = DEFAULT_LOCALE): string {
+export function annotationMessage(list: Annotation[], where: 'draft' | 'live' | 'sandbox', locale: Locale = DEFAULT_LOCALE): string {
   const t = messages(locale).lib.annotations;
-  const head = where === 'draft' ? t.headDraft : t.headLive;
+  const head = where === 'draft' ? t.headDraft : where === 'live' ? t.headLive : t.headSandbox;
   const lines = list.map((a, i) =>
     `${i + 1}. ${a.label}${a.section ? t.section(a.section) : ''}: ${a.note.trim()}\n   Element: ${a.path}`);
   return `${head}\n${lines.join('\n')}`;
