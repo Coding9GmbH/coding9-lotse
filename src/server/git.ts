@@ -110,8 +110,17 @@ export async function cloneRepo(repo: string, branch: string, worktree: string, 
   if (fs.existsSync(wt) && fs.readdirSync(wt).length) throw new Error('Arbeitsordner ist nicht leer.');
   fs.mkdirSync(path.dirname(wt), { recursive: true, mode: 0o700 });
   fs.mkdirSync(path.dirname(gd), { recursive: true, mode: 0o700 });
-  await runGit(['clone', '--depth', '50', '--single-branch', '--no-tags', '--template=', '--branch', branch, '--separate-git-dir', gd, '--', url, wt],
-    { cwd: path.dirname(wt), auth: true, signal: o.signal, timeoutMs: CLONE_TIMEOUT_MS });
+  const hadWt = fs.existsSync(wt);
+  try {
+    await runGit(['clone', '--depth', '50', '--single-branch', '--no-tags', '--template=', '--branch', branch, '--separate-git-dir', gd, '--', url, wt],
+      { cwd: path.dirname(wt), auth: true, signal: o.signal, timeoutMs: CLONE_TIMEOUT_MS });
+  } catch (e) {
+    // git is killed with SIGKILL on timeout/abort and cannot clean up itself: remove what this call created so a retry works
+    fs.rmSync(gd, { recursive: true, force: true });
+    if (!hadWt) fs.rmSync(wt, { recursive: true, force: true });
+    else for (const f of fs.readdirSync(wt)) fs.rmSync(path.join(wt, f), { recursive: true, force: true });
+    throw e;
+  }
   return { head: (await runGit(['rev-parse', 'HEAD'], { cwd: wt, gitDir: gd })).stdout.trim() };
 }
 

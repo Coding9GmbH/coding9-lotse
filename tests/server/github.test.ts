@@ -81,6 +81,18 @@ test('test route: login, visible repositories, read-only hint; login is remember
   assert.ok(fake.calls.every(c => !c.path.includes(TOKEN)), 'never in a URL');
 });
 
+test('a token saved while a test is in flight does not get the old login', async () => {
+  const OTHER = `github_pat_${'Q1w2E3r4T5'.repeat(8)}_bob`;
+  await put({ token: TOKEN });
+  const pending = testRoute();
+  G.saveGithub({ token: OTHER });
+  await pending;
+  assert.equal(G.githubPublic().login, null, 'login of token A not stored next to token B');
+  await put({ token: TOKEN });
+  assert.equal((await json(await testRoute())).body.login, 'octo-lotse');
+  assert.equal(G.githubPublic().login, 'octo-lotse');
+});
+
 test('test route maps 401 and 404 to German errors without the token', async () => {
   fake.failNext = { status: 401, message: `Bad credentials for ${TOKEN}` };
   const t = await json(await testRoute());
@@ -106,6 +118,12 @@ test('repos and branches routes; repo access check reads permissions.push, 404 =
   assert.equal(bad.status, 400);
   assert.equal((await G.checkRepoAccess('acme/legacy-plugin')).push, false);
   await assert.rejects(G.checkRepoAccess('acme/secret'), /Kein Zugriff auf acme\/secret/);
+  fake.failNext = { status: 301, message: 'Moved Permanently', headers: { location: `${fake.base}/repositories/42` } };
+  await assert.rejects(G.checkRepoAccess('acme/old-name'), /umbenannt oder verschoben/);
+  fake.failNext = { status: 301, message: 'Moved Permanently', headers: { location: `${fake.base}/repositories/42/branches` } };
+  const moved = await json(await branchesRoute(new Request('http://127.0.0.1/api/github/branches?repo=acme/old-name')));
+  assert.equal(moved.status, 502);
+  assert.match(String(moved.body.error), /umbenannt oder verschoben/);
 });
 
 test('disconnect: null removes the token, audit entry, nothing left in the DB', async () => {
