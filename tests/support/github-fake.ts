@@ -26,6 +26,10 @@ export interface FakeGithub {
   issueComments: Record<string, FakeComment[]>;
   /** next response has this status/message */
   failNext?: { status: number; message: string; headers?: Record<string, string> };
+  /** the next request whose path contains `path` has this status/message (once) */
+  failOn?: { path: string; status: number; message: string };
+  /** requests whose path contains `path` wait for `until` before they are answered (once each, while set) */
+  holdOn?: { path: string; until: Promise<void> };
   close: () => Promise<void>;
 }
 
@@ -63,6 +67,8 @@ export async function startFakeGithub(o: { token: string; login?: string; repos?
     if (auth !== `Bearer ${o.token}`) return send(401, { message: 'Bad credentials', documentation_url: 'https://docs.github.com/rest' });
     if (req.headers['x-github-api-version'] !== '2022-11-28' || !String(req.headers.accept).includes('vnd.github+json')) return send(400, { message: 'Missing API version headers' });
     if (f.failNext) { const e = f.failNext; f.failNext = undefined; return send(e.status, { message: e.message }, e.headers); }
+    if (f.failOn && p.includes(f.failOn.path)) { const e = f.failOn; f.failOn = undefined; return send(e.status, { message: e.message }); }
+    if (f.holdOn && p.includes(f.holdOn.path)) await f.holdOn.until;
     if (p === '/user') return send(200, { login: o.login ?? 'octo-lotse', id: 1 });
     if (p === '/user/repos') {
       const per = Number(url.searchParams.get('per_page') ?? 30), page = Number(url.searchParams.get('page') ?? 1);

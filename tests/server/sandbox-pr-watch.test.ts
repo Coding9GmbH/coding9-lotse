@@ -29,6 +29,7 @@ function publishedTask(t = T.createTask({ chatId: crypto.randomUUID(), title: 'H
   gh.reviews[KEY] = []; gh.reviewComments[KEY] = []; gh.issueComments[KEY] = []; gh.checkRuns[SHA] = [];
   Object.assign(t, { prNumber: n, prUrl: `https://github.com/${REPO}/pull/${n}`, prTitle: 'Header' });
   T.saveTask(t, false);
+  getSession(t.chatId!); // the chat is open (the watcher never writes into a chat that does not exist)
   return t;
 }
 const pr = () => gh.pulls[REPO].find(p => p.number === N)!;
@@ -149,11 +150,22 @@ test('"An KI übergeben": only after the click, only for the sandbox attached to
   const ev = await W.pollTask(t.id) as Extract<ChatEvent, { t: 'pr_feedback' }>;
   const s = getSession(t.chatId!);
   assert.equal(s.running, false, 'the watcher never starts a turn');
-  assert.deepEqual(W.handOff(s.events, 'f_ffffffffffff', t.id), { error: 'Diese Rückmeldung gibt es in diesem Chat nicht.' });
+  assert.deepEqual(W.handOff(s.events, 'f_ffffffffffff', t.id), { error: 'feedbackMissing' });
 
+  // a blocked turn (here: Sandbox Coding off) never reaches the AI: the card stays available for another hand-off
+  E.saveSandbox({ enabled: false });
+  await startChat({ chatId: t.chatId!, message: 'Bitte setze die Rückmeldung um.', prFeedback: ev.id }).done;
+  E.saveSandbox({ enabled: true });
+  assert.ok(s.events.at(-1)?.t === 'done' && /ausgeschaltet/.test((s.events.at(-1) as { error?: string }).error ?? ''));
+  assert.equal(feedbackEvents(t.chatId!)[0].handedOver, undefined);
+
+  const seenLive: ChatEvent[] = [];
+  s.listeners.add(e => seenLive.push(e));
   const { done } = startChat({ chatId: t.chatId!, message: 'Bitte setze die Rückmeldung um.', prFeedback: ev.id });
   await done;
   assert.equal(feedbackEvents(t.chatId!)[0].handedOver, true);
+  assert.ok(seenLive.some(e => e.t === 'pr_feedback' && e.id === ev.id && e.handedOver), 'open views get the marked card');
+  assert.equal(feedbackEvents(t.chatId!).length, 1, 'marked in place, no second card');
   assert.ok(s.events.some(e => e.t === 'user' && e.text === 'Bitte setze die Rückmeldung um.'), 'the chat shows the user\'s line, not the third-party text');
 
   await J.finishTask(t.id);
@@ -161,4 +173,40 @@ test('"An KI übergeben": only after the click, only for the sandbox attached to
   await d2;
   const last = s.events.at(-1);
   assert.ok(last?.t === 'done' && /Sandbox dieser Rückmeldung ist abgeschlossen/.test(last.error ?? ''), JSON.stringify(last));
+});
+
+test('a read failing midway keeps no newer ETag: the next poll still reports the new review and the new head commit\'s checks', async () => {
+  const t = publishedTask();
+  assert.equal(await W.pollTask(t.id), null); // known head, ETags stored
+  const sha2 = 'c'.repeat(40);
+  pr().headSha = sha2;
+  gh.checkRuns[sha2] = [{ id: 82, name: 'phpunit', status: 'completed', conclusion: 'failure' }];
+  gh.reviews[KEY].push({ id: 81, user: { login: 'reviewer' }, state: 'CHANGES_REQUESTED', body: 'Bitte anders.' });
+  gh.failOn = { path: `/issues/${N}/comments`, status: 422, message: 'Validation Failed' };
+  await assert.rejects(W.pollTask(t.id));
+  assert.equal(feedbackEvents(t.chatId!).length, 0);
+  const ev = await W.pollTask(t.id);
+  assert.deepEqual(ev?.t === 'pr_feedback' && ev.items.map(i => i.id), ['r81', 'k82']);
+  assert.equal(T.getTask(t.id)!.prWatch!.headSha, sha2);
+});
+
+test('finished or deleted meanwhile: a poll answered late writes nothing into the chat', async () => {
+  const hold = async (change: (t: ReturnType<typeof publishedTask>) => void) => {
+    const t = publishedTask();
+    gh.issueComments[KEY].push({ id: 91, user: { login: 'x' }, body: 'Hallo' });
+    let release = () => {};
+    gh.holdOn = { path: `/issues/${N}/comments`, until: new Promise<void>(r => { release = r; }) };
+    const p = W.pollTask(t.id);
+    while (!gh.calls.some(c => c.path.includes(`/issues/${N}/comments`))) await new Promise(r => setTimeout(r, 5));
+    change(t);
+    release(); gh.holdOn = undefined;
+    assert.equal(await p, null);
+    return t;
+  };
+  const done = await hold(t => T.saveTask({ ...T.getTask(t.id)!, status: 'done' }, false));
+  assert.equal(feedbackEvents(done.chatId!).length, 0);
+
+  const { dropSession, peekSession } = await import('../../src/server/sessions');
+  const gone = await hold(t => dropSession(t.chatId!));
+  assert.equal(peekSession(gone.chatId!), null, 'the deleted chat is not brought back');
 });

@@ -111,10 +111,11 @@ export function startChat({ chatId, message, target, onboarding, locale, prFeedb
   const done = (async () => {
     let end: RunEnd = { error: null }, cost: number | null = null;
     try {
-      if (fb && 'error' in fb) end = { error: fb.error };
+      if (fb && 'error' in fb) end = { error: messages(s.locale).server[fb.error] };
       else if (gate.blocked) { const usd = (n: number) => `${n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`; end = { error: messages(s.locale).server.budgetReached(usd(gate.spent), usd(gate.budget)) }; }
       else {
         const blocked = code ? await prepareCodeTurn(s, emit, ac.signal) : null; // sandbox: Sandbox Coding on, set up, container awake
+        if (!blocked && !ac.signal.aborted && fb && 'ev' in fb) handedOver(s, fb.ev); // only now: a blocked turn leaves the card to hand over again
         end = blocked ? { error: blocked } : ac.signal.aborted ? { error: null } : provider === 'codex' ? await runCodex(s, prompt, ac.signal, emit) : await runClaude(s, prompt, ac, emit, gate.maxUsd);
       }
     } catch (e) {
@@ -137,6 +138,14 @@ export function startChat({ chatId, message, target, onboarding, locale, prFeedb
     }
   })();
   return { started: true, done };
+}
+
+/** Marks the feedback card as handed over (stored with the chat) and sends it to open views, which update the card in place. */
+function handedOver(s: Session, ev: Extract<ChatEvent, { t: 'pr_feedback' }>) {
+  ev.handedOver = true;
+  persist(s);
+  const marked: ChatEvent = { ...ev };
+  for (const l of s.listeners) { try { l(marked); } catch { s.listeners.delete(l); } }
 }
 
 /** Result of a turn; startChat sends the `done` event after the end. */

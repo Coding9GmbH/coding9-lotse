@@ -11,7 +11,7 @@ import type { ChatEvent, PrFeedbackItem } from '@/lib/protocol';
 import { getPullIfChanged, githubConnected, listCheckRuns, listIssueComments, listReviewComments, listReviews, type Conditional, type RawCheckRun, type RawComment, type RawReview } from '../github';
 import { log } from '../log';
 import { redact } from '../settings';
-import { noteChatEvent } from '../sessions';
+import { chatExists, noteChatEvent } from '../sessions';
 import { singleton } from '../state';
 import { errMsg } from '../util';
 import { sandboxEnabled } from './env';
@@ -61,10 +61,21 @@ export const checkItem = (r: RawCheckRun): PrFeedbackItem | null => {
 };
 
 // ---- Polling one task ----
-/** A conditional list read: null = unchanged since the last poll (its ETag is kept per task and URL kind, in memory). */
-async function changed<T>(key: string, read: (etag: string | null) => Promise<Conditional<T>>): Promise<T[] | null> {
-  const tags = state().etags, r = await read(tags.get(key) ?? null);
-  if (r.etag) tags.set(key, r.etag); else tags.delete(key);
+/** ETags of one poll (per task and URL kind, in memory): read from the stored ones, kept aside and only stored once the poll's result
+ *  is saved; a read that fails midway must not leave a newer ETag behind, or the next poll gets 304 and skips the unsaved items. */
+function etagRound() {
+  const fresh = new Map<string, string | null>();
+  return {
+    get: (k: string) => state().etags.get(k) ?? null,
+    set: (k: string, v: string | null) => { fresh.set(k, v); },
+    commit: () => { for (const [k, v] of fresh) if (v) state().etags.set(k, v); else state().etags.delete(k); },
+  };
+}
+
+/** A conditional list read: null = unchanged since the last poll. */
+async function changed<T>(tags: ReturnType<typeof etagRound>, key: string, read: (etag: string | null) => Promise<Conditional<T>>): Promise<T[] | null> {
+  const r = await read(tags.get(key));
+  tags.set(key, r.etag ?? null);
   return r.data;
 }
 
@@ -72,32 +83,32 @@ async function changed<T>(key: string, read: (etag: string | null) => Promise<Co
 export async function pollTask(id: string): Promise<ChatEvent | null> {
   const t0 = getTask(id);
   if (!t0 || !watched(t0)) return null;
-  const n = t0.prNumber!, repo = t0.repo, key = (k: string) => `${id}:${n}:${k}`;
+  const n = t0.prNumber!, repo = t0.repo, key = (k: string) => `${id}:${n}:${k}`, tags = etagRound();
   const prev: PrWatch = t0.prWatch?.number === n ? t0.prWatch : { number: n, state: 'open', headSha: null, seen: [] };
   const seen = new Set(prev.seen);
-  const p = await getPullIfChanged(repo, n, prev.headSha ? state().etags.get(key('pull')) : null); // without a known head: read in full
-  if (p.etag) state().etags.set(key('pull'), p.etag);
+  const p = await getPullIfChanged(repo, n, prev.headSha ? tags.get(key('pull')) : null); // without a known head: read in full
+  if (p.etag) tags.set(key('pull'), p.etag);
   const pull = p.pull, prState = pull?.state ?? prev.state, headSha = pull ? pull.headSha : prev.headSha;
   const items: PrFeedbackItem[] = [];
   const add = (list: (PrFeedbackItem | null)[]) => { for (const i of list) if (i && !seen.has(i.id)) { seen.add(i.id); items.push(i); } };
   if (prState === 'open') {
-    const [reviews, lines, comments] = await Promise.all([
-      changed(key('reviews'), e => listReviews(repo, n, e)), changed(key('lines'), e => listReviewComments(repo, n, e)), changed(key('comments'), e => listIssueComments(repo, n, e))]);
+    const [reviews, lines, comments] = await Promise.all([changed(tags, key('reviews'), e => listReviews(repo, n, e)),
+      changed(tags, key('lines'), e => listReviewComments(repo, n, e)), changed(tags, key('comments'), e => listIssueComments(repo, n, e))]);
     add((reviews ?? []).map(reviewItem));
     add((lines ?? []).map(c => commentItem(c, 'line')));
     add((comments ?? []).map(c => commentItem(c, 'comment')));
     // checks need their own permission: without it the feedback still arrives
-    if (headSha) add(((await changed(key(`checks:${headSha}`), e => listCheckRuns(repo, headSha, e)).catch(() => null)) ?? []).map(checkItem));
+    if (headSha) add(((await changed(tags, key(`checks:${headSha}`), e => listCheckRuns(repo, headSha, e)).catch(() => null)) ?? []).map(checkItem));
   }
-  // re-read: the setup, a wake-up or a publish may have saved the task meanwhile
+  // re-read: the setup, a wake-up, a publish or finishing (also by deleting the chat) may have changed the task meanwhile
   const t = getTask(id);
-  if (!t || t.prNumber !== n) return null;
+  if (!t || t.prNumber !== n || !watched(t) || (t.chatId && !chatExists(t.chatId))) return null;
   const all = [...seen];
   t.prWatch = { number: n, state: prState, headSha, seen: all.slice(-FEEDBACK_LIMITS.seen) };
   const ended = prState !== 'open' && prev.state === 'open';
-  if (!items.length && !ended) { if (JSON.stringify(prev) !== JSON.stringify(t.prWatch)) saveTask(t, false); return null; }
+  if (!items.length && !ended) { if (JSON.stringify(prev) !== JSON.stringify(t.prWatch)) saveTask(t, false); tags.commit(); return null; }
   saveTask(t); // the task list shows merged/closed
-  if (ended) { forgetPrStatus(id); for (const k of [...state().etags.keys()]) if (k.startsWith(`${id}:`)) state().etags.delete(k); }
+  if (ended) { forgetPrStatus(id); for (const k of [...state().etags.keys()]) if (k.startsWith(`${id}:`)) state().etags.delete(k); } else tags.commit();
   const ev: ChatEvent = {
     t: 'pr_feedback', id: `f_${crypto.randomBytes(6).toString('hex')}`, taskId: id, number: n, url: t.prUrl!, items: items.slice(0, FEEDBACK_LIMITS.items),
     ...(items.length > FEEDBACK_LIMITS.items ? { more: items.length - FEEDBACK_LIMITS.items } : {}), ...(ended ? { state: prState as 'merged' | 'closed' } : {}),
@@ -157,13 +168,17 @@ export function feedbackPrompt(ev: Extract<ChatEvent, { t: 'pr_feedback' }>, tag
   ].join('\n');
 }
 
-/** The user's click on "An KI übergeben": the feedback event of this chat for the sandbox attached to it, marked as handed over.
- *  A finished sandbox (container and workspace removed) cannot take it: a new sandbox needs a new setup (and the dump again). */
-export function handOff(events: ChatEvent[], id: string, taskId: string | null): { prompt: string } | { error: string } {
-  const ev = events.find((e): e is Extract<ChatEvent, { t: 'pr_feedback' }> => e.t === 'pr_feedback' && e.id === id);
-  if (!ev) return { error: 'Diese Rückmeldung gibt es in diesem Chat nicht.' };
-  if (!taskId || ev.taskId !== taskId) return { error: 'Die Sandbox dieser Rückmeldung ist abgeschlossen – für weitere Änderungen eine neue Sandbox starten (Datenbank-Dump erneut hochladen).' };
-  if (!ev.items.length) return { error: 'Diese Rückmeldung enthält nichts zum Übergeben.' };
-  ev.handedOver = true;
-  return { prompt: feedbackPrompt(ev) };
+type Feedback = Extract<ChatEvent, { t: 'pr_feedback' }>;
+/** Why a hand-off cannot run (texts: messages(locale).server) */
+export type HandOffError = 'feedbackMissing' | 'feedbackTaskDone' | 'feedbackEmpty';
+
+/** The user's click on "An KI übergeben": the feedback event of this chat for the sandbox attached to it. It is NOT marked here: the
+ *  caller marks it (handedOver) only once the AI run really starts. A finished sandbox (container and workspace removed) cannot take
+ *  it: a new sandbox needs a new setup (and the dump again). */
+export function handOff(events: ChatEvent[], id: string, taskId: string | null): { ev: Feedback; prompt: string } | { error: HandOffError } {
+  const ev = events.find((e): e is Feedback => e.t === 'pr_feedback' && e.id === id);
+  if (!ev) return { error: 'feedbackMissing' };
+  if (!taskId || ev.taskId !== taskId) return { error: 'feedbackTaskDone' };
+  if (!ev.items.length) return { error: 'feedbackEmpty' };
+  return { ev, prompt: feedbackPrompt(ev) };
 }

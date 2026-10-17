@@ -117,6 +117,9 @@ export function noteSandboxAttached(chatId: string, t: { id: string; title: stri
   for (const l of s.listeners) { try { l(ev); } catch { s.listeners.delete(l); } }
 }
 
+/** The chat is open in memory or stored (not deleted). */
+export const chatExists = (id: string) => !!peekSession(id) || !!chatGet(id);
+
 /** An event from outside a turn (e.g. the pull request the user published): saved in the history at once and sent to open views. */
 export function noteChatEvent(chatId: string, ev: ChatEvent) {
   const s = getSession(chatId);
