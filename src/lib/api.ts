@@ -2,7 +2,7 @@
 import type { FileAttachment } from './attachments';
 import type { CheckListItem } from './custom-checks';
 import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget } from './knowledge';
-import type { CodexLoginState, GscPublic, GscTestResult, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
+import type { CodexLoginState, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
   PublicSettings, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome,
 } from './protocol';
@@ -70,6 +70,10 @@ export const api = {
   seoOverview: (refresh = false) => request<SeoOverview>(`/api/seo${refresh ? '?refresh=1' : ''}`),
   seoStored: () => request<SeoOverview | null>('/api/seo?stored=1'),
   seoMark: (id: string, state: SeoMark['state'] | null) => request<{ mark: SeoMark | null }>('/api/seo/marks', json('PUT', { id, state })),
+  /** impact of applied changes: stored state (no Google request); measure = measure open changes now; dismiss = hide/show */
+  seoImpact: () => request<SeoImpactList>('/api/seo/impact'),
+  seoImpactMeasure: () => request<SeoImpactList & { measured: number; failed: { id: string; error: string }[] }>('/api/seo/impact', { method: 'POST' }),
+  seoImpactDismiss: (id: string, dismissed: boolean) => request<SeoImpactList>('/api/seo/impact', json('PUT', { id, dismissed })),
   accessLog: () => request<AccessLogRow[]>('/api/access-log'),
   audit: () => request<AuditRow[]>('/api/audit'),
   shopCheck: () => request<ShopCheckState>('/api/shopcheck'),

@@ -6,9 +6,9 @@ import 'server-only';
 //   product     → products get templates/product.lotse-<slug>.json (product template + Lotse sections) as templateSuffix
 // Content of collections/products lives in shop metafields lotse.<key> (multi_line_text_field), the section
 // sections/lotse-content.liquid renders it. If a step fails, the executor immediately reverts all previous steps.
-import type { ChangeAsset, ChangeItem, ChangeSet, PublishedInfo, UndoOp } from '@/lib/protocol';
+import type { ChangeAsset, ChangeItem, ChangeSet, MeasureTarget, PublishedInfo, UndoOp } from '@/lib/protocol';
 import { withScript } from '@/lib/script-scan';
-import { cut, errMsg, trackedUndo, type ApplyCtx, type ApplyResult } from '../../changes';
+import { cut, errMsg, measureTargets, trackedUndo, type ApplyCtx, type ApplyResult } from '../../changes';
 import { expandSpec } from '../../patterns';
 import type { ImageObj, ImageRef, PageSpec, PreviewProduct } from '../../cms';
 import { stagedMeta } from '../../media';
@@ -61,7 +61,7 @@ export async function buildShopifyPublish(q: Q, spec: PageSpec, a: ShopifyPublis
   const parts = ctx.render(spec), blocks = expandSpec(spec).sections.reduce((n, s) => n + s.blocks.length, 0);
   for (const [k, v] of Object.entries({ 'Inhalt über dem Theme-Inhalt': parts.before, 'Inhalt unter dem Theme-Inhalt': parts.after })) if (v.length > MAX_HTML) throw tooBig(k, v.length);
   const published = a.published !== false;
-  let payload: ShopifyPublishPayload;
+  let payload: ShopifyPublishPayload, targets: { measureTargets?: MeasureTarget[] } = {};
 
   if (a.target === 'landingpage') {
     const raw = String(a.url ?? '').trim().replace(/^https?:\/\/[^/]+/i, '').replace(/^\/+/, '').replace(/^pages\//, '');
@@ -80,6 +80,7 @@ export async function buildShopifyPublish(q: Q, spec: PageSpec, a: ShopifyPublis
     if (!c) throw new Error(`Kollektion ${a.categoryId} nicht gefunden`);
     const slug = templateSlug(c.handle) || shortId(c.id), suffix = suffixOf(slug), label = `Kollektion „${c.title}“`;
     payload = { spec, target: 'category', mode, slug, title: c.title, published, collectionId: shortId(c.id), metaTitle: mt, metaDescription: md };
+    targets = measureTargets('category', [{ id: shortId(c.id), label: c.title }]);
     if (mode === 'description') {
       items.push({ id: `i${items.length}`, entity: 'info', label, fieldLabel: 'Beschreibung', before: cut(stripHtml(c.descriptionHtml)), after: `Inhalt des Entwurfs (${blocks} Blöcke) als Beschreibung`, html: { before: c.descriptionHtml ?? '', after: parts.full.slice(0, 20000) }, warn: ['Die bisherige Beschreibung wird ersetzt (Rückgängig stellt sie wieder her). Wie die Beschreibung erscheint, bestimmt das Theme (meist über der Produktliste).'] });
     } else {
@@ -97,6 +98,7 @@ export async function buildShopifyPublish(q: Q, spec: PageSpec, a: ShopifyPublis
     const missing = ids.filter(i => !rows.some(r => shortId(r.id) === shortId(toGid('Product', i)))); if (missing.length) throw new Error(`Produkt(e) nicht gefunden: ${missing.join(', ')}`);
     const slug = templateSlug(a.layout ?? spec.name); if (!slug) throw new Error('layout fehlt: Name der Produktvorlage, z. B. "keramik"');
     payload = { spec, target: 'product', mode, slug, title: spec.name, published, productIds: rows.map(r => shortId(r.id)) };
+    targets = measureTargets('product', rows.map(r => ({ id: shortId(r.id), label: r.title })));
     // all products need the same base template (otherwise products would get a foreign template); the executor checks the base of Lotse templates
     const groups = new Map<string, string[]>();
     for (const p of rows) { const k = baseKey('product', p.templateSuffix); if (k) groups.set(k, [...(groups.get(k) ?? []), p.title]); }
@@ -107,7 +109,7 @@ export async function buildShopifyPublish(q: Q, spec: PageSpec, a: ShopifyPublis
     info('Theme', 'Vorlage', '–', `${target}: Kopie von ${[...groups.keys()][0] ?? baseOf(lotse[0]?.templateSuffix)} + Lotse-Inhalt ${parts.before && parts.after ? 'über und unter' : parts.before ? 'über' : 'unter'} dem Produktbereich`,
       ['Gilt für alle gewählten Produkte; gibt es die Vorlage schon, wird sie ersetzt (Rückgängig stellt sie wieder her).', ...(lotse.length ? ['Die Basis bisheriger Lotse-Vorlagen liest Lotse beim Übernehmen: weicht sie ab, wird nichts geschrieben.'] : [])]);
   }
-  const cs: ChangeSet = { id: newId(), kind: 'page', title: `Seite veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, noun: { one: 'Schritt', many: 'Schritte' }, ...withScript(spec) };
+  const cs: ChangeSet = { id: newId(), kind: 'page', title: `Seite veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, noun: { one: 'Schritt', many: 'Schritte' }, ...withScript(spec), ...targets };
   return { cs, payload };
 }
 const safeHost = (u: string) => { try { return new URL(u).host; } catch { return ''; } };

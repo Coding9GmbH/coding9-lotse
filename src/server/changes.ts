@@ -1,6 +1,6 @@
 import 'server-only';
 // Change layer: the AI ONLY PROPOSES (diff); writing happens exclusively here, after human approval.
-import type { ChangeAsset, ChangeItem, ChangeSet, PublishedInfo, UndoOp } from '@/lib/protocol';
+import type { ChangeAsset, ChangeItem, ChangeSet, MeasureTarget, PublishedInfo, UndoOp } from '@/lib/protocol';
 import { withScript } from '@/lib/script-scan';
 import { auditAdd } from './db';
 import { newId, type Shopware, type ShopReader, type SwEntity } from './shopware';
@@ -246,6 +246,13 @@ async function createProduct(swW: Shopware, p: NewProductPayload): Promise<UndoO
 
 // ---- Publishing a page as a change set ----
 /** Scope for layouts covering several pages: Shopware resolves it into fixed IDs (categoryIds/productIds) at proposal time, so the approval writes exactly what was shown. */
+/** Pages whose layout a publish replaces, for the impact measurement (Search Console). Only for a handful of targets:
+ *  a shop-wide layout can't be attributed to single pages. */
+export const MEASURE_TARGETS_MAX = 50;
+export function measureTargets(entity: MeasureTarget['entity'], list: { id: string; label: string }[]): { measureTargets?: MeasureTarget[] } {
+  return list.length && list.length <= MEASURE_TARGETS_MAX ? { measureTargets: list.map(t => ({ entity, id: t.id, label: t.label })) } : {};
+}
+
 export interface PublishScopeArgs { categoryIds?: string[]; allCategories?: boolean; productsInCategoryId?: string; allProducts?: boolean; scopeLabel?: string }
 export interface PublishArgs extends PublishScopeArgs { target: 'category' | 'product' | 'landingpage'; categoryId?: string; productIds?: string[]; url?: string; salesChannelId?: string; metaTitle?: string; metaDescription?: string }
 /** Targets of a publication (categories or products) in fixed order */
@@ -291,6 +298,7 @@ export async function buildPublishChangeSet(ro: ShopReader, spec: PageSpec, a: P
     for (const t of list.slice(0, BULK_SAMPLE)) info(`${noun} „${t.name}“`, 'Layout', await layoutOf(t.cmsPageId), spec.name);
     info('Weitere', 'Layout', '–', `… und ${list.length - BULK_SAMPLE} weitere ${nounPl} mit demselben Layout`);
   };
+  let targets: { measureTargets?: MeasureTarget[] } = {};
   const fetchAll = async (entity: string, ids: string[]) => { const out: SwEntity[] = []; for (let i = 0; i < ids.length; i += 100) out.push(...(await ro.search(entity, { ids: ids.slice(i, i + 100), limit: 100 })).data); return out; };
   if (a.target === 'category') {
     const ids = publishCategoryIds(a);
@@ -301,6 +309,7 @@ export async function buildPublishChangeSet(ro: ShopReader, spec: PageSpec, a: P
     for (const c of cats) assertLayoutCategory(c); // structure element/link show no layout: reject before approval, not only when writing
     const nameOf = (c: SwEntity) => c.translated?.name ?? c.name;
     await rows('Kategorie', 'Kategorien', cats.map(c => ({ name: nameOf(c), cmsPageId: c.cmsPageId })));
+    targets = measureTargets('category', cats.map(c => ({ id: c.id, label: nameOf(c) })));
     if (cats.length === 1) {
       const c = cats[0], name = nameOf(c);
       if (a.metaTitle ?? spec.seo?.metaTitle) info(`Kategorie „${name}“`, 'Meta-Title', cut(c.translated?.metaTitle), cut(a.metaTitle ?? spec.seo?.metaTitle));
@@ -310,6 +319,7 @@ export async function buildPublishChangeSet(ro: ShopReader, spec: PageSpec, a: P
     const ps = await fetchAll('product', a.productIds!), missing = a.productIds!.filter(id => !ps.some(p => p.id === id));
     if (missing.length) throw new Error(`Produkt nicht gefunden: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ' …' : ''}`);
     await rows('Produkt', 'Produkte', ps.map(p => ({ name: p.translated?.name ?? p.name, cmsPageId: p.cmsPageId })));
+    targets = measureTargets('product', ps.map(p => ({ id: p.id, label: p.translated?.name ?? p.name ?? p.productNumber })));
   } else {
     const slug = landingSlug(a.url), sc = (await ro.salesChannels()).find(s => s.id === a.salesChannelId);
     if (!sc) throw new Error(`Verkaufskanal ${a.salesChannelId} nicht gefunden (list_sales_channels)`);
@@ -318,7 +328,7 @@ export async function buildPublishChangeSet(ro: ShopReader, spec: PageSpec, a: P
     a.url = slug;
     info('Neue Landingpage', 'URL', '–', `/${slug}`);
   }
-  return { id: newId(), kind: 'page', title: `Seite veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec) };
+  return { id: newId(), kind: 'page', title: `Seite veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec), ...targets };
 }
 
 // ================= EXECUTOR (the only writing code) =================

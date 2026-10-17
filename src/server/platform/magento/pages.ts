@@ -14,7 +14,7 @@ import { expandSpec } from '../../patterns';
 import { collectLinks, findingText, rewriteLinks } from '../../seo-links';
 import type { Session } from '../../sessions';
 import type { PlatformCapabilities, PlatformPages } from '../types';
-import { errMsg, newIdSafe, trackedUndo, type ApplyResult } from './kit';
+import { errMsg, measureTargets, newIdSafe, trackedUndo, type ApplyResult } from './kit';
 import type { MagentoClient } from './client';
 import { checkMagentoLinks } from './links';
 import { attr, attrStr, money, parseMediaId, plain, priceState, urlKey, type MCategory, type MProduct, type MRecord } from './map';
@@ -252,7 +252,7 @@ export async function buildPagePublish(ro: MagentoReader, spec: PageSpec, a: Pub
     if (metas.meta_title) info(label, 'Meta-Title', cut(attrStr(c, 'meta_title')), mt);
     if (metas.meta_description) info(label, 'Meta-Description', cut(attrStr(c, 'meta_description')), md);
     const k = attrStr(c, 'url_path') ?? attrStr(c, 'url_key'), url = k ? `${sfBase}/${k}${cfg.category_url_suffix ?? ''}` : null;
-    return { cs: { id: newIdSafe(), kind: 'page', title: `Kategorie-Inhalt veröffentlichen: ${name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec) }, payload: { ...base, content, category: { id: String(c.id), displayMode: mode, metas, url }, storefront: url ?? sfBase } satisfies PagePayload };
+    return { cs: { id: newIdSafe(), kind: 'page', title: `Kategorie-Inhalt veröffentlichen: ${name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec), ...measureTargets('category', [{ id: String(c.id), label: name }]) }, payload: { ...base, content, category: { id: String(c.id), displayMode: mode, metas, url }, storefront: url ?? sfBase } satisfies PagePayload };
   }
 
   // Product(s)
@@ -275,7 +275,7 @@ export async function buildPagePublish(ro: MagentoReader, spec: PageSpec, a: Pub
     info('Neuer CMS-Block (Produktinhalt)', 'Anlegen', '–', `${spec.name} · ${blocks} Blöcke · Page Builder`, warn);
     for (const p of list) info(`Produkt „${p.name}“ (${p.sku})`, 'Beschreibung', cut(attr(p, 'description'), 80), 'bisheriger Text + Block darunter');
   }
-  return { cs: { id: newIdSafe(), kind: 'page', title: `Produktinhalt veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec) }, payload: { ...base, content, products: { mode, items: rows }, storefront: rows.find(r => r.url)?.url ?? sfBase } satisfies PagePayload };
+  return { cs: { id: newIdSafe(), kind: 'page', title: `Produktinhalt veröffentlichen: ${spec.name}`, reason: null, items, assets, skipped: [], atomic: true, ...withScript(spec), ...measureTargets('product', rows.map(r => ({ id: r.id, label: r.name }))) }, payload: { ...base, content, products: { mode, items: rows }, storefront: rows.find(r => r.url)?.url ?? sfBase } satisfies PagePayload };
 }
 /** Readable preview of the parts for the change card (product widget as placeholder) */
 const renderPreviewHtml = (parts: PbPart[]) => parts.map(p => (p.kind === 'html' ? p.html : p.kind === 'products' ? `<p><b>Produktliste (Magento-Widget):</b> ${esc(p.skus.join(', '))}</p>` : '')).join('');

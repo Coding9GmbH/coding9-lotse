@@ -138,6 +138,7 @@ test('publishing category content: CMS block + display mode + metas, undo restor
     const cat = fake.categories.find(c => c.id === 3)!.vals[0], blk = fake.cmsBlocks.find(b => String(b.identifier).startsWith('lotse-kategorie-3-'))!;
     assert.ok(blk, 'block created'); assert.deepEqual(blk.store_ids, [0]);
     assert.equal(cat.display_mode, 'PRODUCTS_AND_PAGE'); assert.equal(cat.landing_page, blk.id); assert.equal(cat.meta_title, 'Wohnaccessoires | Holm');
+    assert.deepEqual(lastCs().cs.measureTargets?.map(t => [t.entity, t.id]), [['category', '3']], 'impact measurement: the category whose content is replaced');
     assert.doesNotMatch(String(blk.content), /<h1/, 'H1 → H2');
     assert.ok(lastCs().cs.items[0].warn.some(w => /H1-Überschrift/.test(w)));
   });

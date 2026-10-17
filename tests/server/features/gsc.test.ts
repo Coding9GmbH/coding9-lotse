@@ -169,7 +169,7 @@ test('Opportunities, baseline on apply, measurement afterwards and shop check', 
   // shop check: opportunities + due measurements (only when connected)
   const { listChecks } = await import('../../../src/server/checks');
   const checks = listChecks().filter(c => c.area === 'Search Console');
-  assert.deepEqual(checks.map(c => c.id).sort(), ['gsc.cannibalization', 'gsc.decline', 'gsc.low-ctr', 'gsc.measure-due']);
+  assert.deepEqual(checks.map(c => c.id).sort(), ['gsc.cannibalization', 'gsc.decline', 'gsc.impact-worse', 'gsc.low-ctr', 'gsc.measure-due']);
   const due = await checks.find(c => c.id === 'gsc.measure-due')!.run(ro) as { count: number; title: string };
   assert.equal(due.count, 0, 'the fully measured and the superseded measurement are done; the new one is not due yet');
   const low = await checks.find(c => c.id === 'gsc.low-ctr')!.run(ro) as { count: number; title: string };
@@ -216,5 +216,87 @@ test('Rankings: just short of page 1, cannibalization and losses against the pre
   assert.deepEqual(r.decline.map(d => d.ref?.id), [P2], 'mug: 84 → 28 clicks');
   assert.equal(r.decline[0].x.before.clicks, 84);
   G.saveGsc({ key: null });
+  fake.data = [];
+});
+
+test('Impact: texts and replaced layouts get baselines, measurement is stored, list/dismiss/measureOpen and the "did harm" check', async () => {
+  G.saveGsc({ key: KEY, property: 'sc-domain:shop.de' }); G.clearGscCache();
+  const db = shopDb(), ro = fakeReader(db), cfg = G.getGscConfig()!;
+  const { kvSet } = await import('../../../src/server/db');
+  kvSet('gsc_baselines', []);
+  const vase = 'https://www.shop.de/Vase-Kiesel-22-cm/HH-VASE-22', cat = 'https://www.shop.de/Wohnen/Vasen/';
+  const rows: FakeRow[] = [];
+  // before: vase CTR 10 %, category CTR 5 %; after: vase drops to 2 % (worse), category stays
+  for (const d of days('2026-08-01', 31)) rows.push({ date: d, page: vase, query: 'vase', clicks: 10, impressions: 100, position: 3 }, { date: d, page: cat, query: 'vasen', clicks: 5, impressions: 100, position: 5 });
+  for (const d of days('2026-09-02', 38)) rows.push({ date: d, page: vase, query: 'vase', clicks: 2, impressions: 100, position: 3 }, { date: d, page: cat, query: 'vasen', clicks: 5, impressions: 100, position: 5 });
+  fake.data = rows;
+  const at = new Date('2026-09-01T12:00:00Z');
+  const item = (field: string, after: unknown) => ({ id: `${P1}:${field}`, entity: 'product', entityId: P1, label: 'Vase „Kiesel“', field, fieldLabel: field, before: 'alt', after: String(after), afterRaw: after, warn: [] });
+  const made = await F.baselinesFor(cfg, [item('description', '<p>Neu</p>'), item('name', 'Vase Kiesel'), item('price', 19)], { ro, changeSetId: 'cs-text', chatId: 'chat-t', targets: [{ entity: 'category', id: C1, label: 'Vasen' }], layout: 'Seite veröffentlichen: Vasen' }, at);
+  assert.equal(made.length, 2, 'one baseline per page: product texts + category layout; price is not measured');
+  const prod = made.find(b => b.entityId === P1)!, catB = made.find(b => b.entityId === C1)!;
+  assert.deepEqual(prod.fields.map(f => f.field), ['description', 'name']);
+  assert.equal(prod.fields[0].afterRaw, undefined, 'HTML is not compared for drift');
+  assert.equal(prod.fields[1].afterRaw, 'Vase Kiesel');
+  assert.deepEqual(catB.fields.map(f => f.field), ['layout']);
+
+  // list without Google: too early
+  let list = F.impactList(new Date('2026-09-10T12:00:00Z'));
+  assert.equal(list.length, 2);
+  assert.ok(list.every(i => i.status === 'too-early' && i.chatId === 'chat-t'));
+  assert.equal(list.find(i => i.entityId === P1)!.kind, 'content');
+  assert.equal(list.find(i => i.entityId === C1)!.kind, 'layout');
+  assert.equal(list.find(i => i.entityId === P1)!.before.clicksPerDay, 10);
+  assert.equal((await F.measureOpen(cfg, ro, new Date('2026-09-10T12:00:00Z'))).measured, 0, 'nothing measurable yet');
+
+  // after 28 days: measure all open ones, result stored
+  db.product[0].name = 'Vase Kiesel';
+  const now = new Date('2026-10-10T12:00:00Z'), r = await F.measureOpen(cfg, ro, now);
+  assert.deepEqual([r.measured, r.failed.length], [2, 0]);
+  list = F.impactList(now);
+  const pv = list.find(i => i.entityId === P1)!, cv = list.find(i => i.entityId === C1)!;
+  assert.deepEqual([pv.status, pv.verdict, pv.change?.clicksPerDay, pv.drift], ['complete', 'worse', '-80 %', undefined]);
+  assert.deepEqual([cv.status, cv.verdict], ['complete', 'unclear']);
+  assert.ok(F.listBaselines().every(b => b.measured && b.last), 'final measurement remembered');
+  assert.equal((await F.measureOpen(cfg, ro, now)).measured, 0, 'measured ones are not asked again');
+
+  // shop check reports the change that did harm; hidden → no longer
+  const { listChecks } = await import('../../../src/server/checks');
+  const worse = listChecks().find(c => c.id === 'gsc.impact-worse')!;
+  const f = await worse.run(ro) as { count: number; title: string; sample: { id: string }[] };
+  assert.equal(f.count, 1); assert.match(f.title, /geschadet/); assert.equal(f.sample[0].id, P1);
+  assert.equal(F.dismissImpact(pv.id, true), true);
+  assert.equal(F.impactList(now).find(i => i.id === pv.id)!.dismissed, true);
+  assert.equal((await worse.run(ro) as { count: number }).count, 0);
+  assert.equal(F.dismissImpact(pv.id, false), true);
+  assert.equal(F.impactList(now).find(i => i.id === pv.id)!.dismissed, undefined);
+  assert.equal(F.dismissImpact('gibt-es-nicht', true), false);
+
+  // changed again before measurement → superseded
+  const again = await F.baselinesFor(cfg, [item('metaTitle', 'X')], { ro, changeSetId: 'cs-meta' }, new Date('2026-10-01T12:00:00Z'));
+  const again2 = await F.baselinesFor(cfg, [item('metaTitle', 'Y')], { ro, changeSetId: 'cs-meta2' }, new Date('2026-10-02T12:00:00Z'));
+  assert.equal(again.length + again2.length, 2);
+  const first = F.impactList(now).find(i => i.id === again[0].id)!;
+  assert.deepEqual([first.status, first.kind], ['superseded', 'meta']);
+  G.saveGsc({ key: null });
+  kvSet('gsc_baselines', []);
+  fake.data = [];
+});
+
+test('Impact: at most MAX_BASELINES pages per change set', async () => {
+  G.saveGsc({ key: KEY, property: 'sc-domain:shop.de' }); G.clearGscCache();
+  const db = shopDb(), ro = fakeReader(db), ids: string[] = [];
+  for (let i = 0; i < F.MAX_BASELINES + 5; i++) {
+    const id = i.toString(16).padStart(32, '0'); ids.push(id);
+    db.product.push({ id, name: `P${i}`, productNumber: `N${i}`, active: true });
+    db['seo-url'].push(seo(id, 'frontend.detail.page', `p-${i}`));
+  }
+  fake.data = days('2026-08-01', 31).flatMap(d => ids.map(id => ({ date: d, page: `https://www.shop.de/p-${parseInt(id, 16)}`, query: 'q', clicks: 1, impressions: 10, position: 5 })));
+  const items = ids.map(id => ({ id: `${id}:metaTitle`, entity: 'product', entityId: id, label: id, field: 'metaTitle', fieldLabel: 'Meta-Title', before: 'a', after: 'b', afterRaw: 'b', warn: [] }));
+  const made = await F.baselinesFor(G.getGscConfig()!, items, { ro, changeSetId: 'cs-big' }, new Date('2026-09-01T12:00:00Z'));
+  assert.equal(made.length, F.MAX_BASELINES);
+  G.saveGsc({ key: null });
+  const { kvSet } = await import('../../../src/server/db');
+  kvSet('gsc_baselines', []);
   fake.data = [];
 });
