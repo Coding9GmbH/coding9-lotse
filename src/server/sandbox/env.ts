@@ -194,7 +194,7 @@ export async function stopRunningSandboxes(): Promise<number> {
 /** For sandbox routes: 403 with the German reason while Sandbox Coding is off. */
 export function sandboxForbidden(): Response | null {
   const s = sandboxStatus();
-  return s.enabled ? null : Response.json({ error: s.message ?? SANDBOX_OFF }, { status: 403 });
+  return s.enabled ? null : Response.json({ error: s.message ?? SANDBOX_OFF, reason: s.reason }, { status: 403 });
 }
 
 /** "Umgebung prüfen": Docker reachable, internal network (network mode), image present or pulled now. One at a time. */

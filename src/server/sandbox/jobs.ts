@@ -2,7 +2,7 @@ import 'server-only';
 // Setup job and container lifecycle of code tasks. Everything runs detached from the HTTP request (like a chat turn):
 // - runSteps: the template's steps in order, each persisted at once, with a time limit and an AbortController per task
 // - one lock per task: setup steps, wake-up and (later) run_command never run in the same container at the same time
-// - LOTSE_SANDBOX_MAX running containers: one more pauses the least recently used ready task, otherwise 409
+// - LOTSE_SANDBOX_MAX running containers: one more stops a failed task's container or pauses the least recently used ready task, otherwise 409
 // - pause = docker stop (code, database and changes stay), wake = docker start + wait + full sync (no new setup)
 // - finish = container, workspace, git dir, dump and screenshots removed; the task stays as a record (done)
 import fs from 'node:fs';
@@ -24,13 +24,17 @@ import type { StepCtx } from './templates/types';
 import { appendLog, emitTask, getTask, httpStatusOf, listTasks, mustTask, now, sandboxOrigin, saveTask, taskPaths, type CodeTask, type StoredStep } from './tasks';
 
 export class TaskConflict extends Error { readonly status = 409; }
-/** Statuses in which the task's container runs (or is about to): they count against LOTSE_SANDBOX_MAX. */
-const RUNNING: CodeTaskStatus[] = ['setting_up', 'waking', 'ready'];
+/** Statuses in which the task's container is about to run even if it is not started yet. */
+const STARTING: CodeTaskStatus[] = ['setting_up', 'waking'];
+/** Counts against LOTSE_SANDBOX_MAX: starting, or a running container (also failed/interrupted). A paused one is being stopped. */
+const occupies = (t: CodeTask) => STARTING.includes(t.status) || (!!t.containerId && t.containerRunning && t.status !== 'paused' && t.status !== 'done');
 const MAX_OUTPUT = 256 * 1024;
 
-interface Jobs { setup: Map<string, { ac: AbortController; done: Promise<void> }>; wakes: Map<string, Promise<void>>; locks: Map<string, Promise<unknown>> }
-const jobs = () => singleton<Jobs>('sandboxJobs', () => ({ setup: new Map(), wakes: new Map(), locks: new Map() }));
+interface Job { ac: AbortController; done: Promise<void> }
+interface Jobs { setup: Map<string, Job>; wakes: Map<string, Job>; locks: Map<string, Promise<unknown>>; finishing: Set<string> }
+const jobs = () => singleton<Jobs>('sandboxJobs', () => ({ setup: new Map(), wakes: new Map(), locks: new Map(), finishing: new Set() }));
 export const setupRunning = (id: string) => jobs().setup.has(id);
+const abortAndWait = async (j: Job | undefined) => { if (!j) return; j.ac.abort(); await j.done.catch(() => {}); };
 
 /** Serializes everything that execs in one task container. */
 export function withTaskLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
@@ -57,18 +61,24 @@ export function touchTask(id: string) {
 }
 
 // ---- Capacity: LOTSE_SANDBOX_MAX ----
-/** Synchronously decides which ready tasks are paused for `self` and marks them; the containers are stopped afterwards. */
+/** Synchronously decides whose containers are stopped for `self`: first failed/interrupted tasks, then the least recently
+ *  used ready ones (marked paused at once). The containers are stopped afterwards. */
 function makeRoom(self: string): CodeTask[] {
   const max = maxRunning();
-  const others = listTasks().filter(t => t.id !== self && RUNNING.includes(t.status));
+  const others = listTasks().filter(t => t.id !== self && occupies(t));
   const victims: CodeTask[] = [];
-  const idle = others.filter(t => t.status === 'ready' && !setupRunning(t.id)).sort((a, b) => a.lastActiveAt.localeCompare(b.lastActiveAt));
+  const free = (t: CodeTask) => !setupRunning(t.id) && !jobs().wakes.has(t.id);
+  const byAge = (a: CodeTask, b: CodeTask) => a.lastActiveAt.localeCompare(b.lastActiveAt);
+  const candidates = [
+    ...others.filter(t => (t.status === 'failed' || t.status === 'interrupted') && free(t)).sort(byAge),
+    ...others.filter(t => t.status === 'ready' && free(t)).sort(byAge),
+  ];
   while (others.length - victims.length >= max) {
-    const v = idle.shift();
+    const v = candidates.shift();
     if (!v) throw new TaskConflict(`Es laufen bereits ${others.length} Sandboxes (höchstens ${max}, LOTSE_SANDBOX_MAX). Warte, bis eine Einrichtung fertig ist, oder pausiere eine Aufgabe.`);
     victims.push(v);
   }
-  for (const v of victims) { v.status = 'paused'; saveTask(v); }
+  for (const v of victims) if (v.status === 'ready') { v.status = 'paused'; saveTask(v); }
   return victims;
 }
 const stopVictims = (victims: CodeTask[]) => Promise.all(victims.map(v => withTaskLock(v.id, () => stopContainer(v)).catch(e => log.warn('Sandbox pausieren fehlgeschlagen', { task: v.id, error: e }))));
@@ -85,7 +95,7 @@ async function stopContainer(t: CodeTask) {
 export function runSteps(id: string, fromStep?: string): CodeTask {
   assertOn();
   const t = mustTask(id);
-  if (setupRunning(id) || jobs().wakes.has(id)) throw new TaskConflict('Für diese Aufgabe läuft bereits ein Vorgang.');
+  if (setupRunning(id) || jobs().wakes.has(id) || jobs().finishing.has(id)) throw new TaskConflict('Für diese Aufgabe läuft bereits ein Vorgang.');
   if (t.status === 'done') throw new TaskConflict('Die Aufgabe ist abgeschlossen.');
   const from = fromStep ? t.steps.findIndex(s => s.id === fromStep) : t.steps.findIndex(s => s.state !== 'done' && s.state !== 'skipped');
   if (fromStep && from < 0) throw Object.assign(new Error('Unbekannter Schritt.'), { status: 400 });
@@ -116,6 +126,7 @@ export async function stopSetup(id: string): Promise<CodeTask> {
 
 async function execute(id: string, from: number, signal: AbortSignal) {
   const t = mustTask(id);
+  if (t.status !== 'setting_up') return; // finished (or otherwise taken over) while queued on the lock
   const tpl = getTemplate(t.template);
   const startIdx = t.steps.findIndex(s => s.key === 'start-container');
   for (let i = from; i < t.steps.length; i++) {
@@ -223,60 +234,89 @@ export async function pauseTask(id: string): Promise<CodeTask> {
   return mustTask(id);
 }
 
-/** "Fortsetzen": starts waking a paused task (start, wait for Shopware, full sync) and returns at once. Throws on conflicts. */
-export function startWake(id: string): CodeTask {
+/** "Fortsetzen": starts waking a paused task (start, wait for Shopware, full sync) and returns at once. Throws on conflicts.
+ *  Before that the container state is checked with Docker: one stopped outside Lotse (daemon restart, OOM, docker stop) is woken too. */
+export async function startWake(id: string): Promise<CodeTask> {
   assertOn();
   const t = mustTask(id);
+  if (t.status === 'ready' && !jobs().wakes.has(id)) await syncContainerState(t);
+  return beginWake(id);
+}
+function beginWake(id: string): CodeTask {
+  const t = mustTask(id);
   if ((t.status === 'ready' && t.containerRunning) || jobs().wakes.has(id)) { touchTask(id); return t; }
-  if (t.status !== 'paused') throw new TaskConflict(t.status === 'setting_up' ? 'Die Umgebung wird noch eingerichtet.' : 'Die Umgebung ist nicht bereit – Einrichtung erneut versuchen.');
+  if (jobs().finishing.has(id)) throw new TaskConflict('Die Aufgabe wird gerade abgeschlossen.');
+  if (t.status !== 'paused' && !(t.status === 'ready' && !t.containerRunning)) throw new TaskConflict(t.status === 'setting_up' ? 'Die Umgebung wird noch eingerichtet.' : 'Die Umgebung ist nicht bereit – Einrichtung erneut versuchen.');
   const victims = makeRoom(id);
   t.status = 'waking'; t.error = null; t.lastActiveAt = now(); saveTask(t);
-  const p = stopVictims(victims).then(() => withTaskLock(id, () => wake(id))).finally(() => { jobs().wakes.delete(id); });
-  p.catch(() => {}); // the error is on the task
-  jobs().wakes.set(id, p);
+  const ac = new AbortController();
+  const done = stopVictims(victims).then(() => withTaskLock(id, () => wake(id, ac.signal))).finally(() => { jobs().wakes.delete(id); });
+  done.catch(() => {}); // the error is on the task
+  jobs().wakes.set(id, { ac, done });
   return t;
 }
 /** Make sure the task's container runs; shared by concurrent callers. Later used by the chat (before the agent turn) and the preview. */
 export async function ensureAwake(id: string): Promise<void> {
-  startWake(id);
-  await jobs().wakes.get(id);
+  await startWake(id);
+  await jobs().wakes.get(id)?.done;
 }
-async function wake(id: string) {
+/** A ready task whose container is not running (any more) according to Docker becomes paused. Docker unreachable: unchanged. */
+async function syncContainerState(t: CodeTask): Promise<void> {
+  if (!t.containerId || !t.containerRunning) return;
+  const info = await getRunner().inspect(t.containerId).catch(() => undefined);
+  if (info === undefined || info?.running) return;
+  const fresh = getTask(t.id);
+  if (!fresh || fresh.containerId !== t.containerId || !fresh.containerRunning) return;
+  fresh.containerRunning = false;
+  if (!info) fresh.containerId = null;
+  if (fresh.status === 'ready') { fresh.status = info ? 'paused' : 'failed'; fresh.error = info ? null : 'Der Container fehlt – Einrichtung ab „Container starten“ erneut versuchen.'; }
+  saveTask(fresh);
+}
+async function wake(id: string, abort: AbortSignal) {
   const t = mustTask(id);
   const step: StoredStep = { id: 'wake', key: 'wait-ready', state: 'running', log: [] }; // log target only, not stored in the task
-  const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 5 * 60_000);
+  const signal = AbortSignal.any([abort, AbortSignal.timeout(5 * 60_000)]);
   try {
+    if (t.status !== 'waking') return; // finished while queued on the lock
+    if (abort.aborted) throw new Error('Abgebrochen.');
     if (!t.containerId || !t.layout) throw new Error('Kein Container – Einrichtung erneut versuchen.');
-    const ctx = stepCtx(t, step, ac.signal, 5 * 60_000);
+    const ctx = stepCtx(t, step, signal, 5 * 60_000);
     await getRunner().start(t.containerId);
     t.containerRunning = true; saveTask(t);
     await waitReady(ctx);
     await ctx.syncAll();
+    if (abort.aborted || getTask(id)?.status !== 'waking') throw new Error('Abgebrochen.');
     t.status = 'ready'; t.lastActiveAt = now(); saveTask(t);
   } catch (e) {
-    const fresh = getTask(id) ?? t;
-    fresh.status = 'paused'; fresh.error = `Fortsetzen fehlgeschlagen: ${redact(errMsg(e)).slice(0, 500)}`;
+    const fresh = getTask(id);
+    if (!fresh || fresh.status === 'done') throw e;
+    fresh.status = 'paused'; fresh.containerRunning = t.containerRunning;
+    fresh.error = abort.aborted ? null : `Fortsetzen fehlgeschlagen: ${redact(errMsg(e)).slice(0, 500)}`;
     saveTask(fresh);
     throw e;
-  } finally { clearTimeout(timer); }
+  }
 }
 
 /** "Aufgabe abschließen": stops everything and removes container, volumes, workspace, git dir, dump and screenshots. The row stays. */
 export async function finishTask(id: string): Promise<CodeTask> {
   mustTask(id);
-  const job = jobs().setup.get(id);
-  if (job) { job.ac.abort(); await job.done; }
-  await jobs().wakes.get(id)?.catch(() => {});
-  await withTaskLock(id, async () => {
-    const fresh = mustTask(id);
-    if (fresh.containerId) await getRunner().remove(fresh.containerId);
-    for (const c of await getRunner().list({ [TASK_LABEL]: id }).catch(() => [])) await getRunner().remove(c.id);
-    const p = taskPaths(id);
-    for (const d of [p.workspace, p.gitDir, p.dumps, p.screenshots]) fs.rmSync(d, { recursive: true, force: true });
-    for (const s of fresh.steps) if (s.state === 'running') s.state = 'interrupted';
-    Object.assign(fresh, { status: 'done', containerId: null, containerRunning: false, finishedAt: now(), error: null } satisfies Partial<CodeTask>);
-    saveTask(fresh);
-  });
+  const J = jobs();
+  if (J.finishing.has(id)) throw new TaskConflict('Die Aufgabe wird bereits abgeschlossen.');
+  J.finishing.add(id); // from here no new setup or wake-up can start
+  try {
+    await abortAndWait(J.setup.get(id));
+    await abortAndWait(J.wakes.get(id));
+    await withTaskLock(id, async () => {
+      const fresh = mustTask(id);
+      if (fresh.containerId) await getRunner().remove(fresh.containerId);
+      for (const c of await getRunner().list({ [TASK_LABEL]: id }).catch(() => [])) await getRunner().remove(c.id);
+      const p = taskPaths(id);
+      for (const d of [p.workspace, p.gitDir, p.dumps, p.screenshots]) fs.rmSync(d, { recursive: true, force: true });
+      for (const s of fresh.steps) if (s.state === 'running') s.state = 'interrupted';
+      Object.assign(fresh, { status: 'done', containerId: null, containerRunning: false, finishedAt: now(), error: null } satisfies Partial<CodeTask>);
+      saveTask(fresh);
+    });
+  } finally { J.finishing.delete(id); }
   return mustTask(id);
 }
 
@@ -291,8 +331,7 @@ export async function deleteTask(id: string): Promise<void> {
 
 /** Sandbox Coding switched off: abort setups, stop (not remove) every running task container. Switching on again resumes on demand. */
 export async function suspendAll(): Promise<number> {
-  for (const j of jobs().setup.values()) j.ac.abort();
-  await Promise.all([...jobs().setup.values()].map(j => j.done));
+  await Promise.all([...jobs().setup.values(), ...jobs().wakes.values()].map(abortAndWait));
   let n = 0;
   for (const t of listTasks()) {
     if (t.status === 'ready' || t.status === 'waking') { t.status = 'paused'; saveTask(t); }
@@ -301,12 +340,15 @@ export async function suspendAll(): Promise<number> {
   return n;
 }
 
-/** Idle sweeper body: ready tasks without activity for idleMinutes (and nobody watching) are paused; containers of failed tasks stopped. */
+/** Idle sweeper body: ready tasks without activity for idleMinutes (and nobody watching) are paused; containers of failed tasks stopped.
+ *  Ready tasks whose container stopped outside Lotse are marked paused (so "Fortsetzen" is offered again). */
 export async function pauseIdle(nowMs = Date.now(), watching: (id: string) => boolean = () => false): Promise<string[]> {
   if (!sandboxEnabled()) return [];
   const idleMs = getSandboxConfig().idleMinutes * 60_000, paused: string[] = [];
   for (const t of listTasks()) {
-    if (!t.containerId || !t.containerRunning || setupRunning(t.id) || jobs().wakes.has(t.id) || watching(t.id)) continue;
+    if (!t.containerId || !t.containerRunning || setupRunning(t.id) || jobs().wakes.has(t.id)) continue;
+    if (t.status === 'ready') { await syncContainerState(t); if (!getTask(t.id)?.containerRunning) continue; }
+    if (watching(t.id)) continue;
     if (!['ready', 'failed', 'interrupted'].includes(t.status) || nowMs - Date.parse(t.lastActiveAt) < idleMs) continue;
     if (t.status === 'ready') { t.status = 'paused'; saveTask(t); }
     await withTaskLock(t.id, () => stopContainer(t)).then(() => paused.push(t.id), e => log.warn('Sandbox pausieren fehlgeschlagen', { task: t.id, error: e }));

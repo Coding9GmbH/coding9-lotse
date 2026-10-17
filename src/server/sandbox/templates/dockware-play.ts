@@ -20,9 +20,12 @@ const pathArg = (pattern = RELATIVE_PATH): CommandArg => ({ name: 'path', patter
 
 const bin = (...a: string[]) => ['bin/console', ...a];
 const MYSQL = ['mysql', '-uroot', '-proot', '-h127.0.0.1', 'shopware'];
-const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((ok, fail) => {
-  const t = setTimeout(ok, ms);
-  signal.addEventListener('abort', () => { clearTimeout(t); fail(new Error('Abgebrochen.')); }, { once: true });
+/** Waits `ms` unless the signal aborts; the abort listener is removed again, so a long poll does not pile them up. */
+export const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((ok, fail) => {
+  if (signal.aborted) { fail(new Error('Abgebrochen.')); return; }
+  const onAbort = () => { clearTimeout(t); fail(new Error('Abgebrochen.')); };
+  const t = setTimeout(() => { signal.removeEventListener('abort', onAbort); ok(); }, ms);
+  signal.addEventListener('abort', onAbort, { once: true });
 });
 const pluginName = (ctx: StepCtx) => {
   const l = ctx.layout();
