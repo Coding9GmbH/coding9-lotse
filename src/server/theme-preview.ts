@@ -15,11 +15,33 @@ const frames = new Map<string, { at: number; html: string | null }>();
 
 /** Content area of a storefront page: <main> (Shopify, Magento 2) or .col-main (OpenMage rwd); null = not recognizable */
 export function mainArea(html: string): { openEnd: number; close: number } | null {
-  const open = /<main\b[^>]*>/i.exec(html);
+  const open = /<main(?=[\s>])[^>]*>/i.exec(html); // not custom elements like <main-menu>
   if (open) { const close = html.indexOf('</main>', open.index + open[0].length); if (close > 0) return { openEnd: open.index + open[0].length, close }; }
   const col = findDivByClass(html, 'col-main');
   return col ? { openEnd: col.openEnd, close: col.end - '</div>'.length } : null;
 }
+
+/** Product description of Magento 2 (Luma: .product.attribute.description .value) or OpenMage (rwd: .box-description .std):
+ *  there publishing writes the product content (replace mode). null = not found. */
+export function descriptionArea(html: string): { openEnd: number; close: number } | null {
+  for (const [outer, inner] of [['description', 'value'], ['box-description', 'std']] as const) {
+    const o = findDivByClass(html, outer); if (!o) continue;
+    const i = findDivByClass(html.slice(o.openEnd, o.end), inner); if (!i) continue;
+    return { openEnd: o.openEnd + i.openEnd, close: o.openEnd + i.end - '</div>'.length };
+  }
+  return null;
+}
+/** Replace the product description with the draft (Magento/OpenMage product content); null = no description area */
+export function spliceDescription(html: string, content: string): string | null {
+  const d = descriptionArea(html);
+  return d ? html.slice(0, d.openEnd) + `<div class="lotse-draft">${content}</div>` + html.slice(d.close) : null;
+}
+
+/** Shopify embeds theme assets protocol-relative (//shop/cdn/shop/t/…): to /shop as well, otherwise stripScripts would drop them as foreign */
+export const rewriteProtocolRelative = (html: string, base: string) => {
+  const host = new URL(base).host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return html.replace(new RegExp(`(["'(=\\s])//${host}(?=[/"'?#)])`, 'gi'), '$1/shop');
+};
 
 /**
  * Insert the draft into the page: replace = the whole content area (landing page), otherwise before at the start and after at the end
@@ -60,7 +82,7 @@ async function frameHtml(session: Session, p: PlatformAdapter, url: string): Pro
     }
     if (r?.ok && /text\/html/i.test(r.headers.get('content-type') ?? '')) {
       const text = await r.text();
-      if (text.length <= MAX_BYTES) { const clean = stripScripts(storefrontRewrite(text, base)); if (mainArea(clean)) html = clean; }
+      if (text.length <= MAX_BYTES) { const clean = stripScripts(rewriteProtocolRelative(storefrontRewrite(text, base), base)); if (mainArea(clean)) html = clean; }
     }
   } catch { html = null; }
   frames.set(url, { at: Date.now(), html });
@@ -79,9 +101,15 @@ export async function themePreview(session: Session, p: PlatformAdapter, spec: P
     const frame = partial ? (frames.get(url)?.html ?? null) : await frameHtml(session, p, url);
     if (!frame) return null;
     lastUrl.set(session.id, url);
+    if (lastUrl.size > 200) for (const k of lastUrl.keys()) { lastUrl.delete(k); if (lastUrl.size <= 100) break; }
     const hctx = { imageUrl: (im: ImageRef) => ctx.imageUrl?.(im) ?? (typeof im === 'string' ? im : im.url) ?? null, products: ctx.products, scope: SCOPE };
-    const parts = spec.type === 'landingpage' ? { before: renderPageHtml(spec, hctx), after: '', replace: true } : { ...renderPageParts(spec, hctx), replace: false };
-    const merged = spliceMain(frame, parts);
+    let merged: string | null;
+    if (spec.type === 'landingpage') merged = spliceMain(frame, { before: renderPageHtml(spec, hctx), after: '', replace: true });
+    else {
+      const parts = renderPageParts(spec, hctx);
+      // Magento/OpenMage (no theme-main): product content is published into the product description, so it is shown there
+      merged = (spec.type === 'product_detail' && !parts.themeMain ? spliceDescription(frame, parts.before + parts.after) : null) ?? spliceMain(frame, { ...parts, replace: false });
+    }
     return merged ? injectIntoHead(merged, `<meta charset="utf-8"><style>${FRAME_CSS}</style><script>${FRAME_SCRIPT}</script>`) : null;
   } catch { return null; }
 }
