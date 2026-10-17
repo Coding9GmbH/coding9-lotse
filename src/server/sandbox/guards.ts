@@ -45,7 +45,7 @@ const anyStr: Check = (v, k) => { if (typeof v !== 'string') deny(`${k} muss ein
 
 const HOST: Record<string, Check> = {
   Memory: posNum, NanoCpus: posNum, PidsLimit: posNum,
-  // dropping capabilities only makes it narrower; CapAdd/Privileged/SecurityOpt stay outside the list
+  // dropping capabilities only makes it narrower; CapAdd/Privileged stay outside the list, SecurityOpt allows only no-new-privileges:true
   CapDrop: (v, k) => { strings(v, k); if ((v as string[]).some(c => !/^[A-Z_]{2,30}$/.test(c))) deny(`${k} hat einen unzulässigen Wert.`); },
   // only ever narrower: no-new-privileges (screenshot containers; Dockware needs sudo)
   SecurityOpt: (v, k) => { strings(v, k); if ((v as string[]).some(o => o !== 'no-new-privileges:true')) deny(`${k} hat einen unzulässigen Wert.`); },

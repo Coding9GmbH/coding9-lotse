@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { CodeTaskStatus } from '@/lib/protocol';
 import { codeTaskDelete } from '../db';
-import { cloneRepo } from '../git';
+import { cloneRepo, diffAgainstBase } from '../git';
 import { log } from '../log';
 import { redact } from '../settings';
 import { singleton } from '../state';
@@ -36,6 +36,7 @@ const STARTING: CodeTaskStatus[] = ['setting_up', 'waking'];
 /** Counts against LOTSE_SANDBOX_MAX: starting, or a running container (also failed/interrupted). A paused one is being stopped. */
 const occupies = (t: CodeTask) => STARTING.includes(t.status) || (!!t.containerId && t.containerRunning && t.status !== 'paused' && t.status !== 'done');
 const MAX_OUTPUT = 256 * 1024;
+const CHANGED = 'Vorher-Screenshots nicht möglich: Der Code ist gegenüber dem Basis-Branch schon geändert.';
 
 interface Job { ac: AbortController; done: Promise<void> }
 interface Jobs { setup: Map<string, Job>; wakes: Map<string, Job>; locks: Map<string, Promise<unknown>>; finishing: Set<string> }
@@ -78,7 +79,7 @@ function makeRoom(self: string): CodeTask[] {
   const max = maxRunning();
   const others = listTasks().filter(t => t.id !== self && occupies(t));
   const victims: CodeTask[] = [];
-  const free = (t: CodeTask) => !setupRunning(t.id) && !jobs().wakes.has(t.id) && !turnRunning(t.id); // never stop a container under a running agent turn
+  const free = (t: CodeTask) => !setupRunning(t.id) && !jobs().wakes.has(t.id) && !turnRunning(t.id) && !publishRunning(t.id); // never under an agent turn or a publish (after screenshots)
   const byAge = (a: CodeTask, b: CodeTask) => a.lastActiveAt.localeCompare(b.lastActiveAt);
   const candidates = [
     ...others.filter(t => (t.status === 'failed' || t.status === 'interrupted') && free(t)).sort(byAge),
@@ -158,7 +159,7 @@ async function execute(id: string, from: number, signal: AbortSignal) {
     saveTask(t);
     try {
       if (signal.aborted) throw new Error('Abgebrochen.');
-      const ctx = stepCtx(t, step, stepSignal, limit);
+      const ctx = stepCtx(t, step, stepSignal, limit, signal);
       if (startIdx >= 0 && i > startIdx) await ensureRunning(t, ctx);
       const r = step.key === 'custom' ? await ctx.run(['bash', '-lc', step.command ?? 'false'], { timeoutMs: limit }) : await def?.run?.(ctx);
       step.state = r === 'skipped' ? 'skipped' : 'done';
@@ -190,8 +191,8 @@ async function ensureRunning(t: CodeTask, ctx: StepCtx) {
   await waitReady(ctx);
 }
 
-/** The restricted context a template step runs in. */
-function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: number): StepCtx {
+/** The restricted context a template step runs in. `signal` ends the step (setup abort or step time limit), `setup` is the setup's own abort only. */
+function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: number, setup: AbortSignal = signal): StepCtx {
   const tpl = getTemplate(t.template), runner = getRunner(), p = taskPaths(t.id);
   const lg = (line: string) => appendLog(t, step, line, redact);
   const container = () => { if (!t.containerId) throw new Error('Kein Container für diese Aufgabe.'); return t.containerId; };
@@ -268,12 +269,14 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
       if (!getSandboxConfig().screenshotPaths.length) { lg('Keine Seiten für Screenshots eingestellt.'); return 'skipped'; }
       if (t.shots?.before?.items.length) { lg('Vorher-Screenshots sind schon vorhanden.'); return; }
       try {
+        // "before" means the base branch: once the code differs (e.g. "Datenbank ersetzen" after edits) the storefront is no longer the old one
+        if ((await diffAgainstBase(p.worktree, p.gitDir, t.baseBranch)).status.trim()) throw new Error(CHANGED);
         const set = await captureShots(t, 'before', { signal, log: lg, pull: true });
         if (!set) return 'skipped';
         t.shots = { ...t.shots, before: set }; saveTask(t);
         lg(`${set.items.length} Vorher-Screenshots gespeichert.${set.error ? ` ${set.error}` : ''}`);
       } catch (e) {
-        if (signal.aborted) throw e;
+        if (setup.aborted) throw e; // stopped by the user; the step's time limit (e.g. a slow image pull) only skips
         const error = redact(errMsg(e)).slice(0, 400);
         t.shots = { ...t.shots, before: { at: now(), items: [], error } }; saveTask(t);
         lg(`Keine Vorher-Screenshots (die Einrichtung läuft weiter): ${error}`);
@@ -386,7 +389,7 @@ export async function finishTask(id: string): Promise<CodeTask> {
       if (fresh.dump && !fresh.dump.deletedAt) fresh.dump.deletedAt = now();
       for (const s of fresh.steps) if (s.state === 'running') s.state = 'interrupted';
       clearJar(id);
-      Object.assign(fresh, { status: 'done', containerId: null, containerRunning: false, finishedAt: now(), error: null, internet: null } satisfies Partial<CodeTask>);
+      Object.assign(fresh, { status: 'done', containerId: null, containerRunning: false, finishedAt: now(), error: null, internet: null, shots: {} } satisfies Partial<CodeTask>);
       saveTask(fresh);
     });
   } finally { J.finishing.delete(id); }
@@ -419,7 +422,7 @@ export async function pauseIdle(nowMs = Date.now(), watching: (id: string) => bo
   if (!sandboxEnabled()) return [];
   const idleMs = getSandboxConfig().idleMinutes * 60_000, paused: string[] = [];
   for (const t of listTasks()) {
-    if (!t.containerId || !t.containerRunning || setupRunning(t.id) || jobs().wakes.has(t.id)) continue;
+    if (!t.containerId || !t.containerRunning || setupRunning(t.id) || jobs().wakes.has(t.id) || publishRunning(t.id)) continue; // a publish takes after screenshots
     if (t.status === 'ready') { await syncContainerState(t); if (!getTask(t.id)?.containerRunning) continue; }
     if (watching(t.id)) continue;
     if (!['ready', 'failed', 'interrupted'].includes(t.status) || nowMs - Date.parse(t.lastActiveAt) < idleMs) continue;
