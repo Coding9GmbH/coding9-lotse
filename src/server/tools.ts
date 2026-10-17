@@ -8,7 +8,7 @@ import { downloadImage, readStaged, stageFromUrl, stageImage, sanitizeSvg, gener
 import { expandSpec, PATTERNS, unknownPatterns } from './patterns';
 import { auditSpec, auditSummary } from './audit';
 import { unsupportedBlocks } from './page-html';
-import { loadStyleguide, saveStyleguide } from './styleguide';
+import { collectSignals, loadStyleguide, saveStyleguide } from './styleguide';
 import { getPlatform } from './platform';
 import { PUBLISH_PAGE_TYPE, type PlatformAdapter, type PublishTarget } from './platform/types';
 import { persist, type Session } from './sessions';
@@ -39,7 +39,7 @@ const TOOL_ORDER = ['list_sales_channels', 'search_categories', 'search_products
 const rank = (n: string) => { const i = TOOL_ORDER.indexOf(n); return i < 0 ? TOOL_ORDER.length : i; };
 const byOrder = <T>(list: T[], name: (x: T) => string) => list.map((x, i) => ({ x, i })).sort((a, b) => rank(name(a.x)) - rank(name(b.x)) || a.i - b.i).map(e => e.x);
 
-export const CORE_TOOL_NAMES = ['import_image', 'create_svg_image', 'generate_image', 'get_styleguide', 'save_styleguide', 'draft_page', 'ask_user', 'view_image', 'publish_page'];
+export const CORE_TOOL_NAMES = ['import_image', 'create_svg_image', 'generate_image', 'get_styleguide', 'get_brand_signals', 'save_styleguide', 'draft_page', 'ask_user', 'view_image', 'publish_page'];
 
 /** Feature modules of a platform: core (platforms 'all') + those marked for it + the adapter's own */
 export const featuresFor = (p: Pick<PlatformAdapter, 'kind' | 'features'>): Feature[] => [...FEATURES.filter(f => f.platforms === 'all' || f.platforms.includes(p.kind)), ...(p.features ?? [])];
@@ -91,6 +91,8 @@ function coreTools(session: Session, p: PlatformAdapter): AnyTool[] {
       })),
 
     tool('get_styleguide', 'Liest den gespeicherten Shop-Styleguide (Farben, Typografie, Formen, Tonalität). Null, wenn noch keiner existiert.', {}, guard(async () => ok(loadStyleguide() ?? 'Kein Styleguide vorhanden.'))),
+    tool('get_brand_signals', 'Onboarding: sammelt Marken-Signale aus dem laufenden Shop – Theme-Einstellungen im Admin (Farben, Schriften), Storefront-CSS (Variablen, häufige Farben, Schriften, Button-Regeln), Logo, Überschriften, Aufbau von Start-, Kategorie- und Produktseite sowie echte Produkt-/Kategorietexte für die Tonalität.', {}, guard(async () =>
+      ok(await collectSignals(p.brand?.(session.reader) ?? {}, (await p.storefront.base()).replace(/\/+$/, ''), session.storefrontFetch ?? fetch)))),
 
     tool('save_styleguide', 'Speichert/überschreibt den Shop-Styleguide. Immer den VOLLSTÄNDIGEN Styleguide senden. Farben als Hex (#rrggbb). Danach wirkt er in allen Entwürfen (Texte, Farben, custom-html-Variablen, Vorschau).', {
       brandName: z.string(), summary: z.string().describe('2–3 Sätze: Markencharakter, Zielgruppe, Positionierung'),

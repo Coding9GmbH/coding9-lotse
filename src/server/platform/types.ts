@@ -13,7 +13,7 @@ import type { PageRef } from '../features/gsc-map';
 import type { LinkKind, LinkReport } from '../seo-links';
 import type { Session } from '../sessions';
 import type { AnyTool } from '../tool-kit';
-import type { Fetcher } from '../styleguide';
+import type { BrandSources, Fetcher } from '../styleguide';
 
 export type { PlatformKind } from '@/lib/platforms';
 
@@ -143,6 +143,8 @@ export interface PlatformAdapter {
   loadChecks(): Promise<void>;
   /** Active products in neutral form (name, texts, meta, price, stock, image) for custom checks; reads via the run's protected read client */
   scanProducts(reader: unknown): Promise<NeutralScan>;
+  /** Brand signals for the style guide onboarding (get_brand_signals): theme settings and text samples via this read client; missing = storefront only */
+  brand?: (reader: unknown) => BrandSources;
   /** Sales per product (see SalesReport); throws with an understandable message if the shop doesn't allow it (missing permission) */
   sales(range: SalesRange): Promise<SalesReport>;
   /** Write an approved change set (privileged client, only here) */

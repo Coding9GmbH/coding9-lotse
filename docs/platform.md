@@ -46,7 +46,7 @@ Werkzeuge und Fachbereiche (gleiche Namen, wo die Bedeutung passt; ✓ = vorhand
 | Stammdaten (Hersteller, Eigenschaften, Steuern …) | ✓ (`propose_product_data` u. a.) | – | Attribute lesen (`list_product_attributes`) | Attribute lesen (`list_product_attributes`) |
 | CMS-Seiten lesen/ändern (`list_cms_pages`, `get_cms_page`, `read_page`) | ✓ (lesen) | – | ✓ (+ `propose_cms_page_changes`) | ✓ (+ `propose_cms_page_changes`, Blöcke lesen) |
 | Recht, GPSR, Grundpreise, Barrierefreiheit | ✓ | – | – | – |
-| `get_brand_signals` (Onboarding aus dem Theme) | ✓ | – | – | – |
+| `get_brand_signals` (Onboarding, Kern-Werkzeug, Quellen über `brand`) | ✓ (Theme-Konfiguration + Texte) | ✓ (Design-Werte aus `settings_data.json` + Texte) | ✓ (Storefront-CSS + Texte, keine Theme-Schnittstelle) | ✓ (Storefront-CSS + Texte, keine Theme-Schnittstelle) |
 | Lieferanten-Import (`read_supplier_file`, `save_import_mapping`, `preview_import`, `propose_import`) | ✓ | ✓ (eigenes Feature `shopify-import`; vorhandene Varianten per SKU/Barcode, neue Varianten bestehender Produkte nur über `propose_variants`) | ✓ (Abgleich per SKU, keine Varianten/Attribute/Kategorien anlegen) | ✓ (`import-openmage`, wie Magento 2) |
 | Shop-Check (`run_shop_check`) | ✓ | ✓ (`shopify/checks.ts`) | ✓ (`magento/checks.ts`) | ✓ (`openmage/checks.ts`) |
 | Abverkauf (`sales_report`, Schalter „Abverkauf“) | ✓ (Bestellpositionen, Varianten → Hauptprodukt) | ✓ (`read_orders`, ohne `read_all_orders` 60 Tage) | ✓ (`/V1/orders` mit `fields`, ACL Vertrieb → Bestellungen) | ✓ (Modul-Endpunkt `/v1/sales`, ab Modul 1.3.0) |
@@ -118,6 +118,7 @@ Code-Stil wie im Repo: strenges TypeScript, kompakt, deutsche Kommentare, `impor
 | `toolNames`, `tools(session)` | ja | Werkzeuge der Plattform (Abschnitt 4); `toolNames` muss exakt zu `tools()` passen |
 | `features?` | nein | zusätzliche Feature-Module (wie `src/server/features`), z. B. Bilder, Promotionen |
 | `loadChecks()` | ja | importiert die Module, die Shop-Prüfungen registrieren (darf leer sein) |
+| `brand(reader)` | nein | Quellen für `get_brand_signals`: `theme()` (Design-Einstellungen im Admin, nur Farben/Schriften/Formen) und `samples()` (Texte von bis zu 6 aktiven Produkten und Kategorien, `sampleText`) über den geschützten Lese-Client; fehlt es, liest das Onboarding nur die Storefront |
 | `sales(range)` | ja | Abverkauf ohne Personenbezug (`features/sales.ts`): Summen je Produkt (`productId` wie in `scanProducts`, Varianten beim Hauptprodukt, `quantity`, `revenue`, `orders`) für `from`–`to` (UTC-Tage), ohne stornierte Bestellungen. Feste Abfrage über den privilegierten Client, nie Kriterien der KI, nie Kunden-, Adress- oder Bestellnummernfelder; Deckel → `capped`. Fehlt die Berechtigung im Shop, verständlicher Fehler |
 | `scanProducts(reader)` | ja | aktive Produkte als `NeutralProduct` (Name, Beschreibung, Metas, Preis, Streichpreis, Bestand, Bild) für eigene Prüfungen; liest über den geschützten Lese-Client des Durchlaufs, je Durchlauf einmal (Deckel wie die eingebauten Prüfungen). `null` = auf der Plattform nicht lesbar |
 | `apply(cs, payload, selected, ctx)` | ja | freigegebenes Änderungsset schreiben (Abschnitt 5). `ctx.progress(done, total, partial)` nach jedem Element/Häppchen aufrufen, `partial = { results, undo }` mit dem bisherigen Stand: die Session sichert ihn gebündelt in `changeset_runs` (SQLite), damit ein Absturz mittendrin kein Rückgängig verliert. Helfer in `changes.ts`: `applyEach` (tickt selbst), `partialTicker(ctx, total, { results, undo })` für eigene Schleifen, `trackedUndo(ctx, total, results?)` für Executor mit mehreren Schreibschritten je Datensatz (Promotion, Veröffentlichung: jeder `push` meldet sofort). Beim nächsten Laden des Chats wird ein unterbrochener Lauf zum Ergebnis `partial`/`failed` mit den gesicherten Rückgängig-Schritten; ohne gesicherten Zwischenstand sagt das Ergebnis ehrlich „unbekannt, im Shop prüfen“ (nie „nichts geschrieben“). Offene Freigaben gelten dann als abgelehnt („Neustart, bitte erneut vorschlagen“) |
@@ -189,7 +190,7 @@ Umgebungsvariablen `SHOPWARE_*`, `SHOPIFY_*`, `MAGENTO_*`, `OPENMAGE_*`, `SHOP_P
 | `get_category` | lesen | `{ id }` → Name, Beschreibung, Metas, Unterkategorien |
 | `search_media` | lesen | `{ term?, limit? }` → `{ mediaId, url, alt }` |
 | `read_page` | lesen | `{ url }` einer Seite des **eigenen** Shops (`assertShopUrl` aus `storefront.ts`), Text, Überschriften, Bilder, Links |
-| `get_brand_signals` | lesen | Onboarding: Theme-Farben/Schriften, Logo, echte Texte (siehe `collectSignals` in `styleguide.ts` als Vorbild) |
+| `get_brand_signals` | lesen | Onboarding: Kern-Werkzeug (`tools.ts`), Storefront-Teil (Logo, CSS, Navigation, Seitenaufbau) plattformneutral in `collectSignals` (`styleguide.ts`); der Adapter liefert über `brand(reader)` Theme-Einstellungen (`theme`) und Textproben (`samples`), siehe `shopify/brand.ts` |
 | `propose_product_changes` | Vorschlag | `{ title, reason, changes: [{ id, fields }] }`, Felder mindestens `name, description, metaTitle, metaDescription, price, listPrice, stock, active`; Preisregeln über `resolvePrice` (`changes.ts`) |
 | `propose_new_products` | Vorschlag | wie Shopware: Standard inaktiv, Bestand 0, Preis nie schätzen |
 | `propose_category_changes` | Vorschlag | `name, description, metaTitle, metaDescription, active` |
@@ -403,7 +404,7 @@ Wichtige Magento-Regeln, die der Adapter umsetzt:
 - **Links** (`links.ts`): interne Links über GraphQL `route` prüfen (fehlt, Produkt deaktiviert/unsichtbar, Kategorie inaktiv, Weiterleitung → direkt verlinken); in `prepareDraft`, `buildPublish` und im Shop-Check.
 - **Shop-Check** (`checks.ts`, `checks-rules.ts`): Metas, Titel-Länge/Dubletten, dünne Texte, Bilder/Alt-Texte, Bestand 0 bei „auf Lager“ (MSI), Preis 0, Sonderpreis nicht unter Preis, Links in Beschreibungen und CMS-Seiten (ein Link-Cache je Durchlauf: jeder Pfad wird über alle Produkte und Seiten nur einmal aufgelöst), Kategorie-Metas/-Texte, Übersetzungen je Store-View mit anderer Locale; `fixPrompt` nennt Magento-Werkzeuge. `find_image_gaps` blättert mit Seitengröße = `limit` und liefert alle Treffer der Seite; `list_products` filtert Preisspanne (serverseitig vorgefiltert) und `maxStock` je Seite und sagt das im Ergebnis (`note`).
 - **Import** (`importer.ts`): Datei/Zuordnung wie `features/import.ts` (`supplierFileTools`), Abgleich per SKU, neue Produkte als Entwurf (`createProduct`), Updates nur geänderter Felder (`writeScoped`), Preise in der Preisbasis des Shops, Bestand/Kategorien/Bilder, Gruppen + Stichprobe, Schreiben in Blöcken mit Fortschritt, Rückgängig exakt. Keine Varianten, keine neuen Attribute/Auswahlwerte, keine Kategorien.
-- **Noch offen:** `get_brand_signals` und Theme-CSS der Vorschau (Vorschau nutzt die Styleguide-Variablen), Übersetzen von CMS-Inhalten.
+- **Noch offen:** Theme-CSS der Vorschau (Vorschau nutzt die Styleguide-Variablen), Übersetzen von CMS-Inhalten. `get_brand_signals` gibt es seit dem Kern-Werkzeug auf allen Plattformen.
 
 ---
 
@@ -441,6 +442,6 @@ Magento:
 - Die Prüfung auf belegte `identifier` ist bewusst vorsichtig und blockiert auch Kennungen, die nur in anderen Store-Views vorkommen (`cmsPage/search` liefert keine `store_id`).
 - Vorschau: Produkt-Slider erscheinen in der Lotse-Vorschau als Lotse-Produktboxen, im Shop als Magento-Widget; Änderungskarte und Prompt weisen darauf hin.
 - Auf klassischen CMS-Seiten (ohne Page Builder) werden neue `{{…}}`-Direktiven der KI jetzt ebenfalls entschärft; vorhandene bleiben erhalten.
-- `get_brand_signals`, Theme-CSS der Vorschau und das Übersetzen von CMS-Inhalten fehlen noch (siehe Abschnitt 12).
+- Theme-CSS der Vorschau und das Übersetzen von CMS-Inhalten fehlen noch (siehe Abschnitt 12).
 
-Beide: `get_brand_signals` (Onboarding aus dem Theme) gibt es bisher nur für Shopware; die Vorschau nutzt auf Shopify und Magento die Styleguide-Variablen statt des Theme-CSS.
+Beide: Die Vorschau nutzt auf Shopify und Magento die Styleguide-Variablen statt des Theme-CSS. Das Styleguide-Onboarding (`get_brand_signals`) läuft auf allen Plattformen; Magento und OpenMage haben keine Schnittstelle für die Design-Einstellungen des Themes, Farben und Schriften kommen dort aus dem Storefront-CSS.

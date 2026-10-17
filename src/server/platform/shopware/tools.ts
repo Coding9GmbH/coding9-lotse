@@ -10,7 +10,6 @@ import { storefrontBase } from '../../runtime';
 import type { Session } from '../../sessions';
 import type { ShopReader, SwEntity } from '../../shopware';
 import { assertShopUrl, fetchShopPage, parseStorefront, resolveCmsTarget } from '../../storefront';
-import { collectSignals } from '../../styleguide';
 import { fail, guard, lim, nextOffsetOf, ok, pageOf, type AnyTool } from '../../tool-kit';
 
 const money = (p: SwEntity) => (p?.price?.[0]?.gross != null ? `${Number(p.price[0].gross).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : null);
@@ -32,7 +31,7 @@ export async function loadRawBlocks(sw: ShopReader, cmsPageId: string): Promise<
   })));
 }
 
-export const SHOPWARE_TOOL_NAMES = ['list_sales_channels', 'search_categories', 'search_products', 'get_product', 'get_category', 'search_media', 'list_cms_pages', 'get_cms_page', 'read_page', 'get_brand_signals', 'list_products', 'propose_product_changes', 'propose_new_products', 'propose_category_changes'];
+export const SHOPWARE_TOOL_NAMES = ['list_sales_channels', 'search_categories', 'search_products', 'get_product', 'get_category', 'search_media', 'list_cms_pages', 'get_cms_page', 'read_page', 'list_products', 'propose_product_changes', 'propose_new_products', 'propose_category_changes'];
 
 export function shopwareTools(session: Session): AnyTool[] {
   const { sw } = session;
@@ -121,11 +120,6 @@ export function shopwareTools(session: Session): AnyTool[] {
         const target = await resolveCmsTarget(sw, u.href).catch(e => ({ error: e instanceof Error ? e.message : String(e) }));
         return ok({ url: u.href, ...page, target, hint: target && 'cmsPage' in target && target.cmsPage ? `Aufbau im Detail: get_cms_page id=${target.cmsPage.id}; Blöcke übernehmen: {type:"reuse", cmsPageId:"${target.cmsPage.id}", blockIndex}` : 'Keine CMS-Seite zugeordnet (Seite ohne Einkaufswelt oder unbekannte URL).' });
       })),
-
-    tool('get_brand_signals', 'Onboarding: sammelt Marken-Signale aus dem laufenden Shop – Theme-Konfiguration (Admin → Darstellung), Storefront-CSS (Variablen, häufige Farben, Schriften, Button-Regeln), Logo, Überschriften sowie echte Produkt-/Kategorietexte für die Tonalität.', {}, guard(async () => {
-      const sc = (await sw.salesChannels()).find(c => c.domains?.length);
-      return ok(await collectSignals(sw, sc?.domains[0].url ?? sw.base, session.storefrontFetch ?? fetch));
-    })),
 
     tool('list_products', 'Produkte in großer Zahl LESEN (für Preis-/Daten-Analysen und Massenänderungen): Preis brutto/netto, Streichpreis, Bestand, aktiv, Steuer. Filter: Kategorie, Suchbegriff, Preisspanne (brutto), aktiv, Bestand. Paginierung via offset (max 100 pro Aufruf); blättern mit nextOffset bei gleichem limit. Varianten standardmäßig ausgeblendet.',
       { categoryId: z.string().optional(), term: z.string().optional(), minPrice: z.number().optional(), maxPrice: z.number().optional(), active: z.boolean().optional(), maxStock: z.number().optional(), includeVariants: z.boolean().optional(), details: z.boolean().optional().describe('true = zusätzlich Kurzbeschreibung + Eigenschaften (Basis für individuelle Texte/FAQ; dann max. 25 pro Aufruf)'), limit: z.number().optional(), offset: z.number().optional() }, guard(async a => {
