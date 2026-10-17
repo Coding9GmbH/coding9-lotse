@@ -26,6 +26,15 @@ export const de = {
   feedbackTaskDone: 'Die Sandbox dieser Rückmeldung ist abgeschlossen – für weitere Änderungen eine neue Sandbox starten (Datenbank-Dump erneut hochladen).',
   feedbackEmpty: 'Diese Rückmeldung enthält nichts zum Übergeben.',
   codexOutsideWorkspace: 'Codex wollte eine Datei außerhalb des Repositorys (oder .git, eine geheime Datei, vendor/) ändern. Die Änderung wurde zurückgenommen und die Runde abgebrochen.',
+  // Publishing a sandbox (the first line is shown, git's full report follows in a collapsible block)
+  pushProtected: (branch: string) => `Branch-Schutz verhindert den Push auf ${branch}: Regel für lotse/* im Repository anpassen.`,
+  pushMoved: (branch: string) => `Der Branch ${branch} wurde auf GitHub verändert. Lotse überschreibt keine fremden Commits – Branch auf GitHub prüfen.`,
+  pushNoPermission: (repo: string) => `Keine Schreibrechte für ${repo}: Der GitHub-Token braucht „Contents“ und „Pull requests“ mit Lesen & Schreiben.`,
+  pushRejected: (reason: string) => `Push abgelehnt: ${reason}`,
+  pushFailed: (reason: string) => `Push fehlgeschlagen: ${reason}`,
+  prNoPermission: (repo: string) => `Keine Schreibrechte für Pull Requests in ${repo}: Der GitHub-Token braucht „Pull requests“ mit Lesen & Schreiben.`,
+  prNothing: 'Nichts zu veröffentlichen: Der Branch unterscheidet sich nicht vom Basis-Branch.',
+  prFailed: (e: string) => `Pull Request nicht angelegt: ${e}`,
 };
 
 export const en: typeof de = {
@@ -53,4 +62,12 @@ export const en: typeof de = {
   feedbackTaskDone: 'The sandbox of this feedback is finished – start a new sandbox for further changes (upload the database dump again).',
   feedbackEmpty: 'This feedback contains nothing to hand over.',
   codexOutsideWorkspace: 'Codex tried to change a file outside the repository (or .git, a secret file, vendor/). The change was undone and the run was stopped.',
+  pushProtected: branch => `Branch protection blocks the push to ${branch}: adjust the rule for lotse/* in the repository.`,
+  pushMoved: branch => `The branch ${branch} was changed on GitHub. Lotse does not overwrite other people's commits – check the branch on GitHub.`,
+  pushNoPermission: repo => `No write access to ${repo}: the GitHub token needs “Contents” and “Pull requests” with read & write.`,
+  pushRejected: reason => `Push rejected: ${reason}`,
+  pushFailed: reason => `Push failed: ${reason}`,
+  prNoPermission: repo => `No write access to pull requests in ${repo}: the GitHub token needs “Pull requests” with read & write.`,
+  prNothing: 'Nothing to publish: the branch does not differ from the base branch.',
+  prFailed: e => `Pull request not created: ${e}`,
 };

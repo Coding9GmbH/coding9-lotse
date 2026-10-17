@@ -68,12 +68,17 @@ export function SandboxSettings() {
         : <p className={styles.alert} role="alert">{t.dockerDown}{docker.error ? ` (${docker.error})` : ''}</p>)}
 
       <h3 className={styles.label}>{t.resources}</h3>
-      <div className={styles.grid} onBlur={saveRes}>
-        <Field label={t.memory}><input inputMode="numeric" value={res.memoryMb} onChange={e => setRes({ ...res, memoryMb: e.target.value })} /></Field>
-        <Field label={t.cpus}><input inputMode="decimal" value={res.cpus} onChange={e => setRes({ ...res, cpus: e.target.value })} /></Field>
-        <Field label={t.idle} hint={t.idleHint}><input inputMode="numeric" value={res.idleMinutes} onChange={e => setRes({ ...res, idleMinutes: e.target.value })} /></Field>
-      </div>
-      <p className={styles.fieldHint}>{t.maxRunning(env.maxRunning)}</p>
+      {/* resources only matter once the switch is on */}
+      {st.enabled ? (
+        <>
+          <div className={styles.grid} onBlur={saveRes}>
+            <Field label={t.memory}><input inputMode="numeric" value={res.memoryMb} onChange={e => setRes({ ...res, memoryMb: e.target.value })} /></Field>
+            <Field label={t.cpus}><input inputMode="decimal" value={res.cpus} onChange={e => setRes({ ...res, cpus: e.target.value })} /></Field>
+            <Field label={t.idle} hint={t.idleHint}><input inputMode="numeric" value={res.idleMinutes} onChange={e => setRes({ ...res, idleMinutes: e.target.value })} /></Field>
+          </div>
+          <p className={styles.fieldHint}>{t.maxRunning(env.maxRunning)}</p>
+        </>
+      ) : <p className={styles.fieldHint}>{t.resourcesOff}</p>}
       <p className={styles.hint}>{rich(t.environment)}{st.enabled && <> <Link href="/sandbox-coding">{t.openTab}</Link></>}</p>
       {(busy || notice) && <p className={busy ? styles.muted : notice?.ok ? styles.ok : styles.bad} role="status">{busy ? ts.saving : notice?.text}</p>}
     </Card>

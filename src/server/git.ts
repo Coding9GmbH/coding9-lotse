@@ -31,7 +31,8 @@ const flags = () => singleton('git-flags', () => ({ allowFile: process.env.LOTSE
 /** Tests only: allow file:// remotes (a local bare repository instead of GitHub). Never set by configuration. */
 export const allowFileRemotesForTests = (on: boolean) => { flags().allowFile = on; };
 
-export class GitError extends Error { constructor(message: string, readonly code: number | string | null = null) { super(message); this.name = 'GitError'; } }
+/** `detail`: git's own report (refused refs and the end of stderr, token scrubbed, line breaks kept) for a precise error text. */
+export class GitError extends Error { constructor(message: string, readonly code: number | string | null = null, readonly detail = '') { super(message); this.name = 'GitError'; } }
 
 export interface GitIdentity { name: string; email: string }
 interface EnvOpts { token?: string | null; gitDir?: string; workTree?: string; identity?: GitIdentity }
@@ -81,7 +82,8 @@ export function runGit(args: string[], o: GitOpts = {}): Promise<{ stdout: strin
         const e = err as NodeJS.ErrnoException & { code?: number | string; killed?: boolean };
         const refused = out.split('\n').filter(l => l.startsWith('!')).join(' '); // push --porcelain reports rejected refs on stdout
         const why = e.name === 'AbortError' ? 'abgebrochen' : e.killed ? 'Zeitüberschreitung' : e.code === 'ENOENT' ? 'git ist nicht installiert' : ([refused, errText.trim().split('\n').slice(-4).join(' ')].filter(Boolean).join(' ') || scrubOut(e.message, token));
-        reject(new GitError(`git ${args[0]}: ${why}`.replace(/\s+/g, ' ').slice(0, 300), e.code ?? null));
+        const detail = [out.split('\n').filter(l => l.startsWith('!')).join('\n'), errText.trim()].filter(Boolean).join('\n').slice(-2000);
+        reject(new GitError(`git ${args[0]}: ${why}`.replace(/\s+/g, ' ').slice(0, 300), e.code ?? null, detail));
       });
   });
 }

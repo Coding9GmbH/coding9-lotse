@@ -24,6 +24,7 @@ export const de = {
   chat: 'Chat',
   viewDraft: 'Entwurf ansehen',
   preview: 'Vorschau',
+  resizeChat: 'Breite des Chats ändern (Pfeiltasten)',
   fromShopCheck: 'Aus dem Shop-Check:',
   overview: 'Zur Übersicht',
 };
@@ -52,6 +53,7 @@ export const en: typeof de = {
   chat: 'Chat',
   viewDraft: 'View draft',
   preview: 'Preview',
+  resizeChat: 'Change the chat width (arrow keys)',
   fromShopCheck: 'From the shop check:',
   overview: 'Back to overview',
 };

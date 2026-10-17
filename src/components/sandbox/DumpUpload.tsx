@@ -63,7 +63,7 @@ export function DumpUpload({ onChange, onBusy, disabled }: { onChange: (dump: Du
   return (
     <div className={styles.field}>
       <span className={styles.label}>{t.heading}</span>
-      <p className={styles.fieldHint}>{t.hint}</p>
+      <span className={styles.fieldHint}>{t.hint}</span>
       {phase === 'idle' || (phase === 'error' && !file) ? (
         <div className={styles.drop} data-over={over || undefined}
           onDragOver={e => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}

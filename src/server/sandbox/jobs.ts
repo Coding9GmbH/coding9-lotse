@@ -8,10 +8,12 @@ import 'server-only';
 // - internet (internet.ts) ends with every stop, a new setup and finish; a woken container starts offline
 import fs from 'node:fs';
 import path from 'node:path';
-import type { CodeTaskStatus } from '@/lib/protocol';
+import type { ChatEvent, CodeTaskStatus } from '@/lib/protocol';
+import { errorSummary } from '@/lib/sandbox-task';
 import { codeTaskDelete } from '../db';
 import { cloneRepo, diffAgainstBase } from '../git';
 import { log } from '../log';
+import { chatExists, noteChatEvent } from '../sessions';
 import { redact } from '../settings';
 import { singleton } from '../state';
 import { errMsg } from '../util';
@@ -170,6 +172,11 @@ async function execute(id: string, from: number, signal: AbortSignal) {
       t.status = stopped ? 'interrupted' : 'failed';
       t.error = stopped ? null : msg;
       saveTask(t);
+      // the chat says so too (a waiting agent turn reports it itself)
+      if (!stopped && t.chatId && !turnRunning(t.id) && chatExists(t.chatId)) {
+        const ev: ChatEvent = { t: 'sandbox_status', state: 'failed', message: errorSummary(msg).slice(0, 400) };
+        noteChatEvent(t.chatId, ev); emitTask(t.id, { t: 'chat', event: ev });
+      }
       return;
     }
     step.endedAt = now();
@@ -391,6 +398,7 @@ export async function finishTask(id: string): Promise<CodeTask> {
       clearJar(id);
       Object.assign(fresh, { status: 'done', containerId: null, containerRunning: false, finishedAt: now(), error: null, internet: null, shots: {} } satisfies Partial<CodeTask>);
       saveTask(fresh);
+      if (fresh.chatId && chatExists(fresh.chatId)) noteChatEvent(fresh.chatId, { t: 'sandbox_status', state: 'finished' }); // the chat's record (the open view adds its own line)
     });
   } finally { J.finishing.delete(id); }
   return mustTask(id);

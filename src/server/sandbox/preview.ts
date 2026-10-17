@@ -107,6 +107,10 @@ var O=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){
 })();</script>`;
 }
 
+/** Shopware's dev toolbar and cookie notice cover the bottom of the preview; the setup step "preview-tidy" switches both off,
+ *  this hides them as well for sandboxes set up before that step existed (or when the step was skipped). */
+export const PREVIEW_TIDY_CSS = '<style>.sf-toolbar,.sf-minitoolbar,.sf-toolbarreset,.cookie-permission-container{display:none!important}</style>';
+
 // ---- Upstream request ----
 export interface UpstreamReq { method: string; path: string; headers: Record<string, string>; body?: Buffer }
 export interface Upstream { status: number; headers: Headers; setCookies: string[]; body: Buffer }

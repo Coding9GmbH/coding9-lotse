@@ -4,17 +4,20 @@ import { useEffect, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { CodeTaskPublic, GithubBranch, GithubRepo } from '@/lib/protocol';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { SANDBOX_DOCS } from '@/lib/sandbox-task';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { DumpUpload } from './DumpUpload';
 import styles from './Sandbox.module.css';
 
 /** "Sandbox starten" in a chat: repository and base branch (preselected from the environment's presets or the AI's proposal),
- *  an optional title and dump. Creating attaches the sandbox to `chatId` and starts its setup. */
-export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated }: {
-  open: boolean; onClose: () => void; chatId: string; initial?: { repo: string; baseBranch: string } | null; onCreated: (task: CodeTaskPublic) => void;
+ *  an optional title (the AI's reason when it proposed the sandbox) and, behind a disclosure, a dump. Creating attaches the sandbox to
+ *  `chatId` and starts its setup. With Docker unreachable the dialog says so and cannot start. */
+export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated, dockerDown = false }: {
+  open: boolean; onClose: () => void; chatId: string; initial?: { repo: string; baseBranch: string; title?: string } | null; onCreated: (task: CodeTaskPublic) => void; dockerDown?: boolean;
 }) {
-  const t = useI18n().t.sandbox.create;
+  const { t: all, locale } = useI18n();
+  const t = all.sandbox.create;
   const [repos, setRepos] = useState<GithubRepo[] | null>(null);
   const [branches, setBranches] = useState<GithubBranch[] | null>(null);
   const [form, setForm] = useState({ repo: '', baseBranch: '', title: '' });
@@ -32,6 +35,7 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated 
     Promise.all([repos ? Promise.resolve(repos) : api.github.repos().then(r => r.repos), pre]).then(([list, p]) => {
       if (!live) return;
       setRepos(list); setError(null);
+      if (initial?.title) setForm(f => ({ ...f, title: f.title || initial.title!.slice(0, 120) }));
       if (p.repo && list.some(r => r.fullName === p.repo)) { setBranches(null); setWant(p.baseBranch); setForm(f => ({ ...f, repo: p.repo, baseBranch: '' })); }
     }).catch(e => { if (live) { setRepos([]); setError(errorText(e)); } });
     return () => { live = false; };
@@ -59,7 +63,7 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated 
     } catch (err) { setError(t.failed(errorText(err))); }
     finally { setBusy(false); }
   }
-  const ready = form.repo && form.baseBranch && !busy && !uploading;
+  const ready = form.repo && form.baseBranch && !busy && !uploading && !dockerDown;
 
   return (
     <Dialog open={open} onClose={onClose} title={t.title} wide footer={
@@ -69,6 +73,7 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated 
       </>
     }>
       <form id="sbx-attach" className={styles.form} onSubmit={e => void submit(e)}>
+        {dockerDown && <p className={styles.alert} role="alert">{t.dockerDown} <a href={SANDBOX_DOCS[locale]} target="_blank" rel="noreferrer">{t.guide}</a></p>}
         <p className={styles.hint}>{t.lead}</p>
         <label className={styles.field}>
           <span className={styles.label}>{t.repo}</span>
@@ -88,7 +93,10 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated 
           <span className={styles.label}>{t.name}</span>
           <input value={form.title} maxLength={120} placeholder={t.namePlaceholder} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
         </label>
-        <DumpUpload onChange={d => setDumpId(d?.id ?? null)} onBusy={setUploading} disabled={busy} />
+        <details className={styles.dumpMore}>
+          <summary>{all.sandbox.dump.add}</summary>
+          <DumpUpload onChange={d => setDumpId(d?.id ?? null)} onBusy={setUploading} disabled={busy} />
+        </details>
         {repos && !repos.length && !error && <p className={styles.alert}>{t.noGithub}</p>}
         {error && <p className={styles.bad} role="alert">{error}</p>}
       </form>

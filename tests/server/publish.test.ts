@@ -198,6 +198,21 @@ test('German errors: no write access for pull requests, branch changed on GitHub
   await assert.rejects(publish(t3.id, 'Ohne Recht'), /wurde auf GitHub verändert/);
 });
 
+test('push errors: only a real 403 of GitHub is the token hint; protection, moved branch and other refusals have their own text, the full report follows', () => {
+  const t = { repo: 'acme/shop-theme', branch: 'lotse/header-abc123' };
+  const first = (s: string) => s.split('\n')[0];
+  assert.match(first(P.pushErrorText('remote: Permission to acme/shop-theme.git denied to lotse-bot.\nfatal: unable to access \'https://github.com/acme/shop-theme.git/\': The requested URL returned error: 403', t)), /^Keine Schreibrechte für acme\/shop-theme: .*Contents/);
+  assert.match(first(P.pushErrorText('remote: error: GH006: Protected branch update failed for refs/heads/lotse/header-abc123.\n! refs/heads/lotse/header-abc123 [remote rejected] (protected branch hook declined)', t)), /^Branch-Schutz verhindert den Push auf lotse\/header-abc123/);
+  assert.match(first(P.pushErrorText('!\tHEAD:refs/heads/lotse/header-abc123\t[rejected] (stale info)', t)), /wurde auf GitHub verändert/);
+  // a pre-receive hook that says "denied" is a server refusal, not a token problem
+  const hook = P.pushErrorText('remote: error: File big.bin is 120.00 MB; this exceeds GitHub\'s file size limit of 100.00 MB (access denied)\n! [remote rejected] HEAD -> lotse/header-abc123 (pre-receive hook declined)', t);
+  assert.equal(first(hook), 'Push abgelehnt: File big.bin is 120.00 MB; this exceeds GitHub\'s file size limit of 100.00 MB (access denied)');
+  assert.match(hook, /\n.*pre-receive hook declined/, 'git\'s report follows after the first line');
+  assert.match(first(P.pushErrorText('! [remote rejected] HEAD -> lotse/x (push declined due to email privacy restrictions)', t)), /^Push abgelehnt: push declined due to email privacy restrictions$/);
+  assert.match(first(P.pushErrorText('fatal: unable to access \'https://github.com/acme/x.git/\': Could not resolve host: github.com', t)), /^Push fehlgeschlagen: unable to access/);
+  assert.match(first(P.pushErrorText('remote: Permission to acme/shop-theme.git denied to bot.\nfatal: The requested URL returned error: 403', t, 'en')), /^No write access to acme\/shop-theme/);
+});
+
 test('preflight: GitHub actions blocked like workflows; a non-ASCII stored secret is found in a latin1-read file', () => {
   const M = (p: string) => ({ path: p, status: 'M' });
   assert.match(P.blockReason([M('.github/actions/setup/action.yml')])!, /Workflows oder -Actions/);

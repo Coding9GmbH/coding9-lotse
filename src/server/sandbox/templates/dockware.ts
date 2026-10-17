@@ -54,6 +54,11 @@ export async function waitReady(ctx: Pick<StepCtx, 'run' | 'httpStatus' | 'log' 
 /** Domain stays http://localhost (see top); after a dump import the storefront domain is pointed back to it. Fixed SQL, no input. */
 const SET_DOMAIN_SQL = "UPDATE sales_channel_domain SET url = 'http://localhost' WHERE url NOT LIKE 'default.%' AND url <> 'http://localhost' AND NOT EXISTS (SELECT 1 FROM (SELECT id FROM sales_channel_domain WHERE url = 'http://localhost') AS d) ORDER BY created_at LIMIT 1";
 
+/** Shopware's dev toolbar (Symfony profiler) and the cookie notice would cover the bottom of the preview and every screenshot:
+ *  switched off in the sandbox only, by a config file for the dev environment and a system config value (the shop stays in dev mode,
+ *  errors stay readable). Constant argv, no input; theme-compile clears the cache afterwards. */
+export const TIDY_ARGV = ['bash', '-c', "set -e; mkdir -p config/packages/dev; printf 'web_profiler:\\n    toolbar: false\\n    intercept_redirects: false\\n' > config/packages/dev/zz-lotse-preview.yaml; bin/console system:config:set --json core.basicInformation.useDefaultCookieConsent false"];
+
 /** Where the dump lands in the container for the import; removed by the import command itself and again afterwards. */
 export const IMPORT_DIR = '/tmp/lotse-import';
 /** Constant argv, no interpolation: decompress if needed, import as root into the shop database, always delete the file. */
@@ -110,6 +115,11 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
   'version-check': versionCheck,
   'import-db': importDb,
   'set-domain': async ctx => { await ctx.run([...MYSQL, '-e', SET_DOMAIN_SQL]); ctx.log('Storefront-Domain: http://localhost'); },
+  // cosmetic for preview and screenshots: a failure only skips the step (the preview proxy hides both by CSS as well)
+  'preview-tidy': async ctx => {
+    try { await ctx.run(TIDY_ARGV, { timeoutMs: 2 * MIN }); ctx.log('Debug-Leiste und Cookie-Hinweis in der Sandbox ausgeschaltet.'); }
+    catch (e) { if (ctx.signal.aborted) throw e; ctx.log(`Übersprungen: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`); return 'skipped'; }
+  },
   'theme-compile': async ctx => { await ctx.run(bin('theme:compile')); await ctx.run(bin('cache:clear')); },
   screenshots: ctx => ctx.screenshots(),
   ready: async ctx => { const s = await ctx.httpStatus('/'); if (s !== 200) throw new Error(`Die Storefront antwortet mit HTTP ${s}.`); },
@@ -125,6 +135,7 @@ const STEPS: TemplateStep[] = [
   step('version-check', 10 * MIN, { optional: true }),
   step('import-db', 60 * MIN, { optional: true }),
   step('set-domain', MIN),
+  step('preview-tidy', 3 * MIN, { optional: true }),
   step('install-plugin', 5 * MIN),
   step('custom-after-db', 0, { custom: 'after-db' }),
   step('theme-compile', 10 * MIN),

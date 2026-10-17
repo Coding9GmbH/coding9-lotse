@@ -28,3 +28,8 @@ test('markup in bold/code cannot break out', () => {
   const out = markdown('**<a href="javascript:x">x</a>**');
   assert.equal(out, '<p><b>&lt;a href=&quot;javascript:x&quot;&gt;x&lt;/a&gt;</b></p>');
 });
+
+test('a list right below a line, * bullets and ## headings (pull request descriptions)', () => {
+  assert.equal(markdown('## Was\nHeader blau:\n- Farbe\n* Abstand\nDanach Text'), '<p><b>Was</b></p><p>Header blau:</p><ul><li>Farbe</li><li>Abstand</li></ul><p>Danach Text</p>');
+  assert.equal(markdown('**fett** und *nicht kursiv*'), '<p><b>fett</b> und *nicht kursiv*</p>');
+});

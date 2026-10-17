@@ -23,7 +23,8 @@ test('Sandbox Coding: switch on, configure the environment, check, switch off', 
 
   await navLink.click();
   await expect(page.getByRole('heading', { level: 1, name: 'Sandbox Coding' })).toBeVisible();
-  const env = page.locator('section#sbx-env');
+  const env = page.locator('#sbx-env');
+  await expect(env).toHaveAttribute('open', ''); // first setup (image missing): the environment is unfolded
   await expect(env.getByText('Dockware (Shopware)')).toBeVisible();
   await expect(env.getByLabel('Image')).toHaveValue('dockware/shopware:6.7.15.1');
 
@@ -46,6 +47,9 @@ test('Sandbox Coding: switch on, configure the environment, check, switch off', 
   await expect(env.getByRole('status').filter({ hasText: /✓ Image dockware\/shopware:6\.7\.15\.1 geladen/ })).toBeVisible();
 
   await page.reload();
+  // set up now: the readiness is one line and the environment is folded below the sandboxes
+  await expect(page.locator('section[aria-labelledby="sbx-ready"]').getByText(/fehl(t|en) – eine Sandbox kann noch nicht starten/)).toBeVisible(); // GitHub is not connected in this test
+  await env.getByRole('heading', { name: 'Umgebung' }).click();
   await expect(env.getByLabel(/^Wert API_TOKEN/)).toHaveValue('');
   await expect(env.getByLabel(/^Wert API_TOKEN/)).toHaveAttribute('placeholder', /gespeichert/);
   await expect(page.locator('body')).not.toContainText('e2e-geheim-123');
@@ -64,7 +68,7 @@ test('Sandbox Coding: switch on, configure the environment, check, switch off', 
 
 // A sandbox attached to a normal chat (fake runner, GitHub fake, bare file:// remote): "Sandbox" in the chat, the dialog with the
 // environment's presets, the right panel shows "Einrichtung" during the setup and switches to "Vorschau" when ready; pause/resume
-// in the status line; the "Sandbox Coding" tab lists it and opens its chat; "Aufgabe abschließen" detaches it, the chat stays.
+// in the status line; the "Sandbox Coding" tab lists it and opens its chat; "Sandbox abschließen" (⋯ menu) detaches it, the chat stays.
 test('Sandbox Coding: attach a sandbox to a chat, setup reaches ready, preview, pause/resume, finish', async ({ page, request }) => {
   test.setTimeout(120_000);
   const lotse = { 'x-lotse': '1' };
@@ -87,11 +91,16 @@ test('Sandbox Coding: attach a sandbox to a chat, setup reaches ready, preview, 
   await expect(panel.getByText('Footer grün')).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
   await expect(panel.getByRole('tab', { name: 'Vorschau' })).toHaveAttribute('aria-selected', 'true'); // switched after the setup
-  await expect(page.getByRole('button', { name: 'Sandbox', exact: true })).toHaveCount(0); // one sandbox per chat
+  await expect(page.getByRole('button', { name: 'Sandbox starten', exact: true })).toHaveCount(0); // one sandbox per chat
+  // header in two lines: title + status, repository and working branch (full in the tooltip)
+  await expect(panel.getByText(/^lotse\/footer-gruen-[a-z0-9]{6}$/)).toBeVisible();
 
   await panel.getByRole('tab', { name: 'Einrichtung' }).click();
   const steps = panel.getByRole('tabpanel', { name: 'Einrichtung' });
+  await expect(steps.getByText(/^Eingerichtet in .* ✓$/)).toBeVisible(); // the finished setup is folded into one line
+  await steps.getByRole('button', { name: 'Details anzeigen' }).click();
   await expect(steps.getByText('Theme kompilieren')).toBeVisible();
+  await expect(steps.getByText('Vorschau aufräumen (Debug-Leiste, Cookie-Hinweis)')).toBeVisible();
   await expect(steps.getByText('Demodaten', { exact: true })).toBeVisible(); // own command from the environment = own step
   await expect(steps.getByText('übersprungen')).toHaveCount(2); // no dump: version check and import skipped
   await expect(steps.getByText(/lotse\/footer-gruen-.*Container läuft.*custom\/plugins\/AcmeShopTheme/)).toBeVisible();
@@ -114,12 +123,13 @@ test('Sandbox Coding: attach a sandbox to a chat, setup reaches ready, preview, 
   // Internet only after the user's own click (with a warning); "an" blocks it again, pausing ends it
   page.once('dialog', d => { expect(d.message()).toContain('Live-Shops'); void d.accept(); });
   await panel.getByRole('button', { name: 'Internet: aus' }).click();
-  await expect(panel.getByRole('button', { name: 'Internet: an' })).toHaveAttribute('aria-pressed', 'true');
-  await panel.getByRole('button', { name: 'Internet: an' }).click();
+  await expect(panel.getByText('Internet: an')).toBeVisible(); // a warn badge, with its own "Sperren"
+  await expect(panel.getByRole('button', { name: 'Internet sperren' })).toHaveAttribute('aria-pressed', 'true');
+  await panel.getByRole('button', { name: 'Internet sperren' }).click();
   await expect(panel.getByRole('button', { name: 'Internet: aus' })).toHaveAttribute('aria-pressed', 'false');
   page.once('dialog', d => void d.accept());
   await panel.getByRole('button', { name: 'Internet: aus' }).click();
-  await expect(panel.getByRole('button', { name: 'Internet: an' })).toBeVisible();
+  await expect(panel.getByText('Internet: an')).toBeVisible();
 
   // Paused: the preview offers to start it again; loading it wakes the task (no new setup)
   await panel.getByRole('button', { name: 'Pausieren' }).click();
@@ -132,17 +142,29 @@ test('Sandbox Coding: attach a sandbox to a chat, setup reaches ready, preview, 
   await panel.getByRole('button', { name: 'Fortsetzen' }).click();
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 15_000 });
 
+  // the preview can take the whole width: chat collapsed, then full screen
+  await panel.getByRole('button', { name: 'Chat einklappen' }).click();
+  await expect(page.getByRole('region', { name: 'Chat' })).toBeHidden();
+  await panel.getByRole('button', { name: 'Chat einblenden' }).click();
+  await panel.getByRole('button', { name: 'Vollbild', exact: true }).click();
+  await expect(panel).toHaveAttribute('data-full', 'true');
+  await page.keyboard.press('Escape');
+  await expect(panel).not.toHaveAttribute('data-full', 'true');
+
   // the tab lists it; a row opens its chat with the sandbox on the right
-  await panel.getByRole('link', { name: 'Alle Aufgaben' }).click();
+  await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Alle Sandboxes' }).click();
   await expect(tasks.getByRole('link', { name: /Footer grün.*Bereit/ })).toBeVisible();
   await tasks.getByRole('link', { name: /Footer grün/ }).click();
   await expect(panel.getByText('Footer grün')).toBeVisible();
 
   page.once('dialog', d => void d.accept());
-  await panel.getByRole('button', { name: 'Aufgabe abschließen' }).click();
+  await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
   await expect(panel).toHaveCount(0); // detached: the chat stays, the right side is the normal one again
   await expect(page.getByText(/Sandbox angehängt: acme\/shop-theme @ main/)).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Sandbox', exact: true })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Sandbox abgeschlossen. Der Chat bleibt erhalten.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sandbox starten', exact: true })).toBeVisible();
   await page.goto('/sandbox-coding');
   await expect(tasks.getByRole('link', { name: /Footer grün.*Abgeschlossen/ })).toBeVisible();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
@@ -155,11 +177,12 @@ test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async (
   expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
   await page.goto('/');
-  await page.getByRole('button', { name: 'Sandbox', exact: true }).click();
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
   await expect(dialog.getByLabel('Basis-Branch')).toHaveValue('main');
   await dialog.getByLabel('Titel (optional)').fill('Mit Datenbank');
+  await dialog.getByText('Datenbank-Dump hinzufügen (optional)').click(); // optional: behind a disclosure
   await expect(dialog.getByText('Nur bereinigte Dumps ohne Kundendaten. Die Datei wird nach dem Import gelöscht.')).toBeVisible();
   const sql = "-- MySQL dump\nINSERT INTO `migration` VALUES ('Shopware\\\\Core\\\\Migration\\\\V6_7\\\\Migration1700000000Foo',1,NULL,NULL,NULL);\n";
   const completed = page.waitForResponse(r => /\/api\/sandbox\/dumps\/d_[a-z0-9]{16}\/complete$/.test(r.url()));
@@ -172,6 +195,7 @@ test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async (
   const panel = page.getByRole('region', { name: 'Sandbox' });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
   await panel.getByRole('tab', { name: 'Einrichtung' }).click();
+  await panel.getByRole('button', { name: 'Details anzeigen' }).click();
   const importStep = panel.getByRole('listitem').filter({ hasText: 'Datenbank importieren' });
   await expect(importStep.getByText('erledigt')).toBeVisible();
   await expect(importStep.getByText('Dump gelöscht ✓', { exact: true })).toBeVisible();
@@ -180,7 +204,8 @@ test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async (
   expect(meta.dump.status).toBe('deleted');
 
   page.once('dialog', d => void d.accept());
-  await panel.getByRole('button', { name: 'Aufgabe abschließen' }).click();
+  await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
   await expect(panel).toHaveCount(0);
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
 });
@@ -194,7 +219,7 @@ test('Sandbox Coding: the agent edits the header template natively, compiles the
   expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true, defaultRepo: 'acme/shop-theme', defaultBranch: 'main' } })).ok()).toBeTruthy();
   await page.goto('/');
-  await page.getByRole('button', { name: 'Sandbox', exact: true }).click();
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
   await page.getByRole('dialog', { name: 'Sandbox starten' }).getByRole('button', { name: 'Sandbox starten' }).click();
   const panel = page.getByRole('region', { name: 'Sandbox' });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
@@ -215,7 +240,9 @@ test('Sandbox Coding: the agent edits the header template natively, compiles the
   await panel.getByRole('tab', { name: /Änderungen/ }).click();
   const changes = panel.getByRole('tabpanel', { name: /Änderungen/ });
   await expect(changes.getByText('1 Datei geändert')).toBeVisible();
-  await expect(changes.getByText('+    <div class="lotse-e2e-note">Gratis Versand ab 50 €</div>')).toBeVisible();
+  await expect(changes.getByRole('region', { name: header })).toBeVisible(); // a section per file, with line numbers
+  await expect(changes.getByRole('row').filter({ hasText: '<div class="lotse-e2e-note">Gratis Versand ab 50 €</div>' })).toHaveCount(1);
+  await expect(changes.getByText(/^diff --git|^index [0-9a-f]+/)).toHaveCount(0); // git's meta lines are not shown
 
   // the chat keeps its sandbox: after a reload both come back
   await page.reload();
@@ -223,7 +250,8 @@ test('Sandbox Coding: the agent edits the header template natively, compiles the
   await expect(page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Pausieren' })).toBeVisible();
 
   page.once('dialog', d => void d.accept());
-  await page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Aufgabe abschließen' }).click();
+  await page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
   await expect(page.getByRole('region', { name: 'Sandbox' })).toHaveCount(0);
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
 });
@@ -237,7 +265,7 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true, defaultRepo: 'acme/shop-theme', defaultBranch: 'main' } })).ok()).toBeTruthy();
   await page.goto('/');
-  await page.getByRole('button', { name: 'Sandbox', exact: true }).click();
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await dialog.getByLabel('Titel (optional)').fill('Gratis Versand');
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
@@ -283,12 +311,17 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await expect(shots.getByRole('img', { name: 'Nachher, Mobil: /' })).toBeVisible();
   await expect(panel.getByRole('tab', { name: /Pull Request\s*#\d+/ })).toBeVisible();
   await expect(form.getByRole('button', { name: 'Pull Request aktualisieren' })).toBeVisible();
+  await expect(panel.getByRole('status').filter({ hasText: /✓ Pull Request #\d+ angelegt\./ })).toBeVisible(); // success at the top of the tab
+  // the proposal card now says where it went instead of offering to publish again
+  await expect(proposal.getByRole('link', { name: /^Veröffentlicht als #\d+$/ })).toBeVisible();
+  await expect(proposal.getByRole('button', { name: 'Prüfen und veröffentlichen' })).toHaveCount(0);
 
   // after a reload the card is replayed, the task list shows the number
   await page.reload();
   await expect(page.getByRole('log').getByRole('region', { name: /^Pull Request #\d+:/ })).toBeVisible();
-  await page.getByRole('region', { name: 'Sandbox' }).getByRole('link', { name: 'Alle Aufgaben' }).click();
-  await expect(page.locator('section[aria-labelledby="sbx-tasks"]').getByRole('link', { name: /^#\d+$/ }).first()).toBeVisible();
+  await page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Alle Sandboxes' }).click();
+  await expect(page.locator('section[aria-labelledby="sbx-tasks"]').getByRole('link', { name: /^PR #\d+/ }).first()).toBeVisible();
   await page.locator('section[aria-labelledby="sbx-tasks"]').getByRole('link', { name: /Gratis Versand/ }).first().click();
   await expect(page.getByRole('region', { name: 'Sandbox' })).toBeVisible();
 
@@ -314,7 +347,7 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   const merged = page.getByRole('log').getByRole('region', { name: `Pull Request #${prNo} wurde gemergt` });
   await expect(merged).toBeVisible({ timeout: 30_000 });
   page.once('dialog', d => void d.accept());
-  await merged.getByRole('button', { name: 'Aufgabe abschließen' }).click();
+  await merged.getByRole('button', { name: 'Sandbox abschließen' }).click();
   await expect(page.getByRole('region', { name: 'Sandbox' })).toHaveCount(0);
   await expect(merged.getByText(/Die Sandbox ist abgeschlossen/)).toBeVisible();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();

@@ -4,16 +4,15 @@ import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { CodeTaskPublic, CommandPhase, InternetPolicy, SandboxEnvPatch, SandboxEnvView } from '@/lib/protocol';
-import { isBusy } from '@/lib/sandbox-task';
+import { SANDBOX_DOCS, isBusy } from '@/lib/sandbox-task';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useShell } from '@/components/shell/ShellProvider';
 import { Button } from '@/components/ui/Button';
-import { IconClose, IconPlus } from '@/components/ui/icons';
+import { IconArrowUp, IconClose, IconPlus } from '@/components/ui/icons';
 import { SandboxOff } from './SandboxOff';
 import { TaskList } from './TaskList';
 import styles from './Sandbox.module.css';
 
-const DOCS = { de: 'https://github.com/Coding9GmbH/coding9-lotse/blob/main/docs/self-hosting.md#sandbox-coding-aktivieren', en: 'https://github.com/Coding9GmbH/coding9-lotse/blob/main/docs/en/self-hosting.md#enable-sandbox-coding' } as const;
 
 interface VarRow { key: string; secret: boolean; value: string; hasValue: boolean; /** stored as secret with a value: unticking needs a new value */ wasSecret?: boolean }
 interface CmdRow { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec: string }
@@ -31,7 +30,8 @@ const patchOf = (f: Form): SandboxEnvPatch => ({
 });
 const same = (a: Form, b: Form) => JSON.stringify(patchOf(a)) === JSON.stringify(patchOf(b));
 
-/** Tab "Sandbox Coding": readiness, environment (template, image, variables, own commands, check) and the task list. */
+/** Tab "Sandbox Coding" as a dashboard: readiness (one line when everything is fine), the sandboxes, then the environment (collapsible:
+ *  template, image, variables, own commands, check). Resources and the idle pause live in Settings → Sandbox (linked both ways). */
 export function SandboxView() {
   const { t: all, locale } = useI18n();
   const t = all.sandbox;
@@ -43,6 +43,9 @@ export function SandboxView() {
   useEffect(() => { void reload(); }, [reload]);
 
   const on = view?.env.status.enabled;
+  // "#sbx-env" (a link from a failed setup command, the readiness list) opens the collapsed environment
+  const openEnv = () => { const d = document.getElementById('sbx-env'); if (d instanceof HTMLDetailsElement) d.open = true; };
+  useEffect(() => { if (view && window.location.hash === '#sbx-env') { openEnv(); document.getElementById('sbx-env')?.scrollIntoView(); } }, [view]);
   return (
     <div className={styles.page}>
       <main className={styles.wrap}>
@@ -57,19 +60,16 @@ export function SandboxView() {
 
         {view && on && (
           <>
-            <section className={styles.card} aria-labelledby="sbx-ready">
-              <div className={styles.cardHead}><h2 id="sbx-ready">{t.ready.heading}</h2></div>
-              <ul className={styles.checklist}>
-                <Check ok={health ? health.ai.configured : null} label={t.ready.ai} fix={<Link href="/settings">{t.ready.fixAi}</Link>} />
-                <Check ok={health ? !!health.integrations?.github : null} label={t.ready.github} fix={<Link href="/settings/integrationen#github">{t.ready.fixGithub}</Link>} />
-                <Check ok={view.docker?.reachable ?? null} label={t.ready.docker} fix={<a href={DOCS[locale]} target="_blank" rel="noreferrer">{t.ready.fixDocker}</a>} />
-                <Check ok={view.imagePresent} label={t.ready.image} fix={<a href="#sbx-env">{t.ready.fixImage}</a>} />
-              </ul>
-            </section>
-
-            <Environment view={view} onSaved={setView} onChecked={() => { void reload(); refreshHealth(); }} />
+            <Readiness checks={[
+              { key: 'ai', ok: health ? health.ai.configured : null, label: t.ready.ai, fix: <Link href="/settings">{t.ready.fixAi}</Link> },
+              { key: 'github', ok: health ? !!health.integrations?.github : null, label: t.ready.github, fix: <Link href="/settings/integrationen#github">{t.ready.fixGithub}</Link> },
+              { key: 'docker', ok: view.docker?.reachable ?? null, label: t.ready.docker, fix: <a href={SANDBOX_DOCS[locale]} target="_blank" rel="noreferrer">{t.ready.fixDocker}</a> },
+              { key: 'image', ok: view.imagePresent, label: t.ready.image, fix: <a href="#sbx-env" onClick={() => openEnv()}>{t.ready.fixImage}</a> },
+            ]} />
 
             <Tasks />
+
+            <Environment view={view} onSaved={setView} onChecked={() => { void reload(); refreshHealth(); }} />
           </>
         )}
       </main>
@@ -103,16 +103,48 @@ function Tasks() {
   );
 }
 
-function Check({ ok, label, fix }: { ok: boolean | null; label: string; fix: React.ReactNode }) {
+interface ReadyCheck { key: string; ok: boolean | null; label: string; fix: React.ReactNode }
+/** Readiness: one green line when everything is set up (details on click), otherwise a banner with the count and the list. */
+function Readiness({ checks }: { checks: ReadyCheck[] }) {
   const t = useI18n().t.sandbox.ready;
-  return (
-    <li className={styles.check}>
-      <i className={`${styles.pip} ${ok ? styles.pipOk : ok === false ? styles.pipTodo : ''}`} aria-hidden="true" />
-      <span>{label}</span>
-      <span className={styles.muted}>{ok ? t.ok : ok === false ? t.todo : t.unknown}</span>
-      {!ok && <span className={styles.fix}>{fix}</span>}
-    </li>
+  const missing = checks.filter(c => c.ok === false).length, allOk = checks.every(c => c.ok);
+  const [open, setOpen] = useState(false);
+  const list = (
+    <ul className={styles.checklist}>
+      {checks.map(c => (
+        <li key={c.key} className={styles.check}>
+          <i className={`${styles.pip} ${c.ok ? styles.pipOk : c.ok === false ? styles.pipTodo : ''}`} aria-hidden="true" />
+          <span>{c.label}</span>
+          <span className={c.ok === false ? styles.badgeWarn : styles.muted}>{c.ok ? t.ok : c.ok === false ? t.todo : t.unknown}</span>
+          {!c.ok && <span className={styles.fix}>{c.fix}</span>}
+        </li>
+      ))}
+    </ul>
   );
+  if (allOk) {
+    return (
+      <section className={`${styles.card} ${styles.readyOk}`} aria-labelledby="sbx-ready">
+        <h2 id="sbx-ready" className="visually-hidden">{t.heading}</h2>
+        <p className={styles.readyLine}><i className={`${styles.pip} ${styles.pipOk}`} aria-hidden="true" />{t.allOk}
+          <button type="button" className={styles.textBtn} aria-expanded={open} onClick={() => setOpen(o => !o)}>{t.details}</button></p>
+        {open && list}
+      </section>
+    );
+  }
+  return (
+    <section className={styles.card} aria-labelledby="sbx-ready">
+      <div className={styles.cardHead}><h2 id="sbx-ready">{t.heading}</h2></div>
+      {missing > 0 && <p className={styles.alert} role="status">{t.blocked(missing)}</p>}
+      {list}
+    </section>
+  );
+}
+
+/** A one-line hint with the details behind "Mehr dazu". */
+function Hint({ text, more, small = false }: { text: string; more?: string; small?: boolean }) {
+  const t = useI18n().t.sandbox.env;
+  const body = <>{text}{more && <details className={styles.more}><summary>{t.more}</summary>{more}</details>}</>;
+  return small ? <small className={styles.fieldHint}>{body}</small> : <div className={styles.hint}>{body}</div>;
 }
 
 /** Template (fixed), image, environment variables, own setup commands; "Umgebung prüfen" pulls the image if needed. */
@@ -120,6 +152,7 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
   const { t: all } = useI18n();
   const t = all.sandbox.env, ts = all.sandbox;
   const [saved, setSaved] = useState<Form>(() => formOf(view));
+  const [envOpen, setEnvOpen] = useState(() => view.imagePresent === false); // open on the first setup, otherwise folded below the sandboxes
   const [form, setForm] = useState<Form>(saved);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
@@ -159,14 +192,15 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
   }
 
   return (
-    <section id="sbx-env" className={styles.card} aria-labelledby="sbx-env-h">
-      <div className={styles.cardHead}><h2 id="sbx-env-h">{t.heading}</h2></div>
+    <details id="sbx-env" className={`${styles.card} ${styles.envCard}`} open={envOpen} onToggle={e => setEnvOpen(e.currentTarget.open)}>
+      <summary className={styles.envHead}><h2 id="sbx-env-h">{t.heading}</h2><span className={styles.muted}>{t.summary}</span></summary>
+      <p className={styles.fieldHint}><Link href="/settings/sandbox">{t.resources}</Link></p>
 
       <div className={styles.row}>
         <span className={styles.label}>{t.template}</span>
         <b>{ts.templates[view.env.templateId] ?? view.env.templateId}</b>
       </div>
-      <p className={styles.hint}>{t.templateHint}</p>
+      <Hint text={t.templateHint} />
       {template && (
         <details className={styles.details}>
           <summary>{t.steps}</summary>
@@ -177,7 +211,7 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
       <label className={styles.field}>
         <span className={styles.label}>{t.image}</span>
         <input value={form.image} onChange={e => set(f => ({ ...f, image: e.target.value }))} spellCheck={false} placeholder={template?.defaultImage} />
-        <small className={styles.fieldHint}>{t.imageHint}</small>
+        <Hint small text={t.imageHint} more={t.imageMore} />
       </label>
       <p className={styles.muted} role="status">
         {view.docker && (view.docker.reachable ? t.docker(view.docker.version ?? '?', view.docker.mode) : t.dockerDown)}
@@ -187,8 +221,10 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
       <h3 className={styles.h3}>{t.defaultsHeading}</h3>
       <p className={styles.hint}>{t.defaultsHint}</p>
       <div className={styles.defaultsRow}>
-        <input aria-label={t.defaultRepo} placeholder={`${t.defaultRepo} (${t.defaultRepoPlaceholder})`} value={form.defaultRepo} spellCheck={false} onChange={e => set(f => ({ ...f, defaultRepo: e.target.value }))} />
-        <input aria-label={t.defaultBranch} placeholder={t.defaultBranch} value={form.defaultBranch} spellCheck={false} onChange={e => set(f => ({ ...f, defaultBranch: e.target.value }))} />
+        <label className={styles.fieldTight}><span className={styles.label}>{t.defaultRepo}</span>
+          <input placeholder={t.defaultRepoPlaceholder} value={form.defaultRepo} spellCheck={false} onChange={e => set(f => ({ ...f, defaultRepo: e.target.value }))} /></label>
+        <label className={styles.fieldTight}><span className={styles.label}>{t.defaultBranch}</span>
+          <input placeholder="main" value={form.defaultBranch} spellCheck={false} onChange={e => set(f => ({ ...f, defaultBranch: e.target.value }))} /></label>
       </div>
 
       <label className={styles.field}>
@@ -196,17 +232,17 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
         <select value={form.internet} onChange={e => set(f => ({ ...f, internet: e.target.value as InternetPolicy }))}>
           {(['approval', 'never'] as const).map(p => <option key={p} value={p}>{t.internetPolicy[p]}</option>)}
         </select>
-        <small className={styles.fieldHint}>{t.internetHint}</small>
+        <Hint small text={t.internetHint} more={t.internetMore} />
       </label>
 
       <label className={styles.field}>
         <span className={styles.label}>{t.shots}</span>
         <textarea rows={3} value={form.shots} spellCheck={false} placeholder="/" onChange={e => set(f => ({ ...f, shots: e.target.value }))} />
-        <small className={styles.fieldHint}>{t.shotsHint}</small>
+        <Hint small text={t.shotsHint} more={t.shotsMore} />
       </label>
 
       <h3 className={styles.h3}>{t.vars}</h3>
-      <p className={styles.hint}>{t.varsHint}</p>
+      <Hint text={t.varsHint} more={t.varsMore} />
       {form.vars.map((v, i) => (
         <div key={i} className={styles.varRow}>
           <input aria-label={t.key} placeholder={t.key} value={v.key} spellCheck={false} onChange={e => setVar(i, { key: e.target.value.toUpperCase() })} />
@@ -219,7 +255,7 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
       <Button size="sm" variant="ghost" onClick={() => set(f => ({ ...f, vars: [...f.vars, { key: '', secret: false, value: '', hasValue: false }] }))}><IconPlus size={14} /> {t.addVar}</Button>
 
       <h3 className={styles.h3}>{t.commandsHeading}</h3>
-      <p className={styles.hint}>{t.commandsHint}</p>
+      <Hint text={t.commandsHint} more={t.commandsMore} />
       {form.cmds.map((c, i) => (
         <div key={c.id ?? `new-${i}`} className={styles.cmd}>
           <div className={styles.cmdHead}>
@@ -227,8 +263,8 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
             <select aria-label={t.phase} value={c.phase} onChange={e => setCmd(i, { phase: e.target.value as CommandPhase })}>
               {(['after-db', 'final'] as const).map(p => <option key={p} value={p}>{t.phases[p]}</option>)}
             </select>
-            <input aria-label={t.timeout} title={t.timeout} className={styles.num} inputMode="numeric" value={c.timeoutSec} onChange={e => setCmd(i, { timeoutSec: e.target.value })} />
-            <button type="button" className={styles.x} disabled={i === 0} aria-label={t.moveUp(c.label)} onClick={() => set(f => { const cmds = [...f.cmds]; [cmds[i - 1], cmds[i]] = [cmds[i], cmds[i - 1]]; return { ...f, cmds }; })}>↑</button>
+            <span className={styles.unitField}><input aria-label={t.timeout} title={t.timeout} className={styles.num} inputMode="numeric" value={c.timeoutSec} onChange={e => setCmd(i, { timeoutSec: e.target.value })} /><span aria-hidden="true">{t.timeoutUnit}</span></span>
+            <button type="button" className={styles.x} disabled={i === 0} aria-label={t.moveUp(c.label)} title={t.moveUp(c.label)} onClick={() => set(f => { const cmds = [...f.cmds]; [cmds[i - 1], cmds[i]] = [cmds[i], cmds[i - 1]]; return { ...f, cmds }; })}><IconArrowUp size={16} /></button>
             <button type="button" className={styles.x} aria-label={t.removeCommand(c.label)} onClick={() => set(f => ({ ...f, cmds: f.cmds.filter((_, j) => j !== i) }))}><IconClose size={16} /></button>
           </div>
           <textarea aria-label={`${t.command} ${c.label}`} placeholder="bin/console …" rows={2} spellCheck={false} value={c.command} onChange={e => setCmd(i, { command: e.target.value })} />
@@ -247,6 +283,6 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
           {check.result ? `${check.result.ok ? '✓' : '✗'} ${check.result.text}` : check.progress}
         </p>
       )}
-    </section>
+    </details>
   );
 }

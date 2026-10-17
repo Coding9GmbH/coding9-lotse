@@ -35,7 +35,7 @@ const taskRoute = await import('../../src/app/api/sandbox/tasks/[id]/route');
 const startRoute = await import('../../src/app/api/sandbox/tasks/[id]/start/route');
 const dumpTaskRoute = await import('../../src/app/api/sandbox/tasks/[id]/dump/route');
 const D = await import('../../src/server/sandbox/dumps');
-const { IMPORT_ARGV } = await import('../../src/server/sandbox/templates/dockware');
+const { IMPORT_ARGV, TIDY_ARGV } = await import('../../src/server/sandbox/templates/dockware');
 const eventsRoute = await import('../../src/app/api/sandbox/tasks/[id]/events/route');
 
 allowFileRemotesForTests(true);
@@ -60,6 +60,7 @@ const DIR = '/var/www/html/custom/plugins/AcmeTheme';
 const SETUP_ARGV = [
   ['mysqladmin', 'ping', '-h127.0.0.1', '-uroot', '-proot', '--silent'],
   'SET_DOMAIN',
+  TIDY_ARGV,
   ['rm', '-rf', '--', DIR],
   ['bin/console', 'plugin:refresh'],
   ['bin/console', 'plugin:install', '--activate', '--', 'AcmeTheme'],
@@ -80,7 +81,7 @@ test('happy path: all steps in order, plugin synced as www-data without .git/sec
   await settled(t.id);
   const done = T.getTask(t.id)!;
   assert.equal(done.status, 'ready', done.error ?? '');
-  assert.deepEqual(done.steps.map(s => s.state), ['done', 'done', 'done', 'done', 'done', 'skipped', 'skipped', 'done', 'done', 'done', 'done', 'done', 'done', 'done']);
+  assert.deepEqual(done.steps.map(s => s.state), ['done', 'done', 'done', 'done', 'done', 'skipped', 'skipped', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done']);
   assert.deepEqual(done.layout, { kind: 'theme', name: 'AcmeTheme', pluginDir: 'custom/plugins/AcmeTheme' });
   assert.equal(done.steps.find(s => s.key === 'custom' && s.phase === 'after-db')?.label, 'Demodaten');
   const argv = execs(done.containerId!).map(a => (a[0] === 'mysql' ? (a.at(-1)!.includes('installed_at') ? 'PLUGIN_STATE' : 'SET_DOMAIN') : a));

@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef } from 'react';
 import { useT } from '@/lib/i18n/I18nProvider';
+import { IconClose } from './icons';
 import styles from './Dialog.module.css';
 
 interface Props { open: boolean; onClose: () => void; title: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode; wide?: boolean }
@@ -26,7 +27,7 @@ export function Dialog({ open, onClose, title, children, footer, wide }: Props) 
         <>
           <div className={styles.head}>
             <h2 id={titleId}>{title}</h2>
-            <button type="button" onClick={onClose}>{t.common.close}</button>
+            <button type="button" className={styles.close} onClick={onClose} aria-label={t.common.close} title={t.common.close}><IconClose size={18} /></button>
           </div>
           <div className={styles.body}>{children}</div>
           {footer && <div className={styles.foot}>{footer}</div>}

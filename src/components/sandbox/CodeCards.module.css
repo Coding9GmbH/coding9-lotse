@@ -1,7 +1,7 @@
 .file { display: flex; align-items: baseline; gap: 8px; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 6px 10px; font-size: 13px; flex-shrink: 0; min-width: 0; }
 .kind { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--green-d); flex: none; }
 .kind_delete { color: var(--warn); }
-.path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; min-width: 0; }
+.path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .delta { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: nowrap; flex: none; }
 .add { color: var(--green-d); }
 .del { color: var(--warn); margin-left: 6px; }
@@ -23,18 +23,26 @@
 .sbx_failed { color: var(--warn); }
 .sbx_failed i { background: var(--coral-d); }
 .sbx_waking i { animation: pulse 1s infinite; }
+.sbx_finished { color: var(--green-d); }
+.sbxCheck { flex: none; align-self: center; color: var(--green-d); }
 
 .pub { border: 1px solid var(--green); border-radius: var(--r); padding: 10px 13px; background: var(--green-bg); flex-shrink: 0; font-size: 14px; }
 .pub h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--green-d); margin: 0 0 4px; }
 .pub p { margin: 0 0 6px; }
-.pubBody { white-space: pre-wrap; font-size: 13px; color: var(--ink); margin: 0; }
+.pubBody { font-size: 13px; color: var(--ink); margin: 0; }
+.pubBody p, .pubBody ul { margin: 0 0 6px; }
+.pubBody ul { padding-left: 18px; }
+.pubDone { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; font-size: 13px; font-weight: 600; color: var(--green-d); }
 .pubNote { font-size: 12px; color: var(--mute); margin: 6px 0 0; }
 
 .offer { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 13px; background: var(--panel); flex-shrink: 0; font-size: 14px; }
 .offer h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--green-d); margin: 0 0 4px; }
 .offer p { margin: 0 0 6px; }
 .offerRepo code { font-size: 12px; overflow-wrap: anywhere; }
-.offerBtns { display: flex; gap: 8px; flex-wrap: wrap; }
+.offerBtns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+/* permission requests are risk decisions: coral like the feedback card, not green like a proposal */
+.risk { border-color: var(--coral); }
+.risk h3 { color: var(--coral-d); }
 
 .pr { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 13px; background: var(--panel); flex-shrink: 0; font-size: 14px; }
 .pr h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--green-d); margin: 0 0 4px; }

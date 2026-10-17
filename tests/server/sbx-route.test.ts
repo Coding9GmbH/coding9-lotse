@@ -75,6 +75,7 @@ test('HTML: shim at the head start, frame script, URLs below the prefix, sandbox
   const body = await r.text();
   assert.match(body, /^<!doctype html><html><head><script>\(function\(\)\{var P="\/sbx\//, 'shim before the shop scripts');
   assert.match(body, /<script>\(function\(\)\{var P=window\.parent/, 'frame script for marking/scrolling');
+  assert.match(body, /<style>\.sf-toolbar,[^<]*\.cookie-permission-container\{display:none!important\}<\/style>/, 'debug toolbar and cookie notice hidden in the preview');
   assert.ok(body.includes(`href="${pre(t)}/theme/a.css"`), 'absolute origin rewritten');
   assert.ok(body.includes(`var r="${esc(t)}\\/widgets\\/x"`), 'JSON-escaped origin rewritten');
   assert.ok(body.includes(`action="${pre(t)}/checkout/line-item/add"`), 'root-relative form action rewritten');
