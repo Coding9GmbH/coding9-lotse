@@ -1,14 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { errorText, listenTask } from '@/lib/api';
 import { createLineSplitter } from '@/lib/ndjson';
-import type { CodeTaskPublic, SandboxStatus, TaskEvent } from '@/lib/protocol';
+import type { ChatEvent, CodeTaskPublic, SandboxStatus, TaskEvent } from '@/lib/protocol';
 import { applyTaskEvent } from '@/lib/sandbox-task';
 
 /** One code task, live: snapshot then events (NDJSON). Reconnects after a dropped stream; an open view keeps the container awake.
- *  403 = Sandbox Coding switched off: no further retries, `off` carries the server's reason. */
-export function useTaskEvents(id: string) {
+ *  403 = Sandbox Coding switched off: no further retries, `off` carries the server's reason. `onChat`: events the server added to
+ *  the task's chat between turns (PR feedback). */
+export function useTaskEvents(id: string, onChat?: (ev: ChatEvent) => void) {
+  const chat = useRef(onChat);
+  useEffect(() => { chat.current = onChat; });
   const [task, setTask] = useState<CodeTaskPublic | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gone, setGone] = useState(false);
@@ -33,6 +36,7 @@ export function useTaskEvents(id: string) {
             let ev: TaskEvent;
             try { ev = JSON.parse(line) as TaskEvent; } catch { return; }
             if (ev.t === 'deleted') setGone(true);
+            if (ev.t === 'chat') { chat.current?.(ev.event); return; }
             setTask(t => applyTaskEvent(t, ev));
           });
           for (;;) { const { done, value } = await reader.read(); if (done) break; split.push(value); }

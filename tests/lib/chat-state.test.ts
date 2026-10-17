@@ -308,3 +308,15 @@ test('pull request cards: proposal and PR card look the same live and replayed',
   assert.deepEqual(a, b);
   assert.ok(b.kind === 'pr' && b.number === 7 && b.action === 'created' && b.files === 2);
 });
+
+test('PR feedback: one card per id (chat stream and sandbox panel may both deliver it), handed over updates it; replay equals live', () => {
+  const fb: ChatEvent = { t: 'pr_feedback', id: 'f_aaaaaaaaaaaa', taskId: 't_aaaaaaaaaaaa', number: 7, url: 'https://github.com/acme/shop-theme/pull/7', items: [{ kind: 'review', id: 'r1', author: 'rev', state: 'CHANGES_REQUESTED', body: 'Bitte fett.' }] };
+  let live: ChatState = initialChatState;
+  for (const ev of [fb, fb]) live = chatReducer(live, { type: 'event', event: ev });
+  assert.equal(live.items.length, 1);
+  live = chatReducer(live, { type: 'event', event: { ...fb, handedOver: true } });
+  assert.ok(live.items.length === 1 && live.items[0].kind === 'pr_feedback' && live.items[0].handedOver === true);
+  const merged: ChatEvent = { t: 'pr_feedback', id: 'f_bbbbbbbbbbbb', taskId: 't_aaaaaaaaaaaa', number: 7, url: 'https://github.com/acme/shop-theme/pull/7', items: [], state: 'merged' };
+  const r = replay([{ ...fb, handedOver: true }, merged]);
+  assert.deepEqual(r.items.map(i => i.kind === 'pr_feedback' && [i.id, i.handedOver ?? false, i.state ?? null]), [['f_aaaaaaaaaaaa', true, null], ['f_bbbbbbbbbbbb', false, 'merged']]);
+});

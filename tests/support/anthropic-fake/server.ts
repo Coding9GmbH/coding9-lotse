@@ -13,7 +13,7 @@
  *    = sandbox_bash; `[e2e:pr <title>|<description>]` = propose_publish (the card for the pull request). Several markers run in order, one tool call per model request, then it replies "Fertig: <n> Schritte."
  *  - otherwise it replies with a short text ("Hallo aus dem Test-Modell.")
  *
- * Control endpoints: GET /__fake/requests (received requests, truncated), POST /__fake/reset, GET /__fake/health.
+ * Control endpoints: GET /__fake/requests (received requests: last message as JSON, truncated, and the text of the user messages, the end of it), POST /__fake/reset, GET /__fake/health.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -126,7 +126,7 @@ function reply(res: ServerResponse, body: MessagesBody) {
 
 const readBody = (req: IncomingMessage) => new Promise<string>((ok, fail) => { let s = ''; req.setEncoding('utf8'); req.on('data', c => { s += c; }); req.on('end', () => ok(s)); req.on('error', fail); });
 
-export interface FakeAnthropic { url: string; port: number; requests: { path: string; tools: string[]; last: string }[]; close(): Promise<void> }
+export interface FakeAnthropic { url: string; port: number; requests: { path: string; tools: string[]; last: string; text: string }[]; close(): Promise<void> }
 
 export async function startFakeAnthropic(opts: { port?: number; host?: string; quiet?: boolean } = {}): Promise<FakeAnthropic> {
   const requests: FakeAnthropic['requests'] = [];
@@ -141,7 +141,7 @@ export async function startFakeAnthropic(opts: { port?: number; host?: string; q
       if (path === '/v1/messages' && req.method === 'POST') {
         const body = JSON.parse(raw) as MessagesBody;
         const last = body.messages?.at(-1);
-        requests.push({ path, tools: (body.tools ?? []).map(t => t.name), last: last ? JSON.stringify(last.content).slice(0, 300) : '' });
+        requests.push({ path, tools: (body.tools ?? []).map(t => t.name), last: last ? JSON.stringify(last.content).slice(0, 300) : '', text: (body.messages ?? []).filter(m => m.role === 'user').map(textOf).join('\n').slice(-8000) });
         if (!opts.quiet) console.log(`[anthropic-fake] ${path} tools=${(body.tools ?? []).map(t => t.name).join(",")} last=${JSON.stringify(last?.content ?? "").slice(0, 200)} → ${JSON.stringify(nextTurn(body)).slice(0, 120)}`);
         reply(res, body);
         return;

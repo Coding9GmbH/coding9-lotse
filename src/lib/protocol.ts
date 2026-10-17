@@ -129,6 +129,10 @@ export type ChatEvent =
    *  Sent again with the same approvalId, decision false and error when attaching failed after the click (the card shows it);
    *  restart: still open when Lotse restarted (closed as declined). */
   | { t: 'internet_request'; approvalId: string; reason: string; decision?: boolean; error?: string; restart?: boolean }
+  /** Feedback on the task's pull request found by the watcher (pr-watch.ts): reviews, comments, failed checks (third-party text,
+   *  redacted and capped), or the PR was merged/closed (state). handedOver: the user handed it to the AI ("An KI übergeben").
+   *  The same id again updates the card (the watcher's event also reaches an open panel, see TaskEvent 'chat'). */
+  | { t: 'pr_feedback'; id: string; taskId: string; number: number; url: string; items: PrFeedbackItem[]; more?: number; state?: 'merged' | 'closed'; handedOver?: boolean }
   /** A sandbox was attached to this chat (by the user) */
   | { t: 'sandbox_attached'; taskId: string; repo: string; baseBranch: string }
   /** First line when reconnecting to a chat: history so far + whether it's still running */
@@ -139,7 +143,7 @@ export type FileChangeKind = 'create' | 'edit' | 'delete';
 
 // ---- REST ----
 /** locale: language of the AI responses (set by the server from cookie/Accept-Language) */
-export interface ChatRequest { chatId: string; message: string; target?: Target | null; onboarding?: boolean; locale?: Locale }
+export interface ChatRequest { chatId: string; message: string; target?: Target | null; onboarding?: boolean; locale?: Locale; /** "An KI übergeben": id of a pr_feedback event of this chat, wrapped as data into the prompt by the server */ prFeedback?: string }
 /** status: currently running ("running") or waiting for the human's reply/approval ("waiting"); missing = idle */
 export type ChatStatus = 'running' | 'waiting';
 /** Page size of the chat list (/api/chats): a full page means "there may be more". */
@@ -298,7 +302,9 @@ export type ShotDevice = 'desktop' | 'mobile';
 export interface TaskShot { path: string; device: ShotDevice; url: string }
 export interface TaskShotSet { at: string; shots: TaskShot[]; /** why some or all shots are missing */ error?: string }
 export interface TaskShots { before: TaskShotSet | null; after: TaskShotSet | null }
-export interface TaskPr { number: number; url: string; title: string }
+export interface TaskPr { number: number; url: string; title: string; /** seen by the PR watcher: merged or closed (missing = open or unknown) */ state?: 'merged' | 'closed' }
+/** One piece of PR feedback: review (state APPROVED/CHANGES_REQUESTED/COMMENTED), comment on the PR, line comment (path/line), failed check (name) */
+export interface PrFeedbackItem { kind: 'review' | 'comment' | 'line' | 'check'; id: string; author?: string; state?: string; name?: string; path?: string; line?: number; body: string; url?: string }
 export type PublishStep = 'check' | 'screenshots' | 'commit' | 'push' | 'pr';
 export interface TaskPublish { state: 'running' | 'failed' | 'interrupted'; step: PublishStep; error?: string; at: string }
 /** POST /api/sandbox/tasks/[id]/publish: title and description only (branch and base are fixed by the server) */
@@ -313,7 +319,9 @@ export interface TaskDumpPublic { name: string; size: number; sha256: string | n
 /** An uploaded dump (GET/POST /api/sandbox/dumps…): metadata, never the content */
 export interface DumpPublic { id: string; name: string; size: number; received: number; status: 'uploading' | 'ready' | 'deleted'; sha256: string | null; taskId: string | null; expiresAt: string }
 /** NDJSON lines of GET /api/sandbox/tasks/[id]/events: full task on transitions, single log lines in between */
-export type TaskEvent = { t: 'task'; task: CodeTaskPublic } | { t: 'log'; step: string; line: string } | { t: 'deleted' };
+export type TaskEvent = { t: 'task'; task: CodeTaskPublic } | { t: 'log'; step: string; line: string } | { t: 'deleted' }
+  /** an event the server added to the task's chat between turns (PR feedback): the open workspace shows it without reloading */
+  | { t: 'chat'; event: ChatEvent };
 /** SEO overview: levers from Search Console and Sistrix as ready-made tasks (prompt) for a new chat */
 export interface SeoItem { id: string; source: 'gsc' | 'sistrix' | 'site'; kind: 'meta' | 'gap' | 'striking' | 'cannibal' | 'decline' | 'keyword' | 'onpage' | 'site'; title: string; detail: string; metrics: { label: string; value: string }[]; /** sort value (estimated impact) */ impact: number; prompt: string; /** done/ignored by the user: hidden */ mark?: SeoMark }
 /** Done = hidden until a fetch at least SEO_DONE_RECHECK_DAYS later still reports the lever; ignored = hidden permanently */

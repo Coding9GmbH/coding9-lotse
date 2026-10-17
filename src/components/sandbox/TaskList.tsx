@@ -20,7 +20,8 @@ export function TaskStatus({ task }: { task: Pick<CodeTaskPublic, 'status' | 'pr
 /** Sandboxes with status, repository and pull request (#number, links to GitHub). A row opens the chat the sandbox is attached to (the workspace shows it on the right);
  *  a finished one without its chat opens the task's overview. */
 export function TaskList({ tasks }: { tasks: CodeTaskPublic[] }) {
-  const t = useI18n().t.sandbox.tasks;
+  const { t: all } = useI18n();
+  const t = all.sandbox.tasks, prState = all.sandbox.code.pr.state;
   const { nav } = useShell();
   if (!tasks.length) return <p className={styles.empty}>{t.empty}</p>;
   return (
@@ -38,7 +39,7 @@ export function TaskList({ tasks }: { tasks: CodeTaskPublic[] }) {
             {task.chatId
               ? <Link href="/" className={styles.taskRow} title={t.openChat} onClick={e => { e.preventDefault(); nav.openChat(task.chatId!); }}>{inner}</Link>
               : <Link href={`/sandbox-coding/${task.id}`} className={styles.taskRow}>{inner}</Link>}
-            {task.pr && <a className={styles.taskPr} href={task.pr.url} target="_blank" rel="noopener noreferrer" title={task.pr.title}>#{task.pr.number}</a>}
+            {task.pr && <a className={styles.taskPr} href={task.pr.url} target="_blank" rel="noopener noreferrer" title={task.pr.title}>#{task.pr.number}{task.pr.state ? ` · ${prState[task.pr.state]}` : ''}</a>}
           </li>
         );
       })}

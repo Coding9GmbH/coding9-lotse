@@ -2,7 +2,8 @@ import 'server-only';
 // After a Lotse restart: steps (and a publish) that were running become "interrupted"; labelled containers without a task (or of a finished task)
 // are removed; the containers of the other tasks keep their state (a running one stays ready, a stopped one is paused) and their
 // internet access only if it was allowed and the container still runs.
-// Also starts the idle sweeper (one interval per process, unref: never keeps the process alive), which also deletes stale dumps.
+// Also starts the idle sweeper (one interval per process, unref: never keeps the process alive), which also deletes stale dumps,
+// and the watcher of open pull requests (pr-watch.ts).
 // Dumps are swept at startup whether Sandbox Coding is on or not: a leftover file must never outlive its 24 h.
 import { log } from '../log';
 import { singleton } from '../state';
@@ -11,6 +12,7 @@ import { sweepDumps } from './dumps';
 import { sandboxEnabled } from './env';
 import { reconcileInternet } from './internet';
 import { pauseIdle } from './jobs';
+import { resetPrWatch, startPrWatch } from './pr-watch';
 import { TASK_LABEL } from './labels';
 import { getRunner } from './runner';
 import { getTask, hasListeners, listTasks, publishRunning, saveTask, turnRunning, type CodeTask } from './tasks';
@@ -95,6 +97,7 @@ export function startSweeper() {
     if (Date.now() - lastDumps >= DUMP_SWEEP_MS) { lastDumps = Date.now(); sweepDumpsNow(); }
   }, SWEEP_MS);
   s.sweeper.unref?.();
+  startPrWatch(); // feedback on open pull requests (pr-watch.ts); does nothing while switched off or without GitHub
 }
 /** Tests: forget the per-process state. */
-export const resetReconcile = () => { const s = state(); if (s.sweeper) clearInterval(s.sweeper); s.sweeper = null; s.done = null; };
+export const resetReconcile = () => { const s = state(); if (s.sweeper) clearInterval(s.sweeper); s.sweeper = null; s.done = null; resetPrWatch(); };

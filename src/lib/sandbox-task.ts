@@ -7,6 +7,7 @@ const LOG_LINES = 200;
 export function applyTaskEvent(task: CodeTaskPublic | null, ev: TaskEvent): CodeTaskPublic | null {
   if (ev.t === 'task') return ev.task;
   if (ev.t === 'deleted' || !task) return ev.t === 'deleted' ? null : task;
+  if (ev.t === 'chat') return task; // for the chat log, not the task
   return { ...task, steps: task.steps.map(s => (s.id === ev.step ? { ...s, log: [...s.log, ev.line].slice(-LOG_LINES) } : s)) };
 }
 

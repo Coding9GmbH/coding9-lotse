@@ -5,7 +5,7 @@
 import { DEFAULT_LOCALE, INTL_LOCALE, messages, type Locale } from './i18n';
 import { parseAttachments, type Attachment, type FileAttachment } from './attachments';
 import { toolLabel } from './labels';
-import type { ChangeSet, ChatDetail, ChatEvent, DraftAudit, FileChangeKind, PublishedInfo, Styleguide, Target, UndoOutcome } from './protocol';
+import type { ChangeSet, ChatDetail, ChatEvent, DraftAudit, FileChangeKind, PrFeedbackItem, PublishedInfo, Styleguide, Target, UndoOutcome } from './protocol';
 import { asList, shopProxyPath } from './urls';
 
 export type StepState = 'run' | 'done' | 'bad';
@@ -38,6 +38,8 @@ export type LogItem =
   | { kind: 'pr'; key: string; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
   | { kind: 'sandbox_offer'; key: string; id: string; repo: string; baseBranch: string; reason: string }
   | { kind: 'sandbox_attached'; key: string; repo: string; baseBranch: string }
+  /** feedback on the sandbox's pull request (pr-watch.ts) or its merge/close; handedOver: given to the AI ("An KI übergeben") */
+  | { kind: 'pr_feedback'; key: string; id: string; taskId: string; number: number; url: string; items: PrFeedbackItem[]; more?: number; state?: 'merged' | 'closed'; handedOver?: boolean }
   /** request_internet: the AI asks for internet in the task container; decision = the user's click (sent: clicked, answer pending) */
   | { kind: 'internet'; key: string; approvalId: string; reason: string; decision?: boolean; error?: string; restart?: boolean; interactive: boolean };
 
@@ -253,6 +255,11 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
     case 'pr': return push(s, { kind: 'pr', taskId: ev.taskId, number: ev.number, url: ev.url, title: ev.title, action: ev.action, files: ev.files })[0];
     case 'sandbox_offer': return push(s, { kind: 'sandbox_offer', id: ev.id, repo: ev.repo, baseBranch: ev.baseBranch, reason: ev.reason })[0];
     case 'sandbox_attached': return push(s, { kind: 'sandbox_attached', repo: ev.repo, baseBranch: ev.baseBranch })[0];
+    case 'pr_feedback': {
+      // the same card can arrive twice (chat stream and the sandbox panel) or again marked as handed over: one card
+      if (s.items.some(i => i.kind === 'pr_feedback' && i.id === ev.id)) return ev.handedOver ? update(s, 'pr_feedback', i => i.id === ev.id, i => ({ ...i, handedOver: true })) : s;
+      return push(s, { kind: 'pr_feedback', id: ev.id, taskId: ev.taskId, number: ev.number, url: ev.url, items: ev.items, more: ev.more, state: ev.state, handedOver: ev.handedOver })[0];
+    }
     case 'internet_request': {
       // the same approvalId again = the outcome after the click (attaching failed): the card changes, no second card
       const next = update(s, 'internet', i => i.approvalId === ev.approvalId, i => ({ ...i, decision: ev.decision, error: ev.error, interactive: false }));

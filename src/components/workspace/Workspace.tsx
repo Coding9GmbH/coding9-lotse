@@ -32,6 +32,7 @@ import { StyleguideDialog } from '@/components/dialogs/StyleguideDialog';
 import { AttachSandboxDialog } from '@/components/sandbox/AttachSandboxDialog';
 import { SandboxPanel } from '@/components/sandbox/SandboxPanel';
 import type { SandboxOfferActions } from '@/components/sandbox/CommandCard';
+import type { PrFeedbackActions } from '@/components/sandbox/PrFeedbackCard';
 import type { PrProposal } from '@/components/sandbox/PublishCard';
 import styles from './Workspace.module.css';
 
@@ -51,7 +52,7 @@ const narrow = () => typeof window !== 'undefined' && window.matchMedia('(max-wi
 export function Workspace({ initialChatId, initialChat }: { initialChatId: string; initialChat: ChatDetail | null }) {
   const shell = useShell();
   const { health, setup, chats, reloadChats: loadHistory, setActiveChatId, setContextName, setStyleguide: shareStyleguide } = shell;
-  const { locale, t: { workspace: t, context: tc, sandbox: { code: tsb } } } = useI18n();
+  const { locale, t: { workspace: t, context: tc, sandbox: { code: tsb, task: tst } } } = useI18n();
   // Initial state straight from the server data (stored chat, styleguide), so nothing jumps on load
   const [state, dispatch] = useReducer(chatReducer, null, () => {
     const base = { ...initialChatState, locale, styleguide: shell.styleguide };
@@ -145,14 +146,14 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
 
   // ---- Run chat ----
   // extra.chatId: start a run in a just-created chat (the state doesn't know the new ID yet)
-  const run = async (message: string, extra: { onboarding?: boolean; chatId?: string } = {}) => {
+  const run = async (message: string, extra: { onboarding?: boolean; chatId?: string; prFeedback?: string } = {}) => {
     const id = extra.chatId ?? chatId;
     if (busyRef.current || !id) return;
     busyRef.current = true;
     const gen = ++runGen.current;
     let conflict = false;
     dispatch({ type: 'run_start', text: message });
-    await stream.run({ chatId: id, message, target: extra.chatId ? null : pickTarget(target), onboarding: extra.onboarding }, {
+    await stream.run({ chatId: id, message, target: extra.chatId ? null : pickTarget(target), onboarding: extra.onboarding, prFeedback: extra.prFeedback }, {
       onEvent: event => {
         if (gen !== runGen.current) return;
         liveEvent(event);
@@ -381,6 +382,20 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       api.sandbox.createTask({ chatId, repo: o.repo, baseBranch: o.baseBranch }).then(r => attached(r.task), e => reportError(errorText(e))).finally(() => setSbxBusy(false));
     },
   } : undefined;
+  // PR feedback (pr-watch.ts): hand it to the AI (the server wraps it as data), or finish the task once the PR is merged/closed
+  const prFeedback: PrFeedbackActions | undefined = shell.sandbox ? {
+    attachedTaskId: taskId, busy: busy || sbxBusy,
+    handOff: f => {
+      if (busyRef.current) return;
+      dispatch({ type: 'event', event: { t: 'pr_feedback', id: f.id, taskId: f.taskId, number: f.number, url: f.url, items: f.items, handedOver: true }, mode: 'live' });
+      void run(tsb.feedback.handOffText(f.number, f.items.length), { prFeedback: f.id });
+    },
+    finish: id => {
+      if (!window.confirm(tst.finishConfirm(sbxTask?.title ?? ''))) return;
+      setSbxBusy(true);
+      api.sandbox.taskAction(id, 'finish').then(r => onSandboxTask(r.task), e => reportError(errorText(e))).finally(() => setSbxBusy(false));
+    },
+  } : undefined;
   const sandboxSetup = !!taskId && (!sbxTask || sbxTask.status === 'setting_up');
   const latestProposal = useMemo(() => {
     const p = state.items.findLast(i => i.kind === 'publish');
@@ -452,7 +467,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
                 </div>
               )}
               {target && !taskId && <TargetCard target={target} cfg={cfg} onClear={() => selectTarget(null)} />}
-              <ChatLog items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} sandbox={sandboxActions} onReviewPublish={taskId ? reviewPublish : undefined} />
+              <ChatLog items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} sandbox={sandboxActions} onReviewPublish={taskId ? reviewPublish : undefined} prFeedback={prFeedback} />
               {status}
               <Chips items={chips} onPick={s => { setInput(s); inputRef.current?.focus(); }} />
               {composer}
@@ -462,7 +477,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
 
         {taskId ? (
           <SandboxPanel key={taskId} taskId={taskId} className={styles.right} reload={state.previewReload} busy={busy} files={state.items.filter(i => i.kind === 'file').length}
-            onClose={overlay ? () => setPreviewOpen(false) : undefined} onTask={onSandboxTask} proposal={proposal} openPr={openPr} onPublished={published}
+            onClose={overlay ? () => setPreviewOpen(false) : undefined} onTask={onSandboxTask} onChatEvent={liveEvent} proposal={proposal} openPr={openPr} onPublished={published}
             onSendNotes={text => { if (busyRef.current) setInput(text); else { setPreviewOpen(false); void run(text); } }} />
         ) : <PreviewPane className={styles.right} tab={state.tab} onTab={t => dispatch({ type: 'set_tab', tab: t })} draft={state.draft}
           liveUrl={liveUrl} onOpenAudit={() => setAuditOpen(true)} busy={busy} onClose={overlay ? () => setPreviewOpen(false) : undefined}
