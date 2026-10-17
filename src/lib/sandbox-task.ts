@@ -58,11 +58,11 @@ export function shortPath(p: string, max = 44): string {
 }
 
 /** Why a pending step will be skipped anyway: no dump (version check, import) or a new plugin from an empty repository (nothing to
- *  install or compile yet). Shown as "wird übersprungen" from the start; null = it runs. */
+ *  install, nor to compile unless a dump was imported). Shown as "wird übersprungen" from the start; null = it runs. */
 export function skipReason(task: Pick<CodeTaskPublic, 'dump'> & { layout?: CodeTaskPublic['layout'] }, s: Pick<TaskStep, 'key' | 'state'>): 'noDump' | 'newPlugin' | null {
   if (s.state !== 'pending') return null;
   if (!task.dump && (s.key === 'version-check' || s.key === 'import-db')) return 'noDump';
-  if (task.layout?.isNew && (s.key === 'install-plugin' || s.key === 'theme-compile')) return 'newPlugin';
+  if (task.layout?.isNew && (s.key === 'install-plugin' || (s.key === 'theme-compile' && !task.dump))) return 'newPlugin';
   return null;
 }
 export const willSkip = (task: Parameters<typeof skipReason>[0], s: Pick<TaskStep, 'key' | 'state'>) => skipReason(task, s) !== null;

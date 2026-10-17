@@ -259,6 +259,7 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
       if (d.deletedAt) throw new Error('Der Dump wurde nach dem fehlgeschlagenen Import gelöscht – bitte erneut hochladen („Datenbank ersetzen“).');
       return { name: d.name, size: d.size, ignoreVersion: d.ignoreVersion };
     },
+    hasDump: () => !!t.dump,
     dumpVersion: async () => (t.dump ? dumpShopwareVersion(dumpPathFor(t.dump.id, t.id)) : null),
     setVersionMismatch: v => { if (!t.dump) return; if (v) t.dump.versionMismatch = v; else delete t.dump.versionMismatch; saveTask(t); },
     copyDump: async dir => {

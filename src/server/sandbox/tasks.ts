@@ -5,6 +5,7 @@ import 'server-only';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
+import { DEFAULT_LOCALE, messages, type Locale } from '@/lib/i18n';
 import type { CodeTaskPublic, CodeTaskStatus, TaskDumpPublic, CommandPhase, ShotDevice, TaskEvent, TaskLayout, TaskPublish, TaskShotSet, TaskStep } from '@/lib/protocol';
 import { PLUGIN_NAME } from '@/lib/sandbox-task';
 import { codeTaskByChat, codeTaskGet, codeTaskList, codeTaskPut, dataDir, macOf, type CodeTaskRow } from '../db';
@@ -177,13 +178,14 @@ export function planSteps(templateId: string, commands: { id: string; label: str
 export interface NewTask { chatId: string; title?: string; goal?: string; repo: string; baseBranch: string; dumpId?: string; pluginName?: string }
 /** Creates the row only (not running yet: runSteps sets setting_up), bound to the chat it was started from.
  *  Title (branch name, list): given, otherwise the repository's name. Own commands are taken from the environment now. */
-export const ATTACHED_MSG = 'An diesem Chat hängt schon eine Sandbox. Erst „Aufgabe abschließen“, dann eine neue starten.';
-export function createTask(p: NewTask): CodeTask {
+export const attachedMsg = (locale: Locale = DEFAULT_LOCALE) => messages(locale).server.sandboxAttached;
+export const pluginNameMsg = (locale: Locale = DEFAULT_LOCALE) => messages(locale).server.pluginNameInvalid;
+export function createTask(p: NewTask, locale: Locale = DEFAULT_LOCALE): CodeTask {
   const cfg = getSandboxConfig(), id = newTaskId(), ts = now();
   if (!p.chatId) throw new Error('Chat fehlt.');
   // checked again here, without an await before codeTaskPut: two overlapping requests never attach two sandboxes to one chat
-  if (attachedTask(p.chatId)) throw Object.assign(new Error(ATTACHED_MSG), { status: 409 });
-  if (p.pluginName && !PLUGIN_NAME.test(p.pluginName)) throw Object.assign(new Error(PLUGIN_NAME_MSG), { status: 400 });
+  if (attachedTask(p.chatId)) throw Object.assign(new Error(attachedMsg(locale)), { status: 409 });
+  if (p.pluginName && !PLUGIN_NAME.test(p.pluginName)) throw Object.assign(new Error(pluginNameMsg(locale)), { status: 400 });
   const title = (p.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || `Sandbox ${p.repo.split('/').pop() ?? p.repo}`;
   const t: CodeTask = {
     id, chatId: p.chatId, template: cfg.templateId, repo: p.repo, baseBranch: p.baseBranch, branch: branchFor(title, id),
@@ -195,8 +197,6 @@ export function createTask(p: NewTask): CodeTask {
   codeTaskPut(t);
   return t;
 }
-
-export const PLUGIN_NAME_MSG = 'Ungültiger Plugin-Name: Buchstaben und Ziffern, beginnt mit einem Großbuchstaben, 2 bis 61 Zeichen (z. B. CoNineHeaderBanner).';
 
 /** A new plugin (empty repository) becomes an ordinary one once the AI has written composer.json and the plugin class: the layout
  *  then says what the repository is (plugin or theme, the class's name). The folder in the container stays where the setup put it,

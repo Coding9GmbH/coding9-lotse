@@ -23,11 +23,12 @@ export function Menu({ label, items, className, align = 'end' }: { label: string
   useEffect(() => {
     if (!open) return;
     const away = (e: Event) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(false); btn.current?.focus(); } };
+    // capture phase + preventDefault: the Escape is consumed here, so other Escape handlers (e.g. leaving full screen) can skip it
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); setOpen(false); btn.current?.focus(); } };
     document.addEventListener('pointerdown', away);
-    document.addEventListener('keydown', key);
+    document.addEventListener('keydown', key, true);
     ref.current?.querySelector<HTMLElement>('[role=menuitem]:not([aria-disabled=true])')?.focus();
-    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', key); };
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', key, true); };
   }, [open]);
   const move = (e: React.KeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;

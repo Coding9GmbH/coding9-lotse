@@ -152,7 +152,7 @@ test('routes: concurrent publish 409, a running agent turn 409, strict body (no 
   write(task.id, 'README.md', '# AcmeTheme\n\nmit Gratis Versand\n');
   const [a, b] = await Promise.all([post(task.id, { title: 'README', body: '' }), post(task.id, { title: 'README', body: '' })]);
   assert.deepEqual([a.status, b.status].sort(), [200, 409]);
-  assert.match(((await (a.status === 409 ? a : b).json()) as { error: string }).error, /gerade veröffentlicht/);
+  assert.match(((await (a.status === 409 ? a : b).json()) as { error: string }).error, /Sandbox wird gerade veröffentlicht/);
   T.markTurn(task.id, true);
   const busy = await post(task.id, { title: 'README', body: '' });
   T.markTurn(task.id, false);
@@ -210,6 +210,15 @@ test('push errors: only a real 403 of GitHub is the token hint; protection, move
   assert.match(hook, /\n.*pre-receive hook declined/, 'git\'s report follows after the first line');
   assert.match(first(P.pushErrorText('! [remote rejected] HEAD -> lotse/x (push declined due to email privacy restrictions)', t)), /^Push abgelehnt: push declined due to email privacy restrictions$/);
   assert.match(first(P.pushErrorText('fatal: unable to access \'https://github.com/acme/x.git/\': Could not resolve host: github.com', t)), /^Push fehlgeschlagen: unable to access/);
+  // GitHub's real reports: GH007 (private e-mail) is no branch protection; GH001 (large file) names its reason, not the Trace id
+  const gh007 = ['remote: error: GH007: Your push would publish a private email address.', 'remote: You can make your email public or disable this protection by visiting:', 'remote: https://github.com/settings/emails', 'To https://github.com/acme/shop-theme.git', ' ! [remote rejected] HEAD -> lotse/header-abc123 (push declined due to email privacy restrictions)', 'error: failed to push some refs to \'https://github.com/acme/shop-theme.git\''].join('\n');
+  assert.equal(first(P.pushErrorText(gh007, t)), 'Push abgelehnt: GH007: Your push would publish a private email address.');
+  const gh001 = ['remote: Resolving deltas: 100% (3/3), completed with 2 local objects.', 'remote: error: Trace: b5bd4c3e0f6c9a1f2e7d8a9b0c1d2e3f', 'remote: error: See https://gh.io/lfs for more information.', 'remote: error: File big.bin is 120.00 MB; this exceeds GitHub\'s file size limit of 100.00 MB', 'remote: error: GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.', 'To https://github.com/acme/shop-theme.git', ' ! [remote rejected] HEAD -> lotse/header-abc123 (pre-receive hook declined)'].join('\n');
+  assert.equal(first(P.pushErrorText(gh001, t)), 'Push abgelehnt: GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.');
+  const gh013 = ['remote: error: GH013: Repository rule violations found for refs/heads/lotse/header-abc123.', 'remote: Review all repository rules at https://github.com/acme/shop-theme/rules?ref=refs%2Fheads%2Flotse%2Fheader-abc123', 'remote:', 'remote: - Cannot update this protected ref.', ' ! [remote rejected] HEAD -> lotse/header-abc123 (push declined due to repository rule violations)'].join('\n');
+  assert.match(first(P.pushErrorText(gh013, t)), /^Branch-Schutz verhindert den Push auf lotse\/header-abc123/);
+  const secret = ['remote: error: GH013: Repository rule violations found for refs/heads/lotse/header-abc123.', 'remote:', 'remote: - GITHUB PUSH PROTECTION', 'remote:   —————————————————————————————————————————', 'remote:     Resolve the following violations before pushing again', 'remote:', 'remote:     - Push cannot contain secrets', ' ! [remote rejected] HEAD -> lotse/header-abc123 (push declined due to repository rule violations)'].join('\n');
+  assert.equal(first(P.pushErrorText(secret, t)), 'Push abgelehnt: Push cannot contain secrets');
   assert.match(first(P.pushErrorText('remote: Permission to acme/shop-theme.git denied to bot.\nfatal: The requested URL returned error: 403', t, 'en')), /^No write access to acme\/shop-theme/);
 });
 

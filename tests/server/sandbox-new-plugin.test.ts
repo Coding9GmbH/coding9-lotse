@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import '../isolate-data';
 import type { ChatEvent } from '@/lib/protocol';
 import { makePluginRepo } from '../support/plugin-repo';
@@ -38,6 +39,7 @@ const { detectLayout } = await import('../../src/server/sandbox/templates/dockwa
 const { codeSystemFor } = await import('../../src/server/prompt');
 const { startSandboxTool } = await import('../../src/server/sandbox/offer-tool');
 const L = await import('../../src/lib/sandbox-task');
+const D = await import('../../src/server/sandbox/dumps');
 const tasksRoute = await import('../../src/app/api/sandbox/tasks/route');
 const probeRoute = await import('../../src/app/api/sandbox/repo-probe/route');
 
@@ -80,6 +82,10 @@ test('helpers: empty listings, suggested names, the name pattern and skip reason
   assert.equal(L.skipReason({ dump: null, layout }, { key: 'theme-compile', state: 'pending' }), 'newPlugin');
   assert.equal(L.skipReason({ dump: null, layout: { ...layout, isNew: false } }, { key: 'install-plugin', state: 'pending' }), null);
   assert.equal(L.skipReason({ dump: null, layout }, { key: 'import-db', state: 'pending' }), 'noDump');
+  // with a dump the imported themes still get compiled and the cache cleared
+  const dump = { name: 'shop.sql', size: 1, sha256: null, imported: false, deleted: false, ignoreVersion: false };
+  assert.equal(L.skipReason({ dump, layout }, { key: 'theme-compile', state: 'pending' }), null);
+  assert.equal(L.skipReason({ dump, layout }, { key: 'install-plugin', state: 'pending' }), 'newPlugin');
 });
 
 test('detectLayout: an empty repository is a new plugin (chosen or derived name); anything else needs a plugin composer.json', () => {
@@ -161,7 +167,32 @@ test('without a chosen name the plugin is named after the repository', async () 
   await J.deleteTask(t.id);
 });
 
-const post = (body: unknown) => tasksRoute.POST(new Request('http://127.0.0.1/api/sandbox/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
+test('a new plugin with a dump: the imported shop is compiled and the cache cleared, the plugin still not installed', async () => {
+  fake.script = argv => (argv[1] === '--version' ? { output: 'Shopware 6.7.15.1 (env: dev, debug: true)' } : undefined);
+  try {
+    const data = Buffer.from("-- MySQL dump\nINSERT INTO `migration` VALUES ('Shopware\\\\Core\\\\Migration\\\\V6_7\\\\Migration1700000000Foo',1,NULL,NULL,NULL);\n");
+    const d = D.createDump('shop.sql', data.length);
+    await D.appendChunk(d.id, 0, Readable.from([data]));
+    const dump = await D.completeDump(d.id);
+    const t = T.createTask({ chatId: crypto.randomUUID(), title: 'Mit Dump', goal: '', repo: 'conine/header-banner', baseBranch: 'main', pluginName: NAME, dumpId: dump.id });
+    J.runSteps(t.id); await settled(t.id);
+    const done = T.getTask(t.id)!;
+    assert.equal(done.status, 'ready', done.error ?? '');
+    const state = (k: string) => done.steps.find(s => s.key === k)!.state;
+    assert.equal(state('import-db'), 'done');
+    assert.equal(state('install-plugin'), 'skipped');
+    assert.equal(state('theme-compile'), 'done');
+    const argv = execs(done.containerId!);
+    const at = (cmd: string) => argv.findIndex(a => a[1] === cmd);
+    const imp = argv.findIndex(a => a[0] === 'bash' && a[1] === '-c' && a[2].includes('mysql'));
+    assert.ok(imp >= 0 && imp < at('theme:compile') && at('theme:compile') < at('cache:clear'), 'compiled and cleared after the import');
+    assert.ok(!argv.some(a => a.includes('plugin:install')), 'the empty plugin is not installed');
+    assert.equal(L.skipReason(T.publicTask(done), { key: 'theme-compile', state: 'pending' }), null);
+    await J.deleteTask(t.id);
+  } finally { fake.script = () => undefined; }
+});
+
+const post = (body: unknown, lang = 'de') => tasksRoute.POST(new Request('http://127.0.0.1/api/sandbox/tasks', { method: 'POST', headers: { 'content-type': 'application/json', 'accept-language': lang }, body: JSON.stringify(body) }));
 const probe = (q: string) => probeRoute.GET(new Request(`http://127.0.0.1/api/sandbox/repo-probe?${q}`));
 
 test('routes: the probe tells an empty repository with a suggested name; creating validates the technical name', async () => {
@@ -172,9 +203,16 @@ test('routes: the probe tells an empty repository with a suggested name; creatin
   const bad = await post({ chatId: crypto.randomUUID(), repo: 'conine/header-banner', baseBranch: 'main', pluginName: 'header-banner' });
   assert.equal(bad.status, 400);
   assert.match(JSON.stringify(await bad.json()), /Ungültiger Plugin-Name/);
-  const res = await post({ chatId: crypto.randomUUID(), repo: 'conine/header-banner', baseBranch: 'main', pluginName: NAME });
+  assert.match(JSON.stringify(await (await post({ chatId: crypto.randomUUID(), repo: 'conine/header-banner', baseBranch: 'main', pluginName: 'x' }, 'en')).json()), /Invalid plugin name/);
+  const chatId = crypto.randomUUID();
+  const res = await post({ chatId, repo: 'conine/header-banner', baseBranch: 'main', pluginName: NAME });
   assert.equal(res.status, 201);
   const { task } = await res.json() as any;
+  // one sandbox per chat, in the user's language and with the button's current name
+  const twice = await post({ chatId, repo: 'conine/header-banner', baseBranch: 'main' }, 'en');
+  assert.equal(twice.status, 409);
+  assert.match(JSON.stringify(await twice.json()), /“Finish sandbox” first/);
+  assert.match(JSON.stringify(await (await post({ chatId, repo: 'conine/header-banner', baseBranch: 'main' })).json()), /Erst „Sandbox abschließen“/);
   assert.equal(task.pluginName, NAME);
   await settled(task.id);
   assert.equal(T.getTask(task.id)!.layout?.name, NAME);

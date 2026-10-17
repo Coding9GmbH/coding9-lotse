@@ -126,8 +126,12 @@ export async function preflight(t: CodeTask): Promise<Changed[]> {
 /** First line that says why: a remote message ("remote: …"), the reason of a refused ref ("! … [remote rejected] (why)"), or git's error line. */
 function firstReason(detail: string): string {
   const lines = detail.split('\n').map(l => l.trim()).filter(Boolean);
-  const remote = lines.map(l => /^remote:\s*(.*)$/i.exec(l)?.[1].trim() ?? '').find(l => l && !/^[-=*]+$/.test(l));
-  if (remote) return remote.replace(/^error:\s*/i, '');
+  // GitHub's remote lines: progress, ruler, Trace id, "See https://…" and bare links are noise; the line with a GHxxx code carries the reason
+  const remote = lines.map(l => (/^remote:\s*(.*)$/i.exec(l)?.[1].trim() ?? '').replace(/^error:\s*/i, ''))
+    .filter(l => l && !/^[-=*—_\s]+$/.test(l) && !/^(Trace:|See https?:|https?:\/\/\S+$|Resolving deltas|Counting objects|Compressing objects|Total \d)/i.test(l));
+  const secret = remote.find(l => /cannot contain secrets/i.test(l));
+  const coded = remote.find(l => /^GH\d{3}:/.test(l));
+  if (secret || coded || remote[0]) return (secret ?? coded ?? remote[0]).replace(/^-\s*/, '');
   const refused = lines.map(l => /\[(?:remote )?rejected\][^(]*\(([^)]+)\)/.exec(l)?.[1]).find(Boolean);
   if (refused) return refused;
   const err = lines.find(l => /^(fatal|error):/i.test(l)) ?? lines[0] ?? '';
@@ -141,7 +145,8 @@ function firstReason(detail: string): string {
 export function pushErrorText(detail: string, t: Pick<CodeTask, 'repo' | 'branch'>, locale: Locale = DEFAULT_LOCALE): string {
   const L = messages(locale).server, d = redact(detail).trim();
   const reason = firstReason(d).slice(0, 200);
-  const summary = /\bGH00[6-9]\b|\bGH01[0-9]\b|protected branch|rule violations/i.test(d) ? L.pushProtected(t.branch)
+  // GH006 = protected branch, GH013 = repository rules; GH013 for a secret found by push protection is a refusal with its own reason
+  const summary = /\bGH006\b|\bGH013\b|protected branch|rule violations/i.test(d) && !/push protection|cannot contain secrets/i.test(d) ? L.pushProtected(t.branch)
     : /stale info|fetch first|non-fast-forward|(?<!remote )\[rejected\]/i.test(d) ? L.pushMoved(t.branch)
       : /The requested URL returned error: 403|Permission to \S+ denied to|Write access to repository not granted/i.test(d) ? L.pushNoPermission(t.repo)
         : /^remote:|\[remote rejected\]|pre-receive hook declined|push declined/im.test(d) ? L.pushRejected(reason)
@@ -177,10 +182,10 @@ export interface PublishOutcome { task: CodeTask; pr: TaskPr; action: 'created' 
 export function publishTask(id: string, input: { title: string; body: string }, locale: Locale = DEFAULT_LOCALE): Promise<PublishOutcome> {
   const t = mustTask(id);
   if (!githubConnected()) throw fail(400, 'GitHub ist nicht verbunden (Einstellungen → Integrationen).');
-  if (publishRunning(id)) throw new TaskConflict('Für diese Aufgabe wird gerade veröffentlicht.');
-  if (setupBusy(id)) throw new TaskConflict('Für diese Aufgabe läuft gerade die Einrichtung oder der Abschluss – bitte warten.');
+  if (publishRunning(id)) throw new TaskConflict(messages(locale).server.publishRunning);
+  if (setupBusy(id)) throw new TaskConflict(messages(locale).server.publishSetupBusy);
   if (turnRunning(id)) throw new TaskConflict('Die KI arbeitet gerade in dieser Sandbox – warte, bis die Runde fertig ist (oder stoppe sie).');
-  if (t.status === 'done') throw new TaskConflict('Die Aufgabe ist abgeschlossen.');
+  if (t.status === 'done') throw new TaskConflict(messages(locale).server.publishTaskDone);
   if (!t.steps.some(s => s.key === 'clone' && s.state === 'done') || !fs.existsSync(taskPaths(id).worktree)) throw new TaskConflict('Das Repository ist noch nicht geklont – erst die Einrichtung abwarten.');
   const title = cleanTitle(input.title), body = cleanBody(input.body);
   if (!title) throw fail(400, 'Titel fehlt.');

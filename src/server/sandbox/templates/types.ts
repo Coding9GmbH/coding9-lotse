@@ -31,6 +31,8 @@ export interface StepCtx {
   syncAll: () => Promise<void>;
   /** the task's uploaded dump waiting for the import (metadata only; the AI never gets this context) */
   dump: () => { name: string; size: number; ignoreVersion: boolean } | null;
+  /** the task has a dump at all (waiting or already imported): its themes need compiling even when nothing else does */
+  hasDump: () => boolean;
   /** Shopware major.minor recorded in the dump's core migrations, null = not recognizable */
   dumpVersion: () => Promise<string | null>;
   /** dump version differs from the image: shown with "Trotzdem fortfahren" (null clears it) */
