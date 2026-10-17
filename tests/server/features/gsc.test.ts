@@ -300,3 +300,42 @@ test('Impact: at most MAX_BASELINES pages per change set', async () => {
   kvSet('gsc_baselines', []);
   fake.data = [];
 });
+
+test('Impact (review fixes): superseded after a preliminary measurement, measurements from before the SEO section, entity type, fields without current value, CMS page fields', async () => {
+  const { kvSet } = await import('../../../src/server/db');
+  const base = { label: 'x', urls: [], pathRegex: 'x', changeSetId: 'cs', before: { clicks: 28, impressions: 280, ctr: 0.1, position: 3, startDate: '2026-08-02', endDate: '2026-08-29', days: 28 } };
+  const now = new Date('2026-10-10T12:00:00Z');
+  const last = { at: '2026-09-20T00:00:00Z', status: 'vorläufig' as const, verdict: 'verbessert' as const, change: { clicksPerDay: '+10 %', ctr: '+1 Prozentpunkte', position: 0 }, after: { clicks: 1, impressions: 1, ctr: 1, position: 1 }, drift: false };
+  kvSet('gsc_baselines', [
+    // preliminary measurement, then the page was changed again → superseded, not "preliminary" forever
+    { ...base, id: 'b-pre', entity: 'product', entityId: 'p1', fields: [{ field: 'metaTitle', before: 'a', after: 'b' }], changedAt: '2026-09-01T12:00:00Z', last, measured: { at: '2026-09-25T00:00:00Z', verdict: 'überholt: Seite erneut geändert, bevor gemessen wurde' } },
+    // final measurement stored by gsc_measure_effect before this version (measured, no last)
+    { ...base, id: 'b-old', entity: 'category', entityId: 'c1', fields: [{ field: 'metaDescription', before: 'a', after: 'b' }], changedAt: '2026-08-01T12:00:00Z', measured: { at: '2026-09-05T00:00:00Z', verdict: 'verbessert' } },
+  ]);
+  const byId = Object.fromEntries(F.impactList(now).map(i => [i.id, i]));
+  assert.equal(byId['b-pre'].status, 'superseded');
+  assert.deepEqual([byId['b-old'].status, byId['b-old'].verdict, byId['b-old'].measuredAt], ['complete', 'better', '2026-09-05T00:00:00Z']);
+  assert.equal((await F.measureOpen(G.getGscConfig() ?? { key: {} as never, property: 'x' }, {} as never, now)).measured, 0, 'neither is measured again');
+
+  // a new baseline for category "3" does not supersede product "3" (Magento/OpenMage: same numbers)
+  G.saveGsc({ key: KEY, property: 'sc-domain:shop.de' }); G.clearGscCache();
+  kvSet('gsc_baselines', []);
+  fake.data = days('2026-08-01', 31).map(d => ({ date: d, page: 'https://www.shop.de/p3', query: 'q', clicks: 1, impressions: 10, position: 5 }));
+  const lookup = { mapUrls: async () => new Map(), entityPaths: async () => ({ paths: ['p3'], urls: ['https://www.shop.de/p3'] }) } as never;
+  const at = new Date('2026-09-01T12:00:00Z');
+  await F.recordBaseline(G.getGscConfig()!, lookup, { entity: 'product', entityId: '3', label: 'Produkt 3', fields: [{ field: 'name', before: 'a', after: 'b' }], changeSetId: 'cs-p' }, at);
+  await F.recordBaseline(G.getGscConfig()!, lookup, { entity: 'category', entityId: '3', label: 'Kategorie 3', fields: [{ field: 'layout', before: 'a', after: 'b' }], changeSetId: 'cs-c' }, at);
+  assert.deepEqual(F.listBaselines().map(b => [b.entity, b.measured?.verdict ?? null]), [['product', null], ['category', null]]);
+
+  // CMS page title/content are measured (content without drift value); a field current() doesn't return is no drift
+  const items = [{ id: 'l:title', entity: 'landing-page', entityId: '7', label: 'Über uns', field: 'title', fieldLabel: 'Titel', before: 'a', after: 'Neu', afterRaw: 'Neu', warn: [] },
+    { id: 'l:content', entity: 'landing-page', entityId: '7', label: 'Über uns', field: 'content', fieldLabel: 'Inhalt', before: 'a', after: 'b', afterRaw: '<p>b</p>', warn: [] }];
+  const [lp] = await F.baselinesFor(G.getGscConfig()!, items, { ro: lookup, changeSetId: 'cs-l' }, at);
+  assert.deepEqual(lp.fields.map(f => [f.field, f.afterRaw ?? null]), [['title', 'Neu'], ['content', null]]);
+  const kw = { ...lp, fields: [{ field: 'keywords', before: 'a', after: 'b', afterRaw: 'b' }] };
+  const res = await F.measure(G.getGscConfig()!, { mapUrls: async () => new Map(), current: async () => ({ id: '7', name: 'x', metaTitle: 'y' }) } as never, kw, new Date('2026-10-10T12:00:00Z')) as { notes: string[] };
+  assert.ok(!res.notes.some(n => /anderen Wert/.test(n)), 'keywords not returned by current(): no false drift note');
+  G.saveGsc({ key: null });
+  kvSet('gsc_baselines', []);
+  fake.data = [];
+});
