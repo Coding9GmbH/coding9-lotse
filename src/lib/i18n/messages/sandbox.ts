@@ -130,7 +130,7 @@ export const de = {
   },
   create: {
     title: 'Sandbox starten',
-    lead: 'Lotse klont das Repository und richtet dafür einen eigenen Shopware-Container ein (ein bis zwei Minuten). Unterstützt werden Plugin- und Theme-Repositorys. Ab dann arbeitet die KI in diesem Chat nur noch in der Sandbox – ohne Zugriff auf den Live-Shop.',
+    lead: 'Lotse klont das Repository und richtet dafür einen eigenen Shopware-Container ein (ein bis zwei Minuten). Unterstützt werden Plugin- und Theme-Repositorys – oder ein leeres Repository für ein neues Plugin. Ab dann arbeitet die KI in diesem Chat nur noch in der Sandbox – ohne Zugriff auf den Live-Shop.',
     repo: 'Repository',
     repoPick: 'Repository wählen …',
     reposLoading: 'Repositorys werden geladen …',
@@ -146,6 +146,10 @@ export const de = {
     failed: (e: string) => `Nicht angelegt: ${e}`,
     dockerDown: 'Docker ist nicht erreichbar – die Sandbox kann nicht starten.',
     guide: 'Anleitung →',
+    emptyRepo: 'Das Repository ist noch leer: Die KI baut darin ein neues Shopware-Plugin.',
+    pluginName: 'Technischer Name des Plugins',
+    pluginHint: 'Klassen- und Ordnername in Shopware, z. B. CoNineHeaderBanner: Buchstaben und Ziffern, beginnt mit einem Großbuchstaben (am besten mit eurem Kürzel vorn).',
+    pluginInvalid: 'Nur Buchstaben und Ziffern, beginnt mit einem Großbuchstaben, 2 bis 61 Zeichen.',
   },
   task: {
     back: 'Alle Sandboxes',
@@ -176,7 +180,7 @@ export const de = {
     hideDetails: 'Details ausblenden',
     moreSteps: (n: number) => (n === 1 ? 'weiterer Schritt' : `weitere ${n} Schritte`),
     editCommand: 'Befehl in der Umgebung bearbeiten →',
-    willSkip: 'wird übersprungen (kein Dump)',
+    willSkip: { noDump: 'wird übersprungen (kein Dump)', newPlugin: 'wird übersprungen (neues Plugin)' } as Record<'noDump' | 'newPlugin', string>,
     fullError: 'Ganze Meldung',
     feedbackOpen: (n: number) => `\n\nAchtung: ${n === 1 ? '1 Rückmeldung' : `${n} Rückmeldungen`} zum Pull Request noch nicht bearbeitet.`,
     internet: {
@@ -295,6 +299,7 @@ export const de = {
       start: 'Sandbox starten',
       adjust: 'Anpassen …',
       noRepo: 'Repository noch wählen',
+      newPlugin: 'Neues Plugin:',
       attached: 'An diesen Chat ist eine Sandbox angehängt.',
       accepted: 'Vorschlag angenommen',
       note: 'Eigener Shopware-Container, ca. 2 Min. · kein Zugriff auf den Live-Shop',
@@ -494,7 +499,7 @@ export const en: typeof de = {
   },
   create: {
     title: 'Start sandbox',
-    lead: 'Lotse clones the repository and sets up a Shopware container of its own for it (one to two minutes). Plugin and theme repositories are supported. From then on the AI works in this chat only in the sandbox – without access to the live shop.',
+    lead: 'Lotse clones the repository and sets up a Shopware container of its own for it (one to two minutes). Plugin and theme repositories are supported – or an empty repository for a new plugin. From then on the AI works in this chat only in the sandbox – without access to the live shop.',
     repo: 'Repository',
     repoPick: 'Choose a repository …',
     reposLoading: 'Loading repositories …',
@@ -510,6 +515,10 @@ export const en: typeof de = {
     failed: (e: string) => `Not created: ${e}`,
     dockerDown: 'Docker is not reachable – the sandbox cannot start.',
     guide: 'Guide →',
+    emptyRepo: 'The repository is still empty: the AI builds a new Shopware plugin in it.',
+    pluginName: 'Technical name of the plugin',
+    pluginHint: 'Class and folder name in Shopware, e.g. CoNineHeaderBanner: letters and digits, starts with an upper-case letter (ideally with your vendor prefix first).',
+    pluginInvalid: 'Letters and digits only, starts with an upper-case letter, 2 to 61 characters.',
   },
   task: {
     back: 'All sandboxes',
@@ -540,7 +549,7 @@ export const en: typeof de = {
     hideDetails: 'Hide details',
     moreSteps: n => (n === 1 ? '1 more step' : `${n} more steps`),
     editCommand: 'Edit the command in the environment →',
-    willSkip: 'will be skipped (no dump)',
+    willSkip: { noDump: 'will be skipped (no dump)', newPlugin: 'will be skipped (new plugin)' },
     fullError: 'Full message',
     feedbackOpen: n => `\n\nNote: ${n === 1 ? '1 feedback item' : `${n} feedback items`} on the pull request not handled yet.`,
     internet: {
@@ -683,6 +692,7 @@ export const en: typeof de = {
       start: 'Start sandbox',
       adjust: 'Adjust …',
       noRepo: 'choose a repository',
+      newPlugin: 'New plugin:',
       attached: 'A sandbox is attached to this chat.',
       accepted: 'Proposal accepted',
       note: 'A Shopware container of its own, about 2 min · no access to the live shop',

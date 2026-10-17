@@ -5,7 +5,7 @@ import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget 
 import { createLineSplitter } from './ndjson';
 import type { CodexLoginState, GithubBranch, GithubPublic, GithubRepo, GithubTestResult, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
-  CodeTaskPublic, DumpPublic, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
+  CodeTaskPublic, DumpPublic, RepoProbe, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
   PrStatus, PublishRequest, PublishResult } from './protocol';
 
 export class ApiError extends Error {
@@ -83,7 +83,9 @@ export const api = {
     check: (onEvent: (ev: SandboxCheckEvent) => void, signal?: AbortSignal) => checkStream(onEvent, signal),
     tasks: () => request<{ tasks: CodeTaskPublic[] }>('/api/sandbox/tasks'),
     /** attach a sandbox to a chat (one per chat) */
-    createTask: (t: { chatId: string; title?: string; repo: string; baseBranch: string; dumpId?: string }) => request<{ task: CodeTaskPublic }>('/api/sandbox/tasks', json('POST', t)),
+    createTask: (t: { chatId: string; title?: string; repo: string; baseBranch: string; dumpId?: string; pluginName?: string }) => request<{ task: CodeTaskPublic }>('/api/sandbox/tasks', json('POST', t)),
+    /** is repo@branch still empty (new plugin)? with a suggested technical name */
+    repoProbe: (repo: string, branch: string) => request<RepoProbe>(`/api/sandbox/repo-probe?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}`),
     task: (id: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`),
     deleteTask: (id: string) => request<{ ok: true }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     /** "Änderungen": workspace against the base branch */

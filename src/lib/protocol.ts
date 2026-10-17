@@ -124,7 +124,7 @@ export type ChatEvent =
   /** The user published the sandbox's changes: pull request created or updated (state as of that moment) */
   | { t: 'pr'; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
   /** The AI proposes to attach a sandbox to this chat (start_sandbox): a card; only the user's click creates the task */
-  | { t: 'sandbox_offer'; id: string; repo: string; baseBranch: string; reason: string }
+  | { t: 'sandbox_offer'; id: string; repo: string; baseBranch: string; reason: string; /** technical name if the AI proposes a new plugin (empty repository) */ pluginName?: string }
   /** The AI asks for internet in the task container (request_internet): a card; only the user's click allows it (decision: the answer).
    *  Sent again with the same approvalId, decision false and error when attaching failed after the click (the card shows it);
    *  restart: still open when Lotse restarted (closed as declined). */
@@ -277,13 +277,16 @@ export interface SandboxEnvPatch {
 }
 /** NDJSON lines of POST /api/sandbox/env/check */
 export type SandboxCheckEvent = { t: 'progress'; text: string; pct?: number } | { t: 'result'; ok: boolean; message: string; docker: SandboxDocker; imagePresent: boolean; pulled?: boolean };
+/** GET /api/sandbox/repo-probe: an (almost) empty repository becomes a new plugin; null = unknown */
+export interface RepoProbe { empty: boolean | null; suggestedName: string }
 /** Code task lifecycle: setting_up → ready ⇄ paused (waking in between) → done; failed/interrupted stop the setup (retry possible) */
 export type CodeTaskStatus = 'setting_up' | 'ready' | 'waking' | 'paused' | 'failed' | 'interrupted' | 'done';
 export type TaskStepState = 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'interrupted';
 /** One setup step. key = template step; 'custom' = an own setup command of the environment (label = its name) */
 export interface TaskStep { id: string; key: SandboxStepKey | 'custom'; label?: string; state: TaskStepState; startedAt?: string; endedAt?: string; /** last lines, redacted */ log: string[]; error?: string }
-/** What the repository is: a plugin or a theme plugin below custom/plugins/<name> */
-export interface TaskLayout { kind: 'plugin' | 'theme'; name: string; pluginDir: string }
+/** What the repository is: a plugin or a theme plugin below custom/plugins/<name>. isNew: the repository was empty (README, LICENSE,
+ *  .gitignore at most) and the plugin is built in the sandbox; nothing was installed during the setup. */
+export interface TaskLayout { kind: 'plugin' | 'theme'; name: string; pluginDir: string; isNew?: boolean }
 export interface CodeTaskPublic {
   id: string; title: string; goal: string; repo: string; baseBranch: string; branch: string; template: string;
   status: CodeTaskStatus; steps: TaskStep[]; layout: TaskLayout | null; error: string | null;
@@ -292,6 +295,7 @@ export interface CodeTaskPublic {
   /** uploaded database dump of the task (metadata only) */ dump: TaskDumpPublic | null;
   prUrl: string | null; createdAt: string; updatedAt: string; lastActiveAt: string; finishedAt: string | null;
   /** the chat the sandbox is attached to (one sandbox per chat) */ chatId: string | null;
+  /** technical name chosen for a new plugin (empty repository); null = the repository brings its own plugin */ pluginName: string | null;
   /** the task's pull request (null = not published yet) */ pr: TaskPr | null;
   /** publishing right now, or the last attempt failed / was cut off by a restart (a retry continues idempotently) */ publish: TaskPublish | null;
   /** internet access a human allowed for this task (container attached to lotse-sandbox-egress); null = offline */ internet: { since: string } | null;

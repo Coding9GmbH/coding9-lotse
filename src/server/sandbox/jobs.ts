@@ -207,6 +207,7 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
     taskId: t.id, repo: t.repo, baseBranch: t.baseBranch, image: getSandboxConfig().image, worktree: p.worktree, signal, log: lg,
     layout: () => t.layout,
     setLayout: l => { t.layout = l; saveTask(t, false); },
+    newPluginName: t.pluginName ?? null,
     run: async (cmd, o = {}) => {
       const r = Array.isArray(cmd) ? { argv: cmd as readonly string[], user: tpl.execUser, workdir: tpl.workdir, timeoutMs: o.timeoutMs ?? limit, maxOutput: MAX_OUTPUT }
         : resolveCommand(tpl, (cmd as { command: string }).command, (cmd as { args?: Record<string, string> }).args, { pluginDir: t.layout?.pluginDir ?? '' });

@@ -57,12 +57,34 @@ export function shortPath(p: string, max = 44): string {
   return parts.length ? `${parts[0]}/…/${tail}` : file;
 }
 
-/** Steps a dump-less setup will skip anyway (version check, import): shown as "wird übersprungen" from the start. */
-export const willSkip = (task: Pick<CodeTaskPublic, 'dump'>, s: Pick<TaskStep, 'key' | 'state'>) =>
-  s.state === 'pending' && !task.dump && (s.key === 'version-check' || s.key === 'import-db');
+/** Why a pending step will be skipped anyway: no dump (version check, import) or a new plugin from an empty repository (nothing to
+ *  install or compile yet). Shown as "wird übersprungen" from the start; null = it runs. */
+export function skipReason(task: Pick<CodeTaskPublic, 'dump'> & { layout?: CodeTaskPublic['layout'] }, s: Pick<TaskStep, 'key' | 'state'>): 'noDump' | 'newPlugin' | null {
+  if (s.state !== 'pending') return null;
+  if (!task.dump && (s.key === 'version-check' || s.key === 'import-db')) return 'noDump';
+  if (task.layout?.isNew && (s.key === 'install-plugin' || s.key === 'theme-compile')) return 'newPlugin';
+  return null;
+}
+export const willSkip = (task: Parameters<typeof skipReason>[0], s: Pick<TaskStep, 'key' | 'state'>) => skipReason(task, s) !== null;
+
+// ---- New plugins from an (almost) empty repository ----
+/** Technical name of a Shopware plugin (its class name and folder below custom/plugins), e.g. CoNineHeaderBanner. */
+export const PLUGIN_NAME = /^[A-Z][A-Za-z0-9]{1,60}$/;
+/** Files an "empty" repository may contain: what GitHub creates with a new repository (README, LICENSE, .gitignore) and similar. */
+const SCAFFOLD_ONLY = /^(readme(\.[a-z]{1,8})?|licen[cs]e(\.[a-z]{1,8})?|copying|\.gitignore|\.gitattributes|\.editorconfig)$/i;
+/** The names in a repository's root say "nothing to install yet": only the files above (and the worktree's .git). */
+export const isEmptyRepoListing = (names: string[]) => names.filter(n => n !== '.git').every(n => SCAFFOLD_ONLY.test(n));
+/** Suggested technical name from the repository name: "coding9/shopware-header-banner" → "ShopwareHeaderBanner"; '' if none fits. */
+export function pluginNameFromRepo(repo: string): string {
+  const words = (repo.split('/').pop() ?? '').split(/[^A-Za-z0-9]+/).filter(Boolean);
+  let name = words.map(w => w[0].toUpperCase() + w.slice(1)).join('');
+  if (/^[0-9]/.test(name)) name = `Plugin${name}`;
+  name = name.slice(0, 61);
+  return PLUGIN_NAME.test(name) ? name : '';
+}
 
 /** Progress of the setup: the current (running or next) step's number among the steps that will run, and their count. */
-export function setupProgress(task: Pick<CodeTaskPublic, 'steps' | 'dump'>): { current: number; total: number; done: number } {
+export function setupProgress(task: Pick<CodeTaskPublic, 'steps' | 'dump'> & { layout?: CodeTaskPublic['layout'] }): { current: number; total: number; done: number } {
   const counted = task.steps.filter(s => s.state !== 'skipped' && !willSkip(task, s));
   const done = counted.filter(s => s.state === 'done').length;
   const at = counted.findIndex(s => s.state !== 'done');

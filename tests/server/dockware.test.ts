@@ -54,7 +54,7 @@ const fixture = (name: string, files: Record<string, string>) => {
 };
 const plugin = (cls: string, extra: Record<string, string> = {}) => ({ 'composer.json': JSON.stringify({ type: 'shopware-platform-plugin', extra: { 'shopware-plugin-class': cls } }), ...extra });
 
-test('detectLayout: plugin, theme plugin, invalid name, full project, no plugin', () => {
+test('detectLayout: plugin, theme plugin, invalid name, full project, no plugin, empty repository', () => {
   assert.deepEqual(detectLayout(fixture('plugin', plugin('Acme\\Checkout\\AcmeCheckout'))), { kind: 'plugin', name: 'AcmeCheckout', pluginDir: 'custom/plugins/AcmeCheckout' });
   assert.deepEqual(detectLayout(fixture('theme', plugin('Acme\\Theme\\AcmeTheme', { 'src/Resources/theme.json': '{}' }))), { kind: 'theme', name: 'AcmeTheme', pluginDir: 'custom/plugins/AcmeTheme' });
   assert.throws(() => detectLayout(fixture('bad', plugin('Acme\\x;rm -rf'))), /Ungültiger Plugin-Name/);
@@ -64,7 +64,10 @@ test('detectLayout: plugin, theme plugin, invalid name, full project, no plugin'
   assert.throws(() => detectLayout(fixture('project', { 'composer.json': JSON.stringify({ type: 'project', require: { 'shopware/core': '6.7.*' } }) })), full);
   assert.throws(() => detectLayout(fixture('project2', { 'composer.json': JSON.stringify({ require: { 'shopware/storefront': '*' } }) })), full);
   assert.throws(() => detectLayout(fixture('nocomposer', { 'bin/console': '#!/usr/bin/env php' })), full);
-  assert.throws(() => detectLayout(fixture('empty', { 'README.md': '# x' })), /Kein Shopware-Plugin erkannt/);
+  assert.throws(() => detectLayout(fixture('other', { 'README.md': '# x', 'index.php': '<?php' })), /Kein Shopware-Plugin erkannt/);
+  // only a README: a new plugin (sandbox-new-plugin.test.ts), here without a usable name
+  assert.throws(() => detectLayout(fixture('empty', { 'README.md': '# x' })), /Repository ist leer, aber es fehlt ein gültiger technischer Name/);
+  assert.equal(detectLayout(fixture('empty2', { 'README.md': '# x' }), { newPluginName: 'AcmeBanner' }).isNew, true);
   assert.throws(() => detectLayout(fixture('broken', { 'composer.json': '{nope' })), /kein gültiges JSON/);
   const link = path.join(dir, 'link'); fs.mkdirSync(link); fs.symlinkSync('/etc/hostname', path.join(link, 'composer.json'));
   assert.throws(() => detectLayout(link), /keine normale Datei/);

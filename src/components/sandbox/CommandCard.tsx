@@ -75,7 +75,7 @@ export function PublishProposalCard({ title, body, onReview, publishedAs, update
 export interface SandboxOfferActions {
   /** a sandbox is attached already (the card is only a record then) */ attached: boolean;
   /** direct = create with the card's repository and branch (title from the reason); otherwise the dialog opens prefilled */
-  start: (offer: { repo: string; baseBranch: string; reason: string }, direct: boolean) => void;
+  start: (offer: { repo: string; baseBranch: string; reason: string; pluginName?: string }, direct: boolean) => void;
   busy?: boolean;
   /** why a sandbox cannot start right now (Docker unreachable), shown as the button's tooltip */ blocked?: string | null;
 }
@@ -99,6 +99,7 @@ export function SandboxOfferCard({ offer, actions }: { offer: Offer; actions?: S
       <h3>{t.heading}</h3>
       <p>{offer.reason}</p>
       <p className={styles.offerRepo}><code>{where}</code></p>
+      {offer.pluginName && <p className={styles.offerRepo}>{t.newPlugin} <code>{offer.pluginName}</code></p>}
       <p className={styles.pubNote}>{t.note}</p>
       {!actions ? <p className={styles.pubNote}>{t.off}</p> : (
         <div className={styles.offerBtns}>
