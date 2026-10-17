@@ -17,7 +17,7 @@ const order = (entity_id: number, created_at: string, items: unknown[], more: Re
 
 test('sums per product: top-level rows only, cancelled orders/quantities out, period limits, distinct orders', async () => {
   fake.orders = [
-    order(1, '2026-09-01 00:00:00', [item(10, 2, 40), item(20, 1, 99, { product_type: 'configurable' }), item(21, 1, 0, { parent_item_id: 2 })]), // child of the configurable row is ignored
+    order(1, '2026-09-01 00:00:00', [item(10, 2, 40), item(20, 1, 99, { product_type: 'configurable', item_id: 2 }), item(21, 1, 0, { parent_item_id: 2, item_id: 3 })]), // child of the configurable row: no own sale
     order(2, '2026-09-15 12:00:00', [item(10, 3, 60, { qty_canceled: 1 })]), // one of three cancelled: 2 pieces, 40 €
     order(3, '2026-09-20 08:00:00', [item(10, 5, 100)], { state: 'canceled' }), // cancelled order
     order(4, '2026-08-31 23:59:59', [item(10, 7, 140)]), // before the period
@@ -33,7 +33,7 @@ test('sums per product: top-level rows only, cancelled orders/quantities out, pe
   assert.deepEqual([rep.orders, rep.currency, rep.capped], [3, 'EUR', false]);
   // the request: fixed filters and a field selection without customer, address or order number fields
   const q = decodeURIComponent(fake.log.slice(n).find(l => l.path === '/orders')!.query!);
-  assert.match(q, /fields=items\[entity_id,state,base_currency_code,items\[product_id,/);
+  assert.match(q, /fields=items\[entity_id,state,base_currency_code,items\[item_id,product_id,/);
   assert.match(q, /\[field\]=created_at&.*\[value\]=2026-09-01 00:00:00&.*\[condition_type\]=gteq/);
   assert.match(q, /\[value\]=2026-09-30 23:59:59&.*\[condition_type\]=lteq/);
   assert.match(q, /\[field\]=state&.*\[value\]=canceled&.*\[condition_type\]=neq/);
@@ -70,4 +70,18 @@ test('adapter offers sales; the AI read client keeps /V1/orders blocked', async 
   assert.equal(typeof magento.sales, 'function');
   const { createMagentoGuard } = await import('../../../../src/server/platform/magento/reader');
   assert.throws(() => createMagentoGuard().check('GET', '/V1/orders'), /ZUGRIFF VERWEIGERT/);
+});
+
+test('bundles: quantity from the bundle row, revenue from the rows that carry the price (dynamic: children, fixed: parent)', async () => {
+  fake.orders = [
+    // dynamic-price bundle 30: parent row 0 €, children 20 € + 15 € (one child half cancelled)
+    order(1, '2026-09-05 10:00:00', [item(30, 1, 0, { item_id: 10, product_type: 'bundle' }), item(31, 1, 20, { item_id: 11, parent_item_id: 10 }), item(32, 2, 30, { item_id: 12, parent_item_id: 10, qty_canceled: 1 })]),
+    // fixed-price bundle 40: parent 50 €, children 0 €
+    order(2, '2026-09-06 10:00:00', [item(40, 2, 100, { item_id: 20, product_type: 'bundle' }), item(41, 2, 0, { item_id: 21, parent_item_id: 20 })]),
+  ];
+  const rep = await S.magentoSales(c, R);
+  assert.deepEqual(rep.rows.sort((a, b) => a.productId.localeCompare(b.productId)), [
+    { productId: '30', quantity: 1, revenue: 35, orders: 1 },
+    { productId: '40', quantity: 2, revenue: 100, orders: 1 },
+  ], 'children never appear as their own products');
 });

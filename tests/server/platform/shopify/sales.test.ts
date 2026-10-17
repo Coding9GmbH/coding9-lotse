@@ -68,3 +68,13 @@ test('paging, line items beyond the first page, cap and note for periods older t
   assert.match(old.notes?.[0] ?? '', /read_all_orders/);
   fake.state.orders = [];
 });
+
+test('note about 60 days only without read_all_orders (review fix)', async () => {
+  const q = (scopes: string[]): Q => async (doc: string) => (/currentAppInstallation/.test(doc)
+    ? { currentAppInstallation: { accessScopes: scopes.map(handle => ({ handle })) } }
+    : { orders: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } }) as never;
+  const longAgo = { from: '2026-05-01', to: '2026-09-30' };
+  assert.deepEqual((await shopifySales(q(['read_orders', 'read_all_orders']), longAgo, { now })).notes, undefined, 'permission present: no note');
+  assert.match((await shopifySales(q(['read_orders']), longAgo, { now })).notes?.[0] ?? '', /read_all_orders/);
+  assert.deepEqual((await shopifySales(q(['read_orders']), range, { now })).notes, undefined, 'within 60 days: no note');
+});

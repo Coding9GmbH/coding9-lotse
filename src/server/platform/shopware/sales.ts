@@ -19,11 +19,12 @@ export const salesCriteria = (r: SalesRange, page: number) => ({
   ],
   sort: [{ field: 'id', order: 'ASC' }],
   associations: { order: {} },
-  includes: { order_line_item: ['productId', 'quantity', 'totalPrice', 'orderId', 'order'], order: ['currencyId'] },
+  includes: { order_line_item: ['productId', 'quantity', 'totalPrice', 'orderId', 'order'], order: ['currencyId', 'taxStatus'] },
 });
 
 export async function shopwareSales(sw: ShopReader, r: SalesRange): Promise<SalesReport> {
   const per = new Map<string, { quantity: number; revenue: number; orders: Set<string> }>(), orders = new Set<string>(), currencies = new Set<string>();
+  let net = false; // totalPrice is net for net orders (B2B), gross otherwise
   let capped = false;
   for (let page = 1; ; page++) {
     const res = await sw.search('order-line-item', salesCriteria(r, page));
@@ -33,6 +34,7 @@ export async function shopwareSales(sw: ShopReader, r: SalesRange): Promise<Sale
       cur.quantity += Number(li.quantity) || 0; cur.revenue += Number(li.totalPrice) || 0;
       if (li.orderId) { cur.orders.add(String(li.orderId)); orders.add(String(li.orderId)); }
       if (li.order?.currencyId) currencies.add(String(li.order.currencyId));
+      if (li.order?.taxStatus === 'net' || li.order?.taxStatus === 'tax-free') net = true;
       per.set(id, cur);
     }
     if (res.data.length < SALES_PAGE) break;
@@ -52,5 +54,6 @@ export async function shopwareSales(sw: ShopReader, r: SalesRange): Promise<Sale
   const rows: SalesRow[] = [...by].map(([productId, v]) => ({ productId, quantity: v.quantity, revenue: Math.round(v.revenue * 100) / 100, orders: v.orders.size }));
   let currency: string | null = null;
   if (currencies.size === 1) currency = (await sw.search('currency', { ids: [...currencies], limit: 1, includes: { currency: ['isoCode'] } })).data[0]?.isoCode ?? null;
-  return { rows, orders: orders.size, currency, capped, ...(currencies.size > 1 ? { notes: ['Bestellungen in mehreren Währungen: Umsätze sind ohne Umrechnung addiert.'] } : {}) };
+  const notes = [...(currencies.size > 1 ? ['Bestellungen in mehreren Währungen: Umsätze sind ohne Umrechnung addiert.'] : []), ...(net ? ['Einige Bestellungen haben Nettopreise (z. B. Geschäftskunden): Umsätze sind Positionssummen wie bestellt, brutto und netto gemischt.'] : [])];
+  return { rows, orders: orders.size, currency, capped, ...(notes.length ? { notes } : {}) };
 }

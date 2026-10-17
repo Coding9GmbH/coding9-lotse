@@ -97,6 +97,9 @@ test('Shopware: fixed line-item query, variants added to their parent, cancelled
   const r = await shopwareSales(sw, { from: '2026-09-01', to: '2026-09-30' });
   assert.deepEqual(r.rows.sort((a, b) => a.productId.localeCompare(b.productId)), [{ productId: 'p1', quantity: 3, revenue: 60, orders: 2 }, { productId: 'p2', quantity: 3, revenue: 15.5, orders: 1 }]);
   assert.deepEqual([r.orders, r.currency, r.capped], [2, 'EUR', false]);
+  assert.equal(r.notes, undefined, 'gross orders only: no note');
+  items[1].order = { currencyId: 'eur', taxStatus: 'net' } as never;
+  assert.match((await shopwareSales(sw, { from: '2026-09-01', to: '2026-09-30' })).notes?.[0] ?? '', /Nettopreise/, 'net orders (B2B): mixed sums are named');
   const q = JSON.stringify(salesCriteria({ from: '2026-09-01', to: '2026-09-30' }, 1));
   assert.match(q, /"order.orderDateTime".*"gte":"2026-09-01T00:00:00.000\+00:00".*"lte":"2026-09-30T23:59:59.999\+00:00"/);
   assert.match(q, /cancelled/);
@@ -106,4 +109,30 @@ test('Shopware: fixed line-item query, variants added to their parent, cancelled
   const big = { search: async (entity: string) => entity === 'order-line-item' ? (pages++, { data: Array.from({ length: SALES_PAGE }, () => ({ productId: 'p', quantity: 1, totalPrice: 1, orderId: 'o', order: { currencyId: 'eur' } })), total: 0 }) : entity === 'currency' ? { data: [{ isoCode: 'EUR' }], total: 1 } : { data: [], total: 0 } } as never;
   assert.equal((await shopwareSales(big, { from: '2026-09-01', to: '2026-09-30' })).capped, true);
   assert.equal(pages, 40);
+});
+
+test('cache per connected shop and a product scan that expires (review fixes)', async () => {
+  const sw = getPlatform('shopware'), orig = { sales: sw.sales, scan: sw.scanProducts };
+  let calls = 0, scans = 0;
+  sw.sales = async () => { calls++; return rep([['a', 1, 10, 1]]); };
+  sw.scanProducts = async () => { scans++; return { rows: [prod('a')], total: 1, capped: false }; };
+  try {
+    F.clearSalesCache();
+    updateSettings({ platform: 'shopware', shopware: { url: 'https://shop-a.test' } });
+    await F.salesReport('shopware'); await F.salesReport('shopware');
+    assert.equal(calls, 1, 'same shop: from the cache');
+    updateSettings({ shopware: { url: 'https://shop-b.test' } });
+    await F.salesReport('shopware');
+    assert.equal(calls, 2, 'another shop on the same platform: read again, never the other shop\'s sums');
+    const reader = {}, t0 = Date.now();
+    await F.scanOf('shopware', reader, t0); await F.scanOf('shopware', reader, t0 + 60_000);
+    assert.equal(scans, 1, 'within 5 minutes: same scan');
+    await F.scanOf('shopware', reader, t0 + 6 * 60_000);
+    assert.equal(scans, 2, 'later: fresh scan (texts improved in the same chat count)');
+    sw.scanProducts = async () => { scans++; throw new Error('down'); };
+    const r2 = {};
+    await assert.rejects(F.scanOf('shopware', r2, t0));
+    sw.scanProducts = async () => { scans++; return { rows: [], total: 0, capped: false }; };
+    assert.deepEqual((await F.scanOf('shopware', r2, t0 + 1)).rows, [], 'a failed scan is not cached');
+  } finally { sw.sales = orig.sales; sw.scanProducts = orig.scan; F.clearSalesCache(); }
 });
