@@ -1,6 +1,8 @@
 /* Layout modes: home (chat only, centered) · work (chat) · pv (chat + preview). Navigation lives in the app shell. */
 .app { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
-.main { flex: 1; display: grid; grid-template-columns: var(--chat-w, 420px) minmax(0, 1fr); min-height: 0; position: relative; }
+/* --chat-col: the remembered width, but never so wide that the preview drops below 420px (CHAT_MIN/PREVIEW_MIN in Workspace.tsx);
+   evaluated against the current width, so a narrower window re-clamps without dragging */
+.main { --chat-col: max(300px, min(var(--chat-w, 420px), calc(100% - 420px))); flex: 1; display: grid; grid-template-columns: var(--chat-col) minmax(0, 1fr); min-height: 0; position: relative; }
 .chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-right: 1px solid var(--line); background: var(--bg); }
 .statusRow { flex: none; display: flex; }
 
@@ -20,7 +22,7 @@
 .app[data-mode="work"] .chat > section:first-child { width: calc(100% - 24px); max-width: 876px; }
 
 /* Chat + preview: a drag handle on the border (width remembered per browser); the chat can be collapsed for the sandbox preview */
-.split { position: absolute; top: 0; bottom: 0; left: calc(var(--chat-w, 420px) - 4px); width: 8px; z-index: 5; cursor: col-resize; touch-action: none; }
+.split { position: absolute; top: 0; bottom: 0; left: calc(var(--chat-col) - 4px); width: 8px; z-index: 5; cursor: col-resize; touch-action: none; }
 .split::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .12s; }
 .split:hover::after, .split:focus-visible::after, .app[data-dragging] .split::after { background: var(--green); }
 .split:focus-visible { outline: none; }

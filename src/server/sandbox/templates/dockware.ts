@@ -129,7 +129,8 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
     catch (e) { if (ctx.signal.aborted) throw e; ctx.log(`Übersprungen: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`); return 'skipped'; }
   },
   'theme-compile': async ctx => {
-    if (ctx.layout()?.isNew) { ctx.log('Neues Plugin: Die Storefront bleibt vorerst unverändert; kompiliert wird, sobald das Plugin Styles oder Templates mitbringt.'); return 'skipped'; }
+    // a new plugin changes nothing yet; an imported dump still needs its themes compiled and the warm cache cleared
+    if (ctx.layout()?.isNew && !ctx.hasDump()) { ctx.log('Neues Plugin: Die Storefront bleibt vorerst unverändert; kompiliert wird, sobald das Plugin Styles oder Templates mitbringt.'); return 'skipped'; }
     await ctx.run(bin('theme:compile')); await ctx.run(bin('cache:clear'));
   },
   screenshots: ctx => ctx.screenshots(),

@@ -76,7 +76,8 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
   useEffect(() => { api.sandbox.env().then(v => { setIdle(v.env.idleMinutes); setPolicy(v.env.internet); setShotPages(v.env.screenshotPaths.length > 0); }, () => {}); }, []);
   useEffect(() => {
     if (!full) return;
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape' && !(e.target as HTMLElement | null)?.closest('form [role=menu], dialog')) setFull(false); };
+    // an Escape that closes a menu or a dialog does only that
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented && !(e.target as HTMLElement | null)?.closest('[role=menu], [aria-haspopup][aria-expanded=true], dialog')) setFull(false); };
     document.addEventListener('keydown', esc);
     return () => document.removeEventListener('keydown', esc);
   }, [full]);

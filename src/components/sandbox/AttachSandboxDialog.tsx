@@ -29,7 +29,15 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
   const [error, setError] = useState<string | null>(null);
   // is repo@branch still empty? (key = the pair it was asked for, so an answer for an older choice is ignored)
   const [probe, setProbe] = useState<(RepoProbe & { key: string }) | null>(null);
-  const [pluginName, setPluginName] = useState('');
+  // the new plugin's name and the repo@branch the user typed it for ('' = preset): only a typed name survives a new probe
+  const [name, setName] = useState({ value: '', editedFor: '' });
+  const pluginName = name.value;
+  // the dialog stays mounted: a new opening (or another AI offer) starts from its own preset, not from the last one's name and title
+  const [shown, setShown] = useState({ open, initial });
+  if (shown.open !== open || shown.initial !== initial) {
+    setShown({ open, initial });
+    if (open) { setName({ value: '', editedFor: '' }); setForm(f => ({ ...f, title: initial?.title?.slice(0, 120) ?? '' })); }
+  }
   const probeKey = form.repo && form.baseBranch ? `${form.repo}@${form.baseBranch}` : '';
 
   // On open: repositories and the preset (AI proposal first, then the environment's defaults)
@@ -40,7 +48,6 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
     Promise.all([repos ? Promise.resolve(repos) : api.github.repos().then(r => r.repos), pre]).then(([list, p]) => {
       if (!live) return;
       setRepos(list); setError(null);
-      if (initial?.title) setForm(f => ({ ...f, title: f.title || initial.title!.slice(0, 120) }));
       if (p.repo && list.some(r => r.fullName === p.repo)) { setBranches(null); setWant(p.baseBranch); setForm(f => ({ ...f, repo: p.repo, baseBranch: '' })); }
     }).catch(e => { if (live) { setRepos([]); setError(errorText(e)); } });
     return () => { live = false; };
@@ -59,15 +66,17 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
   }, [form.repo, repos, want]);
 
   useEffect(() => {
-    if (!probeKey) return;
+    if (!open || !probeKey) return;
     let live = true;
     api.sandbox.repoProbe(form.repo, form.baseBranch).then(r => {
       if (!live) return;
       setProbe({ ...r, key: probeKey });
-      if (r.empty) setPluginName(n => n || initial?.pluginName || r.suggestedName);
+      // the AI's name belongs to the repository it proposed; elsewhere the suggestion from the repository name
+      const preset = (initial?.repo === form.repo && initial.pluginName) || r.suggestedName;
+      if (r.empty) setName(n => (n.editedFor === probeKey ? n : { value: preset, editedFor: '' }));
     }, () => { if (live) setProbe({ empty: null, suggestedName: '', key: probeKey }); });
     return () => { live = false; };
-  }, [probeKey]); // eslint-disable-line react-hooks/exhaustive-deps -- repo and branch are in the key
+  }, [probeKey, open, initial]); // eslint-disable-line react-hooks/exhaustive-deps -- repo and branch are in the key
   const probed = probe?.key === probeKey ? probe : null;
   const newPlugin = probed?.empty === true;
   const nameOk = PLUGIN_NAME.test(pluginName.trim());
@@ -113,7 +122,7 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
             <p className={styles.newPluginNote} role="status">{t.emptyRepo}</p>
             <label className={styles.label} htmlFor="sbx-plugin-name">{t.pluginName}</label>
             <input id="sbx-plugin-name" value={pluginName} maxLength={61} placeholder="CoNineHeaderBanner" spellCheck={false} autoComplete="off"
-              aria-invalid={!!pluginName && !nameOk} aria-describedby="sbx-plugin-hint" onChange={e => setPluginName(e.target.value.replace(/\s+/g, ''))} />
+              aria-invalid={!!pluginName && !nameOk} aria-describedby="sbx-plugin-hint" onChange={e => setName({ value: e.target.value.replace(/\s+/g, ''), editedFor: probeKey })} />
             <span id="sbx-plugin-hint" className={`${styles.fieldNote} ${pluginName && !nameOk ? styles.fieldBad : ''}`}>{pluginName && !nameOk ? t.pluginInvalid : t.pluginHint}</span>
           </div>
         )}
