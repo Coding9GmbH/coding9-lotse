@@ -208,3 +208,19 @@ test('secret.key: created with 32 bytes and mode 600, corrupt key fails clearly,
     assert.match(warns[0], /WARN/);
   } finally { setLogSinkForTests(null); process.env.AICB_DATA = prev; fresh(); }
 });
+
+test('code_tasks: round-trip, list newest first, lookup by chat, delete', () => {
+  const row = (id: string, updatedAt: string, chatId: string | null = null) => ({ id, chatId, template: 'dockware-play', repo: 'acme/theme', baseBranch: 'main', branch: `lotse/x-${id.slice(2, 8)}`, status: 'ready', containerId: null, prNumber: null, prUrl: null, pushedSha: null, createdAt: updatedAt, updatedAt, title: id, steps: [{ id: 'clone', state: 'done' }] });
+  db.codeTaskPut(row('t_aaaaaaaaaaaa', '2026-10-01T00:00:00.000Z'));
+  db.codeTaskPut(row('t_bbbbbbbbbbbb', '2026-10-02T00:00:00.000Z', 'chat1'));
+  db.codeTaskPut({ ...row('t_aaaaaaaaaaaa', '2026-10-03T00:00:00.000Z'), status: 'paused', containerId: 'abc' });
+  const a = db.codeTaskGet<ReturnType<typeof row>>('t_aaaaaaaaaaaa')!;
+  assert.equal(a.status, 'paused'); assert.equal(a.containerId, 'abc'); assert.deepEqual(a.steps, [{ id: 'clone', state: 'done' }]);
+  assert.deepEqual(db.codeTaskList().map(t => t.id), ['t_aaaaaaaaaaaa', 't_bbbbbbbbbbbb']);
+  assert.deepEqual(db.codeTaskByChat('chat1'), ['t_bbbbbbbbbbbb']);
+  const r = raw();
+  assert.equal((r.prepare("SELECT status, container_id FROM code_tasks WHERE id = 't_aaaaaaaaaaaa'").get() as { status: string }).status, 'paused', 'columns follow the JSON');
+  r.close();
+  db.codeTaskDelete('t_aaaaaaaaaaaa');
+  assert.equal(db.codeTaskGet('t_aaaaaaaaaaaa'), null);
+});

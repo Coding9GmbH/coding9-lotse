@@ -160,6 +160,10 @@ Ist unter Einstellungen → KI-Zugriff der Schalter **Abverkauf** an, liest Lots
 
 Kunden-, Bestell-, Zahlungs- und Zugangsdaten sind fest gesperrt und nicht freischaltbar.
 
+### Sandbox Coding: Aufgaben
+
+Im Reiter **Sandbox Coding** legst du mit **Neue Aufgabe** eine Code-Aufgabe an: Repository (aus GitHub), Basis-Branch, Titel und „Was soll geändert werden?“. Lotse richtet dafür im Hintergrund einen eigenen Shopware-Container ein; die Aufgabenseite zeigt jeden Schritt mit Status, Dauer und Protokoll. Schlägt ein Schritt fehl, steht die Ursache darunter, und **Ab hier erneut versuchen** setzt dort wieder an. **Stoppen** bricht eine laufende Einrichtung ab, **Pausieren**/**Fortsetzen** stoppt und startet den Container (Code, Datenbank und Änderungen bleiben; nach längerer Inaktivität pausiert Lotse von selbst). **Aufgabe abschließen** löscht Container und Dateien der Aufgabe; der Eintrag bleibt in der Liste.
+
 ### Sprache
 Oberfläche und KI-Antworten gibt es auf **Deutsch** und **Englisch**. Umschalten kannst du in den **Einstellungen** und unten in der seitlichen Navigation (DE/EN). Ohne eigene Wahl richtet sich Lotse nach der Sprache deines Browsers (sonst Deutsch); deine Wahl wird im Cookie `lotse_lang` gespeichert und gilt sofort.
 

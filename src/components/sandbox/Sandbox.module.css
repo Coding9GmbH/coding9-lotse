@@ -49,3 +49,46 @@
   .cmdHead { grid-template-columns: minmax(0, 1fr) 72px auto auto; }
   .cmdHead > input:first-child { grid-column: 1 / -1; }
 }
+
+/* ---- Tasks ---- */
+.headBtn { margin-left: auto; }
+.taskList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.taskRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title status" "meta status"; gap: 2px 12px; align-items: center; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); text-decoration: none; }
+.taskRow:hover { border-color: var(--green); }
+.taskTitle { grid-area: title; font-weight: 600; overflow-wrap: anywhere; }
+.taskRow .taskMeta { grid-area: meta; }
+.taskRow .status { grid-area: status; }
+.taskMeta { color: var(--mute); font-size: 13px; margin: 0 0 6px; overflow-wrap: anywhere; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.status[data-tone=ok] .pip { background: var(--green); }
+.status[data-tone=bad] .pip { background: var(--warn); }
+.status[data-tone=busy] .pip { background: var(--green); animation: sbxPulse 1.2s ease-in-out infinite; }
+.status[data-tone=done] .pip { background: var(--ink); }
+@keyframes sbxPulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .status[data-tone=busy] .pip { animation: none; } }
+
+.form { display: flex; flex-direction: column; }
+.form input, .form select, .form textarea { width: 100%; min-width: 0; padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; outline: none; }
+.form input:focus, .form select:focus, .form textarea:focus { border-color: var(--green); }
+.form textarea { resize: vertical; }
+
+.back { display: inline-block; font-size: 13px; color: var(--mute); margin-bottom: 10px; }
+.taskHead { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.taskHead .h1 { overflow-wrap: anywhere; }
+.goal { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wrap > .actions { margin: 0 0 16px; padding-top: 0; border-top: 0; }
+
+.timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.tlStep { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; padding: 6px 0; }
+.tlIcon { font-weight: 700; color: var(--mute); text-align: center; line-height: 1.6; }
+.tlStep[data-state=done] .tlIcon { color: var(--green-d); }
+.tlStep[data-state=failed] .tlIcon, .tlStep[data-state=interrupted] .tlIcon { color: var(--warn); }
+.tlStep[data-state=running] .tlIcon { color: var(--green); }
+.tlStep[data-state=pending] .tlLabel, .tlStep[data-state=skipped] .tlLabel { color: var(--mute); }
+.tlBody { min-width: 0; }
+.tlHead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 26px; }
+.tlLabel { font-weight: 600; font-size: 14px; }
+.tlError { margin: 6px 0 0; padding: 8px 10px; background: var(--coral-bg); color: var(--warn); border-radius: 8px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tlLog { margin-top: 6px; font-size: 13px; }
+.tlLog summary { cursor: pointer; color: var(--mute); }
+.tlLog pre { margin: 6px 0 0; padding: 10px; max-height: 320px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }

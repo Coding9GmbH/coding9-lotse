@@ -48,6 +48,8 @@ async function sandboxDockerWarning() {
   try {
     const { sandboxStatus, dockerState } = await import('@/server/sandbox/env');
     if (!sandboxStatus().enabled) return;
+    const { ensureReconciled } = await import('@/server/sandbox/reconcile');
+    void ensureReconciled(); // interrupted steps, orphaned containers, idle sweeper
     const d = await dockerState(true);
     if (!d.reachable) console.warn(`WARNUNG: Sandbox Coding ist eingeschaltet, aber: ${d.error ?? 'Docker ist nicht erreichbar.'} Anleitung: docs/self-hosting.md → „Sandbox Coding aktivieren“.`);
   } catch { /* the settings page shows the state as well */ }

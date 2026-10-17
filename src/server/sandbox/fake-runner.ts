@@ -10,22 +10,33 @@ export interface FakeCall { op: string; id?: string; argv?: string[]; user?: str
 interface FakeContainer { id: string; spec: ContainerSpec; running: boolean; files: Map<string, Buffer>; server: http.Server | null; port: number | null }
 type ExecScript = (argv: readonly string[], id: string) => Partial<ExecResult> | undefined;
 
-/** Minimal tar reader (ustar): regular files only. */
-export function readTar(tar: Buffer): { path: string; data: Buffer }[] {
-  const out: { path: string; data: Buffer }[] = [];
+export interface TarRecord { path: string; type: 'file' | 'dir' | 'symlink' | 'other'; data: Buffer; uid: number; gid: number; mode: number; linkTarget: string }
+/** Minimal tar reader (ustar + PAX path/linkpath): every entry with owner and mode. */
+export function readTarEntries(tar: Buffer): TarRecord[] {
+  const out: TarRecord[] = [];
+  let pax: Record<string, string> = {};
   for (let off = 0; off + 512 <= tar.length;) {
     const h = tar.subarray(off, off + 512);
     if (h.every(b => b === 0)) break;
     const str = (a: number, b: number) => h.subarray(a, b).toString('utf8').replace(/\0.*$/s, '');
-    const name = str(0, 100), prefix = str(345, 500), size = parseInt(str(124, 136).trim() || '0', 8), type = String.fromCharCode(h[156] || 48);
-    const data = tar.subarray(off + 512, off + 512 + size);
-    if (type === '0') out.push({ path: prefix ? `${prefix}/${name}` : name, data: Buffer.from(data) });
+    const num = (a: number, b: number) => parseInt(str(a, b).trim() || '0', 8);
+    const name = str(0, 100), prefix = str(345, 500), size = num(124, 136), type = String.fromCharCode(h[156] || 48);
+    const data = Buffer.from(tar.subarray(off + 512, off + 512 + size));
     off += 512 + Math.ceil(size / 512) * 512;
+    if (type === 'x') { pax = Object.fromEntries(data.toString('utf8').split('\n').filter(Boolean).map(l => { const kv = l.slice(l.indexOf(' ') + 1); const i = kv.indexOf('='); return [kv.slice(0, i), kv.slice(i + 1)]; })); continue; }
+    const full = pax.path ?? (prefix ? `${prefix}/${name}` : name);
+    out.push({ path: full.replace(/\/$/, ''), type: type === '0' ? 'file' : type === '5' ? 'dir' : type === '2' ? 'symlink' : 'other', data, uid: num(108, 116), gid: num(116, 124), mode: num(100, 108), linkTarget: pax.linkpath ?? str(157, 257) });
+    pax = {};
   }
   return out;
 }
+/** Regular files only. */
+export const readTar = (tar: Buffer): { path: string; data: Buffer }[] => readTarEntries(tar).filter(e => e.type === 'file').map(({ path, data }) => ({ path, data }));
 
 const WEBROOT = '/var/www/html/public';
+/** What a healthy Dockware answers where the setup reads output (plugin installed and active). */
+const dockwareAnswers = (argv: readonly string[]): Partial<ExecResult> | undefined =>
+  (argv[0] === 'mysql' && argv.some(a => a.includes('installed_at IS NOT NULL')) ? { output: '11\n' } : undefined);
 
 export class FakeRunner implements SandboxRunner {
   readonly kind = 'fake' as const;
@@ -38,6 +49,8 @@ export class FakeRunner implements SandboxRunner {
   /** next call of this operation fails with the message */
   failNext: { op: string; message: string } | null = null;
   script: ExecScript = () => undefined;
+  /** every uploaded archive, decoded (tests check owner and paths) */
+  archives: { id: string; dir: string; entries: TarRecord[] }[] = [];
   private seq = 0;
 
   private enter(op: string, call: Omit<FakeCall, 'op'> = {}) {
@@ -112,12 +125,14 @@ export class FakeRunner implements SandboxRunner {
     const c = this.managed(id);
     if (!c.running) throw new Error('Container läuft nicht.');
     if (o.signal?.aborted) throw new Error('Abgebrochen.');
-    const r = this.script(argv, id) ?? {};
+    if (argv[0] === 'rm' && argv[argv.length - 2] === '--') { const target = argv[argv.length - 1]; for (const k of [...c.files.keys()]) if (k === target || k.startsWith(`${target}/`)) c.files.delete(k); }
+    const r = this.script(argv, id) ?? dockwareAnswers(argv) ?? {};
     return { exitCode: r.exitCode ?? 0, output: r.output ?? '', truncated: r.truncated ?? false };
   }
   async putArchive(id: string, dir: string, tar: Buffer) {
     this.enter('putArchive', { id, detail: dir });
     const c = this.managed(id);
+    this.archives.push({ id, dir, entries: readTarEntries(tar) });
     for (const f of readTar(tar)) c.files.set(`${assertContainerPath(dir).replace(/\/$/, '')}/${f.path}`, f.data);
   }
   async inspectNetwork(name: string) { this.enter('inspectNetwork', { detail: name }); return this.networks.get(name) ?? null; }

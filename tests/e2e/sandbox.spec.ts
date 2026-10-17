@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { GITHUB_TOKEN } from './support/github';
 
 // Sandbox Coding with the in-memory runner (LOTSE_SANDBOX_RUNNER=fake): off by default, switched on in the settings,
 // environment saved (secret value never shown again), "Umgebung prüfen" pulls the image, switched off again.
@@ -55,4 +56,54 @@ test('Sandbox Coding: switch on, configure the environment, check, switch off', 
   await page.locator('section#sandbox').getByText('Sandbox Coding einschalten').click();
   await expect(page.locator('section#sandbox').getByRole('switch', { name: /Sandbox Coding einschalten/ })).not.toBeChecked();
   await expect(navLink).toHaveCount(0);
+});
+
+// A code task with the fake runner, the GitHub fake and a bare file:// remote: create, the setup reaches "Bereit",
+// own commands are steps of their own, pause and resume keep the task, "Aufgabe abschließen" removes the container.
+test('Sandbox Coding: create a task, setup reaches ready, pause/resume, finish', async ({ page, request }) => {
+  const lotse = { 'x-lotse': '1' };
+  expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
+
+  await page.goto('/sandbox-coding');
+  const tasks = page.locator('section[aria-labelledby="sbx-tasks"]');
+  await expect(tasks.getByText('Noch keine Aufgaben')).toBeVisible();
+  await tasks.getByRole('button', { name: 'Neue Aufgabe' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Neue Aufgabe' });
+  await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
+  await expect(dialog.getByLabel('Basis-Branch')).toHaveValue('main');
+  await dialog.getByLabel('Titel').fill('Footer grün');
+  await dialog.getByLabel('Was soll geändert werden?').fill('Der Footer soll grün werden.');
+  await dialog.getByRole('button', { name: 'Aufgabe anlegen' }).click();
+
+  await expect(page).toHaveURL(/\/sandbox-coding\/t_[a-z0-9]{12}$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Footer grün' })).toBeVisible();
+  const steps = page.locator('section[aria-labelledby="sbx-steps"]');
+  await expect(page.getByText('Bereit', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pausieren' })).toBeVisible();
+  await expect(steps.getByText('Theme kompilieren')).toBeVisible();
+  await expect(steps.getByText('Demodaten', { exact: true })).toBeVisible(); // own command from the environment = own step
+  await expect(steps.getByText('übersprungen')).toBeVisible(); // no dump yet
+  await expect(page.getByText(/acme\/shop-theme.*lotse\/footer-gruen-.*Container läuft.*custom\/plugins\/AcmeShopTheme/)).toBeVisible();
+  await steps.getByText(/^Protokoll/).nth(5).click(); // install-plugin
+  await expect(steps.getByText('$ bin/console plugin:install --activate -- AcmeShopTheme')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Pausieren' }).click();
+  await expect(page.getByText(/^Pausiert: Code, Datenbank und Änderungen bleiben erhalten/)).toBeVisible();
+  await page.getByRole('button', { name: 'Fortsetzen' }).click();
+  await expect(page.getByRole('button', { name: 'Pausieren' })).toBeVisible();
+
+  await page.getByRole('link', { name: /Alle Aufgaben/ }).click();
+  await expect(tasks.getByRole('link', { name: /Footer grün.*Bereit/ })).toBeVisible();
+  await tasks.getByRole('link', { name: /Footer grün/ }).click();
+
+  page.once('dialog', d => void d.accept());
+  await page.getByRole('button', { name: 'Aufgabe abschließen' }).click();
+  await expect(page.getByText(/^Abgeschlossen: Container und Dateien/)).toBeVisible();
+  await expect(page.getByText('Kein Container')).toBeVisible();
+  page.once('dialog', d => void d.accept());
+  await page.getByRole('button', { name: 'Aus der Liste entfernen' }).click();
+  await expect(page).toHaveURL(/\/sandbox-coding$/);
+  await expect(tasks.getByText('Noch keine Aufgaben')).toBeVisible();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
 });

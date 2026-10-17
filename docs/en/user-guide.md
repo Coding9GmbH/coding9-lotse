@@ -160,6 +160,10 @@ If the **Sales** switch under Settings → AI access is on, Lotse reads only **t
 
 Customer, order, payment and credential data are permanently blocked and cannot be unlocked.
 
+### Sandbox Coding: tasks
+
+In the **Sandbox Coding** tab, **New task** creates a code task: repository (from GitHub), base branch, title and “What should be changed?”. Lotse sets up a Shopware container of its own for it in the background; the task page shows every step with status, duration and log. If a step fails, the cause is shown below it and **Retry from here** continues there. **Stop** aborts a running setup, **Pause**/**Resume** stops and starts the container (code, database and changes stay; after a longer inactivity Lotse pauses it by itself). **Finish task** deletes the task's container and files; the entry stays in the list.
+
 ### Language
 The interface and AI replies are available in **German** and **English**. You can switch in **Settings** and at the bottom of the side navigation (DE/EN). Without an explicit choice, Lotse follows your browser language (otherwise German); your choice is stored in the `lotse_lang` cookie and takes effect immediately.
 
