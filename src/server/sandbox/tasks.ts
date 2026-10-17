@@ -5,7 +5,7 @@ import 'server-only';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
-import type { CodeTaskPublic, CodeTaskStatus, TaskDumpPublic, CommandPhase, TaskEvent, TaskLayout, TaskPublish, TaskStep } from '@/lib/protocol';
+import type { CodeTaskPublic, CodeTaskStatus, TaskDumpPublic, CommandPhase, ShotDevice, TaskEvent, TaskLayout, TaskPublish, TaskShotSet, TaskStep } from '@/lib/protocol';
 import { codeTaskByChat, codeTaskGet, codeTaskList, codeTaskPut, dataDir, macOf, type CodeTaskRow } from '../db';
 import { assertLotseBranch } from '../git';
 import { singleton } from '../state';
@@ -32,7 +32,10 @@ export interface CodeTask extends CodeTaskRow {
   /** title of the pull request (number, URL and pushed SHA are columns) */ prTitle?: string | null;
   /** publishing (running, failed or interrupted by a restart); null after success */ publish?: TaskPublish | null;
   /** internet a human allowed (container attached to lotse-sandbox-egress, internet.ts); null/missing = offline */ internet?: { since: string; via: 'chat' | 'panel' } | null;
+  /** screenshots (screenshots.ts): files in taskPaths().screenshots */ shots?: { before?: StoredShotSet | null; after?: StoredShotSet | null };
 }
+export type ShotKind = 'before' | 'after';
+export interface StoredShotSet { at: string; items: { path: string; device: ShotDevice; file: string }[]; error?: string }
 
 export const now = () => new Date().toISOString();
 export const newTaskId = () => `t_${Array.from(crypto.randomBytes(12), b => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join('')}`;
@@ -49,7 +52,7 @@ const assertTaskId = (id: string) => { if (!TASK_ID.test(id)) throw new Error('U
 export const taskPaths = (id: string) => {
   const d = dataDir(); assertTaskId(id);
   return { workspace: path.join(d, 'workspaces', id), worktree: path.join(d, 'workspaces', id, 'repo'), gitDir: path.join(d, 'git', id),
-    /** later: screenshots; removed with the task (dumps: dumps.ts) */ screenshots: path.join(d, 'screenshots', id) };
+    /** before/after screenshots (screenshots.ts); removed with the task (dumps: dumps.ts) */ screenshots: path.join(d, 'screenshots', id) };
 };
 
 // ---- Store + live listeners ----
@@ -139,8 +142,13 @@ export function publicTask(t: CodeTask, o: { logs?: boolean } = {}): CodeTaskPub
     preview: previewPath(t.id), dump: t.dump ? publicTaskDump(t.dump) : null, prUrl: t.prUrl, createdAt: t.createdAt, updatedAt: t.updatedAt, lastActiveAt: t.lastActiveAt, finishedAt: t.finishedAt,
     chatId: t.chatId, pr: t.prNumber && t.prUrl ? { number: t.prNumber, url: t.prUrl, title: t.prTitle ?? t.title } : null, publish: t.publish ?? null,
     internet: t.internet ? { since: t.internet.since } : null,
+    shots: { before: publicShots(t.id, t.shots?.before), after: publicShots(t.id, t.shots?.after) },
   };
 }
+const publicShots = (id: string, s: StoredShotSet | null | undefined): TaskShotSet | null => (s ? {
+  at: s.at, ...(s.error ? { error: s.error } : {}),
+  shots: s.items.map(i => ({ path: i.path, device: i.device, url: `/api/sandbox/tasks/${id}/screenshots/${i.file}?v=${Date.parse(s.at) || 0}` })),
+} : null);
 
 const publicTaskDump = (d: StoredDump): TaskDumpPublic => ({
   name: d.name, size: d.size, sha256: d.sha256, imported: d.imported, deleted: !!d.deletedAt, ignoreVersion: d.ignoreVersion, ...(d.versionMismatch ? { versionMismatch: d.versionMismatch } : {}),

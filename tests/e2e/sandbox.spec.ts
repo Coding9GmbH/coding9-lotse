@@ -248,7 +248,7 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await expect(page.getByText('Fertig: 3 Schritte.')).toBeVisible({ timeout: 60_000 });
   const proposal = page.getByRole('region', { name: 'Vorschlag für den Pull Request' });
   await expect(proposal.getByText('Header: Gratis Versand')).toBeVisible();
-  const pulls = async () => ((await (await request.get(`${githubUrl}/__fake/calls`)).json()) as { method: string; path: string; body: { head?: string; base?: string } }[])
+  const pulls = async () => ((await (await request.get(`${githubUrl}/__fake/calls`)).json()) as { method: string; path: string; body: { head?: string; base?: string; body?: string } }[])
     .filter(c => c.method === 'POST' && c.path === '/repos/acme/shop-theme/pulls');
   const before = (await pulls()).length;
   await proposal.getByRole('button', { name: 'Prüfen und veröffentlichen' }).click();
@@ -259,6 +259,11 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await expect(form.getByLabel('Beschreibung')).toHaveValue('Im Header steht jetzt Gratis Versand.');
   await expect(form.getByText(header)).toBeVisible();
   await expect(form.getByText(/^lotse\/gratis-versand-[a-z0-9]{6} → main$/)).toBeVisible();
+  // before screenshots from the setup next to the after slot (taken when publishing)
+  const shots = panel.getByRole('region', { name: 'Vorher / Nachher' });
+  await expect(shots.getByRole('img', { name: 'Vorher, Desktop: /' })).toBeVisible();
+  await expect(shots.getByRole('img', { name: 'Vorher, Mobil: /' })).toBeVisible();
+  await expect(shots.getByText('beim Veröffentlichen').first()).toBeVisible();
   expect((await pulls()).length).toBe(before); // nothing published before the click
   await form.getByLabel('Titel').fill('Header: Gratis Versand ab 50 €');
   await form.getByRole('button', { name: 'Pull Request erstellen' }).click();
@@ -272,6 +277,8 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   expect(posted).toHaveLength(1);
   expect(posted[0].body.head).toMatch(/^lotse\/gratis-versand-[a-z0-9]{6}$/);
   expect(posted[0].body.base).toBe('main');
+  expect(posted[0].body.body).toMatch(/\*\*Screenshots:\*\* Vorher-\/Nachher-Screenshots .* Sie werden nicht auf GitHub hochgeladen\./);
+  await expect(shots.getByRole('img', { name: 'Nachher, Mobil: /' })).toBeVisible();
   await expect(panel.getByRole('tab', { name: /Pull Request\s*#\d+/ })).toBeVisible();
   await expect(form.getByRole('button', { name: 'Pull Request aktualisieren' })).toBeVisible();
 

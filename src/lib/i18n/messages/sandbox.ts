@@ -1,6 +1,6 @@
 // Namensraum "sandbox". `de` legt die Form fest, `en` muss dieselben Schlüssel haben (Texte mit Platzhaltern als Funktionen).
 // Reiter „Sandbox Coding“ (src/components/sandbox): Bereitschaft, Umgebung (Image, Variablen, eigene Befehle), Aufgaben.
-import type { CodeTaskStatus, CommandPhase, InternetPolicy, SandboxCommandKey, SandboxStepKey, TaskStepState } from '../../protocol';
+import type { CodeTaskStatus, CommandPhase, InternetPolicy, PublishStep, SandboxCommandKey, SandboxStepKey, ShotDevice, TaskStepState } from '../../protocol';
 
 const steps: Record<SandboxStepKey, string> = {
   'check-image': 'Image prüfen',
@@ -15,6 +15,7 @@ const steps: Record<SandboxStepKey, string> = {
   'custom-after-db': 'Eigene Befehle (nach der Datenbank)',
   'theme-compile': 'Theme kompilieren',
   'custom-final': 'Eigene Befehle (zum Schluss)',
+  screenshots: 'Vorher-Screenshots',
   ready: 'Bereit',
 };
 const commands: Record<SandboxCommandKey, string> = {
@@ -75,6 +76,8 @@ export const de = {
     internet: 'Internet im Container',
     internetHint: 'Aufgaben-Container sind offline. Mit „nur nach Freigabe“ kann die KI im Chat um Internet bitten (z. B. für composer oder npm) oder du schaltest es in der Statuszeile der Sandbox ein – jedes Mal nur für diese Aufgabe, bis zum Sperren, Pausieren oder Abschließen. Mit Internet erreicht der Container jede öffentliche Adresse, auch die Website deines Live-Shops. Lotse selbst bleibt aus dem Container unerreichbar.',
     internetPolicy: { approval: 'nur nach Freigabe', never: 'nie' } as Record<InternetPolicy, string>,
+    shots: 'Seiten für Screenshots',
+    shotsHint: 'Ein Pfad je Zeile, höchstens 5 (z. B. / oder /checkout/cart). Lotse fotografiert sie in der Sandbox auf Desktop und Mobil: vorher am Ende der Einrichtung, nachher beim Veröffentlichen. Die Bilder bleiben in Lotse, der Pull Request erwähnt sie nur. Leer = keine Screenshots. Dafür lädt „Umgebung prüfen“ einmal den Browser-Container mcr.microsoft.com/playwright (gut 2 GB).',
     vars: 'Umgebungsvariablen',
     varsHint: 'Stehen in jedem Aufgaben-Container und für eigene Befehle bereit. Änderungen gelten für neue Aufgaben bzw. nach „Umgebung neu aufbauen“. Geheime Werte werden verschlüsselt gespeichert, nie wieder angezeigt und aus Texten an die KI entfernt. Aber: Code, den die KI schreibt, läuft im Container und kann dort jede Variable lesen – trage nur Zugangsdaten ein, die allein für die Sandbox gelten.',
     key: 'Name',
@@ -277,7 +280,7 @@ export const de = {
       fromProposal: 'Vorschlag der KI übernommen – bitte prüfen.',
       create: 'Pull Request erstellen',
       update: 'Pull Request aktualisieren',
-      steps: { check: 'Prüfe Änderungen …', commit: 'Committe …', push: 'Pushe …', pr: 'Erstelle Pull Request …' } as Record<'check' | 'commit' | 'push' | 'pr', string>,
+      steps: { check: 'Prüfe Änderungen …', screenshots: 'Nehme Nachher-Screenshots auf …', commit: 'Committe …', push: 'Pushe …', pr: 'Erstelle Pull Request …' } as Record<PublishStep, string>,
       failed: (e: string) => `Nicht veröffentlicht: ${e}`,
       interrupted: 'Das Veröffentlichen wurde unterbrochen (Neustart). Erneut klicken – Lotse macht dort weiter, ohne etwas doppelt anzulegen.',
       done: { created: 'Pull Request angelegt', updated: 'Pull Request aktualisiert' } as Record<'created' | 'updated', string>,
@@ -289,6 +292,19 @@ export const de = {
       open: 'Auf GitHub öffnen',
       stale: 'Status von GitHub nicht abrufbar.',
       aria: (n: number, title: string) => `Pull Request #${n}: ${title}`,
+    },
+    shots: {
+      heading: 'Vorher / Nachher',
+      lead: 'Screenshots der Sandbox-Storefront: vorher am Ende der Einrichtung, nachher bei jedem Veröffentlichen. Sie bleiben in Lotse – im Pull Request steht nur ein Hinweis.',
+      none: 'Noch keine Screenshots. Vorher-Screenshots entstehen beim Einrichten, Nachher-Screenshots beim Veröffentlichen.',
+      off: 'Keine Seiten für Screenshots eingestellt (Sandbox Coding → Umgebung).',
+      before: 'Vorher', after: 'Nachher',
+      device: { desktop: 'Desktop', mobile: 'Mobil' } as Record<ShotDevice, string>,
+      missing: 'kein Bild',
+      pending: 'beim Veröffentlichen',
+      failed: (kind: string, e: string) => `${kind}: ${e}`,
+      alt: (kind: string, device: string, path: string) => `${kind}, ${device}: ${path}`,
+      open: 'In voller Größe öffnen',
     },
     diff: {
       refresh: 'Aktualisieren',
@@ -351,6 +367,8 @@ export const en: typeof de = {
     internet: 'Internet in the container',
     internetHint: 'Task containers are offline. With "only after approval" the AI can ask for internet in the chat (e.g. for composer or npm), or you switch it on in the sandbox status line – each time for this task only, until you block it, pause or finish. With internet the container reaches any public address, including your live shop\'s website. Lotse itself stays unreachable from the container.',
     internetPolicy: { approval: 'only after approval', never: 'never' },
+    shots: 'Pages for screenshots',
+    shotsHint: 'One path per line, at most 5 (e.g. / or /checkout/cart). Lotse captures them in the sandbox on desktop and mobile: before at the end of the setup, after when publishing. The images stay in Lotse; the pull request only mentions them. Empty = no screenshots. For this, “Check environment” pulls the browser container mcr.microsoft.com/playwright once (about 2 GB).',
     vars: 'Environment variables',
     varsHint: 'Available in every task container and to your own commands. Changes apply to new tasks or after “Rebuild environment”. Secret values are stored encrypted, never shown again and removed from text sent to the AI. But: code the AI writes runs in the container and can read every variable there – only enter credentials meant for the sandbox alone.',
     key: 'Name',
@@ -513,6 +531,7 @@ export const en: typeof de = {
     'custom-after-db': 'Own commands (after the database)',
     'theme-compile': 'Compile theme',
     'custom-final': 'Own commands (at the end)',
+    screenshots: 'Before screenshots',
     ready: 'Ready',
   },
   commands: {
@@ -575,7 +594,7 @@ export const en: typeof de = {
       fromProposal: 'Taken from the AI’s proposal – please review.',
       create: 'Create pull request',
       update: 'Update pull request',
-      steps: { check: 'Checking changes…', commit: 'Committing…', push: 'Pushing…', pr: 'Creating pull request…' },
+      steps: { check: 'Checking changes…', screenshots: 'Taking after screenshots…', commit: 'Committing…', push: 'Pushing…', pr: 'Creating pull request…' },
       failed: e => `Not published: ${e}`,
       interrupted: 'Publishing was interrupted (restart). Click again – Lotse continues there without creating anything twice.',
       done: { created: 'Pull request created', updated: 'Pull request updated' },
@@ -587,6 +606,19 @@ export const en: typeof de = {
       open: 'Open on GitHub',
       stale: 'Status could not be fetched from GitHub.',
       aria: (n, title) => `Pull request #${n}: ${title}`,
+    },
+    shots: {
+      heading: 'Before / after',
+      lead: 'Screenshots of the sandbox storefront: before at the end of the setup, after on every publish. They stay in Lotse – the pull request only mentions them.',
+      none: 'No screenshots yet. Before screenshots are taken during the setup, after screenshots when publishing.',
+      off: 'No pages for screenshots configured (Sandbox Coding → Environment).',
+      before: 'Before', after: 'After',
+      device: { desktop: 'Desktop', mobile: 'Mobile' },
+      missing: 'no image',
+      pending: 'when publishing',
+      failed: (kind, e) => `${kind}: ${e}`,
+      alt: (kind, device, path) => `${kind}, ${device}: ${path}`,
+      open: 'Open full size',
     },
     diff: {
       refresh: 'Refresh',

@@ -241,7 +241,7 @@ export interface GithubTestResult extends TestResult { login: string | null; /**
 export interface GithubRepo { fullName: string; private: boolean; defaultBranch: string; /** may push (from GitHub's permissions) */ push: boolean; pushedAt: string | null }
 export interface GithubBranch { name: string; protected: boolean }
 // ---- Sandbox Coding: one container per task from a fixed template; secrets of the environment never reach the browser ----
-export type SandboxStepKey = 'check-image' | 'clone' | 'detect-layout' | 'start-container' | 'wait-ready' | 'version-check' | 'import-db' | 'set-domain' | 'install-plugin' | 'custom-after-db' | 'theme-compile' | 'custom-final' | 'ready';
+export type SandboxStepKey = 'check-image' | 'clone' | 'detect-layout' | 'start-container' | 'wait-ready' | 'version-check' | 'import-db' | 'set-domain' | 'install-plugin' | 'custom-after-db' | 'theme-compile' | 'custom-final' | 'screenshots' | 'ready';
 export type SandboxCommandKey = 'theme-compile' | 'cache-clear' | 'plugin-refresh' | 'theme-refresh' | 'lint-twig' | 'php-lint';
 /** When an own setup command runs: after the database (before theme:compile) or at the very end of the setup */
 export type CommandPhase = 'after-db' | 'final';
@@ -258,6 +258,7 @@ export interface SandboxEnvPublic {
   envVars: SandboxEnvVar[]; commands: SandboxCommand[]; updatedAt: string | null;
   /** preselected in "Sandbox starten" (empty = none) */ defaultRepo: string; defaultBranch: string;
   /** "Internet im Container": only after a human allowed it per task (default) or never */ internet: InternetPolicy;
+  /** storefront paths captured before (setup) and after (publish), desktop and mobile; empty = no screenshots */ screenshotPaths: string[];
 }
 export type InternetPolicy = 'approval' | 'never';
 /** Both modes: task containers only on the internal network lotse-sandbox. network = Lotse runs in Docker on that network; local = Lotse on the host reaches the container IPs */
@@ -266,7 +267,7 @@ export interface SandboxDocker { reachable: boolean; apiVersion: string | null; 
 export interface SandboxEnvView { env: SandboxEnvPublic; docker: SandboxDocker | null; imagePresent: boolean | null; templates: TemplateDescriptor[] }
 /** PUT /api/sandbox/env: secret value empty/undefined = unchanged; a command without id is new */
 export interface SandboxEnvPatch {
-  enabled?: boolean; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number; defaultRepo?: string; defaultBranch?: string; internet?: InternetPolicy;
+  enabled?: boolean; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number; defaultRepo?: string; defaultBranch?: string; internet?: InternetPolicy; screenshotPaths?: string[];
   envVars?: { key: string; secret: boolean; value?: string }[];
   commands?: { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec?: number }[];
 }
@@ -290,9 +291,15 @@ export interface CodeTaskPublic {
   /** the task's pull request (null = not published yet) */ pr: TaskPr | null;
   /** publishing right now, or the last attempt failed / was cut off by a restart (a retry continues idempotently) */ publish: TaskPublish | null;
   /** internet access a human allowed for this task (container attached to lotse-sandbox-egress); null = offline */ internet: { since: string } | null;
+  /** before (end of the setup) and after (at publishing) screenshots of the sandbox storefront, stored in Lotse only */ shots: TaskShots;
 }
+export type ShotDevice = 'desktop' | 'mobile';
+/** One stored screenshot; url = GET /api/sandbox/tasks/[id]/screenshots/[file] */
+export interface TaskShot { path: string; device: ShotDevice; url: string }
+export interface TaskShotSet { at: string; shots: TaskShot[]; /** why some or all shots are missing */ error?: string }
+export interface TaskShots { before: TaskShotSet | null; after: TaskShotSet | null }
 export interface TaskPr { number: number; url: string; title: string }
-export type PublishStep = 'check' | 'commit' | 'push' | 'pr';
+export type PublishStep = 'check' | 'screenshots' | 'commit' | 'push' | 'pr';
 export interface TaskPublish { state: 'running' | 'failed' | 'interrupted'; step: PublishStep; error?: string; at: string }
 /** POST /api/sandbox/tasks/[id]/publish: title and description only (branch and base are fixed by the server) */
 export interface PublishRequest { title: string; body: string }

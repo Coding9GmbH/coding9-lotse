@@ -1,5 +1,5 @@
 // Minimal tar writer (ustar + PAX path records for long names) for Docker's archive API.
-// Regular files, directories and symlinks; owner, group and mtime are fixed by the caller.
+// Regular files, directories and symlinks; owner, group and mtime are fixed by the caller. Plus a minimal reader (screenshots, tests).
 import { Readable } from 'node:stream';
 
 export interface TarEntry { path: string; type: 'file' | 'dir' | 'symlink'; data?: Buffer; mode?: number; linkTarget?: string }
@@ -85,3 +85,26 @@ export function streamFileTar(dir: string, name: string, size: number, src: Asyn
   }
   return { stream: Readable.from(gen(), { objectMode: false }), length: head.length + size + tail.length };
 }
+
+export interface TarRecord { path: string; type: 'file' | 'dir' | 'symlink' | 'other'; data: Buffer; uid: number; gid: number; mode: number; linkTarget: string }
+/** Minimal tar reader (ustar + PAX path/linkpath): every entry with owner and mode. */
+export function readTarEntries(tar: Buffer): TarRecord[] {
+  const out: TarRecord[] = [];
+  let pax: Record<string, string> = {};
+  for (let off = 0; off + 512 <= tar.length;) {
+    const h = tar.subarray(off, off + 512);
+    if (h.every(b => b === 0)) break;
+    const str = (a: number, b: number) => h.subarray(a, b).toString('utf8').replace(/\0.*$/s, '');
+    const num = (a: number, b: number) => parseInt(str(a, b).trim() || '0', 8);
+    const name = str(0, 100), prefix = str(345, 500), size = num(124, 136), type = String.fromCharCode(h[156] || 48);
+    const data = Buffer.from(tar.subarray(off + 512, off + 512 + size));
+    off += 512 + Math.ceil(size / 512) * 512;
+    if (type === 'x') { pax = Object.fromEntries(data.toString('utf8').split('\n').filter(Boolean).map(l => { const kv = l.slice(l.indexOf(' ') + 1); const i = kv.indexOf('='); return [kv.slice(0, i), kv.slice(i + 1)]; })); continue; }
+    const full = pax.path ?? (prefix ? `${prefix}/${name}` : name);
+    out.push({ path: full.replace(/\/$/, ''), type: type === '0' ? 'file' : type === '5' ? 'dir' : type === '2' ? 'symlink' : 'other', data, uid: num(108, 116), gid: num(116, 124), mode: num(100, 108), linkTarget: pax.linkpath ?? str(157, 257) });
+    pax = {};
+  }
+  return out;
+}
+/** Regular files only. */
+export const readTar = (tar: Buffer): { path: string; data: Buffer }[] => readTarEntries(tar).filter(e => e.type === 'file').map(({ path, data }) => ({ path, data }));

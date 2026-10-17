@@ -149,3 +149,15 @@
 .dfHunk { color: var(--mute); }
 .dfMeta { color: var(--mute); font-weight: 600; }
 .prBox { margin-bottom: 14px; }
+
+/* before/after screenshots ("Pull Request" tab) */
+.shots { margin: 0 0 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.shots .h3 { margin-top: 0; }
+.shotRow { margin-bottom: 12px; }
+.shotPair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.shotPairMobile { max-width: 420px; }
+.shot { margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.shot figcaption { font-size: 12px; font-weight: 600; color: var(--mute); }
+.shot figcaption small { font-weight: 400; }
+.shot img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.shotMissing { display: flex; align-items: center; justify-content: center; min-height: 80px; border: 1px dashed var(--line); border-radius: 6px; color: var(--mute); font-size: 12px; }

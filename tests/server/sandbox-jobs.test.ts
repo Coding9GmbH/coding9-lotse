@@ -80,7 +80,7 @@ test('happy path: all steps in order, plugin synced as www-data without .git/sec
   await settled(t.id);
   const done = T.getTask(t.id)!;
   assert.equal(done.status, 'ready', done.error ?? '');
-  assert.deepEqual(done.steps.map(s => s.state), ['done', 'done', 'done', 'done', 'done', 'skipped', 'skipped', 'done', 'done', 'done', 'done', 'done', 'done']);
+  assert.deepEqual(done.steps.map(s => s.state), ['done', 'done', 'done', 'done', 'done', 'skipped', 'skipped', 'done', 'done', 'done', 'done', 'done', 'done', 'done']);
   assert.deepEqual(done.layout, { kind: 'theme', name: 'AcmeTheme', pluginDir: 'custom/plugins/AcmeTheme' });
   assert.equal(done.steps.find(s => s.key === 'custom' && s.phase === 'after-db')?.label, 'Demodaten');
   const argv = execs(done.containerId!).map(a => (a[0] === 'mysql' ? (a.at(-1)!.includes('installed_at') ? 'PLUGIN_STATE' : 'SET_DOMAIN') : a));
@@ -119,7 +119,7 @@ test('theme-compile fails: step failed with the SCSS tail, later steps pending; 
   assert.match(failed.error!, /Exit-Code 1/);
   assert.match(failed.error!, /Undefined variable/);
   assert.match(cur.error!, /Undefined variable/);
-  assert.deepEqual(cur.steps.slice(cur.steps.indexOf(failed) + 1).map(s => s.state), ['pending', 'pending']);
+  assert.deepEqual(cur.steps.slice(cur.steps.indexOf(failed) + 1).map(s => s.state), ['pending', 'pending', 'pending']);
 
   fake.script = () => undefined;
   const before = execs(cur.containerId!).length;

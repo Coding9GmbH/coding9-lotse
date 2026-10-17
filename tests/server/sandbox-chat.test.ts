@@ -271,7 +271,7 @@ test('a turn during the setup waits for it; a failed setup ends the turn with th
   const t = T.createTask({ chatId: id, repo: 'acme/shop-theme', baseBranch: 'main' });
   assert.equal(t.title, 'Sandbox shop-theme', 'title from the repository');
   const orig = S.fake.ensureImage.bind(S.fake); let release: (() => void) | null = null;
-  S.fake.ensureImage = async (...a: Parameters<typeof orig>) => { await new Promise<void>(r => (release = r)); return orig(...a); };
+  S.fake.ensureImage = async (...a: Parameters<typeof orig>) => { if (a[0].startsWith('dockware/')) await new Promise<void>(r => (release = r)); return orig(...a); }; // not the screenshot image
   try {
     J.runSteps(t.id);
     const s = getSession(id), seen: ChatEvent[] = [];

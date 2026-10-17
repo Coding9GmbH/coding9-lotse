@@ -5,34 +5,15 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, NetworkOpts, PullProgress, SandboxRunner } from './runner';
 import { MANAGED, assertAllowedImage, assertContainerPath, assertEgressNetwork, assertId, assertManaged, assertNetworkName, assertSafeSpec, isManaged } from './guards';
-import { EGRESS_NET, SANDBOX_NET } from './labels';
+import { EGRESS_NET, ROLE_LABEL, SANDBOX_NET, SHOT_ROLE } from './labels';
+import { SHOT_DIR, SHOT_OUT, type ShotJob } from './screenshot-spec';
+import { readTar, readTarEntries, writeTar, type TarRecord } from './tar';
 
 export interface FakeCall { op: string; id?: string; argv?: string[]; user?: string; detail?: unknown }
-interface FakeContainer { id: string; spec: ContainerSpec; running: boolean; networks: string[]; files: Map<string, Buffer>; server: http.Server | null; port: number | null; /** storefront templates as of the last theme:compile */ compiled: string[] }
+interface FakeContainer { id: string; spec: ContainerSpec; running: boolean; exitCode?: number; networks: string[]; files: Map<string, Buffer>; server: http.Server | null; port: number | null; /** storefront templates as of the last theme:compile */ compiled: string[] }
 type ExecScript = (argv: readonly string[], id: string) => Partial<ExecResult> | undefined;
 
-export interface TarRecord { path: string; type: 'file' | 'dir' | 'symlink' | 'other'; data: Buffer; uid: number; gid: number; mode: number; linkTarget: string }
-/** Minimal tar reader (ustar + PAX path/linkpath): every entry with owner and mode. */
-export function readTarEntries(tar: Buffer): TarRecord[] {
-  const out: TarRecord[] = [];
-  let pax: Record<string, string> = {};
-  for (let off = 0; off + 512 <= tar.length;) {
-    const h = tar.subarray(off, off + 512);
-    if (h.every(b => b === 0)) break;
-    const str = (a: number, b: number) => h.subarray(a, b).toString('utf8').replace(/\0.*$/s, '');
-    const num = (a: number, b: number) => parseInt(str(a, b).trim() || '0', 8);
-    const name = str(0, 100), prefix = str(345, 500), size = num(124, 136), type = String.fromCharCode(h[156] || 48);
-    const data = Buffer.from(tar.subarray(off + 512, off + 512 + size));
-    off += 512 + Math.ceil(size / 512) * 512;
-    if (type === 'x') { pax = Object.fromEntries(data.toString('utf8').split('\n').filter(Boolean).map(l => { const kv = l.slice(l.indexOf(' ') + 1); const i = kv.indexOf('='); return [kv.slice(0, i), kv.slice(i + 1)]; })); continue; }
-    const full = pax.path ?? (prefix ? `${prefix}/${name}` : name);
-    out.push({ path: full.replace(/\/$/, ''), type: type === '0' ? 'file' : type === '5' ? 'dir' : type === '2' ? 'symlink' : 'other', data, uid: num(108, 116), gid: num(116, 124), mode: num(100, 108), linkTarget: pax.linkpath ?? str(157, 257) });
-    pax = {};
-  }
-  return out;
-}
-/** Regular files only. */
-export const readTar = (tar: Buffer): { path: string; data: Buffer }[] => readTarEntries(tar).filter(e => e.type === 'file').map(({ path, data }) => ({ path, data }));
+export { readTar, readTarEntries, type TarRecord } from './tar';
 
 async function collect(a: ArchiveStream): Promise<Buffer> {
   const parts: Buffer[] = [];
@@ -50,6 +31,9 @@ const renderTwig = (src: string) => src.replace(/\{%[\s\S]*?%\}|\{\{[\s\S]*?\}\}
 const dockwareAnswers = (argv: readonly string[]): Partial<ExecResult> | undefined =>
   (argv[0] === 'mysql' && argv.some(a => a.includes('installed_at IS NOT NULL')) ? { output: '11\n' } : undefined);
 
+/** A valid 1×1 PNG: what the fake screenshot container "captures". */
+export const FAKE_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+
 export class FakeRunner implements SandboxRunner {
   readonly kind = 'fake' as const;
   calls: FakeCall[] = [];
@@ -63,6 +47,8 @@ export class FakeRunner implements SandboxRunner {
   script: ExecScript = () => undefined;
   /** tests: answer a storefront request of a started container itself (true = handled) */
   storefront: ((req: http.IncomingMessage, res: http.ServerResponse, containerId: string) => boolean) | null = null;
+  /** screenshot container: which file each shot gets (null = that shot fails); default FAKE_PNG for every shot. Throwing = exit code 1 without output */
+  shooter: ((job: ShotJob) => Record<string, Buffer | null>) | null = null;
   /** every uploaded archive, decoded (tests check owner and paths) */
   archives: { id: string; dir: string; entries: TarRecord[] }[] = [];
   private seq = 0;
@@ -99,6 +85,7 @@ export class FakeRunner implements SandboxRunner {
     this.enter('start', { id });
     const c = this.managed(id);
     if (c.running) return;
+    if (c.spec.Labels[ROLE_LABEL] === SHOT_ROLE) { this.shoot(c); return; }
     c.running = true;
     c.server = http.createServer((req, res) => {
       if (this.storefront?.(req, res, c.id)) return;
@@ -110,6 +97,31 @@ export class FakeRunner implements SandboxRunner {
     });
     await new Promise<void>(ok => c.server!.listen(0, '127.0.0.1', ok));
     c.port = (c.server.address() as AddressInfo).port;
+  }
+  /** The screenshot script, simulated: reads the job from the uploaded files, writes the shots and result.json, exits. */
+  private shoot(c: FakeContainer) {
+    try {
+      const job = JSON.parse(c.files.get(`${SHOT_DIR}/job.json`)?.toString('utf8') ?? 'null') as ShotJob;
+      if (!job || !c.files.has(`${SHOT_DIR}/shot.mjs`)) throw new Error('job missing');
+      const made = this.shooter?.(job) ?? Object.fromEntries(job.shots.map(s => [s.file, FAKE_PNG]));
+      const result = job.shots.map(s => { const png = made[s.file]; if (png) c.files.set(`${SHOT_OUT}/${s.file}`, png); return { file: s.file, ok: !!png, ...(png ? {} : { error: 'Exit 1: net::ERR_CONNECTION_REFUSED' }) }; });
+      c.files.set(`${SHOT_OUT}/result.json`, Buffer.from(JSON.stringify(result)));
+      c.exitCode = 0;
+    } catch { c.exitCode = 1; }
+  }
+  async wait(id: string) {
+    this.enter('wait', { id });
+    const c = this.managed(id);
+    return c.exitCode ?? (c.running ? -1 : 0);
+  }
+  async getArchive(id: string, dir: string, o: { maxBytes: number }) {
+    this.enter('getArchive', { id, detail: dir });
+    const c = this.managed(id), root = assertContainerPath(dir).replace(/\/$/, ''), base = root.split('/').pop()!;
+    const entries = [...c.files].filter(([k]) => k.startsWith(`${root}/`)).map(([k, data]) => ({ path: `${base}/${k.slice(root.length + 1)}`, type: 'file' as const, data }));
+    if (!entries.length) throw new Error(`Dateien abholen: Docker meldet HTTP 404 – Could not find the file ${root} in container`);
+    const tar = writeTar([{ path: base, type: 'dir' }, ...entries], { uid: 1001, gid: 1001, uname: 'pwuser', gname: 'pwuser' });
+    if (tar.length > o.maxBytes) throw new Error('Antwort von Docker ist zu groß.');
+    return tar;
   }
   async stop(id: string) {
     this.enter('stop', { id });
