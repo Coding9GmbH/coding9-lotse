@@ -129,7 +129,7 @@ export type AiProvider = 'claude' | 'codex';
 /** shopware = connection to the active shop (legacy name, applies to every platform); platform = which platform is connected */
 /** Optional integrations: only when connected does the UI show matching examples */
 export interface Integrations { gsc: boolean; sistrix: boolean }
-export interface Health { shopware: { url: string; ok: boolean; configured: boolean; error?: string }; ai: { configured: boolean; provider?: AiProvider }; platform?: { kind: PlatformKind; label: string; available: boolean }; integrations?: Integrations }
+export interface Health { shopware: { url: string; ok: boolean; configured: boolean; error?: string }; ai: { configured: boolean; provider?: AiProvider; /** cost brake (Claude with a monthly budget only): spent/limit in USD this month */ budget?: { spent: number; limit: number; warn: boolean; blocked: boolean } }; platform?: { kind: PlatformKind; label: string; available: boolean }; integrations?: Integrations }
 /** The platform's path templates ({id} is replaced): admin links and storefront paths for category/product */
 export interface PlatformPaths { adminCategory: string; adminProduct: string; adminCms: string; category: string; product: string }
 export interface AppConfig { admin: string; storefront: string; imageGen: boolean; docker: boolean; version: string; platform?: PlatformKind; paths?: PlatformPaths }
@@ -149,7 +149,8 @@ export interface PublicSettings {
   /** active shop platform (exactly one shop is connected) */
   platform?: PlatformKind;
   platforms?: Partial<Record<PlatformKind, PlatformPublic>>;
-  ai: { provider: AiProvider; hasApiKey: boolean; model: string; viaEnv: boolean; docker: boolean; codexModel: string; codexLoggedIn: boolean };
+  /** budget: monthly cost limit in USD for Claude ('' = none); budgetViaEnv: comes from LOTSE_AI_BUDGET_USD */
+  ai: { provider: AiProvider; hasApiKey: boolean; model: string; viaEnv: boolean; docker: boolean; codexModel: string; codexLoggedIn: boolean; budget: string; budgetViaEnv: boolean };
   image: { hasKey: boolean; model: string };
   scopes: Record<ScopeKey, boolean>;
   scopeInfo: Record<ScopeKey, ScopeInfo>;
@@ -165,7 +166,7 @@ export interface SettingsPatch {
   shopify?: PlatformPatch;
   magento?: PlatformPatch;
   openmage?: PlatformPatch;
-  ai?: { provider?: AiProvider; model?: string; codexModel?: string; apiKey?: string | null };
+  ai?: { provider?: AiProvider; model?: string; codexModel?: string; budget?: string; apiKey?: string | null };
   image?: { model?: string; openaiKey?: string | null };
   scopes?: Partial<Record<ScopeKey, boolean>>;
 }
@@ -236,5 +237,17 @@ export interface SeoImpact {
   measuredAt?: string; dismissed?: boolean;
 }
 export interface SeoImpactList { connected: boolean; items: SeoImpact[] }
+/** AI costs (cost brake): month = current calendar month (UTC); budget null = no limit; only Claude has USD costs (Codex: subscription) */
+export interface UsageStatus {
+  provider: AiProvider; budget: number | null;
+  month: { from: string; cost: number; turns: number };
+  today: { cost: number; turns: number };
+  days: { day: string; cost: number; turns: number }[];
+  /** share of the budget used (0..1+), null without budget */
+  used: number | null;
+  /** from WARN_SHARE of the budget: warning; blocked: no new Claude turns this month */
+  warn: boolean; blocked: boolean;
+}
+export const WARN_SHARE = 0.8;
 /** Home page card: visibility history (oldest week first) */
 export interface SistrixOverview { connected: boolean; domain?: string; country?: string; weeks?: number; series?: { date: string; value: number }[]; latest?: { date: string; value: number } | null; changePct?: number | null; creditsUsed?: number | null; error?: string }

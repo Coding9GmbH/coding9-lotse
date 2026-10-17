@@ -33,6 +33,10 @@ export interface Session {
   themeCss: () => Promise<string | null>;
   draft: PageSpec | null;
   sdkSessionId: string | null;
+  /** Cumulative cost the Agent SDK reported for this chat's session (the next turn's cost = new total minus this, usage.ts) */
+  costTotal?: number | null;
+  /** SDK session the costTotal belongs to (a new session counts as a whole) */
+  costSession?: string | null;
   /** Codex thread (ChatGPT subscription), separate from the Claude session in case the provider is switched */
   codexThreadId: string | null;
   title: string | null;
@@ -126,7 +130,7 @@ export function persist(s: Session) {
   if (s.deleted || !s.events.length) return;
   let lastDraft = -1; s.events.forEach((e, i) => { if (e.t === 'draft') lastDraft = i; });
   const events = s.events.map((e, i) => (e.t === 'draft' && i !== lastDraft ? { ...e, html: undefined } : e)); // keep only the last preview
-  const c: StoredChat = { id: s.id, title: s.title, target: s.target, createdAt: s.createdAt, updatedAt: new Date().toISOString(), sdkSessionId: s.sdkSessionId, codexThreadId: s.codexThreadId, draft: s.draft, events };
+  const c: StoredChat = { id: s.id, title: s.title, target: s.target, createdAt: s.createdAt, updatedAt: new Date().toISOString(), sdkSessionId: s.sdkSessionId, costTotal: s.costTotal ?? null, costSession: s.costSession ?? null, codexThreadId: s.codexThreadId, draft: s.draft, events };
   chatPut(c);
 }
 
@@ -250,7 +254,7 @@ export function getSession(id: string): Session {
   const ss: Session = {
     id, platform: kind, reader: parts.reader, lookup: parts.lookup,
     sw: parts.reader instanceof ReadOnlyShopware ? parts.reader : new ReadOnlyShopware(shopwareOnly(kind)),
-    storefrontFetch: parts.storefrontFetch, themeCss: parts.themeCss, draft: saved?.draft ?? null, sdkSessionId: saved?.sdkSessionId ?? null, codexThreadId: saved?.codexThreadId ?? null, title: saved?.title ?? null, target: saved?.target ?? null,
+    storefrontFetch: parts.storefrontFetch, themeCss: parts.themeCss, draft: saved?.draft ?? null, sdkSessionId: saved?.sdkSessionId ?? null, costTotal: saved?.costTotal ?? null, costSession: saved?.costSession ?? null, codexThreadId: saved?.codexThreadId ?? null, title: saved?.title ?? null, target: saved?.target ?? null,
     createdAt: saved?.createdAt ?? new Date().toISOString(), events: saved?.events ?? [], emit: () => {}, running: false, lastUsed: Date.now(), abort: null, locale: ui().locale, listeners: new Set(), approvals: new Map(),
     askUser: async q => {
       const approvalId = Math.random().toString(36).slice(2);

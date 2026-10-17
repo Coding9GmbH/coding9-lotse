@@ -20,7 +20,7 @@ export interface SettingsForm {
   platforms: Record<GenericPlatform, { values: Record<string, string>; auth: string }>;
   /** platform secrets, key "platform.field" */
   platformSecrets: Record<string, SecretInput>;
-  ai: { provider: AiProvider; model: string; codexModel: string };
+  ai: { provider: AiProvider; model: string; codexModel: string; budget: string };
   image: { model: string };
   scopes: Record<ScopeKey, boolean>;
   secrets: Record<SecretKey, SecretInput>;
@@ -39,7 +39,7 @@ export function formFromSettings(s: PublicSettings): SettingsForm {
     platforms,
     platformSecrets: Object.fromEntries(GENERIC_PLATFORMS.flatMap(k => secretKeys(k).map(f => [`${k}.${f}`, emptySecret()]))),
     shopware: { url: sw.url, publicUrl: sw.publicUrl, clientId: sw.clientId, user: sw.user, auth: sw.clientId || !sw.user ? 'integration' : 'user' },
-    ai: { provider: s.ai.provider, model: s.ai.model, codexModel: s.ai.codexModel },
+    ai: { provider: s.ai.provider, model: s.ai.model, codexModel: s.ai.codexModel, budget: s.ai.budgetViaEnv ? '' : s.ai.budget ?? '' },
     image: { model: s.image.model },
     scopes: { ...s.scopes },
     secrets: { clientSecret: emptySecret(), password: emptySecret(), apiKey: emptySecret(), openaiKey: emptySecret() },
@@ -60,7 +60,7 @@ export function buildPatch(f: SettingsForm): SettingsPatch {
     magento: generic('magento'),
     openmage: generic('openmage'),
     shopware: { url: f.shopware.url.trim(), publicUrl: f.shopware.publicUrl.trim(), clientId: f.shopware.clientId.trim(), user: f.shopware.user.trim(), clientSecret: secret(s.clientSecret), password: secret(s.password) },
-    ai: { provider: f.ai.provider, model: f.ai.model, codexModel: f.ai.codexModel.trim(), apiKey: secret(s.apiKey) },
+    ai: { provider: f.ai.provider, model: f.ai.model, codexModel: f.ai.codexModel.trim(), budget: f.ai.budget.trim(), apiKey: secret(s.apiKey) },
     image: { model: f.image.model.trim(), openaiKey: secret(s.openaiKey) },
     scopes: { ...f.scopes },
   };

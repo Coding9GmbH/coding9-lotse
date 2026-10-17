@@ -34,3 +34,6 @@
 .fixBar span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fixBar button { flex: none; border: 0; background: none; padding: 0; color: var(--green-d); font: inherit; font-weight: 600; cursor: pointer; }
 .fixBar button:hover { text-decoration: underline; }
+.budgetBar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 16px 0; padding: 8px 12px; border-radius: 10px; background: var(--warn-bg); color: var(--ink); font-size: 13px; }
+.budgetBlocked { background: var(--coral-bg); color: var(--warn); }
+.budgetBar a { flex: none; color: inherit; font-weight: 600; }

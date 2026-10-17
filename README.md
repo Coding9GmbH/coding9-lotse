@@ -92,6 +92,7 @@ Die Sprache (Deutsch/Englisch) ist keine Variable: Sie wird in den Einstellungen
 | `SHOPWARE_PUBLIC_URL` | Shop-Adresse aus Sicht des Browsers, falls abweichend |
 | `SHOP_PLATFORM` | verbundene Plattform: `shopware` (Standard), `shopify`, `magento` (Magento 2) oder `openmage` (Magento 1 mit dem Modul aus `integrations/openmage/`); Variablen `SHOPIFY_*`, `MAGENTO_*`, `OPENMAGE_*` siehe `src/lib/platforms.ts` |
 | `AI_MODEL` | z. B. `sonnet` oder `opus` |
+| `LOTSE_AI_BUDGET_USD` | Kostenbremse: Monatsbudget für Claude in US-Dollar (Einstellungen → KI verbinden hat Vorrang); leer = keine Grenze |
 | `LOTSE_PASSWORD`, `ALLOWED_HOSTS` | Zugangsschutz für Serverbetrieb ([Selbst hosten](docs/self-hosting.md)) |
 | `LOTSE_BIND`, `LOTSE_PORT` | Veröffentlichte Adresse und Port des Containers (Standard `127.0.0.1`, `3333`) |
 | `LOTSE_WRITE_CONCURRENCY`, `LOTSE_SHOP_TIMEOUT_MS` | Shop-Schonung |

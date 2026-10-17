@@ -147,7 +147,7 @@ Ist unter Einstellungen → KI-Zugriff der Schalter **Abverkauf** an, liest Lots
 | Abschnitt | Inhalt |
 |---|---|
 | **Shop verbinden** | Plattform wählen, Zugangsdaten eintragen, Verbindung testen. Empfohlen: eigene Integration mit eingeschränkter Rolle statt Admin-Login |
-| **KI verbinden** | Anbieter (Claude per API-Schlüssel oder Codex per ChatGPT-Abo), Modell |
+| **KI verbinden** | Anbieter (Claude per API-Schlüssel oder Codex per ChatGPT-Abo), Modell, **Monatsbudget** (Kostenbremse für Claude: ist es erreicht, startet keine neue Runde; jede Runde verbraucht höchstens die Hälfte des freien Budgets, auch bei parallelen Chats; ab 80 % Hinweis im Chat; darunter die Kosten dieses Monats und von heute) |
 | **Bild-KI** (optional) | OpenAI-Schlüssel und Modell für generierte Bilder; KI-Bilder werden sichtbar gekennzeichnet |
 | **KI-Zugriff** | Welche Bereiche Lotse lesen darf (Produkte, Kategorien, Layouts, Medien, Marketing, Shop-Grunddaten). Gesperrte Bereiche werden nicht gelesen, auch nicht vom Shop-Check. Eigene Schalter (standardmäßig aus): **Abverkauf** (nur Summen je Produkt aus Bestellungen, siehe unten) und **Internet** (Websuche) |
 | **Protokolle** | **Zugriffe** (jeder Lesezugriff der KI, abgewiesene markiert) und **Änderungen** (freigegeben, abgelehnt, rückgängig, geändert) |

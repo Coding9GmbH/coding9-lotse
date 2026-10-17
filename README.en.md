@@ -92,6 +92,7 @@ Language (German/English) is not a variable: it is chosen in Settings or the sid
 | `SHOPWARE_PUBLIC_URL` | Shop address as seen from the browser, if different |
 | `SHOP_PLATFORM` | connected platform: `shopware` (default), `shopify`, `magento` (Magento 2) or `openmage` (Magento 1 with the module from `integrations/openmage/`); for `SHOPIFY_*`, `MAGENTO_*`, `OPENMAGE_*` variables see `src/lib/platforms.ts` |
 | `AI_MODEL` | e.g. `sonnet` or `opus` |
+| `LOTSE_AI_BUDGET_USD` | Cost brake: monthly budget for Claude in US dollars (Settings → Connect AI takes precedence); empty = no limit |
 | `LOTSE_PASSWORD`, `ALLOWED_HOSTS` | Access protection for server operation ([self-hosting](docs/self-hosting.md)) |
 | `LOTSE_BIND`, `LOTSE_PORT` | Published address and port of the container (default `127.0.0.1`, `3333`) |
 | `LOTSE_WRITE_CONCURRENCY`, `LOTSE_SHOP_TIMEOUT_MS` | Sparing the shop |

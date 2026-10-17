@@ -15,6 +15,7 @@ import { targetHint } from './target-hint';
 import { pingCodex, runCodex } from './agent-codex';
 import type { Session } from './sessions';
 import { errMsg } from './util';
+import { budgetGate, recordTurn, releaseBudget, turnCost } from './usage';
 
 // Save immediately (approvals, questions, drafts); all other history events batched (persistSoon), live-only events not at all
 const PERSIST_ON = new Set(['draft', 'styleguide', 'approval', 'changeset', 'changeset_result', 'question']);
@@ -64,21 +65,30 @@ export function startChat({ chatId, message, target, onboarding, locale }: ChatR
 
   const prompt = hint ? `${hint}\n${message}` : message;
   const provider = getSettings().ai.provider, t0 = Date.now();
-  log.info('Chat-Runde gestartet', { chatId, provider, platform: s.platform, ...(onboarding ? { onboarding: true } : {}) });
+  // Cost brake (usage.ts): Claude only (Codex = subscription without USD costs). Used-up budget → no turn; otherwise the remaining budget is the turn's limit
+  const gate = provider === 'claude' ? budgetGate(new Date(), chatId) : { blocked: false as const };
+  log.info('Chat-Runde gestartet', { chatId, provider, platform: s.platform, ...(onboarding ? { onboarding: true } : {}), ...(gate.blocked ? { budgetBlocked: true } : {}) });
   const done = (async () => {
-    let end: RunEnd = { error: null };
+    let end: RunEnd = { error: null }, cost: number | null = null;
     try {
-      end = provider === 'codex' ? await runCodex(s, prompt, ac.signal, emit) : await runClaude(s, prompt, ac, emit);
+      if (gate.blocked) { const usd = (n: number) => `${n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`; end = { error: messages(s.locale).server.budgetReached(usd(gate.spent), usd(gate.budget)) }; }
+      else end = provider === 'codex' ? await runCodex(s, prompt, ac.signal, emit) : await runClaude(s, prompt, ac, emit, gate.maxUsd);
     } catch (e) {
       end = { error: errMsg(e) };
     } finally {
       // `done` only once the turn is really over: whoever fetches the history afterwards no longer sees the chat as running
       s.running = false; s.abort = null;
+      if (!gate.blocked) {
+        const t = turnCost(end, { total: s.costTotal ?? null, session: s.costSession ?? null }, s.sdkSessionId);
+        cost = t.cost; s.costTotal = t.next.total; s.costSession = t.next.session;
+        releaseBudget(chatId);
+        recordTurn({ chatId, provider, model: end.model, cost, usage: end.usage });
+      }
       const error = end.error ?? (ac.signal.aborted ? messages(s.locale).server.runCancelled : null);
-      emit({ t: 'done', error, ...(end.cost !== undefined ? { cost: end.cost } : {}) });
+      emit({ t: 'done', error, ...(cost != null ? { cost } : {}) });
       persist(s);
       log[error ? 'warn' : 'info']('Chat-Runde beendet', { chatId, provider, ms: Date.now() - t0, ...(end.model ? { model: end.model } : {}), ...(end.usage ? { usage: end.usage } : {}),
-        ...(end.cost !== undefined ? { costUsd: end.cost } : {}), ...(ac.signal.aborted ? { aborted: true } : {}), ...(error ? { error } : {}) });
+        ...(cost != null ? { costUsd: cost } : {}), ...(end.cost != null ? { costTotalUsd: end.cost } : {}), ...(ac.signal.aborted ? { aborted: true } : {}), ...(error ? { error } : {}) });
     }
   })();
   return { started: true, done };
@@ -97,7 +107,8 @@ export function usageOf(modelUsage: Record<string, { inputTokens: number; output
 }
 
 /** Claude Agent SDK: in-process MCP server "shop", partial drafts live from the tool input stream. */
-async function runClaude(s: Session, prompt: string, ac: AbortController, emit: (ev: ChatEvent) => void): Promise<RunEnd> {
+/** maxUsd: remaining monthly budget (cost brake); the SDK stops the turn with error_max_budget_usd once it is reached */
+async function runClaude(s: Session, prompt: string, ac: AbortController, emit: (ev: ChatEvent) => void, maxUsd?: number): Promise<RunEnd> {
   let end: RunEnd = { error: null };
   try {
     const web = getSettings().scopes.web; // web research (Einstellungen → KI-Zugriff)
@@ -117,6 +128,7 @@ async function runClaude(s: Session, prompt: string, ac: AbortController, emit: 
         canUseTool: async (tool, input) => (allowed.includes(tool) ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: 'Nicht erlaubt.' }),
         includePartialMessages: true,
         maxTurns: 40,
+        ...(maxUsd ? { maxBudgetUsd: maxUsd } : {}),
         abortController: ac,
       },
     });
@@ -145,7 +157,8 @@ async function runClaude(s: Session, prompt: string, ac: AbortController, emit: 
           emit({ t: 'tool_result', id: b.tool_use_id, error: !!b.is_error, preview: previewToolResult(b.content) });
         }
       } else if (m.type === 'result') {
-        end = { error: m.is_error ? (('result' in m ? m.result : '') || m.subtype) : null, cost: m.total_cost_usd, ...usageOf(m.modelUsage, m.num_turns) }; persist(s);
+        const error = m.subtype === 'error_max_budget_usd' ? messages(s.locale).server.budgetTurnStopped : m.is_error ? (('result' in m ? m.result : '') || m.subtype) : null;
+        end = { error, cost: m.total_cost_usd, ...usageOf(m.modelUsage, m.num_turns) }; persist(s);
       }
     }
   } catch (e) {

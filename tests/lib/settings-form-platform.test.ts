@@ -10,7 +10,7 @@ const saved: PublicSettings = {
     shopify: { label: 'Shopify', values: { storeDomain: 'holm.myshopify.com', publicUrl: '', apiVersion: '' }, has: { accessToken: true }, configured: true, available: false },
     magento: { label: 'Magento', values: { url: '', publicUrl: '', storeCode: '', user: 'admin' }, has: { accessToken: false, password: false }, configured: false, available: false },
   },
-  ai: { provider: 'claude', hasApiKey: true, model: '', viaEnv: false, docker: false, codexModel: '', codexLoggedIn: false },
+  ai: { provider: 'claude', hasApiKey: true, model: '', viaEnv: false, docker: false, codexModel: '', codexLoggedIn: false, budget: '', budgetViaEnv: false },
   image: { hasKey: false, model: '' },
   scopes: { products: true, manufacturers: true, categories: true, cms: true, media: true, marketing: true, shop: true, gsc: true, sistrix: true, sales: false, web: false },
   scopeInfo: { manufacturers: { label: '', hint: '' }, gsc: { label: '', hint: '' }, sistrix: { label: '', hint: '' }, web: { label: '', hint: '' }, sales: { label: '', hint: '' }, products: { label: '', hint: '' }, categories: { label: '', hint: '' }, cms: { label: '', hint: '' }, media: { label: '', hint: '' }, marketing: { label: '', hint: '' }, shop: { label: '', hint: '' } },

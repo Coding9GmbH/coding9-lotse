@@ -14,6 +14,8 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { CHAT_COOKIE, setupReady } from '@/lib/nav';
 import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, CheckFinding, Health, Target } from '@/lib/protocol';
 import { liveSrc, withBust } from '@/lib/urls';
+import { INTL_LOCALE } from '@/lib/i18n';
+import Link from 'next/link';
 import { useShell, type WorkspaceBridge } from '@/components/shell/ShellProvider';
 import { ContextChip } from '@/components/context/ContextChip';
 import { ContextPanel } from '@/components/context/ContextPanel';
@@ -95,6 +97,9 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   useEffect(() => { dispatch({ type: 'set_locale', locale }); }, [locale]);
 
   const { target, busy, styleguide: sg } = state;
+  // After a turn: fetch the cost brake state again (budget notice above the input)
+  const wasBusy = useRef(busy), { refreshHealth } = shell;
+  useEffect(() => { if (wasBusy.current && !busy) refreshHealth(); wasBusy.current = busy; }, [busy, refreshHealth]);
   // As long as shop or AI are missing, there is nothing to send (unknown state or load error: don't block)
   const locked = !shell.healthFailed && !setupReady(setup);
   // For the setup card, "set up yes/no" is enough; the server already knows that on first render
@@ -348,10 +353,17 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const overlay = pv && previewOpen; // narrow viewport: preview above the chat (desktop shows it on the right anyway)
 
   const contextChip = <ContextChip target={target} onPick={() => setContextOpen(true)} onClear={() => selectTarget(null)} />;
+  const budget = shell.health?.ai.budget, usd = (n: number) => n.toLocaleString(INTL_LOCALE[locale], { style: 'currency', currency: 'USD' });
+  const budgetNote = budget?.warn && (
+    <div className={`${styles.budgetBar}${budget.blocked ? ` ${styles.budgetBlocked}` : ''}`} role="status">
+      <span>{budget.blocked ? t.budgetBlocked(usd(budget.spent), usd(budget.limit)) : t.budgetWarn(usd(budget.spent), usd(budget.limit), Math.round((budget.spent / budget.limit) * 100))}</span>
+      <Link href="/settings#ai">{t.budgetSettings}</Link>
+    </div>
+  );
   const composer = (
-    <Composer value={input} onChange={setInput} onSubmit={() => send()} onStop={stop} writing={writeInFlight(state)} busy={busy} placeholder={placeholder} home={home}
+    <>{budgetNote}<Composer value={input} onChange={setInput} onSubmit={() => send()} onStop={stop} writing={writeInFlight(state)} busy={busy} placeholder={placeholder} home={home}
       atts={attachments.atts} onFiles={f => void attachments.addFiles(f)} onRemoveAtt={attachments.remove} inputRef={inputRef} disabled={locked}
-      extra={!locked && (home || !target) && contextChip} />
+      extra={!locked && (home || !target) && contextChip} /></>
   );
   const status = <div className={styles.statusRow}><StatusLine text={state.status} /></div>;
 

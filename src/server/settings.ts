@@ -27,7 +27,8 @@ export interface Settings {
   shopify: PlatformConfig;
   magento: PlatformConfig;
   openmage: PlatformConfig;
-  ai: { provider: AiProvider; apiKey: string; model: string; codexModel: string };
+  /** budget: monthly cost limit in USD (text as entered, '' = none; usage.ts parses it) */
+  ai: { provider: AiProvider; apiKey: string; model: string; codexModel: string; budget: string };
   image: { openaiKey: string; model: string };
   scopes: Scopes;
 }
@@ -43,7 +44,7 @@ function settingsOf(s: StoredSettings): Settings {
     platform: kindOf(s),
     shopify: genericConfig('shopify', s.shopify), magento: genericConfig('magento', s.magento), openmage: genericConfig('openmage', s.openmage),
     shopware: { url: pick(sw.url, env.SHOPWARE_URL), publicUrl: pick(sw.publicUrl, env.SHOPWARE_PUBLIC_URL), user: pick(sw.user, env.SHOPWARE_USER), password: pick(unseal(sw.password), envSecret('shopware', sw, 'SHOPWARE_PASSWORD')), clientId: pick(sw.clientId, env.SHOPWARE_CLIENT_ID), clientSecret: pick(unseal(sw.clientSecret), envSecret('shopware', sw, 'SHOPWARE_CLIENT_SECRET')) },
-    ai: { provider: pick(ai.provider, env.AI_PROVIDER) === 'codex' ? 'codex' : 'claude', apiKey: pick(unseal(ai.apiKey)), model: pick(ai.model, env.AI_MODEL), codexModel: pick(ai.codexModel, env.CODEX_MODEL) },
+    ai: { provider: pick(ai.provider, env.AI_PROVIDER) === 'codex' ? 'codex' : 'claude', apiKey: pick(unseal(ai.apiKey)), model: pick(ai.model, env.AI_MODEL), codexModel: pick(ai.codexModel, env.CODEX_MODEL), budget: pick(ai.budget, env.LOTSE_AI_BUDGET_USD) },
     image: { openaiKey: pick(unseal(im.openaiKey), env.OPENAI_API_KEY), model: pick(im.model, env.IMAGE_MODEL) },
     scopes: { ...DEFAULT_SCOPES, ...(s.scopes ?? {}) },
   };
@@ -105,7 +106,7 @@ export function publicSettings(): PublicSettings { // masked, for the UI
     shopware: { url: g.shopware.url, publicUrl: g.shopware.publicUrl, user: g.shopware.user, clientId: g.shopware.clientId, hasPassword: !!g.shopware.password, hasClientSecret: !!g.shopware.clientSecret, configured: shopwareConfigured(g.shopware) },
     platform: g.platform,
     platforms: Object.fromEntries(PLATFORM_KINDS.map(k => [k, platformPublic(k, g)])),
-    ai: { provider: g.ai.provider, hasApiKey: !!g.ai.apiKey, model: g.ai.model, viaEnv: !!env.ANTHROPIC_API_KEY, docker: inDocker(), codexModel: g.ai.codexModel, codexLoggedIn: codexLoggedIn() },
+    ai: { provider: g.ai.provider, hasApiKey: !!g.ai.apiKey, model: g.ai.model, viaEnv: !!env.ANTHROPIC_API_KEY, docker: inDocker(), codexModel: g.ai.codexModel, codexLoggedIn: codexLoggedIn(), budget: g.ai.budget, budgetViaEnv: !stored().ai?.budget && !!env.LOTSE_AI_BUDGET_USD },
     image: { hasKey: !!g.image.openaiKey, model: g.image.model },
     scopes: g.scopes,
     scopeInfo: Object.fromEntries(SCOPE_KEYS.map(k => [k, { label: SCOPES[k].label, hint: SCOPES[k].hint }])) as Record<ScopeKey, ScopeInfo>,
@@ -132,7 +133,7 @@ function mergeSettings(s: StoredSettings, p: SettingsPatch): StoredSettings {
   if (p.platform !== undefined && isPlatformKind(p.platform)) out.platform = p.platform;
   section('shopware', ['url', 'publicUrl', 'user', 'clientId'], ['password', 'clientSecret']);
   for (const k of ['shopify', 'magento', 'openmage'] as const) section(k, plainKeys(k), secretKeys(k));
-  section('ai', ['provider', 'model', 'codexModel'], ['apiKey']);
+  section('ai', ['provider', 'model', 'codexModel', 'budget'], ['apiKey']);
   if (out.ai?.oauthToken) { out.ai = { ...out.ai }; delete out.ai.oauthToken; } // legacy data: Claude subscription token is no longer supported
   if (out.ai?.provider && out.ai.provider !== 'codex') out.ai.provider = 'claude';
   section('image', ['model'], ['openaiKey']);

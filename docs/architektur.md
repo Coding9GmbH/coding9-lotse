@@ -124,7 +124,8 @@ Andere Plattformen veröffentlichen über ihre eigenen Pfade (Shopify: Theme-Vor
 | `GET /api/chats`, `POST /api/reset` | Verlauf, Chat leeren |
 | `POST /api/answer`, `POST /api/approve`, `POST /api/changesets/undo` | Rückfrage beantworten, Freigabe, Rückgängig |
 | `POST /api/files`, `POST /api/upload` | Anhänge, Bilder |
-| `GET/PUT /api/settings`, `GET /api/config`, `GET /api/health`, `GET /api/ping` | Einstellungen, Pfadvorlagen/Version, Status, Healthcheck |
+| `GET/PUT /api/settings`, `GET /api/config`, `GET /api/health`, `GET /api/ping` | Einstellungen, Pfadvorlagen/Version, Status (inkl. Kostenbremse), Healthcheck |
+| `GET /api/usage` | KI-Kosten: Monat, heute, letzte 30 Tage, Monatsbudget |
 | `GET/PUT /api/styleguide` | Styleguide |
 | `/api/knowledge`, `PATCH|DELETE /api/knowledge/docs/{id}`, `POST /api/knowledge/rules`, `PUT|DELETE /api/knowledge/rules/{id}` | Wissensbasis und Regeln |
 | `/api/shopcheck`, `/api/shopcheck/checks[/{id}]` | Shop-Check, Prüfungen |
