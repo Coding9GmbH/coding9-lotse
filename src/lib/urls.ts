@@ -35,3 +35,19 @@ export function shopProxyPath(url: string | undefined): string | null {
   if (!url) return null;
   try { return '/shop' + new URL(url).pathname; } catch { return null; }
 }
+
+// ---- Sandbox preview (/sbx/<task id>.<key>/…) ----
+/** Prefix of a preview path: the segment is the task id plus its key (see server/sandbox/tasks.previewPath) */
+export const SANDBOX_PATH = /^\/sbx\/(t_[a-z0-9]{12}\.[a-f0-9]{20})(?=\/|$)/;
+/** URL of a path in a task's storefront preview: always below the task's prefix, whatever is typed (no host, no "//", no "..") */
+export function sandboxSrc(prefix: string, path = '/'): string {
+  let p = path.trim();
+  try { if (/^[a-z][a-z0-9+.-]*:/i.test(p) || p.startsWith('//')) { const u = new URL(p, 'http://x'); p = u.pathname + u.search + u.hash; } } catch { p = '/'; }
+  p = `/${p.replace(/^\/+/, '')}`.replace(/\/\.\.?(?=\/|$|\?|#)/g, '');
+  return `${prefix.replace(/\/$/, '')}${p || '/'}`;
+}
+/** Preview segment (<id>.<key>) of a Referer on the same host whose path is below /sbx/<segment>/, otherwise null. */
+export function sandboxReferer(referer: string | null, host: string): string | null {
+  if (!referer) return null;
+  try { const u = new URL(referer); return u.host === host ? u.pathname.match(SANDBOX_PATH)?.[1] ?? null : null; } catch { return null; }
+}

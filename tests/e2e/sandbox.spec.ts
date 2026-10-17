@@ -88,6 +88,18 @@ test('Sandbox Coding: create a task, setup reaches ready, pause/resume, finish',
   await steps.getByText(/^Protokoll/).nth(5).click(); // install-plugin
   await expect(steps.getByText('$ bin/console plugin:install --activate -- AcmeShopTheme')).toBeVisible();
 
+  // Preview: the task's storefront through /sbx/<id>/ (fake storefront of the container)
+  const preview = page.frameLocator('iframe[title="Vorschau der Sandbox-Storefront"]');
+  await expect(preview.getByRole('heading', { name: 'Fake-Storefront' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'In neuem Tab öffnen' })).toHaveAttribute('href', /^\/sbx\/t_[a-z0-9]{12}\.[a-f0-9]{20}\/$/);
+
+  // Paused: the preview offers to start it again; loading it wakes the task (no new setup)
+  await page.getByRole('button', { name: 'Pausieren' }).click();
+  await expect(page.getByText(/^Pausiert: Code, Datenbank und Änderungen bleiben erhalten/)).toBeVisible();
+  await page.getByRole('button', { name: 'Vorschau laden' }).click();
+  await expect(page.getByRole('button', { name: 'Pausieren' })).toBeVisible();
+  await expect(preview.getByRole('heading', { name: 'Fake-Storefront' })).toBeVisible({ timeout: 15_000 });
+
   await page.getByRole('button', { name: 'Pausieren' }).click();
   await expect(page.getByText(/^Pausiert: Code, Datenbank und Änderungen bleiben erhalten/)).toBeVisible();
   await page.getByRole('button', { name: 'Fortsetzen' }).click();

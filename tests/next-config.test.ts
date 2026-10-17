@@ -30,3 +30,12 @@ test('/shop, /staged and storefront paths: embeddable in our own UI, without app
     assert.equal(h['x-content-type-options'], 'nosniff');
   }
 });
+
+test('/sbx (sandbox preview): SAMEORIGIN, no app CSP, Referer only within Lotse (the key in the path never leaves)', () => {
+  for (const path of ['/sbx/t_abcdefabcdef.0123456789abcdef0123', '/sbx/t_abcdefabcdef.0123456789abcdef0123/checkout/cart']) {
+    const h = headersFor(path);
+    assert.equal(h['x-frame-options'], 'SAMEORIGIN', path);
+    assert.equal(h['content-security-policy'], undefined, path);
+    assert.equal(h['referrer-policy'], 'same-origin', path);
+  }
+});

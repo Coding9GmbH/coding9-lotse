@@ -4,6 +4,7 @@ import { setFetcher, setImageConfig, setTrustedOrigins } from './media';
 import { getSettings } from './settings';
 import { Shopware, type SwEntity } from './shopware';
 import { singleton } from './state';
+import { rewriteOrigin } from './storefront-proxy';
 
 interface Runtime { sw: Shopware; sfBase: string | null; themeCssP: Promise<string | null> | null; themeCssAt: number }
 
@@ -43,9 +44,8 @@ export async function storefrontBase(): Promise<string> {
   }
   return r.sfBase!;
 }
-const hostVariants = (b: string) => [b, b.replace(/\//g, '\\/')];
-/** Replaces the storefront base URL (also JSON-escaped) with the local prefix /shop. */
-export const storefrontRewrite = (txt: string, b: string) => hostVariants(b).reduce((t, v) => t.split(v).join(v.includes('\\') ? '\\/shop' : '/shop'), txt);
+/** Replaces the storefront base URL (also JSON-escaped) with the local prefix (/shop, or /sbx/<task> for a sandbox). */
+export const storefrontRewrite = (txt: string, b: string, prefix = '/shop') => rewriteOrigin(txt, b, prefix);
 
 export function themeCss(): Promise<string | null> {
   const r = rt();

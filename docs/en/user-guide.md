@@ -164,6 +164,8 @@ Customer, order, payment and credential data are permanently blocked and cannot 
 
 In the **Sandbox Coding** tab, **New task** creates a code task: repository (from GitHub), base branch, title and “What should be changed?”. Lotse sets up a Shopware container of its own for it in the background; the task page shows every step with status, duration and log. If a step fails, the cause is shown below it and **Retry from here** continues there. **Stop** aborts a running setup, **Pause**/**Resume** stops and starts the container (code, database and changes stay; after a longer inactivity Lotse pauses it by itself). **Finish task** deletes the task's container and files; the entry stays in the list.
 
+Once the container is running, the **Preview** on the task page shows the sandbox storefront – for trying it out like a real shop: navigation, search, cart, checkout and customer account work (Lotse keeps the session per task on the server). At the top you enter a path (e.g. `/checkout/cart`), reload, switch between desktop and mobile width or open the preview **in a new tab**. **Admin** opens the sandbox's Shopware administration (best effort). After the theme was compiled the preview reloads by itself. If the task is paused, **Load preview** starts the environment again; until Shopware answers it shows “Environment starting …”, then the page appears by itself. The preview counts as activity.
+
 ### Language
 The interface and AI replies are available in **German** and **English**. You can switch in **Settings** and at the bottom of the side navigation (DE/EN). Without an explicit choice, Lotse follows your browser language (otherwise German); your choice is stored in the `lotse_lang` cookie and takes effect immediately.
 

@@ -1,6 +1,7 @@
 import type { NextConfig } from 'next';
 
-// For everything: /shop (live preview in the UI's iframe) and /staged set their own CSP, so only SAMEORIGIN here.
+// For everything: /shop and /sbx (live and sandbox preview in the UI's iframe) and /staged set their own CSP, so only SAMEORIGIN here.
+// Referrer-Policy same-origin also keeps the key in /sbx/<id>.<key> URLs from leaking to sites a sandbox page links to.
 const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'same-origin' },
