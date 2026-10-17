@@ -5,7 +5,7 @@ import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget 
 import { createLineSplitter } from './ndjson';
 import type { CodexLoginState, GithubBranch, GithubPublic, GithubRepo, GithubTestResult, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
-  CodeTaskPublic, DumpPublic, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
+  CodeTaskPublic, DumpPublic, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
 } from './protocol';
 
 export class ApiError extends Error {
@@ -85,6 +85,8 @@ export const api = {
     createTask: (t: { title: string; goal: string; repo: string; baseBranch: string; dumpId?: string }) => request<{ task: CodeTaskPublic }>('/api/sandbox/tasks', json('POST', t)),
     task: (id: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`),
     deleteTask: (id: string) => request<{ ok: true }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    /** "Änderungen": workspace against the base branch */
+    diff: (id: string) => request<TaskDiff>(`/api/sandbox/tasks/${encodeURIComponent(id)}/diff`),
     /** start | stop | pause | resume | finish; start takes the step to retry from */
     taskAction: (id: string, action: 'start' | 'stop' | 'pause' | 'resume' | 'finish', body: { fromStep?: string; ignoreVersion?: boolean } = {}) =>
       request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/${action}`, json('POST', body)),

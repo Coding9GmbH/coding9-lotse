@@ -11,7 +11,7 @@ import { sandboxEnabled } from './env';
 import { pauseIdle } from './jobs';
 import { TASK_LABEL } from './labels';
 import { getRunner } from './runner';
-import { getTask, hasListeners, listTasks, saveTask, type CodeTask } from './tasks';
+import { getTask, hasListeners, listTasks, saveTask, turnRunning, type CodeTask } from './tasks';
 
 const SWEEP_MS = 60_000, DUMP_SWEEP_MS = 10 * 60_000;
 const state = () => singleton<{ done: Promise<void> | null; sweeper: NodeJS.Timeout | null }>('sandboxReconcile', () => ({ done: null, sweeper: null }));
@@ -82,7 +82,7 @@ export function startSweeper() {
   if (s.sweeper) return;
   let lastDumps = Date.now();
   s.sweeper = setInterval(() => {
-    void pauseIdle(Date.now(), hasListeners).catch(e => log.warn('Sandbox-Leerlauf-Prüfung fehlgeschlagen', { error: e }));
+    void pauseIdle(Date.now(), id => hasListeners(id) || turnRunning(id)).catch(e => log.warn('Sandbox-Leerlauf-Prüfung fehlgeschlagen', { error: e }));
     if (Date.now() - lastDumps >= DUMP_SWEEP_MS) { lastDumps = Date.now(); sweepDumpsNow(); }
   }, SWEEP_MS);
   s.sweeper.unref?.();

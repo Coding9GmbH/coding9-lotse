@@ -50,6 +50,8 @@ export const de = {
   settingsTip: (shop: string, ai: string) => `Einstellungen · ${shop} · ${ai}`,
   state: { running: 'läuft', waiting: 'wartet auf dich', done: 'fertig' },
   published: (n: number) => `${n}× veröffentlicht`,
+  codeBadge: 'Code',
+  codeChat: 'Chat einer Sandbox-Coding-Aufgabe (öffnet die Aufgabe)',
   deleteChat: (title: string) => `Chat „${title}“ löschen`,
   status: {
     shopUnloaded: 'Shop nicht geladen',
@@ -115,6 +117,8 @@ export const en: typeof de = {
   settingsTip: (shop: string, ai: string) => `Settings · ${shop} · ${ai}`,
   state: { running: 'running', waiting: 'waiting for you', done: 'done' },
   published: (n: number) => `published ${n}×`,
+  codeBadge: 'Code',
+  codeChat: 'Chat of a Sandbox Coding task (opens the task)',
   deleteChat: (title: string) => `Delete chat “${title}”`,
   status: {
     shopUnloaded: 'Shop not loaded',

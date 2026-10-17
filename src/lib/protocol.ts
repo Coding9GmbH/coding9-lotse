@@ -110,19 +110,33 @@ export type ChatEvent =
   | ({ t: 'image' } & StagedImage)
   | { t: 'styleguide'; sg: Styleguide }
   | { t: 'done'; error: string | null; cost?: number }
+  // ---- Code chats (Sandbox Coding) ----
+  /** A workspace file was created, changed or deleted by the AI (added/removed: changed lines) */
+  | { t: 'file_change'; path: string; kind: FileChangeKind; added: number; removed: number }
+  /** An allow-listed command in the task container: first 'running', then the result (same id); tail = redacted end of the output */
+  | { t: 'command'; id: string; command: string; args?: Record<string, string>; status: 'running' | 'ok' | 'failed'; exitCode?: number; tail?: string; ms?: number }
+  /** The task's container before the turn: waking (paused) → ready, or failed (message) */
+  | { t: 'sandbox_status'; state: 'waking' | 'ready' | 'failed'; message?: string }
+  /** The storefront changed (theme compiled, cache cleared): the preview reloads (live only) */
+  | { t: 'preview_reload' }
+  /** The AI proposes to publish its changes as a pull request (card only; publishing itself comes from the user) */
+  | { t: 'publish_proposal'; title: string; body: string }
   /** First line when reconnecting to a chat: history so far + whether it's still running */
   | { t: 'snapshot'; chat: ChatDetail; running: boolean };
 
 export type ChatEventType = ChatEvent['t'];
+export type FileChangeKind = 'create' | 'edit' | 'delete';
+/** shop = chat about the connected shop; code = the chat of a Sandbox Coding task (fixed when the task is created) */
+export type ChatMode = 'shop' | 'code';
 
 // ---- REST ----
 /** locale: language of the AI responses (set by the server from cookie/Accept-Language) */
-export interface ChatRequest { chatId: string; message: string; target?: Target | null; onboarding?: boolean; locale?: Locale }
+export interface ChatRequest { chatId: string; message: string; target?: Target | null; onboarding?: boolean; locale?: Locale; /** code chat: the task it belongs to (checked by the server) */ taskId?: string }
 /** status: currently running ("running") or waiting for the human's reply/approval ("waiting"); missing = idle */
 export type ChatStatus = 'running' | 'waiting';
 /** Page size of the chat list (/api/chats): a full page means "there may be more". */
 export const CHAT_PAGE = 200;
-export interface ChatSummary { id: string; title: string; target: Target | null; updatedAt: string; published: number; status?: ChatStatus }
+export interface ChatSummary { id: string; title: string; target: Target | null; updatedAt: string; published: number; status?: ChatStatus; /** missing = shop */ mode?: ChatMode; /** code chat: its task */ taskId?: string }
 export interface ChatDetail { id: string; title: string; target: Target | null; events: ChatEvent[]; /** turn is currently running (then connect live) */ running?: boolean }
 
 export type AiProvider = 'claude' | 'codex';
@@ -261,7 +275,10 @@ export interface CodeTaskPublic {
   /** path prefix of the storefront preview (/sbx/<id>.<key>) */ preview: string;
   /** uploaded database dump of the task (metadata only) */ dump: TaskDumpPublic | null;
   prUrl: string | null; createdAt: string; updatedAt: string; lastActiveAt: string; finishedAt: string | null;
+  /** the task's code chat (one per task) */ chatId: string | null;
 }
+/** GET /api/sandbox/tasks/[id]/diff: changes in the workspace against the base branch (redacted, capped) */
+export interface TaskDiff { files: { path: string; added: number; removed: number; status: 'added' | 'modified' | 'deleted' | 'renamed' }[]; diff: string; truncated: boolean }
 /** Dump of a task: imported once and deleted right after the import (also on failure). versionMismatch blocks until "Trotzdem fortfahren". */
 export interface TaskDumpPublic { name: string; size: number; sha256: string | null; imported: boolean; deleted: boolean; ignoreVersion: boolean; versionMismatch?: { dump: string; image: string } }
 /** An uploaded dump (GET/POST /api/sandbox/dumps…): metadata, never the content */

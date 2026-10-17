@@ -18,6 +18,9 @@ export const de = {
     get_product_details: 'Produkt-Stammdaten lesen', find_products_by_data: 'Produkte nach Stammdaten finden', propose_product_data: 'Stammdaten-Änderungen vorschlagen',
     list_languages: 'Sprachen & Domains lesen', get_translations: 'Übersetzungen lesen', propose_translations: 'Übersetzungen vorschlagen',
     get_page_texts: 'Seitentexte lesen', propose_page_translation: 'Seitenübersetzung vorschlagen',
+    // Sandbox Coding (code chats)
+    list_files: 'Dateien auflisten', read_file: 'Datei lesen', search_files: 'Im Code suchen', edit_file: 'Datei ändern', write_file: 'Datei schreiben', delete_file: 'Datei löschen',
+    git_diff: 'Änderungen ansehen', run_command: 'Befehl ausführen', read_sandbox_page: 'Sandbox-Seite prüfen', get_environment: 'Umgebung lesen', propose_publish: 'Veröffentlichen vorschlagen',
     get_variants: 'Varianten lesen', list_variant_properties: 'Varianten-Eigenschaften lesen', propose_variants: 'Varianten-Änderungen vorschlagen',
     preview_bulk_filter: 'Stapel-Auswahl zählen', propose_bulk_product_change: 'Stapeländerung vorschlagen',
     list_product_streams: 'Produktstreams lesen', get_product_stream: 'Produktstream lesen', preview_product_stream: 'Stream-Treffer prüfen',
@@ -82,6 +85,8 @@ export const de = {
     stopTitle: 'Laufende Anfrage abbrechen. Es wird nichts geschrieben.',
     answered: 'Lotse hat geantwortet',
     uploadFailed: (err: string) => `Upload fehlgeschlagen: ${err}`,
+    command: (id: string) => `Führt ${id} aus …`,
+    waking: 'Umgebung startet …',
   },
   /** Freigabe-Karten */
   approve: {
@@ -259,6 +264,8 @@ export const en: typeof de = {
     get_product_details: 'Read product master data', find_products_by_data: 'Find products by master data', propose_product_data: 'Propose master data changes',
     list_languages: 'Read languages & domains', get_translations: 'Read translations', propose_translations: 'Propose translations',
     get_page_texts: 'Read page texts', propose_page_translation: 'Propose page translation',
+    list_files: 'List files', read_file: 'Read file', search_files: 'Search code', edit_file: 'Edit file', write_file: 'Write file', delete_file: 'Delete file',
+    git_diff: 'Review changes', run_command: 'Run command', read_sandbox_page: 'Check sandbox page', get_environment: 'Read environment', propose_publish: 'Propose publishing',
     get_variants: 'Read variants', list_variant_properties: 'Read variant properties', propose_variants: 'Propose variant changes',
     preview_bulk_filter: 'Count bulk selection', propose_bulk_product_change: 'Propose bulk change',
     list_product_streams: 'Read product streams', get_product_stream: 'Read product stream', preview_product_stream: 'Check stream matches',
@@ -319,6 +326,8 @@ export const en: typeof de = {
     stopTitle: 'Cancel the running request. Nothing will be written.',
     answered: 'Lotse has replied',
     uploadFailed: (err: string) => `Upload failed: ${err}`,
+    command: (id: string) => `Running ${id}…`,
+    waking: 'Environment starting…',
   },
   approve: {
     gone: 'This approval no longer exists.',

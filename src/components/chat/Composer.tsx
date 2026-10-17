@@ -26,12 +26,14 @@ interface Props {
   disabled?: boolean;
   /** Row below the text field, aligned with it (e.g. the context) */
   extra?: React.ReactNode;
+  /** No attachments (code chats: the agent has no use for images or documents) */
+  noAttach?: boolean;
 }
 
 const MAX_H = 140;
 
 /** Input: growing text field, Enter sends (Shift+Enter = line break), images via button/paste. */
-export function Composer({ value, onChange, onSubmit, onStop, writing, busy, placeholder, home, atts, onFiles, onRemoveAtt, inputRef, extra, disabled = false }: Props) {
+export function Composer({ value, onChange, onSubmit, onStop, writing, busy, placeholder, home, atts, onFiles, onRemoveAtt, inputRef, extra, disabled = false, noAttach = false }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const { locale, t: m } = useI18n(), t = m.chat.composer;
   const stop = stopControl(!!writing, locale);
@@ -61,14 +63,16 @@ export function Composer({ value, onChange, onSubmit, onStop, writing, busy, pla
         </div>
       )}
       <form className={`${styles.form} ${home ? styles.home : ''}`} onSubmit={e => { e.preventDefault(); onSubmit(); }}>
-        <Button className={styles.attach} disabled={disabled} title={t.attachTitle} aria-label={t.attachAria}
-          onClick={() => fileRef.current?.click()}>📎</Button>
-        <input ref={fileRef} type="file" accept="image/*,.csv,.tsv,.txt,.md,.json,.xlsx,.xls,.pdf,.docx" multiple hidden
-          onChange={e => { const f = [...(e.target.files ?? [])]; e.target.value = ''; if (f.length) onFiles(f); }} />
+        {!noAttach && <>
+          <Button className={styles.attach} disabled={disabled} title={t.attachTitle} aria-label={t.attachAria}
+            onClick={() => fileRef.current?.click()}>📎</Button>
+          <input ref={fileRef} type="file" accept="image/*,.csv,.tsv,.txt,.md,.json,.xlsx,.xls,.pdf,.docx" multiple hidden
+            onChange={e => { const f = [...(e.target.files ?? [])]; e.target.value = ''; if (f.length) onFiles(f); }} />
+        </>}
         <textarea ref={inputRef} rows={1} value={value} placeholder={placeholder} aria-label={t.inputAria} disabled={disabled}
           onChange={e => onChange(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSubmit(); } }}
-          onPaste={e => { const f = [...(e.clipboardData?.files ?? [])]; if (f.length) { e.preventDefault(); onFiles(f); } }} />
+          onPaste={e => { const f = [...(e.clipboardData?.files ?? [])]; if (f.length && !noAttach) { e.preventDefault(); onFiles(f); } }} />
         {busy && onStop
           ? <Button className={styles.send} onClick={stop.stops ? onStop : undefined} disabled={!stop.stops} title={stop.title}>{stop.label}</Button>
           : <Button type="submit" variant="primary" busy={busy} disabled={disabled} className={styles.send}>{busy ? t.running : t.send}</Button>}

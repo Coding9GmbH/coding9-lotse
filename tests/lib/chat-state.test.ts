@@ -265,3 +265,29 @@ test('steps without tool_result are closed by done/run_end/replay; replay with a
   assert.deepEqual(steps(chatReducer(live, { type: 'event', event: { t: 'done', error: 'kaputt' }, mode: 'live' })).map(x => x.state), ['done', 'bad']);
   assert.deepEqual(steps(chatReducer(live, { type: 'run_end' })).map(x => x.state), ['done', 'done']);
 });
+
+test('code chat cards: file changes, a command updated in place, sandbox status as one line, proposal; replay looks like live', () => {
+  const evs: ChatEvent[] = [
+    { t: 'user', text: 'Header grün' },
+    { t: 'sandbox_status', state: 'waking' },
+    { t: 'sandbox_status', state: 'ready' },
+    { t: 'tool', id: 'a', name: 'write_file', input: {} },
+    { t: 'tool_result', id: 'a', error: false, preview: 'ok' },
+    { t: 'file_change', path: 'src/x.twig', kind: 'create', added: 3, removed: 0 },
+    { t: 'command', id: 'c1', command: 'theme-compile', status: 'running' },
+    { t: 'command', id: 'c1', command: 'theme-compile', status: 'ok', exitCode: 0, tail: 'done', ms: 7100 },
+    { t: 'preview_reload' },
+    { t: 'publish_proposal', title: 'Header', body: 'grün' },
+    { t: 'done', error: null },
+  ];
+  let live: ChatState = { ...initialChatState, busy: true };
+  for (const ev of evs) live = chatReducer(live, { type: 'event', event: ev });
+  assert.deepEqual(live.items.map(i => i.kind), ['user', 'sandbox', 'steps', 'file', 'command', 'publish']);
+  const cmd = live.items.find(i => i.kind === 'command');
+  assert.ok(cmd?.kind === 'command' && cmd.status === 'ok' && cmd.ms === 7100);
+  assert.ok(live.items[1].kind === 'sandbox' && live.items[1].state === 'ready');
+  assert.equal(live.previewReload, 1);
+  const r = replay(evs.filter(e => e.t !== 'preview_reload'));
+  assert.deepEqual(r.items.map(i => i.kind), live.items.map(i => i.kind));
+  assert.equal(r.previewReload, 0, 'replay does not reload the preview');
+});

@@ -116,3 +116,35 @@
 .dumpActions { display: flex; gap: 8px; flex-wrap: wrap; }
 .dumpNote { font-size: 13px; color: var(--green-d); margin: 4px 0 0; }
 .dumpWarn { margin: 6px 0 0; padding: 8px 10px; background: var(--coral-bg); border-radius: 8px; font-size: 13px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+/* Code chat next to preview/changes (CodeWorkspace) */
+.codeGrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; margin-bottom: 16px; }
+@media (min-width: 1100px) { .codeGrid { grid-template-columns: minmax(340px, 420px) minmax(0, 1fr); } }
+.codeChat { display: flex; flex-direction: column; height: min(80vh, 860px); min-height: 420px; padding: 14px 0 0; margin-bottom: 0; overflow: hidden; }
+.codeChat .cardHead { padding: 0 16px; margin-bottom: 4px; flex-wrap: wrap; }
+.codeLog { padding: 8px 16px 12px; }
+.codeIntro { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.codeIntro .linkBtn { border: 0; background: none; padding: 0; font: inherit; font-size: 13px; cursor: pointer; }
+.codeChat .card textarea { width: auto; }
+.badge { font-size: 12px; color: var(--mute); background: var(--bg); border: 1px solid var(--line); border-radius: 99px; padding: 2px 9px; margin-left: auto; }
+.codeSide { min-width: 0; }
+.codeSide > .card { margin-bottom: 0; }
+.tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.tabs button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 99px; padding: 5px 14px; font: inherit; font-size: 14px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.tabs button[aria-selected="true"] { background: var(--dark); color: var(--bg); border-color: var(--dark); }
+.tabCount { font-size: 11px; font-weight: 700; background: var(--coral); color: var(--dark); border-radius: 99px; padding: 0 6px; }
+
+/* Changes tab (DiffPanel) */
+.diff { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.dfBar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.dfFiles { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+.dfFiles code { overflow-wrap: anywhere; }
+.dfFiles small { color: var(--mute); }
+.dfPatch { margin: 0; font-size: 12px; line-height: 1.5; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow: auto; max-height: min(70vh, 720px); white-space: pre; }
+.dfAdd { color: var(--green-d); }
+.dfDel { color: var(--warn); }
+.dfPatch span { display: block; min-width: max-content; }
+.dfPatch .dfAdd { background: var(--green-bg); }
+.dfPatch .dfDel { background: var(--coral-bg); }
+.dfHunk { color: var(--mute); }
+.dfMeta { color: var(--mute); font-weight: 600; }

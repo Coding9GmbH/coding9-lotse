@@ -1,10 +1,10 @@
 import 'server-only';
 // Chat sessions: history (SQLite), approval workflow (questions + change sets) and the AI's read client (via the platform adapter).
-import type { ChangeSet, ChangeStatus, ChatDetail, ChatEvent, ChatStatus, ChatSummary, Target } from '@/lib/protocol';
+import type { ChangeSet, ChangeStatus, ChatDetail, ChatEvent, ChatMode, ChatStatus, ChatSummary, Target } from '@/lib/protocol';
 import type { PlatformKind } from '@/lib/platforms';
 import { auditLog, notifyApplied, type ApplyPartial, type ApplyResult } from './changes';
 import type { PageSpec, PreviewCtx } from './cms';
-import { chatGet, chatList, chatPut, runDelete, runPut, runsOpen, type ChangeRun, type StoredChat } from './db';
+import { chatGet, chatList, chatPut, codeTaskByChat, runDelete, runPut, runsOpen, type ChangeRun, type StoredChat } from './db';
 import { activeKind, getPlatform, undoWithPlatform } from './platform';
 import type { ShopLookup } from './platform/types';
 import { ReadOnlyShopware, type ShopReader } from './shopware';
@@ -21,6 +21,10 @@ export interface ChangeOutcome { status: ChangeStatus; message: string; applied?
 
 export interface Session {
   id: string;
+  /** shop = chat with the connected shop; code = the chat of a Sandbox Coding task (no shop access, workspace tools). Fixed for the chat's life. */
+  mode: ChatMode;
+  /** code chat: its task */
+  taskId: string | null;
   /** Shop platform of this session (taken from the settings on creation) */
   platform: PlatformKind;
   /** protected read client of the platform (Shopware: the same object as sw); adapter tools cast to their type */
@@ -130,7 +134,7 @@ export function persist(s: Session) {
   if (s.deleted || !s.events.length) return;
   let lastDraft = -1; s.events.forEach((e, i) => { if (e.t === 'draft') lastDraft = i; });
   const events = s.events.map((e, i) => (e.t === 'draft' && i !== lastDraft ? { ...e, html: undefined } : e)); // keep only the last preview
-  const c: StoredChat = { id: s.id, title: s.title, target: s.target, createdAt: s.createdAt, updatedAt: new Date().toISOString(), sdkSessionId: s.sdkSessionId, costTotal: s.costTotal ?? null, costSession: s.costSession ?? null, codexThreadId: s.codexThreadId, draft: s.draft, events };
+  const c: StoredChat = { id: s.id, title: s.title, target: s.target, createdAt: s.createdAt, updatedAt: new Date().toISOString(), sdkSessionId: s.sdkSessionId, costTotal: s.costTotal ?? null, costSession: s.costSession ?? null, codexThreadId: s.codexThreadId, draft: s.draft, events, ...(s.mode === 'code' ? { mode: 'code' as const, taskId: s.taskId } : {}) };
   chatPut(c);
 }
 
@@ -241,18 +245,27 @@ const shopwareOnly = (kind: PlatformKind): ShopReader => {
   return { base: '', search: async () => no(), get: async () => no(), salesChannels: async () => no(), req: async () => no() };
 };
 
+// Code chats never talk to the shop: every shop read fails with a clear message (the workspace tools do not need it)
+const noShop = () => { throw new Error('Code-Chats haben keinen Zugriff auf den Shop.'); };
+const codeParts = (): Pick<Session, 'reader' | 'lookup' | 'storefrontFetch' | 'themeCss'> => ({
+  reader: null, lookup: new Proxy({} as ShopLookup, { get: () => async () => noShop() }), storefrontFetch: async () => noShop(), themeCss: async () => null,
+});
+
 export function getSession(id: string): Session {
   const all = sessions();
   const existing = all.get(id);
   if (existing) existing.lastUsed = Date.now();
-  // Platform switched: rebuild an idle session (history comes from the DB), a running one keeps its platform until the end of the turn
-  if (existing && (existing.platform === activeKind() || existing.running)) return existing;
+  // Platform switched: rebuild an idle session (history comes from the DB), a running one keeps its platform until the end of the turn.
+  // Code chats do not depend on the shop platform and are never rebuilt for it.
+  if (existing && (existing.mode === 'code' || existing.platform === activeKind() || existing.running)) return existing;
   if (existing) { persist(existing); all.delete(id); }
-  const kind = activeKind(), platform = getPlatform(kind);
-  const parts = platform.openSession(id); // privileged client stays in the adapter, is NEVER given to the AI
   const saved = loadChat(id);
+  // The mode is fixed: stored with the chat, or (first message) known from the task that owns this chat
+  const taskId = saved?.mode === 'code' ? saved.taskId ?? null : saved?.mode ? null : codeTaskByChat(id)[0] ?? null;
+  const kind = activeKind();
+  const parts = taskId ? codeParts() : getPlatform(kind).openSession(id); // privileged client stays in the adapter, is NEVER given to the AI
   const ss: Session = {
-    id, platform: kind, reader: parts.reader, lookup: parts.lookup,
+    id, mode: taskId ? 'code' : 'shop', taskId, platform: kind, reader: parts.reader, lookup: parts.lookup,
     sw: parts.reader instanceof ReadOnlyShopware ? parts.reader : new ReadOnlyShopware(shopwareOnly(kind)),
     storefrontFetch: parts.storefrontFetch, themeCss: parts.themeCss, draft: saved?.draft ?? null, sdkSessionId: saved?.sdkSessionId ?? null, costTotal: saved?.costTotal ?? null, costSession: saved?.costSession ?? null, codexThreadId: saved?.codexThreadId ?? null, title: saved?.title ?? null, target: saved?.target ?? null,
     createdAt: saved?.createdAt ?? new Date().toISOString(), events: saved?.events ?? [], emit: () => {}, running: false, lastUsed: Date.now(), abort: null, locale: ui().locale, listeners: new Set(), approvals: new Map(),

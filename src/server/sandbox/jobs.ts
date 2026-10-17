@@ -8,7 +8,9 @@ import 'server-only';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CodeTaskStatus } from '@/lib/protocol';
-import { codeTaskDelete } from '../db';
+import { chatDelete, codeTaskDelete } from '../db';
+import { clearMcpToken } from '../codex';
+import { dropSession } from '../sessions';
 import { cloneRepo } from '../git';
 import { log } from '../log';
 import { redact } from '../settings';
@@ -357,6 +359,7 @@ export async function deleteTask(id: string): Promise<void> {
   if (t.status !== 'done' || t.containerId) await finishTask(id);
   else { for (const d of Object.values(taskPaths(id))) fs.rmSync(d, { recursive: true, force: true }); deleteTaskDumps(id); }
   codeTaskDelete(id);
+  if (t.chatId) { dropSession(t.chatId); chatDelete(t.chatId); clearMcpToken(t.chatId); } // the task's code chat goes with it
   emitTask(id, { t: 'deleted' });
 }
 

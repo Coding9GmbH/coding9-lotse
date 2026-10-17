@@ -163,3 +163,50 @@ test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async (
   await expect(page.getByText(/^Abgeschlossen: Container und Dateien/)).toBeVisible();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
 });
+
+// Code chat with the scripted model (anthropic-fake): it writes a Twig header template, runs theme-compile in the (fake) container,
+// the cards show both, the preview reloads with the new header and the "Änderungen" tab shows the diff.
+test('Sandbox Coding: the agent edits the header template, compiles the theme and the preview shows it', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const lotse = { 'x-lotse': '1' };
+  expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
+  const created = await request.post('/api/sandbox/tasks', { headers: lotse, data: { title: 'Header-Hinweis', goal: 'Im Header soll „Gratis Versand ab 50 €“ stehen.', repo: 'acme/shop-theme', baseBranch: 'main' } });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  const { task } = await created.json() as { task: { id: string } };
+
+  await page.goto(`/sandbox-coding/${task.id}`);
+  await expect(page.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+  const chat = page.locator('section[aria-labelledby="sbx-chat"]');
+  await expect(chat.getByRole('heading', { name: 'Chat mit der KI' })).toBeVisible();
+  await expect(chat.getByText('KI: Claude')).toBeVisible();
+  await chat.getByRole('button', { name: 'Ziel der Aufgabe übernehmen' }).click();
+  await expect(chat.getByLabel('Nachricht an Lotse')).toHaveValue('Im Header soll „Gratis Versand ab 50 €“ stehen.');
+
+  const header = 'src/Resources/views/storefront/layout/header/header.html.twig';
+  await chat.getByLabel('Nachricht an Lotse').fill(`Bitte umsetzen. [e2e:edit ${header} Gratis Versand ab 50 €] [e2e:cmd theme-compile]`);
+  await chat.getByRole('button', { name: 'Senden' }).click();
+  await expect(chat.getByRole('group', { name: `Neu: ${header}, 6 Zeilen hinzu, 0 entfernt` })).toBeVisible({ timeout: 60_000 });
+  await expect(chat.getByRole('status').filter({ hasText: /Theme kompilieren ✓ [\d,]+ s/ })).toBeVisible({ timeout: 30_000 });
+  await expect(chat.getByText('Fertig: 2 Schritte.')).toBeVisible({ timeout: 30_000 });
+
+  // the preview reloaded after the compile: the fake storefront now renders the plugin's header template
+  const preview = page.frameLocator('iframe[title="Vorschau der Sandbox-Storefront"]');
+  await expect(preview.getByText('Gratis Versand ab 50 €')).toBeVisible({ timeout: 15_000 });
+
+  await page.getByRole('tab', { name: /Änderungen/ }).click();
+  const changes = page.getByRole('tabpanel', { name: /Änderungen/ });
+  await expect(changes.getByText('1 Datei geändert')).toBeVisible();
+  await expect(changes.getByText(header).first()).toBeVisible();
+  await expect(changes.getByText('+    <div class="lotse-e2e-note">Gratis Versand ab 50 €</div>')).toBeVisible();
+
+  // the chat is kept with the task: after a reload it is replayed with its cards
+  await page.reload();
+  await expect(page.getByRole('group', { name: `Neu: ${header}, 6 Zeilen hinzu, 0 entfernt` })).toBeVisible();
+  await expect(page.getByText('Fertig: 2 Schritte.')).toBeVisible();
+
+  page.once('dialog', d => void d.accept());
+  await page.getByRole('button', { name: 'Aufgabe abschließen' }).click();
+  await expect(page.getByText(/^Abgeschlossen: Container und Dateien/)).toBeVisible();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
+});

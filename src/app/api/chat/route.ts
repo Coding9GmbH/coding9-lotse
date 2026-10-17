@@ -3,6 +3,8 @@ import { requestLocale } from '@/lib/i18n/locales';
 import { startChat } from '@/server/agent';
 import { listenStream } from '@/server/chat-stream';
 import { chatIdSchema, jsonError, parseJson } from '@/server/http';
+import { sandboxForbidden } from '@/server/sandbox/env';
+import { getTask } from '@/server/sandbox/tasks';
 import { chatSnapshot, getSession, peekSession } from '@/server/sessions';
 import { refreshDraftPreview } from '@/server/tools';
 
@@ -12,14 +14,22 @@ const target = z.object({
   kind: z.enum(['category', 'product', 'landing']),
   id: z.string().optional(), name: z.string().optional(), path: z.string().nullable().optional(), cmsPage: z.string().nullable().optional(),
 });
-const schema = z.object({ chatId: chatIdSchema, message: z.string().min(1, 'message fehlt').max(100_000), target: target.nullable().optional(), onboarding: z.boolean().optional() });
+const schema = z.object({ chatId: chatIdSchema, message: z.string().min(1, 'message fehlt').max(100_000), target: target.nullable().optional(), onboarding: z.boolean().optional(), taskId: z.string().max(40).optional() });
 
 // Start a new turn; response as an NDJSON stream (one JSON line per event). If the client leaves the chat,
 // the turn keeps running in the background, and the client can reconnect via GET.
 export async function POST(req: Request) {
   const body = await parseJson(req, schema);
   if (!body.ok) return body.res;
-  const s = getSession(body.data.chatId);
+  // Code chat: Sandbox Coding must be on and the chat must be the task's own (one chat per task, fixed)
+  const { taskId, chatId } = body.data;
+  if (taskId) {
+    const off = sandboxForbidden();
+    if (off) return off;
+    if (getTask(taskId)?.chatId !== chatId) return jsonError(403, 'Dieser Chat gehört nicht zu der Aufgabe.');
+  }
+  const s = getSession(chatId);
+  if (taskId && s.taskId !== taskId) return jsonError(403, 'Dieser Chat gehört nicht zu der Aufgabe.');
   if (s.running) return jsonError(409, 'In diesem Chat läuft schon eine Anfrage.');
   // Listen first, then start, so no event is lost
   const res = listenStream(s, [], true);

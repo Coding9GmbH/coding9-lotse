@@ -17,6 +17,11 @@ export const de = {
   codexBlockedTool: 'Codex wollte ein gesperrtes Werkzeug verwenden (Befehl/Datei/Websuche). Die Runde wurde abgebrochen.',
   budgetReached: (spent: string, budget: string) => `Das KI-Budget für diesen Monat ist aufgebraucht (${spent} von ${budget}). Neue Runden starten erst wieder im nächsten Monat oder mit höherem Budget (Einstellungen → KI verbinden).`,
   budgetTurnStopped: 'Die Runde wurde gestoppt: Sie hat die Hälfte des freien KI-Budgets dieses Monats erreicht. Schreib „weiter“, um mit dem Rest fortzufahren, oder erhöhe das Budget (Einstellungen → KI verbinden).',
+  codeSandboxOff: 'Sandbox Coding ist in den Einstellungen ausgeschaltet.',
+  codeTaskGone: 'Die Aufgabe zu diesem Chat gibt es nicht mehr.',
+  codeTaskDone: 'Die Aufgabe ist abgeschlossen; ihr Container und Arbeitsordner sind gelöscht.',
+  codeNotReady: 'Die Umgebung ist noch nicht bereit – erst die Einrichtung abschließen (oder ab dem fehlgeschlagenen Schritt erneut versuchen).',
+  codeWakeFailed: (why: string) => `Die Umgebung konnte nicht gestartet werden: ${why}`,
 };
 
 export const en: typeof de = {
@@ -35,4 +40,9 @@ export const en: typeof de = {
   codexBlockedTool: 'Codex tried to use a blocked tool (command/file/web search). The run was stopped.',
   budgetReached: (spent, budget) => `This month's AI budget is used up (${spent} of ${budget}). New runs only start again next month or with a higher budget (Settings → Connect AI).`,
   budgetTurnStopped: 'The run was stopped: it reached half of this month’s free AI budget. Write “continue” to go on with the rest, or raise the budget (Settings → Connect AI).',
+  codeSandboxOff: 'Sandbox Coding is switched off in the settings.',
+  codeTaskGone: 'The task of this chat no longer exists.',
+  codeTaskDone: 'The task is finished; its container and working folder are deleted.',
+  codeNotReady: 'The environment is not ready yet – finish the setup first (or retry from the failed step).',
+  codeWakeFailed: why => `The environment could not be started: ${why}`,
 };

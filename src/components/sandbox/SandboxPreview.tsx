@@ -19,8 +19,9 @@ export const previewBust = (task: CodeTaskPublic) => task.steps.filter(s => s.ke
 
 /** The task's storefront through /sbx/<id>/: usable for testing (navigation, cart, checkout), in an opaque origin like the shop preview.
  *  A paused task starts again only on request ("Vorschau laden"); while it starts, /sbx shows a page that reloads itself.
- *  Mark mode as in the shop preview (frame script via postMessage); the requests are copied as text until the task chat takes them. */
-export function SandboxPreview({ task }: { task: CodeTaskPublic }) {
+ *  Mark mode as in the shop preview (frame script via postMessage); the requests go to the task chat (onSendNotes) or are copied as text.
+ *  `reload` changes when the chat compiled the theme or cleared the cache: the frame loads again. */
+export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false }: { task: CodeTaskPublic; reload?: number; onSendNotes?: (text: string) => void; inTabs?: boolean }) {
   const { locale, t: all } = useI18n();
   const t = all.sandbox.preview, tp = all.preview;
   const [path, setPath] = useState('/');
@@ -34,7 +35,7 @@ export function SandboxPreview({ task }: { task: CodeTaskPublic }) {
   const running = !!task.container?.running && s !== 'done' && s !== 'paused';
   const show = s === 'ready' || s === 'waking' || (running && (s === 'failed' || s === 'interrupted')) || (wake && s === 'paused');
   const src = sandboxSrc(task.preview, path);
-  const frameKey = `${src}|${previewBust(task)}|${reloads}`;
+  const frameKey = `${src}|${previewBust(task)}|${reloads}|${reload}`;
 
   const [marking, setMarking] = useState(false);
   const [pick, setPick] = useState<(Pick & { left: number; top: number }) | null>(null);
@@ -75,7 +76,7 @@ export function SandboxPreview({ task }: { task: CodeTaskPublic }) {
 
   return (
     <section className={styles.card} aria-labelledby="sbx-preview">
-      <div className={styles.cardHead}><h2 id="sbx-preview">{t.heading}</h2></div>
+      <div className={inTabs ? 'visually-hidden' : styles.cardHead}><h2 id="sbx-preview">{t.heading}</h2></div>
       <form className={styles.pvBar} onSubmit={e => { e.preventDefault(); setPath(typed || '/'); setReloads(n => n + 1); }}>
         <input value={typed} onChange={e => setTyped(e.target.value)} aria-label={t.path} spellCheck={false} />
         <Button size="sm" type="submit" disabled={!show}>{t.go}</Button>
@@ -128,7 +129,10 @@ export function SandboxPreview({ task }: { task: CodeTaskPublic }) {
             </ol>
             <footer>
               <Button size="sm" variant="ghost" onClick={() => setNotes([])}>{tp.discard}</Button>
-              <Button size="sm" variant="primary" title={t.copyTitle} onClick={copy}>{copied ? t.copied : t.copy(notes.length)}</Button>
+              {onSendNotes
+                ? <><Button size="sm" title={t.copyTitle} onClick={copy}>{copied ? t.copied : t.copy(notes.length)}</Button>
+                  <Button size="sm" variant="primary" title={all.sandbox.code.sendNotesTitle} onClick={() => { onSendNotes(annotationMessage(notes, 'sandbox', locale)); setNotes([]); setMarking(false); }}>{all.sandbox.code.sendNotes(notes.length)}</Button></>
+                : <Button size="sm" variant="primary" title={t.copyTitle} onClick={copy}>{copied ? t.copied : t.copy(notes.length)}</Button>}
             </footer>
           </section>
         )}

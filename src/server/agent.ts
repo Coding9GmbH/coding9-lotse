@@ -1,15 +1,21 @@
 import 'server-only';
 // AI run per chat message: Claude Agent SDK or Codex (ChatGPT subscription) with only our shop tools (optionally web search), events as NDJSON to the UI.
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import fs from 'node:fs';
+import path from 'node:path';
+import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatEvent, ChatRequest } from '@/lib/protocol';
 import type { PageSpec } from './cms';
 import { parsePartial } from './partial-json';
-import { buildSystem } from './prompt';
+import { buildSystem, codeSystemFor } from './prompt';
+import { dataDir } from './db';
+import { sandboxStatus } from './sandbox/env';
+import { ensureAwake } from './sandbox/jobs';
+import { getTask, markTurn } from './sandbox/tasks';
 import { getSession, noteUiLocale, persist, persistSoon } from './sessions';
 import { messages } from '@/lib/i18n';
 import { log } from './log';
 import { aiEnv, getSettings, redact } from './settings';
-import { allToolsFor, buildToolServer } from './tools';
+import { buildToolServer, toolsAllowedFor } from './tools';
 import { getPlatform } from './platform';
 import { targetHint } from './target-hint';
 import { pingCodex, runCodex } from './agent-codex';
@@ -18,8 +24,10 @@ import { errMsg } from './util';
 import { budgetGate, recordTurn, releaseBudget, turnCost } from './usage';
 
 // Save immediately (approvals, questions, drafts); all other history events batched (persistSoon), live-only events not at all
-const PERSIST_ON = new Set(['draft', 'styleguide', 'approval', 'changeset', 'changeset_result', 'question']);
-const LIVE_ONLY = new Set(['draft_partial', 'start', 'changeset_progress']);
+const PERSIST_ON = new Set(['draft', 'styleguide', 'approval', 'changeset', 'changeset_result', 'question', 'sandbox_status', 'publish_proposal']);
+const LIVE_ONLY = new Set(['draft_partial', 'start', 'changeset_progress', 'preview_reload']);
+/** Code chats: more steps per turn (explore, edit, compile, check, fix) than a shop turn */
+export const CODE_MAX_TURNS = 120;
 /** Built-in web tools of the Agent SDK, only when web research is enabled (read-only) */
 export const WEB_TOOLS = ['WebSearch', 'WebFetch'];
 
@@ -34,6 +42,7 @@ export function recordEvent(events: ChatEvent[], ev: ChatEvent) {
   const last = events.at(-1);
   if (LIVE_ONLY.has(ev.t)) return; // live only
   if (ev.t === 'text' && last?.t === 'text') { last.text += ev.text; return; }
+  if (ev.t === 'command') { const i = events.findLastIndex(e => e.t === 'command' && e.id === ev.id); if (i >= 0) { events[i] = { ...ev }; return; } } // only the command's last state
   if (ev.t === 'draft') for (const e of events) if (e.t === 'draft') e.html = undefined; // the UI only uses the current preview anyway
   events.push({ ...ev });
 }
@@ -46,6 +55,7 @@ export function recordEvent(events: ChatEvent[], ev: ChatEvent) {
 export function startChat({ chatId, message, target, onboarding, locale }: ChatRequest): { started: boolean; done: Promise<void> } {
   const s = getSession(chatId);
   if (s.running) return { started: false, done: Promise.resolve() };
+  const code = s.mode === 'code';
   const emit = (ev: ChatEvent) => {
     recordEvent(s.events, ev);
     if (PERSIST_ON.has(ev.t)) persist(s); else if (!LIVE_ONLY.has(ev.t)) persistSoon(s);
@@ -56,28 +66,33 @@ export function startChat({ chatId, message, target, onboarding, locale }: ChatR
   if (locale) { s.locale = locale; noteUiLocale(locale); }
   const ac = new AbortController();
   s.abort = ac;
-  if (target && !onboarding) s.target = target;
-  s.title ??= (onboarding ? messages(s.locale).server.onboardingTitle : message).slice(0, 70);
+  if (target && !onboarding && !code) s.target = target;
+  s.title ??= (code ? getTask(s.taskId ?? '')?.title ?? message : onboarding ? messages(s.locale).server.onboardingTitle : message).slice(0, 70);
   s.events.push({ t: 'user', text: message }); persist(s);
   emit({ t: 'start' });
 
-  const hint = onboarding ? '[ONBOARDING] Erstelle jetzt den Styleguide dieses Shops: 1) get_brand_signals (sieht sich Startseite, Kategorie- und Produktseiten an: Farben, Schriften, Buttons, Blockfolgen, Komponenten), 2) bei Bedarf read_page für eine typische Landingpage/Magazinseite sowie get_category/get_product/search_media für Tonalität und Bildstil, 3) Rollen der Farben ableiten (primary = Buttons/Links; Kontrast prüfen), Ansprache (Du/Sie) aus echten Texten bestimmen, 4) save_styleguide mit vollständigem Ergebnis – inklusive components (wie Buttons, Überschriften, Karten, Abschnitte im Shop wirklich aussehen) und existingBlocks (welche Blöcke/Elemente der Shop auf seinen Seiten verwendet und wofür, damit neue Seiten dieselben übernehmen), 5) in 3–4 Sätzen zusammenfassen und nach Korrekturen fragen, 6) danach EINMAL per ask_user nach festen Vorgaben für Texte fragen (z. B. Mindestlänge von SEO-Texten, Wörter die nie vorkommen, Schreibweisen, Besonderheiten einzelner Kategorien); jede genannte Vorgabe mit add_rule speichern (Bereich passend, bei Kategorie-Bezug mit categoryId). Ohne Vorgaben nichts speichern.' : targetHint(target, getPlatform(s.platform).capabilities);
+  const hint = code ? '' : onboarding ? '[ONBOARDING] Erstelle jetzt den Styleguide dieses Shops: 1) get_brand_signals (sieht sich Startseite, Kategorie- und Produktseiten an: Farben, Schriften, Buttons, Blockfolgen, Komponenten), 2) bei Bedarf read_page für eine typische Landingpage/Magazinseite sowie get_category/get_product/search_media für Tonalität und Bildstil, 3) Rollen der Farben ableiten (primary = Buttons/Links; Kontrast prüfen), Ansprache (Du/Sie) aus echten Texten bestimmen, 4) save_styleguide mit vollständigem Ergebnis – inklusive components (wie Buttons, Überschriften, Karten, Abschnitte im Shop wirklich aussehen) und existingBlocks (welche Blöcke/Elemente der Shop auf seinen Seiten verwendet und wofür, damit neue Seiten dieselben übernehmen), 5) in 3–4 Sätzen zusammenfassen und nach Korrekturen fragen, 6) danach EINMAL per ask_user nach festen Vorgaben für Texte fragen (z. B. Mindestlänge von SEO-Texten, Wörter die nie vorkommen, Schreibweisen, Besonderheiten einzelner Kategorien); jede genannte Vorgabe mit add_rule speichern (Bereich passend, bei Kategorie-Bezug mit categoryId). Ohne Vorgaben nichts speichern.' : targetHint(target, getPlatform(s.platform).capabilities);
 
   const prompt = hint ? `${hint}\n${message}` : message;
   const provider = getSettings().ai.provider, t0 = Date.now();
   // Cost brake (usage.ts): Claude only (Codex = subscription without USD costs). Used-up budget → no turn; otherwise the remaining budget is the turn's limit
   const gate = provider === 'claude' ? budgetGate(new Date(), chatId) : { blocked: false as const };
-  log.info('Chat-Runde gestartet', { chatId, provider, platform: s.platform, ...(onboarding ? { onboarding: true } : {}), ...(gate.blocked ? { budgetBlocked: true } : {}) });
+  log.info('Chat-Runde gestartet', { chatId, provider, ...(code ? { task: s.taskId } : { platform: s.platform }), ...(onboarding ? { onboarding: true } : {}), ...(gate.blocked ? { budgetBlocked: true } : {}) });
+  if (code && s.taskId) markTurn(s.taskId, true); // the idle sweeper leaves the container running meanwhile
   const done = (async () => {
     let end: RunEnd = { error: null }, cost: number | null = null;
     try {
       if (gate.blocked) { const usd = (n: number) => `${n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`; end = { error: messages(s.locale).server.budgetReached(usd(gate.spent), usd(gate.budget)) }; }
-      else end = provider === 'codex' ? await runCodex(s, prompt, ac.signal, emit) : await runClaude(s, prompt, ac, emit, gate.maxUsd);
+      else {
+        const blocked = code ? await prepareCodeTurn(s, emit) : null; // code chat: Sandbox on, task ready, container awake
+        end = blocked ? { error: blocked } : provider === 'codex' ? await runCodex(s, prompt, ac.signal, emit) : await runClaude(s, prompt, ac, emit, gate.maxUsd);
+      }
     } catch (e) {
       end = { error: errMsg(e) };
     } finally {
       // `done` only once the turn is really over: whoever fetches the history afterwards no longer sees the chat as running
       s.running = false; s.abort = null;
+      if (code && s.taskId) markTurn(s.taskId, false);
       if (!gate.blocked) {
         const t = turnCost(end, { total: s.costTotal ?? null, session: s.costSession ?? null }, s.sdkSessionId);
         cost = t.cost; s.costTotal = t.next.total; s.costSession = t.next.session;
@@ -106,32 +121,60 @@ export function usageOf(modelUsage: Record<string, { inputTokens: number; output
   return { model: all.map(([m]) => m).join(','), usage: { input: sum('inputTokens'), output: sum('outputTokens'), cacheRead: sum('cacheReadInputTokens'), cacheWrite: sum('cacheCreationInputTokens'), ...(turns ? { turns } : {}) } };
 }
 
+/** Empty working directory of Claude in code chats: never the task's workspace (files are reached only through the tools). */
+export const claudeWorkDir = () => { const d = path.join(dataDir(), 'claude-work'); fs.mkdirSync(d, { recursive: true, mode: 0o700 }); return d; };
+
+/**
+ * Options of a Claude turn. No built-in file/shell tools (web search/pages only with web research), no CLAUDE.md/settings, only the
+ * session's own tools: the shop tools of its platform, or in a code chat the workspace tools of its task (more turns, empty cwd).
+ * Writing to the shop never happens here but in the executor after approval in the UI.
+ */
+export function claudeOptions(s: Session, o: { web: boolean; model?: string; maxUsd?: number; ac: AbortController }): Options {
+  const code = s.mode === 'code';
+  const allowed = [...toolsAllowedFor(s), ...(o.web ? WEB_TOOLS : [])];
+  return {
+    systemPrompt: code ? codeSystemFor(s.taskId, s.locale, o.web) : buildSystem(s.platform, s.locale, o.web),
+    model: o.model,
+    env: aiEnv(), // AI process without SHOPWARE_*/OPENAI_*/GitHub credentials
+    ...(code ? { cwd: claudeWorkDir() } : {}),
+    resume: s.sdkSessionId ?? undefined,
+    tools: o.web ? WEB_TOOLS : [],
+    settingSources: [],
+    mcpServers: { shop: buildToolServer(s) },
+    allowedTools: allowed,
+    canUseTool: async (tool, input) => (allowed.includes(tool) ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: 'Nicht erlaubt.' }),
+    includePartialMessages: true,
+    maxTurns: code ? CODE_MAX_TURNS : 40,
+    ...(o.maxUsd ? { maxBudgetUsd: o.maxUsd } : {}),
+    abortController: o.ac,
+  };
+}
+
+/** Before a code turn: Sandbox Coding on, the task ready (or paused: woken now, the chat waits for Shopware). null = go; otherwise the message. */
+export async function prepareCodeTurn(s: Session, emit: (ev: ChatEvent) => void): Promise<string | null> {
+  const t = messages(s.locale).server;
+  if (!sandboxStatus().enabled) return t.codeSandboxOff;
+  const task = getTask(s.taskId ?? '');
+  if (!task) return t.codeTaskGone;
+  if (task.status === 'done') return t.codeTaskDone;
+  if (!['ready', 'paused', 'waking'].includes(task.status)) return t.codeNotReady;
+  const asleep = task.status !== 'ready' || !task.containerRunning;
+  if (asleep) emit({ t: 'sandbox_status', state: 'waking' });
+  try { await ensureAwake(task.id); } catch (e) {
+    const msg = t.codeWakeFailed(redact(errMsg(e)).slice(0, 300));
+    emit({ t: 'sandbox_status', state: 'failed', message: msg });
+    return msg;
+  }
+  if (asleep) emit({ t: 'sandbox_status', state: 'ready' });
+  return null;
+}
+
 /** Claude Agent SDK: in-process MCP server "shop", partial drafts live from the tool input stream. */
 /** maxUsd: remaining monthly budget (cost brake); the SDK stops the turn with error_max_budget_usd once it is reached */
 async function runClaude(s: Session, prompt: string, ac: AbortController, emit: (ev: ChatEvent) => void, maxUsd?: number): Promise<RunEnd> {
   let end: RunEnd = { error: null };
   try {
-    const web = getSettings().scopes.web; // web research (Einstellungen → KI-Zugriff)
-    const allowed = [...allToolsFor(s.platform), ...(web ? WEB_TOOLS : [])]; // tools of this session's platform
-    const q = query({
-      prompt,
-      options: {
-        systemPrompt: buildSystem(s.platform, s.locale, web),
-        model: getSettings().ai.model || undefined,
-        env: aiEnv(), // AI process without SHOPWARE_*/OPENAI_* credentials
-        resume: s.sdkSessionId ?? undefined,
-        tools: web ? WEB_TOOLS : [],     // no file/shell tools: only the shop tools, web search/pages only when web research is enabled
-        settingSources: [],              // do not load CLAUDE.md / user settings
-        mcpServers: { shop: buildToolServer(s) },
-        allowedTools: allowed,
-        // Only our shop tools (+ web if enabled); writing never happens here but in the executor after approval in the UI
-        canUseTool: async (tool, input) => (allowed.includes(tool) ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: 'Nicht erlaubt.' }),
-        includePartialMessages: true,
-        maxTurns: 40,
-        ...(maxUsd ? { maxBudgetUsd: maxUsd } : {}),
-        abortController: ac,
-      },
-    });
+    const q = query({ prompt, options: claudeOptions(s, { web: getSettings().scopes.web, model: getSettings().ai.model || undefined, maxUsd, ac }) });
 
     const live: Record<number, { json: string; last: number; busy?: boolean }> = {}; // content-block index -> partial JSON of draft_page
     const pushPartial = async (blk: { json: string; busy?: boolean }) => {

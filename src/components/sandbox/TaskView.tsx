@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { DumpUpload } from './DumpUpload';
 import { SandboxOff } from './SandboxOff';
-import { SandboxPreview } from './SandboxPreview';
+import { CodeWorkspace } from './CodeWorkspace';
 import { StepTimeline } from './StepTimeline';
 import { TaskStatus } from './TaskList';
 import styles from './Sandbox.module.css';
@@ -81,7 +81,7 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
           {notice && <span className={styles.bad} role="alert">{notice}</span>}
         </div>
 
-        {s !== 'done' && <SandboxPreview task={task} />}
+        <CodeWorkspace task={task} />
         {task.goal && (
           <section className={styles.card} aria-labelledby="sbx-goal">
             <div className={styles.cardHead}><h2 id="sbx-goal">{t.goal}</h2></div>

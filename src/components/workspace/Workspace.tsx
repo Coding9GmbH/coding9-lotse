@@ -381,7 +381,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
               {status}
               <ChatLog className={styles.homeLog} items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)}>
                 <HomeContent health={homeHealth} loadFailed={shell.healthFailed} hasStyleguide={sgLoaded ? !!sg : null} product={exampleProduct ?? t.exampleProduct} category={exampleCategory}
-                  recent={chats ?? []} onExample={t => { setInput(t); inputRef.current?.focus(); }} onFix={fixFinding} onTask={fixTask} fixes={fixes} onOpenChat={id => void openChat(id)} onOnboard={onboard} />
+                  recent={(chats ?? []).filter(c => c.mode !== 'code')} onExample={t => { setInput(t); inputRef.current?.focus(); }} onFix={fixFinding} onTask={fixTask} fixes={fixes} onOpenChat={id => void openChat(id)} onOnboard={onboard} />
               </ChatLog>
             </>
           ) : (

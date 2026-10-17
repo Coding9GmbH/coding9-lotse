@@ -3,11 +3,10 @@ import 'server-only';
 import { Codex, type ThreadItem, type ThreadOptions } from '@openai/codex-sdk';
 import type { ChatEvent } from '@/lib/protocol';
 import { bindRoundToken, codexConfig, codexEnv, codexLoggedIn, mcpTokenFor } from './codex';
-import type { PlatformKind } from '@/lib/platforms';
-import { buildSystem } from './prompt';
-import type { Locale } from '@/lib/i18n/locales';
+import { buildSystem, codeSystemFor } from './prompt';
 import { persist, type Session } from './sessions';
 import { messages } from '@/lib/i18n';
+import type { Locale } from '@/lib/i18n/locales';
 import type { RunEnd, RunUsage } from './agent';
 import { getSettings, redact } from './settings';
 import { errMsg } from './util';
@@ -16,12 +15,19 @@ import { errMsg } from './util';
 const CODEX_NOTE = `\n\n## Laufzeit
 Du läufst in Lotse, nicht als Programmier-Assistent. Du hast ausschließlich die Werkzeuge des MCP-Servers „shop“ (z. B. search_products, draft_page, ask_user, propose_product_changes). Führe keine Befehle aus, lies oder schreibe keine Dateien und frage nicht nach solchen Rechten. Das ist hier technisch gesperrt.`;
 const CODEX_WEB_NOTE = ' Zusätzlich darfst du die Websuche verwenden (Internetrecherche ist eingeschaltet).';
+// Code chats (Sandbox Coding): same tools as Claude via MCP; Codex' own shell, apply_patch and file access stay blocked
+export const CODE_NOTE = `\n\n## Laufzeit
+Du läufst in Lotse als Coding-Assistent für genau diese Aufgabe. Du hast ausschließlich die Werkzeuge des MCP-Servers „shop“ (list_files, read_file, search_files, edit_file, write_file, delete_file, git_diff, run_command, read_sandbox_page, get_environment, ask_user, propose_publish). Eigene Befehle, eigene Dateizugriffe (Shell, apply_patch) und Netzwerk sind technisch gesperrt und brechen die Runde ab: Dateien änderst du nur mit edit_file/write_file/delete_file, Befehle nur mit run_command.`;
 
 /** Internal address at which the Codex process reaches Lotse (same machine/container). */
 const internalUrl = () => (process.env.LOTSE_INTERNAL_URL || `http://127.0.0.1:${process.env.PORT || 3333}`).replace(/\/$/, '');
 
-function client(chatId: string, platform?: PlatformKind, locale?: Locale, web = false) {
-  const cfg = codexConfig({ mcpUrl: `${internalUrl()}/api/mcp/${encodeURIComponent(chatId)}`, instructions: buildSystem(platform, locale, web) + CODEX_NOTE + (web ? CODEX_WEB_NOTE : ''), web });
+/** Developer instructions: the shop prompt with CODEX_NOTE, or in a code chat the code prompt with CODE_NOTE. */
+export const codexInstructions = (s: Pick<Session, 'mode' | 'taskId' | 'platform' | 'locale'> | null, web = false) =>
+  (s?.mode === 'code' ? codeSystemFor(s.taskId, s.locale, web) + CODE_NOTE : buildSystem(s?.platform, s?.locale, web) + CODEX_NOTE) + (web ? CODEX_WEB_NOTE : '');
+
+function client(chatId: string, instructions: string, web = false) {
+  const cfg = codexConfig({ mcpUrl: `${internalUrl()}/api/mcp/${encodeURIComponent(chatId)}`, instructions, web });
   const codex = new Codex({ env: codexEnv({ LOTSE_MCP_TOKEN: mcpTokenFor(chatId) }), config: cfg.config, configOverrides: cfg.configOverrides });
   const opts = codexThreadOptions(cfg.workingDirectory, getSettings().ai.codexModel, web);
   return { codex, opts };
@@ -90,7 +96,7 @@ export async function runCodex(s: Session, prompt: string, signal: AbortSignal, 
     let failed: string | null = null, usage: RunUsage | undefined;
     const model = getSettings().ai.codexModel || undefined, web = getSettings().scopes.web;
     try {
-      const { codex, opts } = client(s.id, s.platform, s.locale, web);
+      const { codex, opts } = client(s.id, codexInstructions(s, web), web);
       const thread = s.codexThreadId ? codex.resumeThread(s.codexThreadId, opts) : codex.startThread(opts);
       const { events } = await thread.runStreamed(prompt, { signal: ac.signal });
       for await (const ev of events) {
@@ -115,7 +121,7 @@ export async function runCodex(s: Session, prompt: string, signal: AbortSignal, 
 export async function pingCodex(): Promise<string> {
   return bindRoundToken('ping', async () => {
     if (!codexLoggedIn()) throw new Error('Nicht mit ChatGPT angemeldet. Zuerst „Mit ChatGPT anmelden“ (Einstellungen).');
-    const { codex, opts } = client('ping');
+    const { codex, opts } = client('ping', codexInstructions(null));
     const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 90_000);
     try {
       const turn = await codex.startThread(opts).run('Antworte exakt mit dem Wort: OK', { signal: ac.signal });

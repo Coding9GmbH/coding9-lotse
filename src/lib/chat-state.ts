@@ -5,7 +5,7 @@
 import { DEFAULT_LOCALE, INTL_LOCALE, messages, type Locale } from './i18n';
 import { parseAttachments, type Attachment, type FileAttachment } from './attachments';
 import { toolLabel } from './labels';
-import type { ChangeSet, ChatDetail, ChatEvent, DraftAudit, PublishedInfo, Styleguide, Target, UndoOutcome } from './protocol';
+import type { ChangeSet, ChatDetail, ChatEvent, DraftAudit, FileChangeKind, PublishedInfo, Styleguide, Target, UndoOutcome } from './protocol';
 import { asList, shopProxyPath } from './urls';
 
 export type StepState = 'run' | 'done' | 'bad';
@@ -29,7 +29,12 @@ export type LogItem =
     progress?: { done: number; total: number };
   }
   | { kind: 'published'; key: string; info: PublishedInfo; target: Target | null }
-  | { kind: 'styleguide'; key: string; sg: Styleguide };
+  | { kind: 'styleguide'; key: string; sg: Styleguide }
+  // code chats (Sandbox Coding)
+  | { kind: 'file'; key: string; path: string; change: FileChangeKind; added: number; removed: number }
+  | { kind: 'command'; key: string; id: string; command: string; args?: Record<string, string>; status: 'running' | 'ok' | 'failed'; exitCode?: number; tail?: string; ms?: number }
+  | { kind: 'sandbox'; key: string; state: 'waking' | 'ready' | 'failed'; message?: string }
+  | { kind: 'publish'; key: string; title: string; body: string };
 
 export type LogItemKind = LogItem['kind'];
 
@@ -56,6 +61,8 @@ export interface ChatState {
   status: string | null;
   /** Language of the status texts (UI language); kept when the history is cleared */
   locale: Locale;
+  /** Code chats: counts storefront changes (theme compiled …); the sandbox preview reloads when it changes */
+  previewReload: number;
 }
 
 export type Mode = 'live' | 'replay';
@@ -83,7 +90,7 @@ export type ChatAction =
 
 export const initialChatState: ChatState = {
   items: [], seq: 0, curText: null, stepBox: null, target: null, draft: null, liveOverride: null, liveBust: 0,
-  tab: 'live', styleguide: null, cmsOverrides: {}, busy: false, status: null, locale: DEFAULT_LOCALE,
+  tab: 'live', styleguide: null, cmsOverrides: {}, busy: false, status: null, locale: DEFAULT_LOCALE, previewReload: 0,
 };
 
 const texts = (s: Pick<ChatState, 'locale'>) => messages(s.locale).lib.chat;
@@ -98,7 +105,9 @@ function liveStatus(ev: ChatEvent, locale: Locale): string | null {
     case 'changeset': return t.waitingApproval;
     case 'tool': return t.tool(toolLabel(ev.name, locale));
     case 'changeset_progress': return t.applyProgress(n(ev.done), n(ev.total));
-    case 'changeset_result': case 'tool_result': case 'image': return t.thinking;
+    case 'changeset_result': case 'tool_result': case 'image': case 'file_change': return t.thinking;
+    case 'command': return ev.status === 'running' ? t.command(ev.command) : t.thinking;
+    case 'sandbox_status': return ev.state === 'waking' ? t.waking : t.thinking;
     default: return null;
   }
 }
@@ -222,6 +231,19 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
       const [next] = push(s, { kind: 'styleguide', sg: ev.sg });
       return live ? { ...next, styleguide: ev.sg } : next;
     }
+    case 'file_change': return push(s, { kind: 'file', path: ev.path, change: ev.kind, added: ev.added, removed: ev.removed })[0];
+    case 'command': {
+      const item = { id: ev.id, command: ev.command, args: ev.args, status: ev.status, exitCode: ev.exitCode, tail: ev.tail, ms: ev.ms };
+      const next = update(s, 'command', i => i.id === ev.id, i => ({ ...i, ...item }));
+      return next !== s ? next : push(s, { kind: 'command', ...item })[0];
+    }
+    case 'sandbox_status': {
+      // waking → ready/failed: one line that changes, not two
+      const next = update(s, 'sandbox', i => i.state === 'waking' && s.items.at(-1)?.key === i.key, i => ({ ...i, state: ev.state, message: ev.message }));
+      return next !== s ? next : push(s, { kind: 'sandbox', state: ev.state, message: ev.message })[0];
+    }
+    case 'preview_reload': return live ? { ...s, previewReload: s.previewReload + 1 } : s;
+    case 'publish_proposal': return push(s, { kind: 'publish', title: ev.title, body: ev.body })[0];
     case 'done': {
       const settled = settleSteps(s, ev.error ? 'bad' : 'done');
       return ev.error ? push(settled, { kind: 'error', text: ev.error })[0] : settled;
@@ -233,7 +255,7 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
 
 /** Clear the history view (styleguide and published layouts stay known). */
 const cleared = (s: ChatState): ChatState => ({
-  ...initialChatState, styleguide: s.styleguide, cmsOverrides: s.cmsOverrides, liveBust: s.liveBust, locale: s.locale,
+  ...initialChatState, styleguide: s.styleguide, cmsOverrides: s.cmsOverrides, liveBust: s.liveBust, locale: s.locale, previewReload: s.previewReload,
 });
 
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {

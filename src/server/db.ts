@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CHAT_PAGE, type AccessLogRow, type AuditRow, type ChatEvent, type Target, type UndoOp } from '@/lib/protocol';
+import { CHAT_PAGE, type AccessLogRow, type AuditRow, type ChatEvent, type ChatMode, type Target, type UndoOp } from '@/lib/protocol';
 export { CHAT_PAGE };
 import type { PageSpec } from './cms';
 import { currentActor } from './actor';
@@ -79,6 +79,7 @@ export type StoredEvent = ChatEvent;
 export interface StoredChat {
   id: string; title: string | null; target: Target | null; createdAt: string; updatedAt: string;
   sdkSessionId: string | null; costTotal?: number | null; costSession?: string | null; codexThreadId?: string | null; draft: PageSpec | null; events: StoredEvent[];
+  /** missing = shop (older rows); code = the chat of a Sandbox Coding task */ mode?: ChatMode; taskId?: string | null;
 }
 const evType = (e: StoredEvent) => (e as { t: string }).t;
 function chatPutOn(d: DatabaseSync, c: StoredChat) {
@@ -89,16 +90,17 @@ function chatPutOn(d: DatabaseSync, c: StoredChat) {
 }
 export const chatGet = (id: string): StoredChat | null => { const r = db().prepare('SELECT json FROM chats WHERE id = ?').get(id) as { json: string } | undefined; return r ? (JSON.parse(r.json) as StoredChat) : null; };
 export const chatPut = (c: StoredChat) => chatPutOn(db(), c);
-interface ChatListRow { id: string; title: string; target: string; updated_at: string; published: number }
+interface ChatListRow { id: string; title: string; target: string; updated_at: string; published: number; task_id: string | null }
 /** Paging: cursor = last row of the previous page (updated_at, id); q searches the title. Without options: the newest 200 as before. */
 export interface ChatListOpts { limit?: number; before?: { updatedAt: string; id: string } | null; q?: string | null }
 export function chatList({ limit = CHAT_PAGE, before = null, q = null }: ChatListOpts = {}) {
   const where: string[] = [], args: (string | number)[] = [], term = q?.trim();
   if (before) { where.push('(updated_at < ? OR (updated_at = ? AND id < ?))'); args.push(before.updatedAt, before.updatedAt, before.id); }
   if (term) { where.push("title LIKE ? ESCAPE '\\'"); args.push(`%${term.replace(/[\\%_]/g, c => '\\' + c)}%`); }
-  const sql = `SELECT id, title, target, updated_at, published FROM chats ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY updated_at DESC, id DESC LIMIT ?`;
+  // code chats carry their task (code_tasks.chat_id): the history links them to the task page
+  const sql = `SELECT id, title, target, updated_at, published, (SELECT t.id FROM code_tasks t WHERE t.chat_id = chats.id LIMIT 1) AS task_id FROM chats ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY updated_at DESC, id DESC LIMIT ?`;
   return (db().prepare(sql).all(...args, Math.max(1, Math.min(CHAT_PAGE, Math.floor(limit) || CHAT_PAGE))) as unknown as ChatListRow[])
-    .map(r => ({ id: r.id, title: r.title, target: JSON.parse(r.target) as Target | null, updatedAt: r.updated_at, published: r.published }));
+    .map(r => ({ id: r.id, title: r.title, target: JSON.parse(r.target) as Target | null, updatedAt: r.updated_at, published: r.published, ...(r.task_id ? { mode: 'code' as const, taskId: r.task_id } : {}) }));
 }
 export const chatDelete = (id: string) => { db().prepare('DELETE FROM chats WHERE id = ?').run(id); db().prepare('DELETE FROM changeset_runs WHERE chat_id = ?').run(id); };
 
