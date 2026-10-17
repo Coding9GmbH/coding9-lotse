@@ -20,7 +20,7 @@ export interface ContainerSpec {
   NetworkingConfig?: Record<string, unknown>;
 }
 export interface ContainerInfo { id: string; name: string; image: string; state: string; running: boolean; labels: Record<string, string>; /** host port published for 80/tcp (local mode) */ port: number | null }
-export interface NetworkInfo { name: string; internal: boolean; labels: Record<string, string> }
+export interface NetworkInfo { name: string; internal: boolean; labels: Record<string, string>; /** IPAM subnets (CIDR) */ subnets: string[] }
 export interface ExecOpts { user: string; workdir?: string; env?: string[]; timeoutMs: number; signal?: AbortSignal; stdin?: Buffer; /** keep at most this many bytes (the end of the output) */ maxOutput?: number }
 export interface ExecResult { exitCode: number; output: string; truncated: boolean }
 export interface PullProgress { text: string; pct?: number }
@@ -42,7 +42,7 @@ export interface SandboxRunner {
   /** managed containers only; extra labels narrow the list */
   list(labels?: Record<string, string>): Promise<ContainerInfo[]>;
   inspectNetwork(name: string): Promise<NetworkInfo | null>;
-  createNetwork(name: string, opts: { internal: boolean; labels: Record<string, string> }): Promise<void>;
+  createNetwork(name: string, opts: { internal: boolean; labels: Record<string, string>; subnet?: string }): Promise<void>;
 }
 
 // ---- Selection ----

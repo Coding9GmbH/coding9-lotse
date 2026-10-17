@@ -8,6 +8,8 @@ import { MANAGED, assertAllowedImage, assertContainerPath, assertId, assertManag
 
 const PREFERRED_API = '1.41';
 const REQUEST_TIMEOUT_MS = 30_000;
+/** ping/version: the health route waits for them, a blackholed DOCKER_HOST must not stall it */
+const PROBE_TIMEOUT_MS = 3_000;
 
 type Target = { socketPath: string } | { host: string; port: number };
 /** DOCKER_HOST: unix:///path or tcp://host:port. Anything else (ssh://, https with certificates) is not supported. */
@@ -120,11 +122,11 @@ export class DockerEngine implements SandboxRunner {
   private json = <T>(r: Res) => JSON.parse(r.body.toString('utf8') || 'null') as T;
 
   async ping() {
-    const r = await this.raw('GET', '/_ping');
+    const r = await this.raw('GET', '/_ping', { timeoutMs: PROBE_TIMEOUT_MS });
     if (r.status !== 200) throw apiError(r, 'Docker-Ping');
   }
   async version() {
-    const r = await this.raw('GET', '/version');
+    const r = await this.raw('GET', '/version', { timeoutMs: PROBE_TIMEOUT_MS });
     if (r.status !== 200) throw apiError(r, 'Docker-Version');
     const v = this.json<{ ApiVersion?: string; Version?: string }>(r);
     return { apiVersion: String(v.ApiVersion ?? ''), version: String(v.Version ?? '') };
@@ -243,11 +245,11 @@ export class DockerEngine implements SandboxRunner {
     const r = await this.call('GET', `/networks/${enc(name)}`);
     if (r.status === 404) return null;
     if (r.status !== 200) throw apiError(r, 'Netzwerk prüfen');
-    const n = this.json<{ Name: string; Internal?: boolean; Labels?: Record<string, string> | null }>(r);
-    return { name: n.Name, internal: n.Internal === true, labels: n.Labels ?? {} };
+    const n = this.json<{ Name: string; Internal?: boolean; Labels?: Record<string, string> | null; IPAM?: { Config?: { Subnet?: string }[] | null } }>(r);
+    return { name: n.Name, internal: n.Internal === true, labels: n.Labels ?? {}, subnets: (n.IPAM?.Config ?? []).flatMap(c => (c.Subnet ? [c.Subnet] : [])) };
   }
-  async createNetwork(name: string, opts: { internal: boolean; labels: Record<string, string> }) {
-    const r = await this.call('POST', '/networks/create', { body: { Name: name, Driver: 'bridge', Internal: opts.internal, Labels: opts.labels, CheckDuplicate: true } });
+  async createNetwork(name: string, opts: { internal: boolean; labels: Record<string, string>; subnet?: string }) {
+    const r = await this.call('POST', '/networks/create', { body: { Name: name, Driver: 'bridge', Internal: opts.internal, Labels: opts.labels, CheckDuplicate: true, ...(opts.subnet ? { IPAM: { Config: [{ Subnet: opts.subnet }] } } : {}) } });
     if (r.status !== 201) throw apiError(r, 'Netzwerk anlegen');
   }
 }

@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { EventEmitter } from 'node:events';
 import { NextRequest } from 'next/server';
-import { clientKey, hostAllowed, loginBlocked, loginFailed, loginLimitSize, passwordOk, proxy, resetLoginLimit } from '../../src/proxy';
+import { clientKey, fromSandbox, hostAllowed, loginBlocked, loginFailed, loginLimitSize, passwordOk, proxy, resetLoginLimit } from '../../src/proxy';
 import { allowedHostsWarning } from '../../src/instrumentation';
-import { PEER_HEADER, installPeerStamp, normalizeIp, openWithoutPassword } from '../../src/server/access';
+import { PEER_HEADER, inCidr, installPeerStamp, normalizeIp, openWithoutPassword, sandboxSubnet } from '../../src/server/access';
 
 // Host check with the real socket address, UTF-8 passwords, login throttle, warning for ALLOWED_HOSTS without password.
 const prev = { pw: process.env.LOTSE_PASSWORD, hosts: process.env.ALLOWED_HOSTS };
@@ -34,6 +34,32 @@ test('forged X-Forwarded-For: 127.0.0.1 does not help if the socket address is p
   assert.equal((await call('/api/chats', { host: 'localhost:3333', 'x-forwarded-for': '127.0.0.1', [PEER_HEADER]: '203.0.113.5' })).status, 403);
   assert.equal((await call('/api/chats', { host: 'localhost:3333', 'x-forwarded-for': '127.0.0.1', [PEER_HEADER]: '127.0.0.1' })).status, 200);
   assert.equal(normalizeIp(' [::FFFF:10.0.0.1] '), '10.0.0.1');
+});
+
+test('sandbox subnet: task containers never reach the Lotse API, even with Host: localhost in the container with loopback publish', async () => {
+  const prevEnv = { d: process.env.AICB_DOCKER, b: process.env.LOTSE_BIND, s: process.env.LOTSE_SANDBOX_SUBNET };
+  process.env.AICB_DOCKER = '1'; process.env.LOTSE_BIND = '127.0.0.1';
+  const write = (peer: string, extra: Record<string, string> = {}) => call('/api/settings', { host: 'localhost', 'x-lotse': '1', [PEER_HEADER]: peer, ...extra }, 'PUT');
+  try {
+    delete process.env.LOTSE_SANDBOX_SUBNET;
+    assert.equal(hostAllowed('localhost', null, '10.213.0.5'), true, 'without the subnet a private hop counts as the local gateway (why the sandbox stays locked then)');
+    process.env.LOTSE_SANDBOX_SUBNET = '10.213.0.0/24';
+    assert.equal((await write('10.213.0.5')).status, 403, 'container peer');
+    assert.equal((await write('::ffff:10.213.0.77')).status, 403, 'IPv4 in IPv6');
+    assert.equal((await call('/api/ping', { host: 'localhost', [PEER_HEADER]: '10.213.0.5' })).status, 403, 'not even the health check');
+    assert.equal((await call('/api/chats', { host: 'lotse', [PEER_HEADER]: '10.213.0.9' })).status, 403, 'any host name');
+    assert.equal((await write('10.213.1.5')).status, 200, 'other private hop (Docker gateway) still local');
+    assert.equal((await write('172.17.0.1', { 'x-forwarded-for': '10.213.0.5' })).status, 403, 'container behind a hop');
+    assert.equal(fromSandbox('10.213.0.5', null, {}), false, 'unset: no filter');
+    assert.equal(fromSandbox('10.213.0.5', null, { LOTSE_SANDBOX_SUBNET: 'nonsense' }), false);
+  } finally {
+    for (const [k, v] of [['AICB_DOCKER', prevEnv.d], ['LOTSE_BIND', prevEnv.b], ['LOTSE_SANDBOX_SUBNET', prevEnv.s]] as const) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  }
+  assert.equal(sandboxSubnet({ LOTSE_SANDBOX_SUBNET: ' 10.213.0.0/24 ' }), '10.213.0.0/24');
+  for (const bad of ['10.213.0.0', '10.213.0.0/33', '10.213.0.0/0', '300.1.1.1/24', 'fd00::/64']) assert.equal(sandboxSubnet({ LOTSE_SANDBOX_SUBNET: bad }), null, bad);
+  assert.equal(inCidr('10.213.0.255', '10.213.0.0/24'), true);
+  assert.equal(inCidr('10.213.1.0', '10.213.0.0/24'), false);
+  assert.equal(inCidr('192.0.2.7', '192.0.2.7'), true);
 });
 
 test('peer stamp on the HTTP server overrides a value sent by the client', async () => {

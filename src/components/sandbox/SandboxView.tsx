@@ -12,12 +12,12 @@ import styles from './Sandbox.module.css';
 
 const DOCS = { de: 'https://github.com/Coding9GmbH/coding9-lotse/blob/main/docs/self-hosting.md#sandbox-coding-aktivieren', en: 'https://github.com/Coding9GmbH/coding9-lotse/blob/main/docs/en/self-hosting.md#enable-sandbox-coding' } as const;
 
-interface VarRow { key: string; secret: boolean; value: string; hasValue: boolean }
+interface VarRow { key: string; secret: boolean; value: string; hasValue: boolean; /** stored as secret with a value: unticking needs a new value */ wasSecret?: boolean }
 interface CmdRow { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec: string }
 interface Form { image: string; vars: VarRow[]; cmds: CmdRow[] }
 const formOf = (v: SandboxEnvView): Form => ({
   image: v.env.image,
-  vars: v.env.envVars.map(x => ({ ...x })),
+  vars: v.env.envVars.map(x => ({ ...x, wasSecret: x.secret && x.hasValue })),
   cmds: v.env.commands.map(c => ({ id: c.id, label: c.label, command: c.command, phase: c.phase, timeoutSec: String(c.timeoutSec) })),
 });
 const patchOf = (f: Form): SandboxEnvPatch => ({
@@ -112,6 +112,8 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
   const setCmd = (i: number, p: Partial<CmdRow>) => set(f => ({ ...f, cmds: f.cmds.map((c, j) => (j === i ? { ...c, ...p } : c)) }));
 
   async function save() {
+    const unsecret = form.vars.find(v => v.wasSecret && !v.secret && !v.value);
+    if (unsecret) { setNotice({ ok: false, text: t.notSaved(t.unsecretNeedsValue(unsecret.key)) }); return; }
     setSaving(true); setNotice(null);
     try {
       const v = await api.sandbox.save(patchOf(form));
@@ -165,7 +167,7 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
       {form.vars.map((v, i) => (
         <div key={i} className={styles.varRow}>
           <input aria-label={t.key} placeholder={t.key} value={v.key} spellCheck={false} onChange={e => setVar(i, { key: e.target.value.toUpperCase() })} />
-          <input aria-label={`${t.value} ${v.key}`} placeholder={v.secret && v.hasValue ? t.secretSaved : t.value} type={v.secret ? 'password' : 'text'} autoComplete="off" spellCheck={false}
+          <input aria-label={`${t.value} ${v.key}`} placeholder={v.secret && v.hasValue ? t.secretSaved : v.wasSecret ? t.unsecret : t.value} type={v.secret ? 'password' : 'text'} autoComplete="off" spellCheck={false}
             value={v.value} onChange={e => setVar(i, { value: e.target.value })} />
           <label className={styles.secret}><input type="checkbox" checked={v.secret} onChange={e => setVar(i, { secret: e.target.checked })} /> {t.secret}</label>
           <button type="button" className={styles.x} aria-label={t.removeVar(v.key)} onClick={() => set(f => ({ ...f, vars: f.vars.filter((_, j) => j !== i) }))}><IconClose size={16} /></button>

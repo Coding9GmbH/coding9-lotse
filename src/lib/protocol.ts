@@ -227,7 +227,7 @@ export interface TemplateDescriptor { id: string; platform: 'shopware'; defaultI
 /** Environment variable for the task containers; a secret value is never sent back (value '' + hasValue) */
 export interface SandboxEnvVar { key: string; secret: boolean; value: string; hasValue: boolean }
 export interface SandboxCommand { id: string; label: string; command: string; phase: CommandPhase; timeoutSec: number }
-/** off = switched off in the settings, env = LOTSE_SANDBOX=0, open-bind = reachable from the network without LOTSE_PASSWORD */
+/** off = switched off in the settings, env = LOTSE_SANDBOX=0, open-bind = reachable from the network (or from the task containers) without LOTSE_PASSWORD */
 export type SandboxOffReason = 'off' | 'env' | 'open-bind';
 export interface SandboxStatus { enabled: boolean; reason?: SandboxOffReason; message?: string }
 export interface SandboxEnvPublic {
