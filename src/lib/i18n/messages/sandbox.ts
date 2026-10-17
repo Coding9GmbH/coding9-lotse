@@ -252,7 +252,7 @@ export const de = {
     },
     pr: {
       heading: 'Pull Request',
-      lead: 'Lotse committet alle Änderungen dieser Sandbox, pusht sie auf den Arbeits-Branch und legt den Pull Request an. Den Branch und das Ziel legt Lotse fest; .github/workflows, geschützte Dateien und alles, was wie ein Geheimnis aussieht, werden nicht veröffentlicht.',
+      lead: 'Lotse committet alle Änderungen dieser Sandbox, pusht sie auf den Arbeits-Branch und legt den Pull Request an. Den Branch und das Ziel legt Lotse fest; .github/workflows, .github/actions, geschützte Dateien und alles, was wie ein Geheimnis aussieht, werden nicht veröffentlicht.',
       branch: (branch: string, base: string) => `${branch} → ${base}`,
       files: 'Dateien',
       filesLoading: 'Änderungen werden geladen …',
@@ -536,7 +536,7 @@ export const en: typeof de = {
     },
     pr: {
       heading: 'Pull request',
-      lead: 'Lotse commits all changes of this sandbox, pushes them to the working branch and opens the pull request. Lotse sets the branch and the target; .github/workflows, protected files and anything that looks like a secret are not published.',
+      lead: 'Lotse commits all changes of this sandbox, pushes them to the working branch and opens the pull request. Lotse sets the branch and the target; .github/workflows, .github/actions, protected files and anything that looks like a secret are not published.',
       branch: (branch, base) => `${branch} → ${base}`,
       files: 'Files',
       filesLoading: 'Loading changes…',

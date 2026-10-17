@@ -165,9 +165,23 @@ export interface PushTarget { repo: string; branch: string; worktree: string; gi
 export async function pushBranch(t: PushTarget, o: { signal?: AbortSignal } = {}): Promise<{ sha: string }> {
   const url = repoUrl(t.repo), branch = assertLotseBranch(t.branch);
   const g = { cwd: assertAbs(t.worktree, 'Arbeitsordner'), gitDir: assertAbs(t.gitDir, 'Git-Ordner') };
-  const lease = t.pushedSha ? [`--force-with-lease=refs/heads/${branch}:${assertSha(t.pushedSha)}`] : [];
+  // a lease on the last pushed SHA, unless the branch is gone on GitHub (deleted after a merge): then it is created anew, still without force
+  const exists = t.pushedSha ? !!(await runGit(['ls-remote', '--heads', '--', url, `refs/heads/${branch}`], { ...g, auth: true, signal: o.signal })).stdout.trim() : false;
+  const lease = t.pushedSha && exists ? [`--force-with-lease=refs/heads/${branch}:${assertSha(t.pushedSha)}`] : [];
   await runGit(['push', '--porcelain', '--no-verify', ...lease, '--', url, `HEAD:refs/heads/${branch}`], { ...g, auth: true, signal: o.signal, timeoutMs: CLONE_TIMEOUT_MS });
   return { sha: (await runGit(['rev-parse', 'HEAD'], g)).stdout.trim() };
+}
+
+/** Raw bytes of a file in the cloned base branch (null if it is not there). Local, no auth; NOT redacted: only for checks on the
+ *  server (the secret scan compares lines byte for byte), never returned to a client or the AI. */
+export function readBaseBlob(worktree: string, gitDir: string, baseBranch: string, file: string): Promise<Buffer | null> {
+  const cwd = assertAbs(worktree, 'Arbeitsordner'), gd = assertAbs(gitDir, 'Git-Ordner');
+  if (!/^[^\x00-\x1f]+$/.test(file) || file.startsWith('/') || file.split('/').includes('..')) return Promise.resolve(null);
+  const env = gitEnv({ gitDir: gd, workTree: cwd });
+  return assertBaseBranch(baseBranch).then(b => new Promise(resolve => {
+    execFile('git', ['cat-file', 'blob', `refs/remotes/origin/${b}:${file}`], { cwd, env: env as NodeJS.ProcessEnv, shell: false, timeout: TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: MAX_OUTPUT, encoding: 'buffer', windowsHide: true },
+      (err, stdout) => resolve(err ? null : stdout));
+  }));
 }
 
 /** Working tree (including new files) against the cloned base branch: numstat, name-status and the patch. Read-only, no auth.

@@ -38,6 +38,8 @@ interface Job { ac: AbortController; done: Promise<void> }
 interface Jobs { setup: Map<string, Job>; wakes: Map<string, Job>; locks: Map<string, Promise<unknown>>; finishing: Set<string> }
 const jobs = () => singleton<Jobs>('sandboxJobs', () => ({ setup: new Map(), wakes: new Map(), locks: new Map(), finishing: new Set() }));
 export const setupRunning = (id: string) => jobs().setup.has(id);
+/** A setup or a finish is touching the workspace (publishing must wait). */
+export const setupBusy = (id: string) => setupRunning(id) || jobs().finishing.has(id);
 /** Resolves when the task's running setup (if any) has ended, successfully or not. */
 export const setupSettled = (id: string): Promise<void> => jobs().setup.get(id)?.done ?? Promise.resolve();
 const abortAndWait = async (j: Job | undefined) => { if (!j) return; j.ac.abort(); await j.done.catch(() => {}); };
@@ -103,6 +105,7 @@ export function runSteps(id: string, fromStep?: string, o: { ignoreVersion?: boo
   assertOn();
   const t = mustTask(id);
   if (setupRunning(id) || jobs().wakes.has(id) || jobs().finishing.has(id)) throw new TaskConflict('Für diese Aufgabe läuft bereits ein Vorgang.');
+  if (publishRunning(id)) throw new TaskConflict('Gerade wird veröffentlicht – bitte warten, bis der Pull Request angelegt ist.'); // the clone step wipes the worktree
   if (t.status === 'done') throw new TaskConflict('Die Aufgabe ist abgeschlossen.');
   if (o.dumpId) { assertAttachable(o.dumpId, id); fromStep ??= 'version-check'; } // "Datenbank ersetzen"
   const from = fromStep ? t.steps.findIndex(s => s.id === fromStep) : t.steps.findIndex(s => s.state !== 'done' && s.state !== 'skipped');
