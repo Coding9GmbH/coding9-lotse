@@ -96,6 +96,8 @@ test('variables and commands: validation, secret sealed and masked, kept when le
   assert.equal(pub.commands[1].timeoutSec, 60);
   assert.deepEqual(E.getSandboxConfig().env, ['APP_ENV=dev', `API_TOKEN=${SECRET}`]);
   assert.equal(redact(`token is ${SECRET}!`), 'token is •••!');
+  for (const enc of ['base64', 'base64url', 'hex'] as const) assert.ok(!redact(`x ${Buffer.from(SECRET).toString(enc)} y`).includes(Buffer.from(SECRET).toString(enc).replace(/=+$/, '')), `${enc} form redacted too (defense in depth)`);
+  assert.ok(!redact(Buffer.from(SECRET).toString('hex').toUpperCase()).includes(Buffer.from(SECRET).toString('hex').toUpperCase()));
 
   // secret left empty = unchanged; ids of existing commands stay; reorder keeps them
   const ids = pub.commands.map(c => c.id);

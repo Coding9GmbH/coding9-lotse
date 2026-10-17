@@ -84,8 +84,8 @@ export function startChat({ chatId, message, target, onboarding, locale }: ChatR
     try {
       if (gate.blocked) { const usd = (n: number) => `${n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`; end = { error: messages(s.locale).server.budgetReached(usd(gate.spent), usd(gate.budget)) }; }
       else {
-        const blocked = code ? await prepareCodeTurn(s, emit) : null; // code chat: Sandbox on, task ready, container awake
-        end = blocked ? { error: blocked } : provider === 'codex' ? await runCodex(s, prompt, ac.signal, emit) : await runClaude(s, prompt, ac, emit, gate.maxUsd);
+        const blocked = code ? await prepareCodeTurn(s, emit, ac.signal) : null; // code chat: Sandbox on, task ready, container awake
+        end = blocked ? { error: blocked } : ac.signal.aborted ? { error: null } : provider === 'codex' ? await runCodex(s, prompt, ac.signal, emit) : await runClaude(s, prompt, ac, emit, gate.maxUsd);
       }
     } catch (e) {
       end = { error: errMsg(e) };
@@ -151,7 +151,8 @@ export function claudeOptions(s: Session, o: { web: boolean; model?: string; max
 }
 
 /** Before a code turn: Sandbox Coding on, the task ready (or paused: woken now, the chat waits for Shopware). null = go; otherwise the message. */
-export async function prepareCodeTurn(s: Session, emit: (ev: ChatEvent) => void): Promise<string | null> {
+/** null: go on with the turn (unless `signal` aborted meanwhile: Stop while waking ends the turn at once, the wake goes on in the background). */
+export async function prepareCodeTurn(s: Session, emit: (ev: ChatEvent) => void, signal?: AbortSignal): Promise<string | null> {
   const t = messages(s.locale).server;
   if (!sandboxStatus().enabled) return t.codeSandboxOff;
   const task = getTask(s.taskId ?? '');
@@ -160,7 +161,16 @@ export async function prepareCodeTurn(s: Session, emit: (ev: ChatEvent) => void)
   if (!['ready', 'paused', 'waking'].includes(task.status)) return t.codeNotReady;
   const asleep = task.status !== 'ready' || !task.containerRunning;
   if (asleep) emit({ t: 'sandbox_status', state: 'waking' });
-  try { await ensureAwake(task.id); } catch (e) {
+  try {
+    const awake = ensureAwake(task.id);
+    if (signal) {
+      awake.catch(() => {}); // still running after a stop: its error is on the task
+      let off = () => {};
+      const stopped = new Promise<'stopped'>(res => { const h = () => res('stopped'); signal.addEventListener('abort', h, { once: true }); off = () => signal.removeEventListener('abort', h); if (signal.aborted) h(); });
+      const r = await Promise.race([awake, stopped]).finally(off);
+      if (r === 'stopped') { if (asleep) emit({ t: 'sandbox_status', state: 'failed' }); return null; }
+    } else await awake;
+  } catch (e) {
     const msg = t.codeWakeFailed(redact(errMsg(e)).slice(0, 300));
     emit({ t: 'sandbox_status', state: 'failed', message: msg });
     return msg;

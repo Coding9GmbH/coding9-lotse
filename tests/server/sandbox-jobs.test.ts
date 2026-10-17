@@ -208,6 +208,28 @@ test('LOTSE_SANDBOX_MAX counts a failed task whose container still runs and stop
   } finally { delete process.env.LOTSE_SANDBOX_MAX; fake.script = () => undefined; }
 });
 
+test('LOTSE_SANDBOX_MAX never pauses a task whose agent turn is running: the older idle one goes, else 409', async () => {
+  for (const t of T.listTasks()) if (t.status !== 'done') await J.finishTask(t.id);
+  process.env.LOTSE_SANDBOX_MAX = '2';
+  try {
+    const a = newTask('Agent arbeitet');
+    J.runSteps(a.id); await settled(a.id);
+    const b = newTask('Leerlauf');
+    J.runSteps(b.id); await settled(b.id);
+    const fa = T.getTask(a.id)!; fa.lastActiveAt = new Date(Date.now() - 3600_000).toISOString(); T.saveTask(fa, false); // a is the LRU one
+    T.markTurn(a.id, true);
+    const c = newTask('Neu');
+    J.runSteps(c.id);
+    assert.equal(T.getTask(a.id)!.status, 'ready', 'the busy task keeps its container');
+    assert.equal(T.getTask(b.id)!.status, 'paused');
+    await settled(c.id);
+    T.markTurn(c.id, true);
+    await assert.rejects(J.startWake(b.id), (e: any) => e.status === 409 && /LOTSE_SANDBOX_MAX/.test(e.message));
+    T.markTurn(a.id, false); T.markTurn(c.id, false);
+    for (const t of [a, b, c]) await J.finishTask(t.id);
+  } finally { delete process.env.LOTSE_SANDBOX_MAX; }
+});
+
 test('switching off during a wake-up aborts it: paused with a stopped container, resumable afterwards', async () => {
   const t = newTask('Aufwachen abbrechen');
   J.runSteps(t.id); await settled(t.id);

@@ -27,7 +27,7 @@ import { streamFileTar } from './tar';
 import { getTemplate, resolveCommand } from './templates';
 import { waitReady } from './templates/dockware';
 import type { StepCtx } from './templates/types';
-import { appendLog, emitTask, getTask, httpStatusOf, listTasks, mustTask, now, sandboxOrigin, saveTask, setTaskDump, taskPaths, type CodeTask, type StoredStep } from './tasks';
+import { appendLog, emitTask, getTask, httpStatusOf, listTasks, mustTask, now, sandboxOrigin, saveTask, setTaskDump, taskPaths, turnRunning, type CodeTask, type StoredStep } from './tasks';
 
 export class TaskConflict extends Error { readonly status = 409; }
 /** Statuses in which the task's container is about to run even if it is not started yet. */
@@ -73,7 +73,7 @@ function makeRoom(self: string): CodeTask[] {
   const max = maxRunning();
   const others = listTasks().filter(t => t.id !== self && occupies(t));
   const victims: CodeTask[] = [];
-  const free = (t: CodeTask) => !setupRunning(t.id) && !jobs().wakes.has(t.id);
+  const free = (t: CodeTask) => !setupRunning(t.id) && !jobs().wakes.has(t.id) && !turnRunning(t.id); // never stop a container under a running agent turn
   const byAge = (a: CodeTask, b: CodeTask) => a.lastActiveAt.localeCompare(b.lastActiveAt);
   const candidates = [
     ...others.filter(t => (t.status === 'failed' || t.status === 'interrupted') && free(t)).sort(byAge),
