@@ -89,6 +89,17 @@ export function appendLog(t: CodeTask, step: StoredStep, text: string, redact: (
   saveSoon(t);
 }
 
+/** The task's code chat: created with the task; rows from before code chats existed get one on first use. */
+export function ensureTaskChat(t: CodeTask): string {
+  if (!t.chatId) { t.chatId = crypto.randomUUID(); saveTask(t, false); }
+  return t.chatId;
+}
+
+// ---- Chat turns running for a task (count as activity: the idle sweeper does not pause the container meanwhile) ----
+const turns = () => singleton<Set<string>>('sandboxTaskTurns', () => new Set());
+export const markTurn = (id: string, on: boolean) => { if (on) turns().add(id); else turns().delete(id); };
+export const turnRunning = (id: string) => turns().has(id);
+
 export function listen(id: string, fn: (ev: TaskEvent) => void): () => void {
   const L = live().listeners;
   let set = L.get(id);
@@ -112,6 +123,7 @@ export function publicTask(t: CodeTask, o: { logs?: boolean } = {}): CodeTaskPub
     steps: t.steps.map(({ id, key, label, state, startedAt, endedAt, log, error }) => ({ id, key, ...(label ? { label } : {}), state, ...(startedAt ? { startedAt } : {}), ...(endedAt ? { endedAt } : {}), log: o.logs === false ? [] : log, ...(error ? { error } : {}) })),
     container: t.containerId ? { running: t.containerRunning } : null,
     preview: previewPath(t.id), dump: t.dump ? publicTaskDump(t.dump) : null, prUrl: t.prUrl, createdAt: t.createdAt, updatedAt: t.updatedAt, lastActiveAt: t.lastActiveAt, finishedAt: t.finishedAt,
+    chatId: t.chatId,
   };
 }
 
@@ -142,7 +154,7 @@ export function createTask(p: NewTask): CodeTask {
   const title = p.title.replace(/\s+/g, ' ').trim().slice(0, 120);
   if (!title) throw new Error('Titel fehlt.');
   const t: CodeTask = {
-    id, chatId: null, template: cfg.templateId, repo: p.repo, baseBranch: p.baseBranch, branch: branchFor(title, id),
+    id, chatId: crypto.randomUUID(), template: cfg.templateId, repo: p.repo, baseBranch: p.baseBranch, branch: branchFor(title, id),
     status: 'interrupted', containerId: null, prNumber: null, prUrl: null, pushedSha: null, createdAt: ts, updatedAt: ts,
     title, goal: p.goal.trim().slice(0, 4000), steps: planSteps(cfg.templateId, cfg.commands), layout: null, error: null,
     containerRunning: false, mode: null, port: null, lastActiveAt: ts, finishedAt: null, dump: null,

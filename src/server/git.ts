@@ -153,3 +153,14 @@ export async function pushBranch(t: PushTarget, o: { signal?: AbortSignal } = {}
   await runGit(['push', '--porcelain', '--no-verify', ...lease, '--', url, `HEAD:refs/heads/${branch}`], { ...g, auth: true, signal: o.signal, timeoutMs: CLONE_TIMEOUT_MS });
   return { sha: (await runGit(['rev-parse', 'HEAD'], g)).stdout.trim() };
 }
+
+/** Working tree (including new files) against the cloned base branch: numstat, name-status and the patch. Read-only, no auth.
+ *  New files are marked intent-to-add in the task's own index so they show up; nothing is staged or committed. */
+export async function diffAgainstBase(worktree: string, gitDir: string, baseBranch: string): Promise<{ numstat: string; status: string; patch: string }> {
+  const o = { cwd: assertAbs(worktree, 'Arbeitsordner'), gitDir: assertAbs(gitDir, 'Git-Ordner') };
+  const ref = `refs/remotes/origin/${await assertBaseBranch(baseBranch)}`;
+  await runGit(['add', '--intent-to-add', '--', '.'], o);
+  const base = ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--find-renames', ref];
+  const [numstat, status, patch] = await Promise.all([runGit([...base, '--numstat'], o), runGit([...base, '--name-status'], o), runGit(base, o)]);
+  return { numstat: numstat.stdout, status: status.stdout, patch: patch.stdout };
+}

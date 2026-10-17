@@ -7,6 +7,9 @@
  * Script (controlled via the last user message):
  *  - if it contains `[e2e:propose <product-id> <field>=<value>]`, the model calls `propose_product_changes`
  *    and, after the tool result, replies with "Erledigt: <status>"
+ *  - code chats (Sandbox Coding): `[e2e:edit <path> <text>]` writes the file with write_file (a .html.twig becomes a template that
+ *    extends Shopware's and puts <text> into the outer block), `[e2e:cmd <id>]` calls run_command; several markers run in order,
+ *    one tool call per model request, then it replies "Fertig: <n> Schritte."
  *  - otherwise it replies with a short text ("Hallo aus dem Test-Modell.")
  *
  * Control endpoints: GET /__fake/requests (received requests, truncated), POST /__fake/reset, GET /__fake/health.
@@ -21,6 +24,32 @@ interface MessagesBody { model?: string; messages?: Msg[]; tools?: { name: strin
 
 export const GREETING = 'Hallo aus dem Test-Modell.';
 const PROPOSE = /\[e2e:propose (\S+) (\w+)=([^\]]+)\]/;
+const CODE_STEP = /\[e2e:(edit|cmd) ([^\]\s]+)(?: ([^\]]+))?\]/g;
+/** Outer block of a few Shopware storefront templates (the scripted edit extends it) */
+const BLOCKS: Record<string, string> = { 'header.html.twig': 'layout_header', 'footer.html.twig': 'layout_footer' };
+
+/** Content of a scripted edit: a Twig template extending Shopware's with the text in front of the original block, other files = the text. */
+export function scriptedFile(path: string, text: string): string {
+  const m = /Resources\/views\/(storefront\/.+\.html\.twig)$/.exec(path);
+  if (!m) return `${text}\n`;
+  const block = BLOCKS[m[1].split('/').pop() ?? ''] ?? 'base_body';
+  return `{% sw_extends '@Storefront/${m[1]}' %}\n\n{% block ${block} %}\n    <div class="lotse-e2e-note">${text}</div>\n    {{ parent() }}\n{% endblock %}\n`;
+}
+
+/** Code script: the markers of the last user text, one tool call per request (tool calls since that message = steps done). */
+function codeTurn(msgs: Msg[], tools: { name: string }[]): { text?: string; tool?: { name: string; input: unknown } } | null {
+  const start = msgs.findLastIndex(m => m.role === 'user' && !blocks(m).some(b => b.type === 'tool_result')); // the user's last message
+  if (start < 0 || !/\[e2e:(edit|cmd) /.test(textOf(msgs[start]))) return null;
+  const steps = [...textOf(msgs[start]).matchAll(CODE_STEP)];
+  const done = msgs.slice(start + 1).filter(m => m.role === 'assistant').flatMap(blocks).filter(b => b.type === 'tool_use').length;
+  const tool = (suffix: string) => tools.find(t => t.name.endsWith(suffix))?.name;
+  const step = steps[done];
+  if (!step) return { text: `Fertig: ${steps.length} Schritte.` };
+  const [, kind, arg, rest] = step;
+  const name = kind === 'edit' ? tool('write_file') : tool('run_command');
+  if (!name) return { text: `Werkzeug für ${kind} fehlt.` };
+  return { tool: { name, input: kind === 'edit' ? { path: arg, content: scriptedFile(arg, (rest ?? 'Lotse').trim()) } : { command: arg } } };
+}
 
 const blocks = (m: Msg): Block[] => (typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : m.content);
 const textOf = (m: Msg) => blocks(m).filter(b => b.type === 'text').map(b => b.text ?? '').join('\n');
@@ -29,8 +58,11 @@ const resultText = (b: Block) => (typeof b.content === 'string' ? b.content : Ar
 /** Next move of the script: text or tool call. */
 export function nextTurn(body: MessagesBody): { text?: string; tool?: { name: string; input: unknown } } {
   // Only user/assistant messages count (the CLI appends further roles depending on the environment)
-  const last = (body.messages ?? []).filter(m => m.role === 'user' || m.role === 'assistant').at(-1);
+  const msgs = (body.messages ?? []).filter(m => m.role === 'user' || m.role === 'assistant');
+  const last = msgs.at(-1);
   if (!last) return { text: GREETING };
+  const code = codeTurn(msgs, body.tools ?? []);
+  if (code) return code;
   const toolResult = blocks(last).find(b => b.type === 'tool_result');
   if (toolResult) {
     const status = resultText(toolResult).match(/"status"\s*:\s*"(\w+)"/)?.[1] ?? 'unbekannt';

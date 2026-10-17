@@ -16,6 +16,8 @@ import { persist, type Session } from './sessions';
 
 import { ok, fail, guard, type AnyTool } from './tool-kit';
 import { FEATURES } from './features';
+import { sandboxEnabled } from './sandbox/env';
+import { CODE_TOOL_NAMES, codeTools } from './sandbox/workspace-tools';
 import type { Feature } from './features/types';
 // Image event for the UI (alt: null → omit, see protocol.ts)
 const imageEvent = (m: StagedResult) => ({ t: 'image' as const, ...m, alt: m.alt ?? undefined });
@@ -166,6 +168,8 @@ function coreTools(session: Session, p: PlatformAdapter): AnyTool[] {
 }
 
 export function buildTools(session: Session): AnyTool[] {
+  // Code chat: only the workspace tools of its task, and none while Sandbox Coding is switched off
+  if (session.mode === 'code') return sandboxEnabled() ? codeTools(session) : [];
   const p = getPlatform(session.platform);
   const own = byOrder([...coreTools(session, p), ...p.tools(session)], t => t.name);
   return [...own, ...featuresFor(p).flatMap(f => f.tools(session))];
@@ -181,5 +185,9 @@ export const toolNamesFor = (kind: PlatformKind): string[] => {
   return [...byOrder([...CORE_TOOL_NAMES, ...p.toolNames], n => n), ...featuresFor(p).flatMap(f => f.toolNames)];
 };
 export const allToolsFor = (kind: PlatformKind): string[] => toolNamesFor(kind).map(n => `mcp__shop__${n}`);
+/** Names of the workspace tools of a code chat (allowlist for the agent) */
+export const codeToolNames = (): string[] => [...CODE_TOOL_NAMES];
+/** Allowlist of a session: code chat = workspace tools, otherwise the tools of its platform */
+export const toolsAllowedFor = (s: Pick<Session, 'mode' | 'platform'>): string[] => (s.mode === 'code' ? codeToolNames().map(n => `mcp__shop__${n}`) : allToolsFor(s.platform));
 /** Shopware (default), for tests and legacy calls */
 export const TOOL_NAMES: string[] = toolNamesFor('shopware');

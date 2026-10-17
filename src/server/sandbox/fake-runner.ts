@@ -7,7 +7,7 @@ import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult,
 import { MANAGED, assertAllowedImage, assertContainerPath, assertId, assertManaged, assertSafeSpec, isManaged } from './guards';
 
 export interface FakeCall { op: string; id?: string; argv?: string[]; user?: string; detail?: unknown }
-interface FakeContainer { id: string; spec: ContainerSpec; running: boolean; files: Map<string, Buffer>; server: http.Server | null; port: number | null }
+interface FakeContainer { id: string; spec: ContainerSpec; running: boolean; files: Map<string, Buffer>; server: http.Server | null; port: number | null; /** storefront templates as of the last theme:compile */ compiled: string[] }
 type ExecScript = (argv: readonly string[], id: string) => Partial<ExecResult> | undefined;
 
 export interface TarRecord { path: string; type: 'file' | 'dir' | 'symlink' | 'other'; data: Buffer; uid: number; gid: number; mode: number; linkTarget: string }
@@ -42,6 +42,9 @@ async function collect(a: ArchiveStream): Promise<Buffer> {
 }
 
 const WEBROOT = '/var/www/html/public';
+const PLUGINS = '/var/www/html/custom/plugins/';
+/** What the fake storefront shows of a plugin's storefront template: its markup without Twig tags (enough to see an edit after compiling). */
+const renderTwig = (src: string) => src.replace(/\{%[\s\S]*?%\}|\{\{[\s\S]*?\}\}|\{#[\s\S]*?#\}/g, '').trim();
 /** What a healthy Dockware answers where the setup reads output (plugin installed and active). */
 const dockwareAnswers = (argv: readonly string[]): Partial<ExecResult> | undefined =>
   (argv[0] === 'mysql' && argv.some(a => a.includes('installed_at IS NOT NULL')) ? { output: '11\n' } : undefined);
@@ -88,7 +91,7 @@ export class FakeRunner implements SandboxRunner {
     this.enter('create', { detail: spec });
     assertSafeSpec(spec);
     const id = `fake${(++this.seq).toString().padStart(8, '0')}`;
-    this.containers.set(id, { id, spec, running: false, files: new Map(), server: null, port: null });
+    this.containers.set(id, { id, spec, running: false, files: new Map(), server: null, port: null, compiled: [] });
     return id;
   }
   async start(id: string) {
@@ -101,7 +104,7 @@ export class FakeRunner implements SandboxRunner {
       const p = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
       const file = c.files.get(`${WEBROOT}${p === '/' ? '/index.html' : p}`);
       if (file) { res.writeHead(200, { 'content-type': p.endsWith('.css') ? 'text/css' : p.endsWith('.js') ? 'text/javascript' : 'text/html; charset=utf-8' }); res.end(file); return; }
-      if (p === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(`<!doctype html><html lang="de"><head><title>Sandbox ${c.spec.name}</title></head><body><h1>Fake-Storefront</h1><p>${c.files.size} Dateien</p></body></html>`); return; }
+      if (p === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(`<!doctype html><html lang="de"><head><title>Sandbox ${c.spec.name}</title></head><body>${c.compiled.join('\n')}<h1>Fake-Storefront</h1><p>${c.files.size} Dateien</p></body></html>`); return; }
       res.writeHead(404, { 'content-type': 'text/plain' }); res.end('not found');
     });
     await new Promise<void>(ok => c.server!.listen(0, '127.0.0.1', ok));
@@ -136,6 +139,9 @@ export class FakeRunner implements SandboxRunner {
     const c = this.managed(id);
     if (!c.running) throw new Error('Container läuft nicht.');
     if (o.signal?.aborted) throw new Error('Abgebrochen.');
+    if (argv[0] === 'bin/console' && argv[1] === 'theme:compile') {
+      c.compiled = [...c.files].filter(([k]) => k.startsWith(PLUGINS) && /\/Resources\/views\/storefront\/.+\.html\.twig$/.test(k)).sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => renderTwig(v.toString('utf8')));
+    }
     if (argv[0] === 'rm' && argv[argv.length - 2] === '--') { const target = argv[argv.length - 1]; for (const k of [...c.files.keys()]) if (k === target || k.startsWith(`${target}/`)) c.files.delete(k); }
     const r = this.script(argv, id) ?? dockwareAnswers(argv) ?? {};
     return { exitCode: r.exitCode ?? 0, output: r.output ?? '', truncated: r.truncated ?? false };

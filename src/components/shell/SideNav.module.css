@@ -189,3 +189,4 @@
 .more { display: block; width: 100%; margin: 6px 0 10px; padding: 6px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--fg-3); font: inherit; font-size: 12.5px; cursor: pointer; transition: background .12s, color .12s; }
 .more:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
 .more:disabled { cursor: progress; }
+.code { color: var(--mute); font-weight: 600; }
