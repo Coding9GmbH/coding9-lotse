@@ -316,6 +316,8 @@ async function syncContainerState(t: CodeTask): Promise<void> {
   if (!info) fresh.containerId = null;
   if (fresh.status === 'ready') { fresh.status = info ? 'paused' : 'failed'; fresh.error = info ? null : 'Der Container fehlt – Einrichtung ab „Container starten“ erneut versuchen.'; }
   saveTask(fresh);
+  // stopped outside Lotse (OOM, docker stop): internet ends like on a pause, flag and audit included
+  if (fresh.internet) await revokeInternet(t.id, 'pause').catch(e => log.warn('Internetzugang nicht gesperrt', { task: t.id, error: e }));
 }
 async function wake(id: string, abort: AbortSignal) {
   const t = mustTask(id);

@@ -257,7 +257,7 @@ export const de = {
       heading: 'Internetzugang für die Sandbox erlauben?',
       reason: (r: string) => `Grund: ${r}`,
       note: 'Mit Internet erreicht der Container jede öffentliche Adresse – auch die Website deines Live-Shops. Lotse bleibt unerreichbar. Der Zugang endet mit „Internet sperren“, beim Pausieren und beim Abschließen.',
-      allow: 'Für diese Aufgabe erlauben', deny: 'Ablehnen', allowed: 'Erlaubt', denied: 'Abgelehnt', open: 'Nicht entschieden',
+      allow: 'Für diese Aufgabe erlauben', deny: 'Ablehnen', allowed: 'Erlaubt', denied: 'Abgelehnt', open: 'Nicht entschieden', failed: 'Erlaubt, aber nicht verbunden:', restart: 'Nicht entschieden (Neustart)',
     },
     sandbox: { waking: 'Umgebung startet … (der Chat wartet, bis Shopware antwortet)', ready: 'Umgebung bereit', failed: 'Umgebung nicht gestartet' } as Record<'waking' | 'ready' | 'failed', string>,
     publish: {
@@ -555,7 +555,7 @@ export const en: typeof de = {
       heading: 'Allow internet access for the sandbox?',
       reason: (r: string) => `Reason: ${r}`,
       note: 'With internet the container reaches any public address – including your live shop\'s website. Lotse stays unreachable. Access ends with "Block internet", when pausing and when finishing.',
-      allow: 'Allow for this task', deny: 'Decline', allowed: 'Allowed', denied: 'Declined', open: 'Not decided',
+      allow: 'Allow for this task', deny: 'Decline', allowed: 'Allowed', denied: 'Declined', open: 'Not decided', failed: 'Allowed, but not connected:', restart: 'Not decided (restart)',
     },
     sandbox: { waking: 'Environment starting… (the chat waits until Shopware answers)', ready: 'Environment ready', failed: 'Environment not started' },
     publish: {

@@ -125,8 +125,10 @@ export type ChatEvent =
   | { t: 'pr'; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
   /** The AI proposes to attach a sandbox to this chat (start_sandbox): a card; only the user's click creates the task */
   | { t: 'sandbox_offer'; id: string; repo: string; baseBranch: string; reason: string }
-  /** The AI asks for internet in the task container (request_internet): a card; only the user's click allows it (decision: the answer) */
-  | { t: 'internet_request'; approvalId: string; reason: string; decision?: boolean }
+  /** The AI asks for internet in the task container (request_internet): a card; only the user's click allows it (decision: the answer).
+   *  Sent again with the same approvalId, decision false and error when attaching failed after the click (the card shows it);
+   *  restart: still open when Lotse restarted (closed as declined). */
+  | { t: 'internet_request'; approvalId: string; reason: string; decision?: boolean; error?: string; restart?: boolean }
   /** A sandbox was attached to this chat (by the user) */
   | { t: 'sandbox_attached'; taskId: string; repo: string; baseBranch: string }
   /** First line when reconnecting to a chat: history so far + whether it's still running */

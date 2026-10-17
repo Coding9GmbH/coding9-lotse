@@ -44,7 +44,7 @@ function serial<T>(id: string, fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
-const audit = (t: CodeTask, action: 'internet-on' | 'internet-off' | 'internet-denied', extra: Record<string, unknown>) =>
+const audit = (t: CodeTask, action: 'internet-on' | 'internet-off' | 'internet-denied' | 'internet-failed', extra: Record<string, unknown>) =>
   auditAdd({ decision: 'changed', kind: 'sandbox-task', taskId: t.id, action, title: `Sandbox-Aufgabe: ${t.title}`, repo: t.repo, branch: t.branch, ...(t.chatId ? { chatId: t.chatId } : {}), ...extra });
 
 /** A human allowed internet for this task (the click on the card or the switch): attach the running container to lotse-sandbox-egress. */
@@ -60,9 +60,12 @@ export function grantInternet(id: string, o: { via: InternetVia; reason?: string
     const r = getRunner(), container = t.containerId;
     await ensureEgressNetwork(r);
     await r.connectEgress(container);
-    const fresh = mustTask(id);
-    // paused or finished meanwhile: detach again, nothing stays open
-    if (fresh.status !== 'ready' || fresh.containerId !== container) { await r.disconnectEgress(container).catch(() => {}); throw err(NOT_READY, 409); }
+    const fresh = mustTask(id), nowBlocked = internetBlocked();
+    // paused, finished or the policy switched to "nie" meanwhile (revokeAllInternet did not see this grant yet): detach again
+    if (nowBlocked || fresh.status !== 'ready' || fresh.containerId !== container) {
+      await r.disconnectEgress(container).catch(e => log.warn('Internetzugang nicht gesperrt', { task: id, error: e }));
+      throw nowBlocked ? err(nowBlocked, 403) : err(NOT_READY, 409);
+    }
     fresh.internet = { since: now(), via: o.via };
     saveTask(fresh);
     audit(fresh, 'internet-on', { via: o.via, ...(o.reason ? { reason: o.reason.slice(0, 300) } : {}) });
@@ -70,10 +73,16 @@ export function grantInternet(id: string, o: { via: InternetVia; reason?: string
   });
 }
 
-/** The user declined the AI's request (audit only: nothing was attached). */
-export function noteInternetDenied(id: string, reason: string) {
+/** The user declined the AI's request, or it was still open at a restart (audit only: nothing was attached). */
+export function noteInternetDenied(id: string, reason: string, cause?: 'restart') {
   const t = getTask(id);
-  if (t) audit(t, 'internet-denied', { via: 'chat', reason: reason.slice(0, 300) });
+  if (t) audit(t, 'internet-denied', { via: 'chat', reason: reason.slice(0, 300), ...(cause ? { cause } : {}) });
+}
+
+/** The user allowed the AI's request, but attaching failed (paused meanwhile, policy "nie", Docker): audited, nothing is open. */
+export function noteInternetFailed(id: string, reason: string, error: string) {
+  const t = getTask(id);
+  if (t) audit(t, 'internet-failed', { via: 'chat', reason: reason.slice(0, 300), error: error.slice(0, 300) });
 }
 
 /** Detach the task's container from lotse-sandbox-egress (if Docker says it is attached) and clear the flag; audited when access was on.

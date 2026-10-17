@@ -5,6 +5,7 @@ import type { PlatformKind } from '@/lib/platforms';
 import { auditLog, notifyApplied, type ApplyPartial, type ApplyResult } from './changes';
 import type { PageSpec, PreviewCtx } from './cms';
 import { chatGet, chatList, chatPut, runDelete, runPut, runsOpen, type ChangeRun, type StoredChat } from './db';
+import { noteInternetDenied } from './sandbox/internet';
 import { attachedTask } from './sandbox/tasks';
 import { activeKind, getPlatform, undoWithPlatform } from './platform';
 import type { ShopLookup } from './platform/types';
@@ -131,6 +132,8 @@ export function stopChat(id: string): boolean {
   for (const [approvalId, resolve] of s.approvals) {
     const q = s.events.find(e => e.t === 'question' && e.approvalId === approvalId);
     if (q?.t === 'question' && q.answer === undefined) q.answer = messages(s.locale).server.cancelled; // otherwise it counts as "Nicht beantwortet (Neustart)" (not answered, restart) on the next load
+    const ir = s.events.find(e => e.t === 'internet_request' && e.approvalId === approvalId);
+    if (ir?.t === 'internet_request' && ir.decision === undefined) ir.decision = false; // the stop declines it (nothing is attached)
     resolve({ allow: false, answer: '' });
   }
   s.approvals.clear(); persist(s);
@@ -200,7 +203,7 @@ const RESTART = 'Neustart, bitte erneut vorschlagen'; // reason in the audit (st
 /**
  * After a restart (crash, deploy): approvals live only in memory, an interrupted apply leaves its trace in changeset_runs.
  * - Set was being applied and got interrupted: result "partial/failed" with the undo steps saved so far (undo works)
- * - Set was still waiting for approval: "rejected" with a reason (like stopChat), questions get a marker
+ * - Set was still waiting for approval: "rejected" with a reason (like stopChat), questions get a marker, an internet request waiting for its click is declined (restart)
  * Each with an audit row. Returns true if something changed (then save). A second call changes nothing.
  */
 function recoverChat(c: StoredChat, locale: Locale): boolean {
@@ -211,6 +214,10 @@ function recoverChat(c: StoredChat, locale: Locale): boolean {
   let changed = false;
   for (const [i, e] of [...c.events].entries()) {
     if (e.t === 'question' && e.answer === undefined && i > lastDone) { e.answer = t.unansweredRestart; changed = true; }
+    if (e.t === 'internet_request' && e.decision === undefined && i > lastDone) {
+      e.decision = false; e.restart = true; changed = true; // nothing was attached: the click never came
+      const task = attachedTask(c.id); if (task) noteInternetDenied(task.id, e.reason, 'restart');
+    }
     if (e.t !== 'changeset' || resolved.has(e.cs.id)) continue;
     const cs = e.cs, run = open.get(cs.id);
     const base = { chatId: c.id, changeSet: cs.id, kind: cs.kind, title: cs.title, recoveredFrom: run?.startedAt ?? c.updatedAt }; // time of the incident, not of loading

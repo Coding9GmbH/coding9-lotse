@@ -18,8 +18,9 @@ const { FakeRunner } = await import('../../src/server/sandbox/fake-runner');
 const { ensureEgressNetwork } = await import('../../src/server/sandbox/network');
 const { egressSubnet } = await import('../../src/server/access');
 const { fromSandbox } = await import('../../src/proxy');
-const { getSession, decideChange } = await import('../../src/server/sessions');
+const { getSession, decideChange, persist, dropSession } = await import('../../src/server/sessions');
 const { chatReducer, initialChatState } = await import('../../src/lib/chat-state');
+const { messages } = await import('../../src/lib/i18n');
 const route = await import('../../src/app/api/sandbox/tasks/[id]/internet/route');
 const envRoute = await import('../../src/app/api/sandbox/env/route');
 after(async () => { R.resetReconcile(); await S.close(); });
@@ -188,9 +189,75 @@ test('chat: the decision is stored on the card event; the log card is interactiv
   assert.equal((s.events.at(-1) as any).decision, true);
   const ev: ChatEvent = { t: 'internet_request', approvalId: 'a2', reason: 'npm install' };
   const live = chatReducer(initialChatState, { type: 'event', event: ev, mode: 'live' });
-  assert.deepEqual(live.items.at(-1), { kind: 'internet', key: live.items.at(-1)!.key, approvalId: 'a2', reason: 'npm install', decision: undefined, interactive: true });
+  assert.deepEqual(live.items.at(-1), { kind: 'internet', key: live.items.at(-1)!.key, approvalId: 'a2', reason: 'npm install', decision: undefined, error: undefined, restart: undefined, interactive: true });
   const decided = chatReducer(live, { type: 'decide', approvalId: 'a2', allow: false });
   assert.deepEqual([(decided.items.at(-1) as any).interactive, (decided.items.at(-1) as any).decision], [false, false]);
   const replay = chatReducer(initialChatState, { type: 'event', event: ev, mode: 'replay' });
   assert.equal((replay.items.at(-1) as any).interactive, false);
+});
+
+test('request_internet: allowed, but attaching fails afterwards (paused meanwhile): the card says so, the click is audited', async () => {
+  const t = await S.readyTask('Freigabe scheitert');
+  const events: ChatEvent[] = [], approvals = new Map<string, (r: { allow?: boolean }) => void>();
+  const host = { id: 'chat-internet-fail', taskId: t.id, emit: (ev: ChatEvent) => { events.push(ev); }, askUser: async () => '', approvals, abort: null };
+  const tool = W.sandboxTools(host).find(x => x.name === 'request_internet')!;
+  const p = tool.handler({ reason: 'npm install' } as any, {});
+  await S.until(() => approvals.size === 1);
+  await J.pauseTask(t.id);
+  const card = events.find(e => e.t === 'internet_request') as Extract<ChatEvent, { t: 'internet_request' }>;
+  approvals.get(card.approvalId)!({ allow: true });
+  const r = await p;
+  assert.ok(r.isError);
+  assert.ok(!attached(t.id));
+  const outcome = events.at(-1) as Extract<ChatEvent, { t: 'internet_request' }>;
+  assert.deepEqual([outcome.t, outcome.approvalId, outcome.decision], ['internet_request', card.approvalId, false]);
+  assert.match(outcome.error ?? '', /bereite Sandbox/);
+  assert.deepEqual(audits(t.id).map(a => [a.action, a.reason]), [['internet-failed', 'npm install']]);
+  // the chat: the clicked card turns into "allowed, but not connected", no second card, also when replayed
+  let st = chatReducer({ ...initialChatState, busy: true }, { type: 'event', event: card, mode: 'live' });
+  st = chatReducer(st, { type: 'decide', approvalId: card.approvalId, allow: true });
+  assert.equal(st.status, messages().lib.chat.thinking, 'thinking, not "applying"');
+  st = chatReducer(st, { type: 'event', event: outcome, mode: 'live' });
+  const cards = st.items.filter(i => i.kind === 'internet') as any[];
+  assert.deepEqual(cards.map(c => [c.decision, !!c.error, c.interactive]), [[false, true, false]]);
+  const replay = [card, outcome].reduce((x, event) => chatReducer(x, { type: 'event', event, mode: 'replay' }), initialChatState);
+  assert.equal(replay.items.filter(i => i.kind === 'internet').length, 1);
+  await J.finishTask(t.id);
+});
+
+test('policy switched to "nie" while a grant is attaching: the grant detaches again and fails', async () => {
+  const t = await S.readyTask('Richtlinie während Freigabe');
+  const connect = fake.connectEgress.bind(fake);
+  fake.connectEgress = async (id: string) => { await connect(id); E.saveSandbox({ internet: 'never' }); };
+  try {
+    await assert.rejects(I.grantInternet(t.id, { via: 'panel' }), (e: any) => e.status === 403 && /nie/.test(e.message));
+  } finally { fake.connectEgress = connect; E.saveSandbox({ internet: 'approval' }); }
+  assert.ok(!attached(t.id));
+  assert.ok(!T.getTask(t.id)!.internet);
+  await J.finishTask(t.id);
+});
+
+test('a container stopped outside Lotse: the sweeper marks it paused and ends internet (flag and audit)', async () => {
+  const t = await S.readyTask('Extern gestoppt');
+  await I.grantInternet(t.id, { via: 'panel' });
+  fake.containers.get(t.containerId!)!.running = false;
+  await J.pauseIdle(Date.now(), () => true);
+  const after = T.getTask(t.id)!;
+  assert.deepEqual([after.status, after.internet], ['paused', null]);
+  assert.ok(!attached(t.id));
+  assert.equal(audits(t.id).at(-1).reason, 'pause');
+  await J.finishTask(t.id);
+});
+
+test('restart: an internet card still waiting for its click is closed as not decided (restart), audited', async () => {
+  const t = await S.readyTask('Neustart mit Karte');
+  const s = getSession(t.chatId!);
+  s.events.push({ t: 'user', text: 'composer' }, { t: 'internet_request', approvalId: 'inet_x', reason: 'composer install' });
+  persist(s); dropSession(t.chatId!);
+  const ev = getSession(t.chatId!).events.find(e => e.t === 'internet_request') as any;
+  assert.deepEqual([ev.decision, ev.restart], [false, true]);
+  assert.deepEqual(audits(t.id).map(a => [a.action, a.cause]), [['internet-denied', 'restart']]);
+  const replay = chatReducer(initialChatState, { type: 'event', event: ev, mode: 'replay' });
+  assert.deepEqual([(replay.items.at(-1) as any).restart, (replay.items.at(-1) as any).interactive], [true, false]);
+  await J.finishTask(t.id);
 });
