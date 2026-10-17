@@ -25,6 +25,7 @@ export const shopifyBrandSources = (reader: ShopifyReader, client: () => Shopify
   async theme() {
     if (getSettings().scopes.shop === false) return null; // theme settings belong to "Shop-Grunddaten" like on Shopware
     const t = await mainTheme(client()), raw = (await readThemeFiles(client(), t.id, [SETTINGS])).get(SETTINGS);
+    reader.noteRead('theme', 1); // fixed query via the privileged client: still in the access log, like on Shopware
     return { name: t.name, fields: raw ? themeDesign(raw) : {} };
   },
   async samples() {

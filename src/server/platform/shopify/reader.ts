@@ -72,6 +72,8 @@ export class ShopifyReader {
   /** Cache per reader (session or shop check run), e.g. basic shop data */
   readonly cache = new Map<string, Promise<unknown>>();
   constructor(client: ShopifyClient, o: ReaderOpts = {}) { this.#client = client; this.#o = o; }
+  /** Log a read the adapter made on the session's behalf with a fixed query (e.g. theme settings for the onboarding) */
+  noteRead(entity: string, n = 1) { try { this.#o.onAccess?.({ chat: this.#o.chat, op: 'read', entity, n }); } catch { /* logging must never interfere */ } }
 
   #deny(entity: string, msg: string): DeniedError {
     try { this.#o.onAccess?.({ chat: this.#o.chat, op: 'deny', entity, n: 0, denied: msg.slice(0, 160) }); } catch { /* logging must never interfere */ }

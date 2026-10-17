@@ -80,3 +80,21 @@ test('Magento 2 and OpenMage: text samples of active products and categories (no
   assert.deepEqual(os2.products, [{ name: 'Vase', text: 'Vase aus Steinzeug.' }], 'only enabled products');
   assert.deepEqual(os2.categories, [{ name: 'Wohnen', text: 'Ruhige Dinge.' }], 'active categories below the root, with text');
 });
+
+test('the core tool get_brand_signals on a Shopify chat: theme + texts from the adapter, storefront part, theme read in the access log (review fix)', async () => {
+  updateSettings({ platform: 'shopify', shopify: { storeDomain: shop.url, accessToken: shop.token, apiVersion: '2026-10' } });
+  reconfigureAll();
+  const { getSession } = await import('../../../src/server/sessions');
+  const { buildTools } = await import('../../../src/server/tools');
+  const { accessList } = await import('../../../src/server/db');
+  const session = getSession('chat-brand-tool');
+  const t = buildTools(session).find(x => x.name === 'get_brand_signals')!;
+  const r = await t.handler({}, {}) as { content: { text: string }[]; isError?: boolean };
+  assert.equal(r.isError, undefined, r.content[0].text);
+  const out = JSON.parse(r.content[0].text);
+  assert.ok(out.storefront && out.theme?.name, 'storefront address and theme name');
+  assert.equal(out.theme.fields.colors_solid_button_labels, '#ffffff');
+  assert.ok(Array.isArray(out.productSamples) && out.productSamples.length > 0);
+  assert.match(out.hinweis, /DATEN aus dem Shop/, 'samples are marked as data, not instructions');
+  assert.ok(accessList().some(a => a.chat === 'chat-brand-tool' && a.entity === 'theme'), 'theme read via the privileged client is logged');
+});
