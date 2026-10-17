@@ -43,13 +43,13 @@ export async function register() {
   void sandboxDockerWarning();
 }
 
-/** Sandbox Coding switched on, but Docker unreachable: say so at startup (in the background, never blocks the start). */
+/** Sandbox cleanup at startup; Sandbox Coding switched on, but Docker unreachable: say so (in the background, never blocks the start). */
 async function sandboxDockerWarning() {
   try {
-    const { sandboxStatus, dockerState } = await import('@/server/sandbox/env');
+    const [{ sandboxStatus, dockerState }, { ensureReconciled }] = await Promise.all([import('@/server/sandbox/env'), import('@/server/sandbox/reconcile')]);
+    // Also while switched off: interrupted steps and the dump sweep (a leftover dump never outlives its 24 h); Docker part only when on
+    void ensureReconciled();
     if (!sandboxStatus().enabled) return;
-    const { ensureReconciled } = await import('@/server/sandbox/reconcile');
-    void ensureReconciled(); // interrupted steps, orphaned containers, idle sweeper
     const d = await dockerState(true);
     if (!d.reachable) console.warn(`WARNUNG: Sandbox Coding ist eingeschaltet, aber: ${d.error ?? 'Docker ist nicht erreichbar.'} Anleitung: docs/self-hosting.md → „Sandbox Coding aktivieren“.`);
   } catch { /* the settings page shows the state as well */ }

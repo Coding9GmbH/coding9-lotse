@@ -90,6 +90,26 @@ test('magic: gzip and plain SQL pass, anything else → 415 and the file is gone
   assert.ok(D.looksLikeSql(Buffer.from('/*M!999999\\- enable the sandbox mode */\n-- MariaDB dump')));
 });
 
+test('a dump that selects its own database (mysqldump --databases) is refused: 422, file gone', async () => {
+  const head = '-- MySQL dump 10.13\n/*!40101 SET NAMES utf8mb4 */;\n';
+  const variants = [
+    `${head}CREATE DATABASE /*!32312 IF NOT EXISTS*/ \`shop_prod\` /*!40100 DEFAULT CHARACTER SET utf8mb4 */;\n\nUSE \`shop_prod\`;\n${SQL.toString('latin1')}`,
+    `${SQL.toString('latin1')}${'INSERT INTO `product` VALUES (1);\n'.repeat(5000)}use shop_prod;\n`, // late, lower case
+  ];
+  for (const [i, text] of variants.entries()) for (const data of [Buffer.from(text, 'latin1'), zlib.gzipSync(Buffer.from(text, 'latin1'))]) {
+    const d = D.createDump('x.sql', data.length);
+    await D.appendChunk(d.id, 0, stream(data));
+    const err = await D.completeDump(d.id).then(() => null, e => e as { status: number; message: string });
+    assert.equal(err?.status, 422, `variant ${i}`);
+    assert.match(err!.message, /eigene Datenbank/);
+    assert.ok(!fs.existsSync(D.dumpFile(d.id)));
+  }
+  // a value that merely contains "USE" or "CREATE DATABASE" is fine
+  const ok = await upload(Buffer.from(`${SQL.toString('latin1')}INSERT INTO \`cms_slot\` VALUES ('USE \\nCREATE DATABASE x');\n`, 'latin1'));
+  assert.equal(ok.status, 'ready');
+  D.deleteDump(ok.id);
+});
+
 test('id and name traversal are refused', async () => {
   for (const name of ['../x.sql', 'a/b.sql', '..sql', 'x.sql/..', 'x.txt', '.sql', 'a\\b.sql', 'x.sql.gz.exe', '']) assert.equal(await status(Promise.resolve().then(() => D.createDump(name, 1))), 400, name);
   for (const id of ['../etc', 'd_../../aaaaaaaaa', 'd_AAAAAAAAAAAAAAAA', 'x']) {
@@ -118,6 +138,16 @@ test('sweeper: expired, orphaned (task gone or done), leftover directories and r
   assert.ok(!fs.existsSync(stray) && !fs.existsSync(junk));
   assert.ok(!fs.existsSync(path.dirname(D.dumpFile(expired.id))));
   for (const d of [fresh, ofLive]) D.deleteDump(d.id);
+});
+
+test('startup sweep runs while Sandbox Coding is off: an expired dump is deleted', async () => {
+  assert.equal(E.sandboxEnabled(), false);
+  R.resetReconcile();
+  const expired = D.createDump('old.sql', 3, Date.now() - D.DUMP_TTL_MS - 1000);
+  await R.ensureReconciled();
+  assert.equal(db.codeDumpGet(expired.id)!.status, 'deleted');
+  assert.ok(!fs.existsSync(path.dirname(D.dumpFile(expired.id))));
+  R.resetReconcile();
 });
 
 // ---- Routes ----

@@ -14,7 +14,7 @@ import { log } from '../log';
 import { redact } from '../settings';
 import { singleton } from '../state';
 import { errMsg } from '../util';
-import { deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
+import { assertAttachable, deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
 import { getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
 import { allocateLocalPort, ensureNetwork, networkMode } from './network';
 import { clearJar, forgetUpstream } from './preview';
@@ -102,12 +102,14 @@ export function runSteps(id: string, fromStep?: string, o: { ignoreVersion?: boo
   const t = mustTask(id);
   if (setupRunning(id) || jobs().wakes.has(id) || jobs().finishing.has(id)) throw new TaskConflict('Für diese Aufgabe läuft bereits ein Vorgang.');
   if (t.status === 'done') throw new TaskConflict('Die Aufgabe ist abgeschlossen.');
-  if (o.dumpId) { setTaskDump(t, o.dumpId); fromStep ??= 'version-check'; } // "Datenbank ersetzen"
-  if (o.ignoreVersion && t.dump && !t.dump.deletedAt) t.dump.ignoreVersion = true;
+  if (o.dumpId) { assertAttachable(o.dumpId, id); fromStep ??= 'version-check'; } // "Datenbank ersetzen"
   const from = fromStep ? t.steps.findIndex(s => s.id === fromStep) : t.steps.findIndex(s => s.state !== 'done' && s.state !== 'skipped');
   if (fromStep && from < 0) throw Object.assign(new Error('Unbekannter Schritt.'), { status: 400 });
   if (from < 0) throw new TaskConflict('Die Einrichtung ist bereits fertig.');
   const victims = makeRoom(id);
+  // Only now (nothing can throw any more): binding the new dump deletes the previous one
+  if (o.dumpId) setTaskDump(t, o.dumpId);
+  if (o.ignoreVersion && t.dump && !t.dump.deletedAt) t.dump.ignoreVersion = true;
   for (const s of t.steps.slice(from)) { s.state = 'pending'; s.log = []; delete s.startedAt; delete s.endedAt; delete s.error; }
   t.status = 'setting_up'; t.error = null; t.lastActiveAt = now();
   saveTask(t);
