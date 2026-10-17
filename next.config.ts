@@ -15,7 +15,7 @@ const appHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'Content-Security-Policy', value: APP_CSP },
 ];
-const APP_ROUTES = ['/', '/settings/:path*', '/wissen/:path*', '/api/:path*'];
+const APP_ROUTES = ['/', '/settings/:path*', '/wissen/:path*', '/sandbox-coding/:path*', '/api/:path*'];
 
 const nextConfig: NextConfig = {
   output: 'standalone',           // slim Docker image: only the required files

@@ -49,6 +49,9 @@ export const MIGRATIONS: ((d: DatabaseSync) => void)[] = [
   /* 4: AI cost per chat turn (cost brake, usage.ts) */ d => d.exec(`
     CREATE TABLE IF NOT EXISTS ai_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, chat_id TEXT, provider TEXT NOT NULL, model TEXT, cost_usd REAL, input INTEGER, output INTEGER, cache_read INTEGER, cache_write INTEGER);
     CREATE INDEX IF NOT EXISTS ai_usage_ts ON ai_usage(ts);`),
+  /* 5: Sandbox Coding tasks (one container per task; the full task is the JSON row) */ d => d.exec(`
+    CREATE TABLE IF NOT EXISTS code_tasks (id TEXT PRIMARY KEY, chat_id TEXT, template TEXT NOT NULL, repo TEXT NOT NULL, base_branch TEXT NOT NULL, branch TEXT NOT NULL, status TEXT NOT NULL, container_id TEXT, pr_number INTEGER, pr_url TEXT, pushed_sha TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, json TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS code_tasks_updated ON code_tasks(updated_at DESC);`),
 ];
 export const schemaVersion = (d: DatabaseSync) => (d.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
 export function runMigrations(d: DatabaseSync) {
@@ -104,6 +107,18 @@ export interface ChangeRun { csId: string; chatId: string; kind: string; title: 
 export const runPut = (r: ChangeRun) => { db().prepare('INSERT INTO changeset_runs (cs_id, chat_id, json) VALUES (?, ?, ?) ON CONFLICT(cs_id) DO UPDATE SET json = excluded.json').run(r.csId, r.chatId, JSON.stringify(r)); };
 export const runsOpen = (chatId: string): ChangeRun[] => (db().prepare('SELECT json FROM changeset_runs WHERE chat_id = ?').all(chatId) as unknown as { json: string }[]).map(r => JSON.parse(r.json) as ChangeRun);
 export const runDelete = (csId: string) => { db().prepare('DELETE FROM changeset_runs WHERE cs_id = ?').run(csId); };
+
+// ---- Code tasks (Sandbox Coding): columns for lookups, the JSON row is the truth ----
+export interface CodeTaskRow { id: string; chatId: string | null; template: string; repo: string; baseBranch: string; branch: string; status: string; containerId: string | null; prNumber: number | null; prUrl: string | null; pushedSha: string | null; createdAt: string; updatedAt: string }
+export const codeTaskPut = <T extends CodeTaskRow>(t: T) => {
+  db().prepare(`INSERT INTO code_tasks (id, chat_id, template, repo, base_branch, branch, status, container_id, pr_number, pr_url, pushed_sha, created_at, updated_at, json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET chat_id = excluded.chat_id, status = excluded.status, container_id = excluded.container_id, pr_number = excluded.pr_number, pr_url = excluded.pr_url, pushed_sha = excluded.pushed_sha, updated_at = excluded.updated_at, json = excluded.json`)
+    .run(t.id, t.chatId, t.template, t.repo, t.baseBranch, t.branch, t.status, t.containerId, t.prNumber, t.prUrl, t.pushedSha, t.createdAt, t.updatedAt, JSON.stringify(t));
+};
+export const codeTaskGet = <T extends CodeTaskRow = CodeTaskRow>(id: string): T | null => { const r = db().prepare('SELECT json FROM code_tasks WHERE id = ?').get(id) as { json: string } | undefined; return r ? (JSON.parse(r.json) as T) : null; };
+export const codeTaskList = <T extends CodeTaskRow = CodeTaskRow>(limit = 200): T[] => (db().prepare('SELECT json FROM code_tasks ORDER BY updated_at DESC LIMIT ?').all(limit) as unknown as { json: string }[]).map(r => JSON.parse(r.json) as T);
+export const codeTaskByChat = (chatId: string): string[] => (db().prepare('SELECT id FROM code_tasks WHERE chat_id = ?').all(chatId) as unknown as { id: string }[]).map(r => r.id);
+export const codeTaskDelete = (id: string) => { db().prepare('DELETE FROM code_tasks WHERE id = ?').run(id); };
 
 // ---- Audit (only writes after approval) & access log (what the AI has read) ----
 /** actor: login user name (LOTSE_PASSWORD) or NULL; if omitted, taken from the request context (./actor). */

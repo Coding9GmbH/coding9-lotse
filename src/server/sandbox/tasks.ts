@@ -1,0 +1,150 @@
+import 'server-only';
+// Code tasks: one row per task (code_tasks), one container per task, a workspace with the clone and a separate git dir.
+// This module holds the model, persistence, live listeners and creation. Running the setup and the container
+// lifecycle (pause, wake, finish) live in jobs.ts, startup cleanup and the idle sweeper in reconcile.ts.
+import crypto from 'node:crypto';
+import http from 'node:http';
+import path from 'node:path';
+import type { CodeTaskPublic, CodeTaskStatus, CommandPhase, TaskEvent, TaskLayout, TaskStep } from '@/lib/protocol';
+import { codeTaskGet, codeTaskList, codeTaskPut, dataDir, type CodeTaskRow } from '../db';
+import { assertLotseBranch } from '../git';
+import { singleton } from '../state';
+import { getSandboxConfig } from './env';
+import { sandboxAlias } from './labels';
+import type { NetworkMode } from './network';
+import { getRunner } from './runner';
+import { getTemplate } from './templates';
+
+export const TASK_ID = /^t_[a-z0-9]{12}$/;
+export const LOG_LINES = 200;
+const LINE_MAX = 2000;
+
+/** A step as stored: own setup commands carry their command (user-authored environment, never AI input) and time limit. */
+export interface StoredStep extends TaskStep { phase?: CommandPhase; command?: string; timeoutSec?: number }
+export interface CodeTask extends CodeTaskRow {
+  title: string; goal: string; status: CodeTaskStatus; steps: StoredStep[]; layout: TaskLayout | null; error: string | null;
+  /** container state as Lotse last set or saw it */ containerRunning: boolean;
+  /** how Lotse reaches the container: alias on lotse-sandbox or a port on 127.0.0.1 */ mode: NetworkMode | null; port: number | null;
+  lastActiveAt: string; finishedAt: string | null;
+}
+
+export const now = () => new Date().toISOString();
+export const newTaskId = () => `t_${Array.from(crypto.randomBytes(12), b => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join('')}`;
+
+/** Branch name lotse/<slug>-<6 chars of the id>: lower case, umlauts transliterated, at most 40 characters of title. */
+export function branchFor(title: string, id: string): string {
+  const slug = title.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '') || 'aufgabe';
+  return assertLotseBranch(`lotse/${slug}-${id.slice(2, 8)}`);
+}
+
+// ---- Paths: <data>/workspaces/<id>/repo (worktree), <data>/git/<id> (git dir, never synced) ----
+const assertTaskId = (id: string) => { if (!TASK_ID.test(id)) throw new Error('Ungültige Aufgaben-ID.'); return id; };
+export const taskPaths = (id: string) => {
+  const d = dataDir(); assertTaskId(id);
+  return { workspace: path.join(d, 'workspaces', id), worktree: path.join(d, 'workspaces', id, 'repo'), gitDir: path.join(d, 'git', id),
+    /** later: uploaded dump and screenshots; removed with the task */ dumps: path.join(d, 'dumps', id), screenshots: path.join(d, 'screenshots', id) };
+};
+
+// ---- Store + live listeners ----
+interface Live { listeners: Map<string, Set<(ev: TaskEvent) => void>>; saveTimers: Map<string, NodeJS.Timeout> }
+const live = () => singleton<Live>('sandboxTasksLive', () => ({ listeners: new Map(), saveTimers: new Map() }));
+
+export const getTask = (id: string): CodeTask | null => (TASK_ID.test(id) ? codeTaskGet<CodeTask>(id) : null);
+export const listTasks = (): CodeTask[] => codeTaskList<CodeTask>();
+export function mustTask(id: string): CodeTask {
+  const t = getTask(id);
+  if (!t) throw Object.assign(new Error('Aufgabe nicht gefunden.'), { status: 404 });
+  return t;
+}
+
+/** Persist now (every status and step transition) and tell the listeners. */
+export function saveTask(t: CodeTask, emit = true) {
+  const timer = live().saveTimers.get(t.id);
+  if (timer) { clearTimeout(timer); live().saveTimers.delete(t.id); }
+  t.updatedAt = now();
+  codeTaskPut(t);
+  if (emit) emitTask(t.id, { t: 'task', task: publicTask(t) });
+}
+/** Log lines: persisted batched (1 s), streamed at once. */
+function saveSoon(t: CodeTask) {
+  const L = live();
+  if (L.saveTimers.has(t.id)) return;
+  const timer = setTimeout(() => { L.saveTimers.delete(t.id); codeTaskPut(t); }, 1000);
+  timer.unref?.();
+  L.saveTimers.set(t.id, timer);
+}
+export function appendLog(t: CodeTask, step: StoredStep, text: string, redact: (s: string) => string) {
+  const lines = redact(text).replace(/\r\n?/g, '\n').split('\n').map(l => l.trimEnd()).filter(Boolean).map(l => (l.length > LINE_MAX ? `${l.slice(0, LINE_MAX)} …` : l));
+  if (!lines.length) return;
+  step.log.push(...lines);
+  if (step.log.length > LOG_LINES) step.log.splice(0, step.log.length - LOG_LINES);
+  for (const line of lines.slice(-LOG_LINES)) emitTask(t.id, { t: 'log', step: step.id, line });
+  saveSoon(t);
+}
+
+export function listen(id: string, fn: (ev: TaskEvent) => void): () => void {
+  const L = live().listeners;
+  let set = L.get(id);
+  if (!set) L.set(id, (set = new Set()));
+  set.add(fn);
+  return () => { set.delete(fn); if (!set.size) L.delete(id); };
+}
+export const hasListeners = (id: string) => (live().listeners.get(id)?.size ?? 0) > 0;
+export function emitTask(id: string, ev: TaskEvent) { for (const fn of live().listeners.get(id) ?? []) { try { fn(ev); } catch { /* listener gone */ } } }
+
+/** What the browser sees: no stored commands; without logs for the list. */
+export function publicTask(t: CodeTask, o: { logs?: boolean } = {}): CodeTaskPublic {
+  return {
+    id: t.id, title: t.title, goal: t.goal, repo: t.repo, baseBranch: t.baseBranch, branch: t.branch, template: t.template,
+    status: t.status, layout: t.layout, error: t.error,
+    steps: t.steps.map(({ id, key, label, state, startedAt, endedAt, log, error }) => ({ id, key, ...(label ? { label } : {}), state, ...(startedAt ? { startedAt } : {}), ...(endedAt ? { endedAt } : {}), log: o.logs === false ? [] : log, ...(error ? { error } : {}) })),
+    container: t.containerId ? { running: t.containerRunning } : null,
+    prUrl: t.prUrl, createdAt: t.createdAt, updatedAt: t.updatedAt, lastActiveAt: t.lastActiveAt, finishedAt: t.finishedAt,
+  };
+}
+
+/** Steps of a new task: the template's steps; each slot for own commands becomes one step per configured command of that phase. */
+export function planSteps(templateId: string, commands: { id: string; label: string; command: string; phase: CommandPhase; timeoutSec: number }[]): StoredStep[] {
+  const out: StoredStep[] = [];
+  for (const s of getTemplate(templateId).steps) {
+    if (!s.custom) { out.push({ id: s.id, key: s.id, state: 'pending', log: [] }); continue; }
+    for (const c of commands.filter(x => x.phase === s.custom)) out.push({ id: `${s.id}:${c.id}`, key: 'custom', label: c.label, phase: c.phase, command: c.command, timeoutSec: c.timeoutSec, state: 'pending', log: [] });
+  }
+  return out;
+}
+
+export interface NewTask { title: string; goal: string; repo: string; baseBranch: string }
+/** Creates the row only (not running yet: runSteps sets setting_up). Own commands are taken from the environment now. */
+export function createTask(p: NewTask): CodeTask {
+  const cfg = getSandboxConfig(), id = newTaskId(), ts = now();
+  const title = p.title.replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!title) throw new Error('Titel fehlt.');
+  const t: CodeTask = {
+    id, chatId: null, template: cfg.templateId, repo: p.repo, baseBranch: p.baseBranch, branch: branchFor(title, id),
+    status: 'interrupted', containerId: null, prNumber: null, prUrl: null, pushedSha: null, createdAt: ts, updatedAt: ts,
+    title, goal: p.goal.trim().slice(0, 4000), steps: planSteps(cfg.templateId, cfg.commands), layout: null, error: null,
+    containerRunning: false, mode: null, port: null, lastActiveAt: ts, finishedAt: null,
+  };
+  codeTaskPut(t);
+  return t;
+}
+
+/** Where Lotse reaches the task's storefront: the alias on lotse-sandbox, or the loopback port Docker reports. */
+export async function sandboxOrigin(t: CodeTask): Promise<string> {
+  if (!t.containerId) throw new Error('Kein Container für diese Aufgabe.');
+  if (t.mode === 'network') return `http://${sandboxAlias(t.id)}`;
+  const info = await getRunner().inspect(t.containerId);
+  if (!info?.running || !info.port) throw new Error('Der Container läuft nicht.');
+  return `http://127.0.0.1:${info.port}`;
+}
+
+/** Status of a storefront path, with Host: localhost (Dockware answers other hosts with 400). No redirects followed. */
+export function httpStatusOf(origin: string, p: string, signal?: AbortSignal): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(new URL(p, origin), { method: 'GET', headers: { host: 'localhost' }, timeout: 15_000, signal }, res => { res.resume(); resolve(res.statusCode ?? 0); });
+    req.on('timeout', () => req.destroy(new Error('Zeitüberschreitung')));
+    req.on('error', reject);
+    req.end();
+  });
+}

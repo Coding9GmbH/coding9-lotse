@@ -2,10 +2,9 @@ import 'server-only';
 // Guards shared by both runner implementations: labels, ids, paths, image and container spec.
 import { TEMPLATES } from './templates';
 import type { ContainerSpec } from './runner';
+import { MANAGED_LABEL, SANDBOX_NET } from './labels';
 
-export const MANAGED_LABEL = 'lotse.managed';
-export const TASK_LABEL = 'lotse.task';
-export const MANAGED = { [MANAGED_LABEL]: '1' } as const;
+export { MANAGED, MANAGED_LABEL, TASK_LABEL } from './labels';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 export function assertId(id: string): string {
@@ -43,10 +42,11 @@ const record = (keyRe: RegExp, val: Check): Check => (v, k) => { for (const [kk,
 const anyStr: Check = (v, k) => { if (typeof v !== 'string') deny(`${k} muss ein Text sein.`); };
 const empty: Check = (v, k) => only(obj(v, k), {}, k);
 const PORT = /^\d{1,5}\/(tcp|udp)$/;
-const SANDBOX_NET = 'lotse-sandbox';
 
 const HOST: Record<string, Check> = {
   Memory: posNum, NanoCpus: posNum, PidsLimit: posNum,
+  // dropping capabilities only makes it narrower; CapAdd/Privileged/SecurityOpt stay outside the list
+  CapDrop: (v, k) => { strings(v, k); if ((v as string[]).some(c => !/^[A-Z_]{2,30}$/.test(c))) deny(`${k} hat einen unzulässigen Wert.`); },
   // own bridge network or Docker's default bridge only: never host, none, container:<id> or another network (docker-api!)
   NetworkMode: (v, k) => { if (v !== SANDBOX_NET && v !== 'bridge') deny(`${k}=${String(v).slice(0, 60)} ist nicht erlaubt.`); },
   // local mode publishes on loopback only

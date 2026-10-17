@@ -3,6 +3,8 @@ import type { SandboxEnvView } from '@/lib/protocol';
 import { auditAdd } from '@/server/db';
 import { errMsg, jsonError, parseJson } from '@/server/http';
 import { dockerState, forgetDockerState, sandboxPublic, saveSandbox, stopRunningSandboxes } from '@/server/sandbox/env';
+import { suspendAll } from '@/server/sandbox/jobs';
+import { ensureReconciled } from '@/server/sandbox/reconcile';
 import { getRunner } from '@/server/sandbox/runner';
 import { TEMPLATES, describeTemplate } from '@/server/sandbox/templates';
 
@@ -41,6 +43,7 @@ export async function PUT(req: Request) {
   const nowOn = sandboxPublic().status.enabled;
   if (nowOn !== wasOn) forgetDockerState();
   // Switched off: running task containers are stopped, not removed (switching on again resumes them)
-  if (wasOn && !nowOn) await stopRunningSandboxes().catch(() => 0);
+  if (wasOn && !nowOn) { await suspendAll().catch(() => 0); await stopRunningSandboxes().catch(() => 0); }
+  if (!wasOn && nowOn) void ensureReconciled();
   return Response.json(await view());
 }

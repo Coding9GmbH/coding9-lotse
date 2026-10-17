@@ -11,7 +11,7 @@ const matches = (source: string, path: string) => source === '/:path*' || source
 const headersFor = (path: string) => Object.fromEntries(rules.filter(r => matches(r.source, path)).flatMap(r => r.headers.map(h => [h.key.toLowerCase(), h.value])));
 
 test('app routes: frame-ancestors none, DENY, object-src/base-uri/form-action, without script-src (Next inline scripts)', () => {
-  for (const path of ['/', '/settings', '/wissen', '/api/approve', '/api/settings']) {
+  for (const path of ['/', '/settings', '/wissen', '/sandbox-coding', '/sandbox-coding/t_abcdefabcdef', '/api/approve', '/api/settings']) {
     const h = headersFor(path);
     assert.equal(h['x-frame-options'], 'DENY', path);
     const csp = h['content-security-policy'] ?? '';

@@ -247,6 +247,21 @@ export interface SandboxEnvPatch {
 }
 /** NDJSON lines of POST /api/sandbox/env/check */
 export type SandboxCheckEvent = { t: 'progress'; text: string; pct?: number } | { t: 'result'; ok: boolean; message: string; docker: SandboxDocker; imagePresent: boolean; pulled?: boolean };
+/** Code task lifecycle: setting_up → ready ⇄ paused (waking in between) → done; failed/interrupted stop the setup (retry possible) */
+export type CodeTaskStatus = 'setting_up' | 'ready' | 'waking' | 'paused' | 'failed' | 'interrupted' | 'done';
+export type TaskStepState = 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'interrupted';
+/** One setup step. key = template step; 'custom' = an own setup command of the environment (label = its name) */
+export interface TaskStep { id: string; key: SandboxStepKey | 'custom'; label?: string; state: TaskStepState; startedAt?: string; endedAt?: string; /** last lines, redacted */ log: string[]; error?: string }
+/** What the repository is: a plugin or a theme plugin below custom/plugins/<name> */
+export interface TaskLayout { kind: 'plugin' | 'theme'; name: string; pluginDir: string }
+export interface CodeTaskPublic {
+  id: string; title: string; goal: string; repo: string; baseBranch: string; branch: string; template: string;
+  status: CodeTaskStatus; steps: TaskStep[]; layout: TaskLayout | null; error: string | null;
+  /** a container exists and is running (null = none) */ container: { running: boolean } | null;
+  prUrl: string | null; createdAt: string; updatedAt: string; lastActiveAt: string; finishedAt: string | null;
+}
+/** NDJSON lines of GET /api/sandbox/tasks/[id]/events: full task on transitions, single log lines in between */
+export type TaskEvent = { t: 'task'; task: CodeTaskPublic } | { t: 'log'; step: string; line: string } | { t: 'deleted' };
 /** SEO overview: levers from Search Console and Sistrix as ready-made tasks (prompt) for a new chat */
 export interface SeoItem { id: string; source: 'gsc' | 'sistrix' | 'site'; kind: 'meta' | 'gap' | 'striking' | 'cannibal' | 'decline' | 'keyword' | 'onpage' | 'site'; title: string; detail: string; metrics: { label: string; value: string }[]; /** sort value (estimated impact) */ impact: number; prompt: string; /** done/ignored by the user: hidden */ mark?: SeoMark }
 /** Done = hidden until a fetch at least SEO_DONE_RECHECK_DAYS later still reports the lever; ignored = hidden permanently */

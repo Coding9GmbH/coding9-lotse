@@ -3,11 +3,14 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
-import type { CommandPhase, SandboxEnvPatch, SandboxEnvView } from '@/lib/protocol';
+import type { CodeTaskPublic, CommandPhase, SandboxEnvPatch, SandboxEnvView } from '@/lib/protocol';
+import { isBusy } from '@/lib/sandbox-task';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useShell } from '@/components/shell/ShellProvider';
 import { Button } from '@/components/ui/Button';
 import { IconClose, IconPlus } from '@/components/ui/icons';
+import { NewTaskDialog } from './NewTaskDialog';
+import { TaskList } from './TaskList';
 import styles from './Sandbox.module.css';
 
 const DOCS = { de: 'https://github.com/Coding9GmbH/coding9-lotse/blob/main/docs/self-hosting.md#sandbox-coding-aktivieren', en: 'https://github.com/Coding9GmbH/coding9-lotse/blob/main/docs/en/self-hosting.md#enable-sandbox-coding' } as const;
@@ -70,14 +73,38 @@ export function SandboxView() {
 
             <Environment view={view} onSaved={setView} onChecked={() => { void reload(); refreshHealth(); }} />
 
-            <section className={styles.card} aria-labelledby="sbx-tasks">
-              <div className={styles.cardHead}><h2 id="sbx-tasks">{t.tasks.heading}</h2></div>
-              <p className={styles.empty}>{t.tasks.empty}</p>
-            </section>
+            <Tasks />
           </>
         )}
       </main>
     </div>
+  );
+}
+
+/** Task list (polled while a task starts) and "Neue Aufgabe". */
+function Tasks() {
+  const t = useI18n().t.sandbox.tasks;
+  const [tasks, setTasks] = useState<CodeTaskPublic[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const busy = !!tasks?.some(x => isBusy(x.status));
+  useEffect(() => {
+    let live = true;
+    const load = () => api.sandbox.tasks().then(r => { if (live) { setTasks(r.tasks); setError(null); } }).catch(e => { if (live) setError(errorText(e)); });
+    void load();
+    const i = busy ? setInterval(load, 3000) : null;
+    return () => { live = false; if (i) clearInterval(i); };
+  }, [busy]);
+  return (
+    <section className={styles.card} aria-labelledby="sbx-tasks">
+      <div className={styles.cardHead}>
+        <h2 id="sbx-tasks">{t.heading}</h2>
+        <Button size="sm" variant="primary" className={styles.headBtn} onClick={() => setCreating(true)}><IconPlus size={14} /> {t.add}</Button>
+      </div>
+      {error && <p className={styles.alert} role="alert">{t.loadFailed(error)}</p>}
+      {tasks && <TaskList tasks={tasks} />}
+      <NewTaskDialog open={creating} onClose={() => setCreating(false)} />
+    </section>
   );
 }
 

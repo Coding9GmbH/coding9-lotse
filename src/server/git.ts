@@ -25,7 +25,8 @@ const MAX_OUTPUT = 16 * 1024 * 1024;
 export const cloneBase = () => (process.env.LOTSE_GITHUB_CLONE_BASE || DEFAULT_CLONE_BASE).replace(/\/+$/, '');
 export const repoUrl = (repo: string) => `${cloneBase()}/${assertRepoName(repo)}.git`;
 
-const flags = () => singleton('git-flags', () => ({ allowFile: false }));
+// E2E runs Lotse as its own process: there the switch is LOTSE_TEST_FILE_REMOTES=1, honoured only together with the fake Docker runner.
+const flags = () => singleton('git-flags', () => ({ allowFile: process.env.LOTSE_TEST_FILE_REMOTES === '1' && process.env.LOTSE_SANDBOX_RUNNER === 'fake' }));
 /** Tests only: allow file:// remotes (a local bare repository instead of GitHub). Never set by configuration. */
 export const allowFileRemotesForTests = (on: boolean) => { flags().allowFile = on; };
 

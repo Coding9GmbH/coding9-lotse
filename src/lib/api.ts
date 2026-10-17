@@ -5,7 +5,7 @@ import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget 
 import { createLineSplitter } from './ndjson';
 import type { CodexLoginState, GithubBranch, GithubPublic, GithubRepo, GithubTestResult, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
-  PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
+  CodeTaskPublic, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
 } from './protocol';
 
 export class ApiError extends Error {
@@ -81,6 +81,13 @@ export const api = {
     save: (patch: SandboxEnvPatch) => request<SandboxEnvView>('/api/sandbox/env', json('PUT', patch)),
     /** "Umgebung prüfen": progress lines while the image is pulled, then the result */
     check: (onEvent: (ev: SandboxCheckEvent) => void, signal?: AbortSignal) => checkStream(onEvent, signal),
+    tasks: () => request<{ tasks: CodeTaskPublic[] }>('/api/sandbox/tasks'),
+    createTask: (t: { title: string; goal: string; repo: string; baseBranch: string }) => request<{ task: CodeTaskPublic }>('/api/sandbox/tasks', json('POST', t)),
+    task: (id: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`),
+    deleteTask: (id: string) => request<{ ok: true }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    /** start | stop | pause | resume | finish; start takes the step to retry from */
+    taskAction: (id: string, action: 'start' | 'stop' | 'pause' | 'resume' | 'finish', body: { fromStep?: string } = {}) =>
+      request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/${action}`, json('POST', body)),
   },
   seoOverview: (refresh = false) => request<SeoOverview>(`/api/seo${refresh ? '?refresh=1' : ''}`),
   seoStored: () => request<SeoOverview | null>('/api/seo?stored=1'),
@@ -117,6 +124,9 @@ export const api = {
 export const postChat = (body: ChatRequest, signal: AbortSignal) => fetch('/api/chat', withHeader({ ...json('POST', body), signal }));
 /** Connect to a chat: first "snapshot", then live events while the run is active. */
 export const listenChat = (chatId: string, signal: AbortSignal) => fetch(`/api/chat?chatId=${encodeURIComponent(chatId)}`, { signal });
+
+/** NDJSON of one code task (snapshot, then live events). */
+export const listenTask = (id: string, signal: AbortSignal) => fetch(`/api/sandbox/tasks/${encodeURIComponent(id)}/events`, { signal });
 
 export const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
