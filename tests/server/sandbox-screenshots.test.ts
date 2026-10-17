@@ -184,7 +184,11 @@ test('before screenshots: kept on a re-run, taken again after a new clone; a fai
 test('the step time limit (e.g. a slow image pull) only skips the before screenshots; the setup still ends ready', async () => {
   const def = getTemplate(task.template).steps.find(s => s.id === 'screenshots')!, limit = def.timeoutMs, pull = fake.ensureImage;
   def.timeoutMs = 50;
-  fake.ensureImage = (_image: string, _progress?: unknown, signal?: AbortSignal) => new Promise<{ pulled: boolean }>((_, no) => signal!.addEventListener('abort', () => no(new Error('Abbruch beim Laden')), { once: true }));
+  // the limit may already be over when the pull starts (a slow machine): then it fails at once
+  fake.ensureImage = (_image: string, _progress?: unknown, signal?: AbortSignal) => new Promise<{ pulled: boolean }>((_, no) => {
+    const stop = () => no(new Error('Abbruch beim Laden'));
+    if (signal!.aborted) stop(); else signal!.addEventListener('abort', stop, { once: true });
+  });
   try {
     J.runSteps(task.id, 'screenshots');
     await S.until(() => !J.setupRunning(task.id));
