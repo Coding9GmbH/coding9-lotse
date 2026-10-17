@@ -116,7 +116,7 @@ export type ChatEvent =
   /** A shell command in the task container (sandbox_bash): first 'running', then the result (same id); tail = redacted end of the output */
   | { t: 'command'; id: string; command: string; args?: Record<string, string>; status: 'running' | 'ok' | 'failed'; exitCode?: number; tail?: string; ms?: number }
   /** The task's container before the turn: waking (paused or still being set up) → ready, or failed (message) */
-  | { t: 'sandbox_status'; state: 'waking' | 'ready' | 'failed'; message?: string }
+  | { t: 'sandbox_status'; state: 'waking' | 'ready' | 'failed' | 'finished'; message?: string }
   /** The storefront changed (theme compiled, cache cleared): the preview reloads (live only) */
   | { t: 'preview_reload' }
   /** The AI proposes to publish its changes as a pull request (card only; publishing itself comes from the user) */
@@ -148,7 +148,7 @@ export interface ChatRequest { chatId: string; message: string; target?: Target 
 export type ChatStatus = 'running' | 'waiting';
 /** Page size of the chat list (/api/chats): a full page means "there may be more". */
 export const CHAT_PAGE = 200;
-export interface ChatSummary { id: string; title: string; target: Target | null; updatedAt: string; published: number; status?: ChatStatus; /** sandbox attached to the chat (its task) */ taskId?: string }
+export interface ChatSummary { id: string; title: string; target: Target | null; updatedAt: string; published: number; status?: ChatStatus; /** sandbox attached to the chat (its task) */ taskId?: string; /** a sandbox of this chat was finished (none attached any more) */ sandboxDone?: boolean }
 export interface ChatDetail { id: string; title: string; target: Target | null; events: ChatEvent[]; /** turn is currently running (then connect live) */ running?: boolean; /** sandbox attached to the chat (its task) */ taskId?: string }
 
 export type AiProvider = 'claude' | 'codex';
@@ -245,7 +245,7 @@ export interface GithubTestResult extends TestResult { login: string | null; /**
 export interface GithubRepo { fullName: string; private: boolean; defaultBranch: string; /** may push (from GitHub's permissions) */ push: boolean; pushedAt: string | null }
 export interface GithubBranch { name: string; protected: boolean }
 // ---- Sandbox Coding: one container per task from a fixed template; secrets of the environment never reach the browser ----
-export type SandboxStepKey = 'check-image' | 'clone' | 'detect-layout' | 'start-container' | 'wait-ready' | 'version-check' | 'import-db' | 'set-domain' | 'install-plugin' | 'custom-after-db' | 'theme-compile' | 'custom-final' | 'screenshots' | 'ready';
+export type SandboxStepKey = 'check-image' | 'clone' | 'detect-layout' | 'start-container' | 'wait-ready' | 'version-check' | 'import-db' | 'set-domain' | 'preview-tidy' | 'install-plugin' | 'custom-after-db' | 'theme-compile' | 'custom-final' | 'screenshots' | 'ready';
 export type SandboxCommandKey = 'theme-compile' | 'cache-clear' | 'plugin-refresh' | 'theme-refresh' | 'lint-twig' | 'php-lint';
 /** When an own setup command runs: after the database (before theme:compile) or at the very end of the setup */
 export type CommandPhase = 'after-db' | 'final';

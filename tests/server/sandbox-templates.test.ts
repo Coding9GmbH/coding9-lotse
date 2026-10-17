@@ -23,6 +23,7 @@ test('runnable templates: only dockware; step ids unique; custom command slots a
   assert.ok(ids.indexOf('custom-final') > ids.indexOf('theme-compile') && ids.indexOf('custom-final') < ids.indexOf('ready'), 'final runs before ready');
   assert.deepEqual(t.steps.filter(s => s.custom).map(s => s.custom), ['after-db', 'final']);
   assert.ok(ids.indexOf('version-check') < ids.indexOf('import-db') && ids.indexOf('import-db') < ids.indexOf('set-domain') && ids.indexOf('set-domain') < ids.indexOf('install-plugin') && ids.indexOf('install-plugin') < ids.indexOf('custom-after-db'), 'the dump replaces the database before the plugin is installed into it');
+  assert.ok(ids.indexOf('preview-tidy') > ids.indexOf('import-db') && ids.indexOf('preview-tidy') < ids.indexOf('theme-compile') && ids.indexOf('preview-tidy') < ids.indexOf('screenshots'), 'the cookie setting lives in the database: after the import, before theme:compile (cache) and the before screenshots');
   assert.throws(() => getTemplate('constructor'), /Unbekannte Sandbox-Vorlage/);
 });
 

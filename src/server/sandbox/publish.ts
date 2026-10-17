@@ -13,7 +13,8 @@ import path from 'node:path';
 import type { PrStatus, PublishStep, TaskPr } from '@/lib/protocol';
 import { currentActor } from '../actor';
 import { auditAdd } from '../db';
-import { commitAll, diffAgainstBase, pushBranch, readBaseBlob, runGit, type GitIdentity } from '../git';
+import { DEFAULT_LOCALE, messages, type Locale } from '@/lib/i18n';
+import { GitError, commitAll, diffAgainstBase, pushBranch, readBaseBlob, runGit, type GitIdentity } from '../git';
 import { checkSummary, createPull, findOpenPull, getPull, githubConnected, updatePull, type Pull } from '../github';
 import { log } from '../log';
 import { knownSecrets, redact } from '../settings';
@@ -121,20 +122,41 @@ export async function preflight(t: CodeTask): Promise<Changed[]> {
   return files;
 }
 
-// ---- Errors in plain German ----
-function germanError(step: PublishStep, e: unknown, t: CodeTask): string {
-  const m = redact(errMsg(e));
-  if (step === 'push') {
-    if (/GH006|GH013|protected branch|rule violations|push declined/i.test(m)) return `Branch-Schutz verhindert den Push auf ${t.branch}: Regel für lotse/* im Repository anpassen.`;
-    if (/stale info|fetch first|non-fast-forward|\[rejected\]/i.test(m)) return `Der Branch ${t.branch} wurde auf GitHub verändert. Lotse überschreibt keine fremden Commits – Branch auf GitHub prüfen.`;
-    if (/403|denied|not allowed|Permission|Write access/i.test(m)) return `Keine Schreibrechte für ${t.repo}: Der Token braucht Contents + Pull requests: Lesen & Schreiben.`;
-    return `Push fehlgeschlagen: ${m}`;
-  }
+// ---- Errors in plain language ----
+/** First line that says why: a remote message ("remote: …"), the reason of a refused ref ("! … [remote rejected] (why)"), or git's error line. */
+function firstReason(detail: string): string {
+  const lines = detail.split('\n').map(l => l.trim()).filter(Boolean);
+  const remote = lines.map(l => /^remote:\s*(.*)$/i.exec(l)?.[1].trim() ?? '').find(l => l && !/^[-=*]+$/.test(l));
+  if (remote) return remote.replace(/^error:\s*/i, '');
+  const refused = lines.map(l => /\[(?:remote )?rejected\][^(]*\(([^)]+)\)/.exec(l)?.[1]).find(Boolean);
+  if (refused) return refused;
+  const err = lines.find(l => /^(fatal|error):/i.test(l)) ?? lines[0] ?? '';
+  return err.replace(/^(fatal|error):\s*/i, '');
+}
+/**
+ * Text of a failed push, in the user's language. Only a real 403 of GitHub ("The requested URL returned error: 403",
+ * "Permission to … denied to") becomes the token hint; branch protection and a branch moved on GitHub have their own text;
+ * every other refusal shows the server's first line ("Push abgelehnt: …"). git's full report follows after a line break (the UI folds it).
+ */
+export function pushErrorText(detail: string, t: Pick<CodeTask, 'repo' | 'branch'>, locale: Locale = DEFAULT_LOCALE): string {
+  const L = messages(locale).server, d = redact(detail).trim();
+  const reason = firstReason(d).slice(0, 200);
+  const summary = /\bGH00[6-9]\b|\bGH01[0-9]\b|protected branch|rule violations/i.test(d) ? L.pushProtected(t.branch)
+    : /stale info|fetch first|non-fast-forward|(?<!remote )\[rejected\]/i.test(d) ? L.pushMoved(t.branch)
+      : /The requested URL returned error: 403|Permission to \S+ denied to|Write access to repository not granted/i.test(d) ? L.pushNoPermission(t.repo)
+        : /^remote:|\[remote rejected\]|pre-receive hook declined|push declined/im.test(d) ? L.pushRejected(reason)
+          : L.pushFailed(reason || '–');
+  return d && d !== reason ? `${summary}\n${d}` : summary;
+}
+
+function errorText(step: PublishStep, e: unknown, t: CodeTask, locale: Locale): string {
+  const m = redact(errMsg(e)), L = messages(locale).server;
+  if (step === 'push') return pushErrorText(e instanceof GitError && e.detail ? e.detail : m, t, locale);
   if (step === 'pr') {
     if (/Anfragelimit/.test(m)) return m;
-    if (/\(403\)|Resource not accessible/.test(m)) return `Keine Schreibrechte für Pull Requests in ${t.repo}: Der Token braucht Pull requests: Lesen & Schreiben.`;
-    if (/No commits between/i.test(m)) return 'Nichts zu veröffentlichen: Der Branch unterscheidet sich nicht vom Basis-Branch.';
-    return `Pull Request nicht angelegt: ${m}`;
+    if (/\(403\)|Resource not accessible/.test(m)) return L.prNoPermission(t.repo);
+    if (/No commits between/i.test(m)) return L.prNothing;
+    return L.prFailed(m);
   }
   return m;
 }
@@ -152,7 +174,7 @@ const cleanBody = (s: string) => s.replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x
 export interface PublishOutcome { task: CodeTask; pr: TaskPr; action: 'created' | 'updated'; files: number }
 
 /** Checks what can be checked synchronously, then runs the publish (registered at once: a second click gets 409). */
-export function publishTask(id: string, input: { title: string; body: string }): Promise<PublishOutcome> {
+export function publishTask(id: string, input: { title: string; body: string }, locale: Locale = DEFAULT_LOCALE): Promise<PublishOutcome> {
   const t = mustTask(id);
   if (!githubConnected()) throw fail(400, 'GitHub ist nicht verbunden (Einstellungen → Integrationen).');
   if (publishRunning(id)) throw new TaskConflict('Für diese Aufgabe wird gerade veröffentlicht.');
@@ -164,13 +186,13 @@ export function publishTask(id: string, input: { title: string; body: string }):
   if (!title) throw fail(400, 'Titel fehlt.');
   const secret = findSecret(`${title}\n${body}`);
   if (secret) throw new PublishBlocked(`Titel oder Beschreibung enthalten etwas, das wie ein Geheimnis aussieht (${secret}).`);
-  return markPublishing(id, run(id, title, body, currentActor(t.chatId)));
+  return markPublishing(id, run(id, title, body, currentActor(t.chatId), locale));
 }
 
 /** Re-read, change and save the task: the setup, the idle sweeper or a wake-up may have saved it meanwhile. */
 function update(id: string, fn: (t: CodeTask) => void): CodeTask { const t = mustTask(id); fn(t); saveTask(t); return t; }
 
-async function run(id: string, title: string, body: string, actor: string | null): Promise<PublishOutcome> {
+async function run(id: string, title: string, body: string, actor: string | null, locale: Locale): Promise<PublishOutcome> {
   const t = mustTask(id), p = taskPaths(id);
   let step: PublishStep = 'check', started = false;
   const at = (s: PublishStep) => { step = s; update(id, x => { x.publish = { state: 'running', step: s, at: now() }; }); };
@@ -214,12 +236,12 @@ async function run(id: string, title: string, body: string, actor: string | null
     log.info(action === 'created' ? 'Pull Request angelegt' : 'Pull Request aktualisiert', { task: id, repo: t.repo, branch: t.branch, pr: done.number });
     return { task, pr: done, action, files: paths.length };
   } catch (e) {
-    const blocked = e instanceof PublishBlocked, msg = blocked ? e.message : germanError(step, e, t);
-    update(id, x => { x.publish = { state: 'failed', step, error: msg.slice(0, 500), at: now() }; });
-    if (started) auditAdd({ ...base, decision: 'approved', status: 'failed', step, error: msg.slice(0, 300) }, actor);
+    const blocked = e instanceof PublishBlocked, msg = blocked ? e.message : errorText(step, e, t, locale);
+    update(id, x => { x.publish = { state: 'failed', step, error: msg.slice(0, 2000), at: now() }; });
+    if (started) auditAdd({ ...base, decision: 'approved', status: 'failed', step, error: msg.split('\n')[0].slice(0, 300) }, actor);
     else if (blocked) auditAdd({ ...base, decision: 'rejected', reason: msg.slice(0, 300) }, actor);
     log.warn('Veröffentlichen fehlgeschlagen', { task: id, step, error: msg });
-    throw blocked ? e : Object.assign(new Error(msg), { status: step === 'check' ? 500 : 502 });
+    throw blocked ? e : Object.assign(new Error(msg.slice(0, 2000)), { status: step === 'check' ? 500 : 502 });
   }
 }
 

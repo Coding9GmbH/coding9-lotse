@@ -4,7 +4,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import type { CodeTaskPublic, ShotDevice, TaskShot } from '@/lib/protocol';
 import styles from './Sandbox.module.css';
 
-/** "Vorher / Nachher" in the "Pull Request" tab: per page and device the before screenshot (end of the setup) next to the after
+/** "Vorher / Nachher" in the "Pull Request" tab (below the form, collapsible): per page and device the before screenshot (end of the setup) next to the after
  *  screenshot (last publish). The images stay in Lotse; a click opens one in full size. */
 export function ShotCompare({ task, enabled = true }: { task: CodeTaskPublic; /** pages are configured in the environment */ enabled?: boolean }) {
   const { t: all, locale } = useI18n();
@@ -28,7 +28,8 @@ export function ShotCompare({ task, enabled = true }: { task: CodeTaskPublic; /*
   };
   return (
     <section className={styles.shots} aria-labelledby="sbx-shots-h">
-      <h3 id="sbx-shots-h" className={styles.h3}>{t.heading}</h3>
+      <details open>
+      <summary className={styles.shotsHead}><h3 id="sbx-shots-h" className={styles.h3}>{t.heading}</h3>{rows.length > 0 && <small className={styles.muted}>{t.count(new Set(rows.map(r => r.path)).size)}</small>}</summary>
       <p className={styles.hint}>{t.lead}</p>
       {!rows.length && !errors.length && <p className={styles.muted}>{enabled ? t.none : t.off}</p>}
       {errors.map(e => <p key={e} className={styles.bad}>{e}</p>)}
@@ -41,6 +42,7 @@ export function ShotCompare({ task, enabled = true }: { task: CodeTaskPublic; /*
           </div>
         </div>
       ))}
+      </details>
     </section>
   );
 }

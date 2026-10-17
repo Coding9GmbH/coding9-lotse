@@ -92,17 +92,17 @@ function chatPutOn(d: DatabaseSync, c: StoredChat) {
 }
 export const chatGet = (id: string): StoredChat | null => { const r = db().prepare('SELECT json FROM chats WHERE id = ?').get(id) as { json: string } | undefined; return r ? (JSON.parse(r.json) as StoredChat) : null; };
 export const chatPut = (c: StoredChat) => chatPutOn(db(), c);
-interface ChatListRow { id: string; title: string; target: string; updated_at: string; published: number; task_id: string | null }
+interface ChatListRow { id: string; title: string; target: string; updated_at: string; published: number; task_id: string | null; task_done: number | null }
 /** Paging: cursor = last row of the previous page (updated_at, id); q searches the title. Without options: the newest 200 as before. */
 export interface ChatListOpts { limit?: number; before?: { updatedAt: string; id: string } | null; q?: string | null }
 export function chatList({ limit = CHAT_PAGE, before = null, q = null }: ChatListOpts = {}) {
   const where: string[] = [], args: (string | number)[] = [], term = q?.trim();
   if (before) { where.push('(updated_at < ? OR (updated_at = ? AND id < ?))'); args.push(before.updatedAt, before.updatedAt, before.id); }
   if (term) { where.push("title LIKE ? ESCAPE '\\'"); args.push(`%${term.replace(/[\\%_]/g, c => '\\' + c)}%`); }
-  // chats with an attached sandbox (a task bound to the chat that is not finished) carry its id
-  const sql = `SELECT id, title, target, updated_at, published, (SELECT t.id FROM code_tasks t WHERE t.chat_id = chats.id AND t.status <> 'done' LIMIT 1) AS task_id FROM chats ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY updated_at DESC, id DESC LIMIT ?`;
+  // chats with an attached sandbox (a task bound to the chat that is not finished) carry its id; a finished one only a flag
+  const sql = `SELECT id, title, target, updated_at, published, (SELECT t.id FROM code_tasks t WHERE t.chat_id = chats.id AND t.status <> 'done' LIMIT 1) AS task_id, (SELECT 1 FROM code_tasks t WHERE t.chat_id = chats.id AND t.status = 'done' LIMIT 1) AS task_done FROM chats ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY updated_at DESC, id DESC LIMIT ?`;
   return (db().prepare(sql).all(...args, Math.max(1, Math.min(CHAT_PAGE, Math.floor(limit) || CHAT_PAGE))) as unknown as ChatListRow[])
-    .map(r => ({ id: r.id, title: r.title, target: JSON.parse(r.target) as Target | null, updatedAt: r.updated_at, published: r.published, ...(r.task_id ? { taskId: r.task_id } : {}) }));
+    .map(r => ({ id: r.id, title: r.title, target: JSON.parse(r.target) as Target | null, updatedAt: r.updated_at, published: r.published, ...(r.task_id ? { taskId: r.task_id } : {}), ...(!r.task_id && r.task_done ? { sandboxDone: true } : {}) }));
 }
 export const chatDelete = (id: string) => { db().prepare('DELETE FROM chats WHERE id = ?').run(id); db().prepare('DELETE FROM changeset_runs WHERE chat_id = ?').run(id); };
 

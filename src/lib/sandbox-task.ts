@@ -3,6 +3,9 @@ import type { CodeTaskPublic, CodeTaskStatus, TaskEvent, TaskStep } from './prot
 
 const LOG_LINES = 200;
 
+/** Self-hosting guide, section on enabling Sandbox Coding (Docker socket, compose). */
+export const SANDBOX_DOCS = { de: 'https://github.com/Coding9GmbH/coding9-lotse/blob/main/docs/self-hosting.md#sandbox-coding-aktivieren', en: 'https://github.com/Coding9GmbH/coding9-lotse/blob/main/docs/en/self-hosting.md#enable-sandbox-coding' } as const;
+
 /** Snapshot/transition replaces the task; a log line is appended to its step (at most 200 lines, like the server). */
 export function applyTaskEvent(task: CodeTaskPublic | null, ev: TaskEvent): CodeTaskPublic | null {
   if (ev.t === 'task') return ev.task;
@@ -28,3 +31,67 @@ export const formatSeconds = (sec: number) => (sec < 60 ? `${sec} s` : `${Math.f
 
 /** Retry is possible from a failed or interrupted step (and the task is not running or finished). */
 export const canRetryFrom = (task: CodeTaskPublic, step: TaskStep) => (task.status === 'failed' || task.status === 'interrupted') && (step.state === 'failed' || step.state === 'interrupted');
+
+/** Lines of console output that do not say why (stack frames, "In File.php line 12:", exception class names, the command echo). */
+const NOISE = /^(#\d+\s|In \S+ line \d+:?$|\[[\w\\]+(Exception|Error)\]$|at \S+[:(]|Stack trace:|Exception trace:|\$ |[-=*]+$)/i;
+/** One line for a failed step: its first line ("„X“ fehlgeschlagen (Exit-Code 1)") and the first output line that says why.
+ *  The full output stays in the step's log. */
+export function errorSummary(error: string): string {
+  const [head = '', ...rest] = error.split('\n').map(l => l.trim()).filter(Boolean);
+  const why = rest.find(l => !NOISE.test(l));
+  return why ? `${head.replace(/[:.]$/, '')}: ${why}` : head;
+}
+
+/** "coding9/…-theme": keeps the start (owner) and the end of a long name, the middle becomes "…". */
+export function middleTruncate(s: string, max = 28): string {
+  if (s.length <= max || max < 5) return s;
+  const head = Math.ceil((max - 1) / 2), tail = Math.floor((max - 1) / 2);
+  return `${s.slice(0, head)}…${s.slice(-tail)}`;
+}
+/** A path shortened in the middle at "/" boundaries: "src/…/header/header.html.twig" (the file name always stays). */
+export function shortPath(p: string, max = 44): string {
+  if (p.length <= max) return p;
+  const parts = p.split('/'), file = parts.pop() ?? p;
+  let tail = file;
+  for (let i = parts.length - 1; i > 0 && `${parts[0]}/…/${parts[i]}/${tail}`.length <= max; i--) tail = `${parts[i]}/${tail}`;
+  return parts.length ? `${parts[0]}/…/${tail}` : file;
+}
+
+/** Steps a dump-less setup will skip anyway (version check, import): shown as "wird übersprungen" from the start. */
+export const willSkip = (task: Pick<CodeTaskPublic, 'dump'>, s: Pick<TaskStep, 'key' | 'state'>) =>
+  s.state === 'pending' && !task.dump && (s.key === 'version-check' || s.key === 'import-db');
+
+/** Progress of the setup: the current (running or next) step's number among the steps that will run, and their count. */
+export function setupProgress(task: Pick<CodeTaskPublic, 'steps' | 'dump'>): { current: number; total: number; done: number } {
+  const counted = task.steps.filter(s => s.state !== 'skipped' && !willSkip(task, s));
+  const done = counted.filter(s => s.state === 'done').length;
+  const at = counted.findIndex(s => s.state !== 'done');
+  return { current: at < 0 ? counted.length : at + 1, total: counted.length, done };
+}
+
+/** How long the setup took (first start to last end, in seconds), null while it never finished. */
+export function setupSeconds(task: Pick<CodeTaskPublic, 'steps'>): number | null {
+  const starts = task.steps.map(s => s.startedAt).filter(Boolean).map(x => Date.parse(x!));
+  const ends = task.steps.map(s => s.endedAt).filter(Boolean).map(x => Date.parse(x!));
+  if (!starts.length || !ends.length || task.steps.some(s => s.state !== 'done' && s.state !== 'skipped')) return null;
+  return Math.max(0, Math.round((Math.max(...ends) - Math.min(...starts)) / 1000));
+}
+
+/** Publish stepper (Screenshots → Commit → Push → Pull Request): the state of each step from task.publish. */
+export const PUBLISH_STEPS = ['screenshots', 'commit', 'push', 'pr'] as const;
+export type PublishStepState = 'pending' | 'running' | 'done' | 'failed';
+export function publishSteps(p: CodeTaskPublic['publish']): Record<(typeof PUBLISH_STEPS)[number], PublishStepState> {
+  const at = p ? PUBLISH_STEPS.indexOf(p.step as (typeof PUBLISH_STEPS)[number]) : -1; // 'check' = before the first
+  const state = (i: number): PublishStepState => {
+    if (!p || at < 0) return 'pending';
+    if (i < at) return 'done';
+    if (i > at) return 'pending';
+    return p.state === 'running' ? 'running' : p.state === 'failed' ? 'failed' : 'pending';
+  };
+  return { screenshots: state(0), commit: state(1), push: state(2), pr: state(3) };
+}
+
+/** An action's response vs. the live stream: the stream may already carry a newer state (resume answers "waking" while the
+ *  stream says "ready"), so an older snapshot never replaces a newer one. */
+export const newerTask = (cur: CodeTaskPublic | null, next: CodeTaskPublic): CodeTaskPublic =>
+  cur && cur.id === next.id && Date.parse(cur.updatedAt) > Date.parse(next.updatedAt) ? cur : next;

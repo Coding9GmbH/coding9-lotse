@@ -190,3 +190,4 @@
 .more:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
 .more:disabled { cursor: progress; }
 .code { color: var(--mute); font-weight: 600; }
+.codeDone { font-weight: 400; }

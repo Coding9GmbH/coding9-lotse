@@ -7,7 +7,7 @@ import { storefrontRewrite } from '@/server/runtime';
 import { sandboxForbidden } from '@/server/sandbox/env';
 import { getTask } from '@/server/sandbox/tasks';
 import { startWake, touchTask } from '@/server/sandbox/jobs';
-import { COOKIE_SYNC_PATH, MAX_REQUEST_BODY, PREVIEW_METHODS, SANDBOX_BASE, forgetUpstream, fetchUpstream, previewShim, previewState, sandboxLocation, sandboxPrefix, sandboxUpstream, scriptCookies, storeCookies, taskOfSegment, upstreamHeaders } from '@/server/sandbox/preview';
+import { COOKIE_SYNC_PATH, MAX_REQUEST_BODY, PREVIEW_METHODS, PREVIEW_TIDY_CSS, SANDBOX_BASE, forgetUpstream, fetchUpstream, previewShim, previewState, sandboxLocation, sandboxPrefix, sandboxUpstream, scriptCookies, storeCookies, taskOfSegment, upstreamHeaders } from '@/server/sandbox/preview';
 import { ensureReconciled } from '@/server/sandbox/reconcile';
 import { NO_BODY, relayResponse, rewriteRootRelative, textResponse } from '@/server/storefront-proxy';
 
@@ -82,7 +82,7 @@ async function handle(req: NextRequest, { params }: Ctx): Promise<Response> {
     const upstream = new Response(NO_BODY.has(r.status) || req.method === 'HEAD' ? null : new Uint8Array(r.body), { status: r.status, headers: { 'content-type': r.headers.get('content-type') ?? 'application/octet-stream' } });
     const rewrite = (text: string, mime: string) => {
       const out = storefrontRewrite(mime === 'text/html' || mime === 'text/css' ? rewriteRootRelative(text, prefix, mime) : text, SANDBOX_BASE, prefix);
-      return mime === 'text/html' ? injectAtHeadStart(out, previewShim(prefix, scriptCookies(id))) : out;
+      return mime === 'text/html' ? injectAtHeadStart(out, previewShim(prefix, scriptCookies(id)) + PREVIEW_TIDY_CSS) : out;
     };
     return await relayResponse(upstream, { rewrite, allText: true, extraCsp: SBX_CSP, headers: corsFor(req) });
   } catch (e) {

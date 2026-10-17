@@ -14,6 +14,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { CHAT_COOKIE, setupReady } from '@/lib/nav';
 import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, CheckFinding, CodeTaskPublic, Health, PublishResult, Target } from '@/lib/protocol';
 import { liveSrc, withBust } from '@/lib/urls';
+import { statusTone } from '@/lib/sandbox-task';
 import { INTL_LOCALE } from '@/lib/i18n';
 import Link from 'next/link';
 import { useShell, type WorkspaceBridge } from '@/components/shell/ShellProvider';
@@ -23,6 +24,7 @@ import { ChatLog } from '@/components/chat/ChatLog';
 import { Chips } from '@/components/chat/Chips';
 import { Composer } from '@/components/chat/Composer';
 import { Button } from '@/components/ui/Button';
+import { IconClose, IconCode } from '@/components/ui/icons';
 import { HomeContent, HomeHead } from '@/components/chat/Home';
 import { StatusLine } from '@/components/chat/StatusLine';
 import { TargetCard } from '@/components/chat/TargetCard';
@@ -31,7 +33,7 @@ import { AuditDialog } from '@/components/dialogs/AuditDialog';
 import { StyleguideDialog } from '@/components/dialogs/StyleguideDialog';
 import { AttachSandboxDialog } from '@/components/sandbox/AttachSandboxDialog';
 import { SandboxPanel } from '@/components/sandbox/SandboxPanel';
-import type { SandboxOfferActions } from '@/components/sandbox/CommandCard';
+import { offerTitle, type SandboxOfferActions } from '@/components/sandbox/CommandCard';
 import type { PrFeedbackActions } from '@/components/sandbox/PrFeedbackCard';
 import type { PrProposal } from '@/components/sandbox/PublishCard';
 import styles from './Workspace.module.css';
@@ -47,6 +49,12 @@ const pickTarget = (t: Target | null): Target | null =>
 
 /** Narrow viewport (tablet, split window): the preview lies as an overlay above the chat (see Workspace.module.css). */
 const narrow = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 1100px)').matches;
+
+/** Width of the chat column next to a preview: dragged by the handle, kept per browser. */
+const CHAT_WIDTH_KEY = 'lotse.chatWidth', SBX_HINT_KEY = 'lotse.sandboxHintHidden';
+const CHAT_MIN = 300, CHAT_MAX = 760, PREVIEW_MIN = 420;
+const readStored = (key: string): string | null => { try { return window.localStorage.getItem(key); } catch { return null; } };
+const store = (key: string, value: string) => { try { window.localStorage.setItem(key, value); } catch { /* private mode: not remembered */ } };
 
 /** Workspace: start screen → chat (+ history/context) → chat + preview. */
 export function Workspace({ initialChatId, initialChat }: { initialChatId: string; initialChat: ChatDetail | null }) {
@@ -74,11 +82,17 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   // Sandbox Coding: the sandbox attached to this chat (then the right side shows it), the "Sandbox starten" dialog and its preset
   const [taskId, setTaskId] = useState<string | null>(initialChat?.taskId ?? null);
   const [sbxTask, setSbxTask] = useState<CodeTaskPublic | null>(null);
-  const [sbxDialog, setSbxDialog] = useState<{ repo: string; baseBranch: string } | null | false>(false);
+  const [sbxDialog, setSbxDialog] = useState<{ repo: string; baseBranch: string; title?: string } | null | false>(false);
   const [sbxBusy, setSbxBusy] = useState(false);
   // "Prüfen und veröffentlichen" on a proposal card: that proposal (otherwise the latest) in the "Pull Request" tab, opened
   const [picked, setPicked] = useState<PrProposal | null>(null);
   const [openPr, setOpenPr] = useState(0);
+  // chat column next to a preview: width (null = default) and collapsed (the sandbox preview gets the whole width)
+  const [chatWidth, setChatWidth] = useState<number | null>(null);
+  const [chatHidden, setChatHidden] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [sbxHint, setSbxHint] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
   const pendingFix = useRef<{ id: string; title: string; prompt: string } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sentApprovals = useRef(new Set<string>());
@@ -97,6 +111,9 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       const [c, sg] = await Promise.allSettled([api.config(), shell.styleguideKnown ? Promise.resolve(undefined) : api.styleguide()]);
       if (off) return;
       setFixes(loadFixes()); // only after loading: localStorage does not exist during server rendering
+      const w = Number(readStored(CHAT_WIDTH_KEY));
+      if (w >= CHAT_MIN && w <= CHAT_MAX) setChatWidth(w);
+      setSbxHint(readStored(SBX_HINT_KEY) !== '1');
       if (c.status === 'fulfilled') setCfg(c.value);
       if (sg.status === 'fulfilled' && sg.value !== undefined) dispatch({ type: 'set_styleguide', sg: sg.value && typeof sg.value === 'object' ? sg.value : null });
       setSgLoaded(true);
@@ -251,7 +268,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     const id = rememberChatId(crypto.randomUUID());
     setChatId(id);
     dispatch({ type: 'reset' });
-    setTaskId(null); setSbxTask(null);
+    setTaskId(null); setSbxTask(null); setChatHidden(false);
     setInput('');
     setPreviewOpen(false);
     attachments.clear();
@@ -372,16 +389,25 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   };
   const onSandboxTask = (task: CodeTaskPublic) => {
     setSbxTask(task);
-    if (task.status === 'done') { setTaskId(null); setPreviewOpen(false); dispatch({ type: 'status', text: tsb.finished }); loadHistory(); }
+    if (task.status === 'done') {
+      setTaskId(null); setPreviewOpen(false); setChatHidden(false);
+      dispatch({ type: 'event', event: { t: 'sandbox_status', state: 'finished' }, mode: 'live' }); // a static line, not a spinner
+      loadHistory();
+    }
   };
+  // Docker known to be down: starting a sandbox would fail at its first step
+  const sbxBlocked = shell.health?.sandbox?.docker === false ? tsb.buttonDockerDown : null;
   const sandboxActions: SandboxOfferActions | undefined = shell.sandbox ? {
-    attached: !!taskId, busy: sbxBusy,
+    attached: !!taskId, busy: sbxBusy, blocked: sbxBlocked,
     start: (o, direct) => {
-      if (!direct || !chatId) { setSbxDialog({ repo: o.repo, baseBranch: o.baseBranch }); return; }
+      const title = o.reason ? offerTitle(o.reason) : undefined;
+      if (!direct || !chatId) { setSbxDialog({ repo: o.repo, baseBranch: o.baseBranch, title }); return; }
       setSbxBusy(true);
-      api.sandbox.createTask({ chatId, repo: o.repo, baseBranch: o.baseBranch }).then(r => attached(r.task), e => reportError(errorText(e))).finally(() => setSbxBusy(false));
+      api.sandbox.createTask({ chatId, repo: o.repo, baseBranch: o.baseBranch, ...(title ? { title } : {}) }).then(r => attached(r.task), e => reportError(errorText(e))).finally(() => setSbxBusy(false));
     },
   } : undefined;
+  // PR feedback of the attached sandbox not handed to the AI yet (a dot on the "Pull Request" tab, a warning when finishing)
+  const feedbackOpen = taskId ? state.items.filter(i => i.kind === 'pr_feedback' && i.taskId === taskId && i.items.length > 0 && !i.handedOver).length : 0;
   // PR feedback (pr-watch.ts): hand it to the AI (the server wraps it as data), or finish the task once the PR is merged/closed
   const prFeedback: PrFeedbackActions | undefined = shell.sandbox ? {
     attachedTaskId: taskId, busy: busy || sbxBusy,
@@ -391,7 +417,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       void run(tsb.feedback.handOffText(f.number, f.items.length), { prFeedback: f.id });
     },
     finish: id => {
-      if (!window.confirm(tst.finishConfirm(sbxTask?.title ?? ''))) return;
+      if (!window.confirm(tst.finishConfirm(sbxTask?.title ?? '') + (feedbackOpen ? tst.feedbackOpen(feedbackOpen) : ''))) return;
       setSbxBusy(true);
       api.sandbox.taskAction(id, 'finish').then(r => onSandboxTask(r.task), e => reportError(errorText(e))).finally(() => setSbxBusy(false));
     },
@@ -420,8 +446,38 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
 
   const contextChip = <ContextChip target={target} onPick={() => setContextOpen(true)} onClear={() => selectTarget(null)} />;
   const sandboxButton = shell.sandbox && !taskId && (
-    <Button size="sm" className={styles.sbxBtn} title={tsb.buttonTitle} onClick={() => setSbxDialog(null)} disabled={!chatId}>{tsb.button}</Button>
+    <Button size="sm" className={styles.sbxBtn} title={sbxBlocked ?? tsb.buttonTitle} onClick={() => setSbxDialog(null)} disabled={!chatId || !!sbxBlocked}><IconCode size={15} />{tsb.button}</Button>
   );
+  const hideSbxHint = () => { setSbxHint(false); store(SBX_HINT_KEY, '1'); };
+  const sandboxHint = home && shell.sandbox && sbxHint && !locked && (
+    <div className={styles.sbxHint} role="note">
+      <IconCode size={16} />
+      <span>{tsb.homeHint}</span>
+      <button type="button" className={styles.sbxHintX} onClick={hideSbxHint} aria-label={tsb.homeHintDismiss} title={tsb.homeHintDismiss}><IconClose size={14} /></button>
+    </div>
+  );
+  // ---- Resizable split (desktop, chat + preview) ----
+  const clampWidth = (w: number) => {
+    const total = mainRef.current?.clientWidth ?? 1400;
+    return Math.round(Math.max(CHAT_MIN, Math.min(CHAT_MAX, total - PREVIEW_MIN, w)));
+  };
+  const setWidth = (w: number, keep = false) => { const v = clampWidth(w); setChatWidth(v); if (keep) store(CHAT_WIDTH_KEY, String(v)); };
+  const defaultWidth = taskId ? 360 : 420;
+  const onHandleDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const left = mainRef.current?.getBoundingClientRect().left ?? 0;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDragging(true);
+    const move = (ev: PointerEvent) => setWidth(ev.clientX - left);
+    const up = (ev: PointerEvent) => { setWidth(ev.clientX - left, true); setDragging(false); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  const onHandleKey = (e: React.KeyboardEvent) => {
+    const step = e.shiftKey ? 60 : 20, w = chatWidth ?? defaultWidth;
+    if (e.key === 'ArrowLeft') { e.preventDefault(); setWidth(w - step, true); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); setWidth(w + step, true); }
+    else if (e.key === 'Home') { e.preventDefault(); setChatWidth(null); store(CHAT_WIDTH_KEY, ''); }
+  };
   const budget = shell.health?.ai.budget, usd = (n: number) => n.toLocaleString(INTL_LOCALE[locale], { style: 'currency', currency: 'USD' });
   const budgetNote = budget?.warn && (
     <div className={`${styles.budgetBar}${budget.blocked ? ` ${styles.budgetBlocked}` : ''}`} role="status">
@@ -432,14 +488,15 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const composer = (
     <>{budgetNote}<Composer value={input} onChange={setInput} onSubmit={() => send()} onStop={stop} writing={writeInFlight(state)} busy={busy} placeholder={placeholder} home={home}
       atts={attachments.atts} onFiles={f => void attachments.addFiles(f)} onRemoveAtt={attachments.remove} inputRef={inputRef} disabled={locked} noAttach={!!taskId}
-      extra={!taskId && <>{!locked && (home || !target) && contextChip}{sandboxButton}</>} /></>
+      extra={!taskId && <>{!locked && (home || !target) && contextChip}{sandboxButton}</>} />{sandboxHint}</>
   );
   const status = <div className={styles.statusRow}><StatusLine text={state.status} /></div>;
 
   return (
-    <div className={styles.app} data-mode={mode} data-show={overlay ? 'preview' : undefined}>
+    <div className={styles.app} data-mode={mode} data-show={overlay ? 'preview' : undefined} data-chat={pv && chatHidden ? 'hidden' : undefined} data-dragging={dragging || undefined}
+      style={{ '--chat-w': `${chatWidth ?? defaultWidth}px` } as React.CSSProperties}>
 
-      <main className={styles.main}>
+      <main ref={mainRef} className={styles.main}>
         <ContextPanel open={contextOpen} onClose={() => setContextOpen(false)} categories={cats} categoryError={categoryError} target={target} onSelect={selectTarget} />
 
         <section className={styles.chat} aria-label={t.chat} onDragOver={onDrop} onDrop={onDrop}>
@@ -457,7 +514,10 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
             <>
               {pv && (
                 <div className={styles.pvBar}>
-                  <Button size="sm" onClick={() => setPreviewOpen(true)}>{taskId ? tsb.heading : state.draft ? t.viewDraft : t.preview}</Button>
+                  <Button size="sm" onClick={() => setPreviewOpen(true)}>
+                    {taskId && <i className={styles.pvPip} data-tone={sbxTask ? statusTone(sbxTask.status) : 'busy'} aria-hidden="true" />}
+                    {taskId ? tsb.view : state.draft ? t.viewDraft : t.preview}
+                  </Button>
                 </div>
               )}
               {fixLink && (
@@ -467,7 +527,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
                 </div>
               )}
               {target && !taskId && <TargetCard target={target} cfg={cfg} onClear={() => selectTarget(null)} />}
-              <ChatLog items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} sandbox={sandboxActions} onReviewPublish={taskId ? reviewPublish : undefined} prFeedback={prFeedback} />
+              <ChatLog items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} sandbox={sandboxActions} onReviewPublish={taskId ? reviewPublish : undefined} prFeedback={prFeedback}
+                sandboxInternet={taskId && sbxTask ? !!sbxTask.internet : undefined} />
               {status}
               <Chips items={chips} onPick={s => { setInput(s); inputRef.current?.focus(); }} />
               {composer}
@@ -475,9 +536,16 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
           )}
         </section>
 
+        {pv && !chatHidden && (
+          <div className={styles.split} role="separator" aria-orientation="vertical" aria-label={t.resizeChat} title={t.resizeChat} tabIndex={0}
+            aria-valuemin={CHAT_MIN} aria-valuemax={CHAT_MAX} aria-valuenow={chatWidth ?? defaultWidth}
+            onPointerDown={onHandleDown} onKeyDown={onHandleKey} onDoubleClick={() => { setChatWidth(null); store(CHAT_WIDTH_KEY, ''); }} />
+        )}
+
         {taskId ? (
           <SandboxPanel key={taskId} taskId={taskId} className={styles.right} reload={state.previewReload} busy={busy} files={state.items.filter(i => i.kind === 'file').length}
             onClose={overlay ? () => setPreviewOpen(false) : undefined} onTask={onSandboxTask} onChatEvent={liveEvent} proposal={proposal} openPr={openPr} onPublished={published}
+            feedbackOpen={feedbackOpen} chatHidden={chatHidden} onToggleChat={overlay ? undefined : () => setChatHidden(h => !h)}
             onSendNotes={text => { if (busyRef.current) setInput(text); else { setPreviewOpen(false); void run(text); } }} />
         ) : <PreviewPane className={styles.right} tab={state.tab} onTab={t => dispatch({ type: 'set_tab', tab: t })} draft={state.draft}
           liveUrl={liveUrl} onOpenAudit={() => setAuditOpen(true)} busy={busy} onClose={overlay ? () => setPreviewOpen(false) : undefined}
@@ -486,7 +554,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       </main>
 
       <AuditDialog audit={state.draft?.audit ?? null} open={auditOpen} onClose={() => setAuditOpen(false)} />
-      {chatId && shell.sandbox && <AttachSandboxDialog open={sbxDialog !== false} onClose={() => setSbxDialog(false)} chatId={chatId} initial={sbxDialog || null} onCreated={attached} />}
+      {chatId && shell.sandbox && <AttachSandboxDialog open={sbxDialog !== false} onClose={() => setSbxDialog(false)} chatId={chatId} initial={sbxDialog || null} onCreated={attached} dockerDown={!!sbxBlocked} />}
       <StyleguideDialog sg={sg} open={sgOpen} onClose={() => setSgOpen(false)}
         onSaved={s => dispatch({ type: 'set_styleguide', sg: s })} onReanalyze={onboard} />
     </div>

@@ -1,8 +1,8 @@
 'use client';
 
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { announceAnswer } from '@/lib/a11y';
-import type { LogItem } from '@/lib/chat-state';
+import type { LogItem, Step } from '@/lib/chat-state';
 import type { AppConfig } from '@/lib/protocol';
 import { useLocale } from '@/lib/i18n/I18nProvider';
 import { ChangeSetCard } from './ChangeSetCard';
@@ -34,6 +34,27 @@ interface Props {
   onReviewPublish?: (p: PrProposal) => void;
   /** pr_feedback cards: hand over to the AI, finish the task (merged/closed); missing = Sandbox Coding off */
   prFeedback?: PrFeedbackActions;
+  /** internet state of the attached sandbox (an allowed request card says when it was blocked again); undefined = unknown */
+  sandboxInternet?: boolean | null;
+}
+
+/** Tools whose result is its own card (file, command, proposal, request): no extra work-step line for them unless they failed. */
+const CARD_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'write_file', 'edit_file', 'delete_file', 'sandbox_bash', 'start_sandbox', 'propose_publish', 'request_internet']);
+const stepsShown = (steps: Step[]) => steps.filter(s => s.state === 'bad' || !CARD_TOOLS.has(s.name));
+
+/** Per pull request proposal: the PR card that followed it (published), or whether a PR already existed before (then "aktualisieren"). */
+function proposalStates(items: LogItem[]) {
+  const out = new Map<string, { publishedAs: { number: number; url: string } | null; update: boolean }>();
+  let lastPr: { number: number; url: string } | null = null;
+  const pending: string[] = [];
+  for (const i of items) {
+    if (i.kind === 'publish') { out.set(i.key, { publishedAs: null, update: !!lastPr }); pending.push(i.key); }
+    else if (i.kind === 'pr') {
+      lastPr = { number: i.number, url: i.url };
+      for (const k of pending.splice(0)) out.set(k, { publishedAs: lastPr, update: false });
+    }
+  }
+  return out;
 }
 
 function AnswerStatus({ busy, hasAnswer }: { busy: boolean; hasAnswer: boolean }) {
@@ -51,7 +72,7 @@ const NEAR_END = 140;
 const FORCE_FOLLOW = new Set<LogItem['kind']>(['user', 'question', 'changeset', 'publish', 'pr', 'sandbox_offer', 'internet', 'pr_feedback']);
 
 /** Chat log. Stays "stuck" to the end as long as the user has not scrolled up. */
-export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStyleguide, busy = false, className, children, sandbox, onReviewPublish, prFeedback }: Props) {
+export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStyleguide, busy = false, className, children, sandbox, onReviewPublish, prFeedback, sandboxInternet }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const lastKey = useRef<string | null>(null);
@@ -67,6 +88,7 @@ export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStylegui
 
   const last = items.at(-1);
   const hasAnswer = last?.kind === 'ai' && !!last.text;
+  const proposals = useMemo(() => proposalStates(items), [items]);
 
   return (
     <div ref={ref} className={[styles.log, className].filter(Boolean).join(' ')} role="log" aria-live="polite" aria-relevant="additions"
@@ -78,7 +100,7 @@ export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStylegui
           case 'user': return <UserMessage key={item.key} text={item.text} attachments={item.attachments} files={item.files} />;
           case 'ai': return item.text ? <AiMessage key={item.key} text={item.text} /> : null;
           case 'error': return <ErrorMessage key={item.key} text={item.text} />;
-          case 'steps': return <Steps key={item.key} steps={item.steps} />;
+          case 'steps': { const shown = stepsShown(item.steps); return shown.length ? <Steps key={item.key} steps={shown} /> : null; }
           case 'image': return <ImageCard key={item.key} url={item.url} alt={item.alt} fileName={item.fileName} />;
           case 'question':
             return <QuestionCard key={item.key} question={item.question} options={item.options} answer={item.answer} interactive={item.interactive}
@@ -91,12 +113,13 @@ export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStylegui
           case 'file': return <FileChangeCard key={item.key} path={item.path} kind={item.change} added={item.added} removed={item.removed} />;
           case 'command': return <CommandCard key={item.key} c={item} />;
           case 'sandbox': return <SandboxStatusLine key={item.key} state={item.state} message={item.message} />;
-          case 'publish': return <PublishProposalCard key={item.key} title={item.title} body={item.body} onReview={onReviewPublish ? () => onReviewPublish({ key: item.key, title: item.title, body: item.body }) : undefined} />;
+          case 'publish': return <PublishProposalCard key={item.key} title={item.title} body={item.body} {...proposals.get(item.key)}
+            onReview={onReviewPublish ? () => onReviewPublish({ key: item.key, title: item.title, body: item.body }) : undefined} />;
           case 'pr': return <PrCard key={item.key} taskId={item.taskId} pr={item} done={{ action: item.action, files: item.files }} />;
           case 'pr_feedback': return <PrFeedbackCard key={item.key} item={item} actions={prFeedback} />;
           case 'sandbox_offer': return <SandboxOfferCard key={item.key} offer={item} actions={sandbox} />;
           case 'sandbox_attached': return <SandboxAttachedLine key={item.key} repo={item.repo} baseBranch={item.baseBranch} />;
-          case 'internet': return <InternetRequestCard key={item.key} item={item} onDecide={allow => onDecide(item.approvalId, allow)} />;
+          case 'internet': return <InternetRequestCard key={item.key} item={item} on={sandboxInternet} onDecide={allow => onDecide(item.approvalId, allow)} />;
         }
       })}
     </div>

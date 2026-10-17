@@ -1,0 +1,10 @@
+.menu { position: relative; flex: none; display: inline-flex; }
+.trigger { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 8px; color: var(--ink); }
+.trigger[aria-expanded="true"] { border-color: var(--dark); }
+.list { position: absolute; top: calc(100% + 4px); z-index: 30; min-width: 220px; margin: 0; padding: 6px; list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-pop); }
+.list[data-align="end"] { right: 0; }
+.list[data-align="start"] { left: 0; }
+.item { display: flex; width: 100%; align-items: center; gap: 8px; padding: 7px 10px; border: 0; border-radius: 7px; background: none; color: var(--ink); font-size: 14px; text-align: left; text-decoration: none; cursor: pointer; white-space: nowrap; }
+.item:hover, .item:focus-visible { background: var(--bg); text-decoration: none; }
+.item[aria-disabled="true"] { color: var(--mute); cursor: default; opacity: .6; }
+.danger { color: var(--warn); }

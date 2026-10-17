@@ -3,16 +3,18 @@
 import Link from 'next/link';
 import type { CodeTaskPublic } from '@/lib/protocol';
 import { useI18n } from '@/lib/i18n/I18nProvider';
-import { statusTone } from '@/lib/sandbox-task';
+import { middleTruncate, statusTone } from '@/lib/sandbox-task';
 import { useShell } from '@/components/shell/ShellProvider';
+import { Spinner } from '@/components/ui/Spinner';
 import styles from './Sandbox.module.css';
 
-/** Status pip + text; done with a pull request reads "Veröffentlicht". */
-export function TaskStatus({ task }: { task: Pick<CodeTaskPublic, 'status' | 'prUrl'> }) {
+/** Status badge: pip + text; while an action of the user runs (`pending`, e.g. "Pausiere …") a spinner with that text instead. */
+export function TaskStatus({ task, pending }: { task: Pick<CodeTaskPublic, 'status'>; pending?: string | null }) {
   const t = useI18n().t.sandbox.tasks;
+  if (pending) return <span className={styles.status} data-tone="busy" role="status"><Spinner size={11} />{pending}</span>;
   return (
     <span className={styles.status} data-tone={statusTone(task.status)}>
-      <i className={styles.pip} aria-hidden="true" />{task.status === 'done' && task.prUrl ? t.published : t.status[task.status]}
+      {statusTone(task.status) === 'busy' ? <Spinner size={11} /> : <i className={styles.pip} aria-hidden="true" />}{t.status[task.status]}
     </span>
   );
 }
@@ -30,7 +32,7 @@ export function TaskList({ tasks }: { tasks: CodeTaskPublic[] }) {
         const inner = (
           <>
             <span className={styles.taskTitle}>{task.title}</span>
-            <span className={styles.taskMeta}>{task.repo} @ {task.baseBranch}</span>
+            <span className={styles.taskMeta} title={`${task.repo} @ ${task.baseBranch}`}>{middleTruncate(task.repo, 40)} @ {task.baseBranch}</span>
             <TaskStatus task={task} />
           </>
         );
@@ -39,7 +41,7 @@ export function TaskList({ tasks }: { tasks: CodeTaskPublic[] }) {
             {task.chatId
               ? <Link href="/" className={styles.taskRow} title={t.openChat} onClick={e => { e.preventDefault(); nav.openChat(task.chatId!); }}>{inner}</Link>
               : <Link href={`/sandbox-coding/${task.id}`} className={styles.taskRow}>{inner}</Link>}
-            {task.pr && <a className={styles.taskPr} href={task.pr.url} target="_blank" rel="noopener noreferrer" title={task.pr.title}>#{task.pr.number}{task.pr.state ? ` · ${prState[task.pr.state]}` : ''}</a>}
+            {task.pr && <a className={styles.taskPr} href={task.pr.url} target="_blank" rel="noopener noreferrer" title={task.pr.title}>PR #{task.pr.number}{task.pr.state ? ` · ${prState[task.pr.state]}` : ''}</a>}
           </li>
         );
       })}

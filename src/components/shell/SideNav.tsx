@@ -245,6 +245,7 @@ function HistoryRow({ chat: c, state, active, confirming, onOpen, onAskDelete, o
           {c.target?.name && <>{c.target.name} · </>}<time dateTime={c.updatedAt} suppressHydrationWarning>{ago(c.updatedAt, undefined, locale)}</time>
           {c.published > 0 && <span className={styles.pub} title={t.nav.published(c.published)}> · ✓ {c.published}</span>}
           {c.taskId && <span className={styles.code} title={t.nav.codeChat}> · {t.nav.codeBadge}</span>}
+          {!c.taskId && c.sandboxDone && <span className={cx(styles.code, styles.codeDone)} title={t.nav.codeDoneChat}> · {t.nav.codeDoneBadge}</span>}
         </small>
       </button>
       <button type="button" className={styles.del} onClick={onAskDelete} aria-label={t.nav.deleteChat(c.title)} title={t.common.delete}><IconTrash size={15} /></button>

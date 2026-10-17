@@ -52,6 +52,8 @@ export const de = {
   published: (n: number) => `${n}× veröffentlicht`,
   codeBadge: 'Sandbox',
   codeChat: 'Chat mit angehängter Sandbox (Sandbox Coding)',
+  codeDoneBadge: 'Sandbox (abgeschlossen)',
+  codeDoneChat: 'Die Sandbox dieses Chats ist abgeschlossen (Container und Arbeitskopie gelöscht).',
   deleteChat: (title: string) => `Chat „${title}“ löschen`,
   status: {
     shopUnloaded: 'Shop nicht geladen',
@@ -119,6 +121,8 @@ export const en: typeof de = {
   published: (n: number) => `published ${n}×`,
   codeBadge: 'Sandbox',
   codeChat: 'Chat with an attached sandbox (Sandbox Coding)',
+  codeDoneBadge: 'Sandbox (finished)',
+  codeDoneChat: 'The sandbox of this chat is finished (container and working copy deleted).',
   deleteChat: (title: string) => `Delete chat “${title}”`,
   status: {
     shopUnloaded: 'Shop not loaded',

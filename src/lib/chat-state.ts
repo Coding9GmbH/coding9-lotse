@@ -33,7 +33,7 @@ export type LogItem =
   // chats with an attached sandbox (Sandbox Coding)
   | { kind: 'file'; key: string; path: string; change: FileChangeKind; added: number; removed: number }
   | { kind: 'command'; key: string; id: string; command: string; args?: Record<string, string>; status: 'running' | 'ok' | 'failed'; exitCode?: number; tail?: string; ms?: number }
-  | { kind: 'sandbox'; key: string; state: 'waking' | 'ready' | 'failed'; message?: string }
+  | { kind: 'sandbox'; key: string; state: 'waking' | 'ready' | 'failed' | 'finished'; message?: string }
   | { kind: 'publish'; key: string; title: string; body: string }
   | { kind: 'pr'; key: string; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
   | { kind: 'sandbox_offer'; key: string; id: string; repo: string; baseBranch: string; reason: string }

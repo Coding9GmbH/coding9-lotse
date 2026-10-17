@@ -4,5 +4,7 @@
 .dialog::backdrop { background: #2e2e3899; }
 .head { display: flex; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); gap: 10px; }
 .head h2 { margin: 0; font-size: 18px; flex: 1; }
+.close { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--ink); }
+.close:hover { background: var(--bg); }
 .body { padding: 18px 20px; overflow: auto; max-height: 62vh; max-height: 62dvh; }
 .foot { display: flex; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--line); justify-content: flex-end; background: var(--bg); flex-wrap: wrap; }

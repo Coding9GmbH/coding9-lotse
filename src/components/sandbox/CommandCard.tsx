@@ -4,6 +4,8 @@ import type { LogItem } from '@/lib/chat-state';
 import { INTL_LOCALE } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { Button } from '@/components/ui/Button';
+import { IconCheck } from '@/components/ui/icons';
+import { Markdown } from '@/components/chat/Message';
 import styles from './CodeCards.module.css';
 
 type Command = Extract<LogItem, { kind: 'command' }>;
@@ -38,23 +40,33 @@ export function CommandCard({ c }: { c: Command }) {
   );
 }
 
-/** Status of the task's container before a turn (waking → ready, or failed). */
-export function SandboxStatusLine({ state, message }: { state: 'waking' | 'ready' | 'failed'; message?: string }) {
+/** Status of the task's container (waking → ready, a failed setup, finished): a static check once finished. */
+export function SandboxStatusLine({ state, message }: { state: 'waking' | 'ready' | 'failed' | 'finished'; message?: string }) {
   const t = useI18n().t.sandbox.code.sandbox;
-  return <p className={`${styles.sbx} ${styles[`sbx_${state}`]}`} role="status"><i aria-hidden="true" />{t[state]}{state === 'failed' && message ? `: ${message}` : ''}</p>;
+  return (
+    <p className={`${styles.sbx} ${styles[`sbx_${state}`]}`} role="status">
+      {state === 'finished' ? <IconCheck size={13} className={styles.sbxCheck} /> : <i aria-hidden="true" />}{t[state]}{state === 'failed' && message ? `: ${message}` : ''}
+    </p>
+  );
 }
 
-/** The AI's proposal for a pull request: title and description only, nothing is published from here. With a sandbox attached,
- *  "Prüfen und veröffentlichen" opens the "Pull Request" tab with it (only the click there publishes). */
-export function PublishProposalCard({ title, body, onReview }: { title: string; body: string; onReview?: () => void }) {
+/** The AI's proposal for a pull request: title and description (Markdown, rendered like the chat), nothing is published from here.
+ *  With a sandbox attached, "Prüfen und veröffentlichen" opens the "Pull Request" tab with it (only the click there publishes).
+ *  `publishedAs`: a pull request was created or updated after this proposal; `update`: a PR exists and this proposal is newer. */
+export function PublishProposalCard({ title, body, onReview, publishedAs, update }: {
+  title: string; body: string; onReview?: () => void; publishedAs?: { number: number; url: string } | null; update?: boolean;
+}) {
   const t = useI18n().t.sandbox.code.publish;
   return (
     <section className={styles.pub} aria-label={t.heading}>
       <h3>{t.heading}</h3>
       <p><b>{title}</b></p>
-      {body && <p className={styles.pubBody}>{body}</p>}
-      {onReview ? <div className={styles.pubBtns}><Button size="sm" variant="primary" onClick={onReview}>{t.review}</Button></div> : <p className={styles.pubNote}>{t.note}</p>}
-      {onReview && <p className={styles.pubNote}>{t.reviewNote}</p>}
+      {body && <Markdown text={body} className={styles.pubBody} />}
+      {publishedAs
+        ? <p className={styles.pubDone}><IconCheck size={14} /><a href={publishedAs.url} target="_blank" rel="noopener noreferrer">{t.publishedAs(publishedAs.number)}</a></p>
+        : onReview
+          ? <><div className={styles.pubBtns}><Button size="sm" variant="primary" onClick={onReview}>{update ? t.reviewUpdate : t.review}</Button></div><p className={styles.pubNote}>{t.reviewNote}</p></>
+          : <p className={styles.pubNote}>{t.note}</p>}
     </section>
   );
 }
@@ -62,24 +74,36 @@ export function PublishProposalCard({ title, body, onReview }: { title: string; 
 /** start_sandbox / chat: what a card needs to attach a sandbox to this chat. */
 export interface SandboxOfferActions {
   /** a sandbox is attached already (the card is only a record then) */ attached: boolean;
-  /** direct = create with the card's repository and branch; otherwise the dialog opens prefilled */
-  start: (offer: { repo: string; baseBranch: string }, direct: boolean) => void;
+  /** direct = create with the card's repository and branch (title from the reason); otherwise the dialog opens prefilled */
+  start: (offer: { repo: string; baseBranch: string; reason: string }, direct: boolean) => void;
   busy?: boolean;
+  /** why a sandbox cannot start right now (Docker unreachable), shown as the button's tooltip */ blocked?: string | null;
 }
 
-/** The AI proposes a sandbox (start_sandbox): nothing starts until the user clicks. */
+/** Default title (and branch slug) of a sandbox started from the AI's card: its reason, shortened to about 60 characters at a word. */
+export function offerTitle(reason: string): string {
+  const r = reason.replace(/\s+/g, ' ').trim();
+  if (r.length <= 60) return r.replace(/[.:;,]$/, '');
+  const cut = r.slice(0, 60), sp = cut.lastIndexOf(' ');
+  return `${(sp > 30 ? cut.slice(0, sp) : cut).replace(/[.:;,]$/, '')} …`;
+}
+
+/** The AI proposes a sandbox (start_sandbox): nothing starts until the user clicks. Once a sandbox is attached, the card folds into
+ *  one line (the "Sandbox angehängt" line below says the rest). */
 export function SandboxOfferCard({ offer, actions }: { offer: Offer; actions?: SandboxOfferActions }) {
   const t = useI18n().t.sandbox.code.offer;
   const where = offer.repo ? `${offer.repo}${offer.baseBranch ? ` @ ${offer.baseBranch}` : ''}` : t.noRepo;
+  if (actions?.attached) return <p className={styles.sbx} role="note"><IconCheck size={13} className={styles.sbxCheck} />{t.accepted}: {offer.reason}</p>;
   return (
     <section className={styles.offer} aria-label={t.heading}>
       <h3>{t.heading}</h3>
       <p>{offer.reason}</p>
       <p className={styles.offerRepo}><code>{where}</code></p>
-      {!actions ? <p className={styles.pubNote}>{t.off}</p> : actions.attached ? <p className={styles.pubNote}>{t.attached}</p> : (
+      <p className={styles.pubNote}>{t.note}</p>
+      {!actions ? <p className={styles.pubNote}>{t.off}</p> : (
         <div className={styles.offerBtns}>
-          <Button size="sm" variant="primary" disabled={actions.busy} onClick={() => actions.start(offer, !!offer.repo && !!offer.baseBranch)}>{t.start}</Button>
-          <Button size="sm" disabled={actions.busy} onClick={() => actions.start(offer, false)}>{t.adjust}</Button>
+          <Button variant="primary" disabled={actions.busy || !!actions.blocked} title={actions.blocked ?? undefined} onClick={() => actions.start(offer, !!offer.repo && !!offer.baseBranch)}>{t.start}</Button>
+          <Button disabled={actions.busy} onClick={() => actions.start(offer, false)}>{t.adjust}</Button>
         </div>
       )}
     </section>
@@ -92,11 +116,13 @@ export function SandboxAttachedLine({ repo, baseBranch }: { repo: string; baseBr
   return <p className={`${styles.sbx} ${styles.sbx_ready}`} role="status"><i aria-hidden="true" />{t.attachedLine(repo, baseBranch)}</p>;
 }
 
-/** request_internet: the AI asks for internet in the task container. Only the click on "Für diese Aufgabe erlauben" attaches it. */
-export function InternetRequestCard({ item, onDecide }: { item: InternetAsk; onDecide: (allow: boolean) => void }) {
+/** request_internet: the AI asks for internet in the task container. Only the click on "Für diese Sandbox erlauben" attaches it.
+ *  A risk decision: coral like the feedback card. `on`: the sandbox's current internet state (an allowed request may be blocked again since). */
+export function InternetRequestCard({ item, onDecide, on }: { item: InternetAsk; onDecide: (allow: boolean) => void; on?: boolean | null }) {
   const t = useI18n().t.sandbox.code.internet;
+  const allowed = item.decision === true && !item.error && !item.restart;
   return (
-    <section className={styles.offer} aria-label={t.heading}>
+    <section className={`${styles.offer} ${styles.risk}`} aria-label={t.heading}>
       <h3>{t.heading}</h3>
       <p>{t.reason(item.reason)}</p>
       <p className={styles.pubNote}>{t.note}</p>
@@ -105,7 +131,7 @@ export function InternetRequestCard({ item, onDecide }: { item: InternetAsk; onD
           <Button size="sm" variant="primary" onClick={() => onDecide(true)}>{t.allow}</Button>
           <Button size="sm" onClick={() => onDecide(false)}>{t.deny}</Button>
         </div>
-      ) : <p className={styles.offerRepo} role="status"><b>{item.error ? t.failed : item.restart ? t.restart : item.decision === true ? t.allowed : item.decision === false ? t.denied : t.open}</b>{item.error ? ` ${item.error}` : null}</p>}
+      ) : <p className={styles.offerRepo} role="status"><b>{item.error ? t.failed : item.restart ? t.restart : allowed ? (on === false ? t.revokedSince : t.allowed) : item.decision === false ? t.denied : t.open}</b>{item.error ? ` ${item.error}` : null}</p>}
     </section>
   );
 }
