@@ -66,10 +66,13 @@ networks:
   # Lotse ↔ socket proxy only
   docker-api:
     internal: true
-  # Lotse ↔ task containers; internal = no route to the internet or the live shop
+  # Lotse ↔ task containers; internal = no route to the internet; isolated gateway (Docker Engine 28+) = the host has no
+  # address on this bridge, so task containers reach neither the host's services nor a live shop on the same server
   lotse-sandbox:
     name: lotse-sandbox
     internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
     ipam:
       config:
         - subnet: 10.213.0.0/24   # keep in sync with LOTSE_SANDBOX_SUBNET above

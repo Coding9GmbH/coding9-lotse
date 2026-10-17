@@ -10,7 +10,7 @@ for (const k of ['LOTSE_SANDBOX', 'LOTSE_PASSWORD', 'ALLOWED_HOSTS', 'HOSTNAME',
 const E = await import('../../src/server/sandbox/env');
 const { FakeRunner } = await import('../../src/server/sandbox/fake-runner');
 const { setRunner } = await import('../../src/server/sandbox/runner');
-const { ensureNetwork, networkMode } = await import('../../src/server/sandbox/network');
+const { ensureNetwork, networkMode, openHostPorts } = await import('../../src/server/sandbox/network');
 const { kvGet, kvSet, auditList } = await import('../../src/server/db');
 const { redact } = await import('../../src/server/settings');
 const envRoute = await import('../../src/app/api/sandbox/env/route');
@@ -184,19 +184,40 @@ test('network: created internal + labelled; a foreign or open network is refused
   assert.equal(networkMode({ AICB_DOCKER: '1' }), 'network');
   assert.equal(networkMode({ AICB_DOCKER: '1', LOTSE_SANDBOX_NETWORK: 'local' }), 'local');
   const r = new FakeRunner();
-  assert.deepEqual(await ensureNetwork(r, null), { created: true });
-  assert.deepEqual(r.networks.get('lotse-sandbox'), { name: 'lotse-sandbox', internal: true, labels: { 'lotse.managed': '1' }, subnets: [] });
-  assert.deepEqual(await ensureNetwork(r, null), { created: false });
+  assert.deepEqual(await ensureNetwork(r, null, 'local'), { created: true });
+  assert.deepEqual(r.networks.get('lotse-sandbox'), { name: 'lotse-sandbox', internal: true, labels: { 'lotse.managed': '1' }, subnets: [], isolated: false });
+  assert.deepEqual(await ensureNetwork(r, null, 'local'), { created: false });
   // pinned subnet (LOTSE_SANDBOX_SUBNET): created with it; an existing network on another subnet is refused
-  await assert.rejects(ensureNetwork(r, '10.213.0.0/24'), /Subnetz 10\.213\.0\.0\/24/);
+  await assert.rejects(ensureNetwork(r, '10.213.0.0/24', 'local'), /Subnetz 10\.213\.0\.0\/24/);
   r.networks.clear();
-  assert.deepEqual(await ensureNetwork(r, '10.213.0.0/24'), { created: true });
+  assert.deepEqual(await ensureNetwork(r, '10.213.0.0/24', 'local'), { created: true });
   assert.deepEqual(r.networks.get('lotse-sandbox')?.subnets, ['10.213.0.0/24']);
-  assert.deepEqual(await ensureNetwork(r, '10.213.0.0/24'), { created: false });
-  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: false, labels: { 'lotse.managed': '1' }, subnets: [] });
-  await assert.rejects(ensureNetwork(r, null), /nicht intern/);
-  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: true, labels: {}, subnets: [] });
-  await assert.rejects(ensureNetwork(r, null), /gehört nicht zu Lotse/);
+  assert.deepEqual(await ensureNetwork(r, '10.213.0.0/24', 'local'), { created: false });
+  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: false, labels: { 'lotse.managed': '1' }, subnets: [], isolated: false });
+  await assert.rejects(ensureNetwork(r, null, 'local'), /nicht intern/);
+  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: true, labels: {}, subnets: [], isolated: false });
+  await assert.rejects(ensureNetwork(r, null, 'local'), /gehört nicht zu Lotse/);
+  // network mode (Lotse in Docker): the bridge is isolated from the host – created that way, an existing open one is refused
+  r.networks.clear();
+  assert.deepEqual(await ensureNetwork(r, null, 'network'), { created: true });
+  assert.equal(r.networks.get('lotse-sandbox')?.isolated, true);
+  await assert.rejects(ensureNetwork(r, null, 'local'), /vom Host getrennt/, 'local mode cannot reach containers on an isolated bridge');
+  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: true, labels: { 'lotse.managed': '1' }, subnets: [], isolated: false });
+  await assert.rejects(ensureNetwork(r, null, 'network'), /nicht vom Host getrennt/);
+  const old = Object.assign(new FakeRunner(), { version: async () => ({ apiVersion: '1.47', version: '27.5.1' }) });
+  await assert.rejects(ensureNetwork(old, null, 'network'), /Docker Engine 28/);
+});
+
+test('local mode: open host ports seen from the container through the gateway', async () => {
+  const r = new FakeRunner();
+  const id = await r.create({ name: 'lotse-t-probe', Image: 'dockware/play:6.6.10.4', Labels: { 'lotse.managed': '1', 'lotse.task': 't_probe' }, HostConfig: { NetworkMode: 'lotse-sandbox' } });
+  await r.start(id);
+  let argv: readonly string[] = [];
+  r.script = a => { if (a[0] === 'bash' && a[3] === 'probe') { argv = a; return { output: '443\n80\nnoise\n' }; } return undefined; };
+  assert.deepEqual(await openHostPorts(r, id, '172.18.0.1', 'www-data', [80, 443, 3306]), [80, 443]);
+  assert.deepEqual(argv.slice(3), ['probe', '172.18.0.1', '80', '443', '3306'], 'gateway and ports as arguments, not in the script');
+  assert.deepEqual(await openHostPorts(r, id, '172.18.0.1; id', 'www-data'), [], 'only an IPv4 gateway');
+  await r.close();
 });
 
 test('switching off stops running containers (not removed) and closes the routes again', async () => {

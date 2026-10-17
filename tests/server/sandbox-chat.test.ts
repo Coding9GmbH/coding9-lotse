@@ -54,6 +54,8 @@ test('attaching: the task is bound to the chat, the chat lists it, a history lin
   assert.equal(getSession(chatId).taskId, taskId);
   const again = await post({ chatId, repo: 'acme/shop-theme', baseBranch: 'main' });
   assert.equal(again.status, 409);
+  // also when two requests overlap and both passed the route's early check: createTask checks again without an await in between
+  assert.throws(() => T.createTask({ chatId, repo: 'acme/shop-theme', baseBranch: 'main' }), (e: any) => e.status === 409);
   assert.equal((await post({ repo: 'acme/shop-theme', baseBranch: 'main' })).status, 400, 'chatId is required');
   // survives a restart of the session (from the database)
   sweepIdleSessions(Date.now() + 60 * 60_000);
@@ -142,18 +144,19 @@ test('native tools: every call is checked (hook and canUseTool) – inside the w
     ['Read', { file_path: path.join(worktree, '..', '..', 'git', taskId, 'config') }], ['Read', { file_path: path.join(worktree, 'outside-link') }],
     ['Read', { file_path: path.join(worktree, 'keys/deploy.pem') }], ['Write', { file_path: path.join(worktree, 'vendor/x.php'), content: 'x' }],
     ['Edit', { file_path: '/tmp/x', old_string: 'a', new_string: 'b' }], ['Glob', { pattern: '../**' }], ['Glob', { pattern: '*', path: '/etc' }],
-    ['Grep', { pattern: 'x', path: '/' }], ['Grep', { pattern: 'SECRET', glob: '.env*' }], ['Grep', { pattern: 'x', glob: '!*.php' }],
+    ['Grep', { pattern: 'x', path: '/' }], ['Grep', { pattern: 'x', path: '~/.codex' }], ['Glob', { pattern: '*', path: '~' }],
     ['Bash', { command: 'id' }], ['Task', { prompt: 'x' }], ['NotebookEdit', {}], ['WebFetch', { url: 'https://example.com' }],
   ] as const;
   for (const [tool, input] of bad) {
     assert.ok(denied(await pre(o, tool, input)), `${tool} ${JSON.stringify(input)}`);
     assert.equal((await o.canUseTool(tool, input, {})).behavior, 'deny', tool);
   }
-  // a search over the whole repository never reads the secret files: they are excluded from Grep
+  // a search never reads the secret files: the exclusion is appended as the last glob, also after a glob of the AI
   const g = await pre(o, 'Grep', { pattern: 'APP_SECRET' });
   assert.equal(g.hookSpecificOutput.permissionDecision, 'allow');
-  assert.match(g.hookSpecificOutput.updatedInput.glob, /^!\{.*\.env.*\}$/);
-  assert.match(g.hookSpecificOutput.updatedInput.glob, /deploy\.pem/);
+  assert.match(g.hookSpecificOutput.updatedInput.glob, /^!\{.*\[eE\]\[nN\]\[vV\].*\*\.\[pP\]\[eE\]\[mM\].*\}$/);
+  const g2 = await pre(o, 'Grep', { pattern: 'SECRET', glob: '.env*' });
+  assert.match(g2.hookSpecificOutput.updatedInput.glob, /^\.env\* !\{/);
 });
 
 test('after a native Write/Edit the file is mirrored into the container and shown as a card', async () => {

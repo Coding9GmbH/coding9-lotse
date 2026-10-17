@@ -150,9 +150,12 @@ export function planSteps(templateId: string, commands: { id: string; label: str
 export interface NewTask { chatId: string; title?: string; goal?: string; repo: string; baseBranch: string; dumpId?: string }
 /** Creates the row only (not running yet: runSteps sets setting_up), bound to the chat it was started from.
  *  Title (branch name, list): given, otherwise the repository's name. Own commands are taken from the environment now. */
+export const ATTACHED_MSG = 'An diesem Chat hängt schon eine Sandbox. Erst „Aufgabe abschließen“, dann eine neue starten.';
 export function createTask(p: NewTask): CodeTask {
   const cfg = getSandboxConfig(), id = newTaskId(), ts = now();
   if (!p.chatId) throw new Error('Chat fehlt.');
+  // checked again here, without an await before codeTaskPut: two overlapping requests never attach two sandboxes to one chat
+  if (attachedTask(p.chatId)) throw Object.assign(new Error(ATTACHED_MSG), { status: 409 });
   const title = (p.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || `Sandbox ${p.repo.split('/').pop() ?? p.repo}`;
   const t: CodeTask = {
     id, chatId: p.chatId, template: cfg.templateId, repo: p.repo, baseBranch: p.baseBranch, branch: branchFor(title, id),

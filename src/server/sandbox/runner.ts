@@ -21,7 +21,8 @@ export interface ContainerSpec {
   NetworkingConfig?: Record<string, unknown>;
 }
 export interface ContainerInfo { id: string; name: string; image: string; state: string; running: boolean; labels: Record<string, string>; /** storefront address on the internal network lotse-sandbox (null = not attached there) */ address: { host: string; port: number } | null }
-export interface NetworkInfo { name: string; internal: boolean; labels: Record<string, string>; /** IPAM subnets (CIDR) */ subnets: string[] }
+export interface NetworkInfo { name: string; internal: boolean; labels: Record<string, string>; /** IPAM subnets (CIDR) */ subnets: string[];
+  /** gateway_mode_ipv4=isolated: the host has no address on the bridge */ isolated: boolean; /** IPAM gateway (the host's address on the bridge) */ gateway?: string }
 export interface ExecOpts { user: string; workdir?: string; env?: string[]; timeoutMs: number; signal?: AbortSignal; stdin?: Buffer; /** keep at most this many bytes (the end of the output) */ maxOutput?: number }
 export interface ExecResult { exitCode: number; output: string; truncated: boolean }
 export interface PullProgress { text: string; pct?: number }
@@ -45,7 +46,7 @@ export interface SandboxRunner {
   /** managed containers only; extra labels narrow the list */
   list(labels?: Record<string, string>): Promise<ContainerInfo[]>;
   inspectNetwork(name: string): Promise<NetworkInfo | null>;
-  createNetwork(name: string, opts: { internal: boolean; labels: Record<string, string>; subnet?: string }): Promise<void>;
+  createNetwork(name: string, opts: { internal: boolean; labels: Record<string, string>; subnet?: string; isolated?: boolean }): Promise<void>;
 }
 
 // ---- Selection ----

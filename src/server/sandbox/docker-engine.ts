@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import type { Socket } from 'node:net';
 import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, PullProgress, SandboxRunner } from './runner';
 import { MANAGED, assertAllowedImage, assertContainerPath, assertId, assertManaged, assertSafeSpec } from './guards';
-import { SANDBOX_NET } from './labels';
+import { ISOLATED_GATEWAY, SANDBOX_NET } from './labels';
 
 const PREFERRED_API = '1.41';
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -254,11 +254,13 @@ export class DockerEngine implements SandboxRunner {
     const r = await this.call('GET', `/networks/${enc(name)}`);
     if (r.status === 404) return null;
     if (r.status !== 200) throw apiError(r, 'Netzwerk prüfen');
-    const n = this.json<{ Name: string; Internal?: boolean; Labels?: Record<string, string> | null; IPAM?: { Config?: { Subnet?: string }[] | null } }>(r);
-    return { name: n.Name, internal: n.Internal === true, labels: n.Labels ?? {}, subnets: (n.IPAM?.Config ?? []).flatMap(c => (c.Subnet ? [c.Subnet] : [])) };
+    const n = this.json<{ Name: string; Internal?: boolean; Labels?: Record<string, string> | null; Options?: Record<string, string> | null; IPAM?: { Config?: { Subnet?: string; Gateway?: string }[] | null } }>(r);
+    const cfg = n.IPAM?.Config ?? [], gateway = cfg.find(c => c.Gateway)?.Gateway;
+    return { name: n.Name, internal: n.Internal === true, labels: n.Labels ?? {}, subnets: cfg.flatMap(c => (c.Subnet ? [c.Subnet] : [])), isolated: n.Options?.[ISOLATED_GATEWAY] === 'isolated', ...(gateway ? { gateway } : {}) };
   }
-  async createNetwork(name: string, opts: { internal: boolean; labels: Record<string, string>; subnet?: string }) {
-    const r = await this.call('POST', '/networks/create', { body: { Name: name, Driver: 'bridge', Internal: opts.internal, Labels: opts.labels, CheckDuplicate: true, ...(opts.subnet ? { IPAM: { Config: [{ Subnet: opts.subnet }] } } : {}) } });
+  async createNetwork(name: string, opts: { internal: boolean; labels: Record<string, string>; subnet?: string; isolated?: boolean }) {
+    const r = await this.call('POST', '/networks/create', { body: { Name: name, Driver: 'bridge', Internal: opts.internal, Labels: opts.labels, CheckDuplicate: true,
+      ...(opts.isolated ? { Options: { [ISOLATED_GATEWAY]: 'isolated' } } : {}), ...(opts.subnet ? { IPAM: { Config: [{ Subnet: opts.subnet }] } } : {}) } });
     if (r.status !== 201) throw apiError(r, 'Netzwerk anlegen');
   }
 }
