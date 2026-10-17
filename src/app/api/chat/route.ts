@@ -12,7 +12,7 @@ const target = z.object({
   kind: z.enum(['category', 'product', 'landing']),
   id: z.string().optional(), name: z.string().optional(), path: z.string().nullable().optional(), cmsPage: z.string().nullable().optional(),
 });
-const schema = z.object({ chatId: chatIdSchema, message: z.string().min(1, 'message fehlt').max(100_000), target: target.nullable().optional(), onboarding: z.boolean().optional() });
+const schema = z.object({ chatId: chatIdSchema, message: z.string().min(1, 'message fehlt').max(100_000), target: target.nullable().optional(), onboarding: z.boolean().optional(), prFeedback: z.string().regex(/^f_[a-f0-9]{12}$/).optional() });
 
 // Start a new turn; response as an NDJSON stream (one JSON line per event). If the client leaves the chat,
 // the turn keeps running in the background, and the client can reconnect via GET.

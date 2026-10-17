@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
-import type { CodeTaskPublic, InternetPolicy, PublishResult } from '@/lib/protocol';
+import type { ChatEvent, CodeTaskPublic, InternetPolicy, PublishResult } from '@/lib/protocol';
 import { useTaskEvents } from '@/hooks/useTaskEvents';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
@@ -33,14 +33,15 @@ const SETUP = new Set(['setting_up', 'failed', 'interrupted']);
  * "Einrichtung" and switches to "Vorschau" once the sandbox is ready. `files`: file cards so far (refreshes the diff).
  * "Pull Request": the task's PR, before/after screenshots and the publish form (the AI's latest `proposal` prefilled); `openPr` changing opens that tab.
  */
-export function SandboxPanel({ taskId, className, reload, files, busy, proposal, openPr = 0, onPublished, onSendNotes, onClose, onTask }: {
+export function SandboxPanel({ taskId, className, reload, files, busy, proposal, openPr = 0, onPublished, onSendNotes, onClose, onTask, onChatEvent }: {
   taskId: string; className?: string; reload: number; files: number; busy: boolean;
   proposal?: PrProposal | null; openPr?: number; onPublished?: (r: PublishResult) => void;
   onSendNotes?: (text: string) => void; onClose?: () => void; onTask?: (task: CodeTaskPublic) => void;
+  /** events the server added to the chat between turns (PR feedback) */ onChatEvent?: (ev: ChatEvent) => void;
 }) {
   const { t: all } = useI18n();
   const t = all.sandbox.task, tc = all.sandbox.code;
-  const { task, setTask, error, gone, off } = useTaskEvents(taskId);
+  const { task, setTask, error, gone, off } = useTaskEvents(taskId, onChatEvent);
   const [tab, setTab] = useState<Tab | null>(null); // null = automatic (setup while setting up, then preview)
   const [seen, setSeen] = useState<string | null>(null);
   const [acting, setActing] = useState(false);

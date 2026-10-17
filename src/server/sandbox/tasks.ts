@@ -32,9 +32,11 @@ export interface CodeTask extends CodeTaskRow {
   /** title of the pull request (number, URL and pushed SHA are columns) */ prTitle?: string | null;
   /** publishing (running, failed or interrupted by a restart); null after success */ publish?: TaskPublish | null;
   /** internet a human allowed (container attached to lotse-sandbox-egress, internet.ts); null/missing = offline */ internet?: { since: string; via: 'chat' | 'panel' } | null;
+  /** what the PR watcher (pr-watch.ts) knows about the PR: state, head, feedback ids already reported */ prWatch?: PrWatch | null;
   /** screenshots (screenshots.ts): files in taskPaths().screenshots */ shots?: { before?: StoredShotSet | null; after?: StoredShotSet | null };
 }
 export type ShotKind = 'before' | 'after';
+export interface PrWatch { number: number; state: 'open' | 'merged' | 'closed'; headSha: string | null; seen: string[] }
 export interface StoredShotSet { at: string; items: { path: string; device: ShotDevice; file: string }[]; error?: string }
 
 export const now = () => new Date().toISOString();
@@ -140,7 +142,7 @@ export function publicTask(t: CodeTask, o: { logs?: boolean } = {}): CodeTaskPub
     steps: t.steps.map(({ id, key, label, state, startedAt, endedAt, log, error }) => ({ id, key, ...(label ? { label } : {}), state, ...(startedAt ? { startedAt } : {}), ...(endedAt ? { endedAt } : {}), log: o.logs === false ? [] : log, ...(error ? { error } : {}) })),
     container: t.containerId ? { running: t.containerRunning } : null,
     preview: previewPath(t.id), dump: t.dump ? publicTaskDump(t.dump) : null, prUrl: t.prUrl, createdAt: t.createdAt, updatedAt: t.updatedAt, lastActiveAt: t.lastActiveAt, finishedAt: t.finishedAt,
-    chatId: t.chatId, pr: t.prNumber && t.prUrl ? { number: t.prNumber, url: t.prUrl, title: t.prTitle ?? t.title } : null, publish: t.publish ?? null,
+    chatId: t.chatId, pr: t.prNumber && t.prUrl ? { number: t.prNumber, url: t.prUrl, title: t.prTitle ?? t.title, ...(t.prWatch?.number === t.prNumber && t.prWatch.state !== 'open' ? { state: t.prWatch.state } : {}) } : null, publish: t.publish ?? null,
     internet: t.internet ? { since: t.internet.since } : null,
     shots: { before: publicShots(t.id, t.shots?.before), after: publicShots(t.id, t.shots?.after) },
   };

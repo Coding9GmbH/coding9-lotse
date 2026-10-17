@@ -8,6 +8,7 @@ import { buildSystem, codeSystemFor } from './prompt';
 import { sandboxStatus } from './sandbox/env';
 import { ensureAwake, setupSettled, touchTask } from './sandbox/jobs';
 import { NATIVE_TOOLS, guardNative, nativeChange, textBefore } from './sandbox/native-tools';
+import { handOff } from './sandbox/pr-watch';
 import { attachedTask, getTask, markTurn, publishRunning, publishSettled, taskPaths } from './sandbox/tasks';
 import { syncChanged } from './sandbox/workspace-tools';
 import { getSession, noteUiLocale, persist, persistSoon } from './sessions';
@@ -23,7 +24,7 @@ import { errMsg } from './util';
 import { budgetGate, recordTurn, releaseBudget, turnCost } from './usage';
 
 // Save immediately (approvals, questions, drafts); all other history events batched (persistSoon), live-only events not at all
-const PERSIST_ON = new Set(['draft', 'styleguide', 'approval', 'changeset', 'changeset_result', 'question', 'sandbox_status', 'publish_proposal', 'pr', 'sandbox_offer', 'internet_request']);
+const PERSIST_ON = new Set(['draft', 'styleguide', 'approval', 'changeset', 'changeset_result', 'question', 'sandbox_status', 'publish_proposal', 'pr', 'sandbox_offer', 'internet_request', 'pr_feedback']);
 const LIVE_ONLY = new Set(['draft_partial', 'start', 'changeset_progress', 'preview_reload']);
 /** Chats with a sandbox: more steps per turn (explore, edit, compile, check, fix) than a shop turn */
 export const CODE_MAX_TURNS = 120;
@@ -70,7 +71,7 @@ export function recordEvent(events: ChatEvent[], ev: ChatEvent) {
  * only unsubscribes that listener; the turn keeps running (abort only via stopChat). Events go to all listeners.
  * Returns false if a turn is already running in this chat.
  */
-export function startChat({ chatId, message, target, onboarding, locale }: ChatRequest): { started: boolean; done: Promise<void> } {
+export function startChat({ chatId, message, target, onboarding, locale, prFeedback }: ChatRequest): { started: boolean; done: Promise<void> } {
   const s = getSession(chatId);
   if (s.running) return { started: false, done: Promise.resolve() };
   // An attached sandbox (Sandbox Coding) makes this turn a coding turn: only sandbox tools, no live shop
@@ -94,12 +95,14 @@ export function startChat({ chatId, message, target, onboarding, locale }: ChatR
   s.abort = ac;
   if (target && !onboarding && !code) s.target = target;
   s.title ??= (onboarding ? messages(s.locale).server.onboardingTitle : message).slice(0, 70);
+  // "An KI übergeben": the feedback card of this chat's sandbox, as data after the user's text (looked up before the user line is added)
+  const fb = prFeedback ? handOff(s.events, prFeedback, s.taskId) : null;
   s.events.push({ t: 'user', text: message }); persist(s);
   emit({ t: 'start' });
 
   const hint = code ? '' : onboarding ? '[ONBOARDING] Erstelle jetzt den Styleguide dieses Shops: 1) get_brand_signals (sieht sich Startseite, Kategorie- und Produktseiten an: Farben, Schriften, Buttons, Blockfolgen, Komponenten), 2) bei Bedarf read_page für eine typische Landingpage/Magazinseite sowie get_category/get_product/search_media für Tonalität und Bildstil, 3) Rollen der Farben ableiten (primary = Buttons/Links; Kontrast prüfen), Ansprache (Du/Sie) aus echten Texten bestimmen, 4) save_styleguide mit vollständigem Ergebnis – inklusive components (wie Buttons, Überschriften, Karten, Abschnitte im Shop wirklich aussehen) und existingBlocks (welche Blöcke/Elemente der Shop auf seinen Seiten verwendet und wofür, damit neue Seiten dieselben übernehmen), 5) in 3–4 Sätzen zusammenfassen und nach Korrekturen fragen, 6) danach EINMAL per ask_user nach festen Vorgaben für Texte fragen (z. B. Mindestlänge von SEO-Texten, Wörter die nie vorkommen, Schreibweisen, Besonderheiten einzelner Kategorien); jede genannte Vorgabe mit add_rule speichern (Bereich passend, bei Kategorie-Bezug mit categoryId). Ohne Vorgaben nichts speichern.' : targetHint(target, getPlatform(s.platform).capabilities);
 
-  const prompt = recap + (hint ? `${hint}\n${message}` : message);
+  const prompt = recap + (hint ? `${hint}\n${message}` : message) + (fb && 'prompt' in fb ? `\n\n${fb.prompt}` : '');
   const provider = getSettings().ai.provider, t0 = Date.now();
   // Cost brake (usage.ts): Claude only (Codex = subscription without USD costs). Used-up budget → no turn; otherwise the remaining budget is the turn's limit
   const gate = provider === 'claude' ? budgetGate(new Date(), chatId) : { blocked: false as const };
@@ -108,7 +111,8 @@ export function startChat({ chatId, message, target, onboarding, locale }: ChatR
   const done = (async () => {
     let end: RunEnd = { error: null }, cost: number | null = null;
     try {
-      if (gate.blocked) { const usd = (n: number) => `${n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`; end = { error: messages(s.locale).server.budgetReached(usd(gate.spent), usd(gate.budget)) }; }
+      if (fb && 'error' in fb) end = { error: fb.error };
+      else if (gate.blocked) { const usd = (n: number) => `${n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`; end = { error: messages(s.locale).server.budgetReached(usd(gate.spent), usd(gate.budget)) }; }
       else {
         const blocked = code ? await prepareCodeTurn(s, emit, ac.signal) : null; // sandbox: Sandbox Coding on, set up, container awake
         end = blocked ? { error: blocked } : ac.signal.aborted ? { error: null } : provider === 'codex' ? await runCodex(s, prompt, ac.signal, emit) : await runClaude(s, prompt, ac, emit, gate.maxUsd);

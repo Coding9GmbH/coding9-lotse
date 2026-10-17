@@ -1,7 +1,9 @@
 import zlib from 'node:zlib';
 import { expect, test } from '@playwright/test';
 import { GITHUB_TOKEN } from './support/github';
-import { githubUrl } from './support/env';
+import { E2E, githubUrl } from './support/env';
+
+const aiUrl = `http://127.0.0.1:${E2E.aiPort}`;
 
 // Sandbox Coding with the in-memory runner (LOTSE_SANDBOX_RUNNER=fake): off by default, switched on in the settings,
 // environment saved (secret value never shown again), "Umgebung prüfen" pulls the image, switched off again.
@@ -288,8 +290,32 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await page.getByRole('region', { name: 'Sandbox' }).getByRole('link', { name: 'Alle Aufgaben' }).click();
   await expect(page.locator('section[aria-labelledby="sbx-tasks"]').getByRole('link', { name: /^#\d+$/ }).first()).toBeVisible();
   await page.locator('section[aria-labelledby="sbx-tasks"]').getByRole('link', { name: /Gratis Versand/ }).first().click();
+  await expect(page.getByRole('region', { name: 'Sandbox' })).toBeVisible();
+
+  // a review on GitHub comes back into the chat (the watcher polls every 2 s here); only the click hands it to the AI
+  const prNo = Number((await page.getByRole('log').getByRole('link', { name: 'Auf GitHub öffnen' }).first().getAttribute('href'))!.split('/').pop());
+  const feedback = (data: object) => request.post(`${githubUrl}/__fake/feedback`, { data: { repo: 'acme/shop-theme', number: prNo, ...data } });
+  expect((await feedback({ reviews: [{ id: 9001, user: { login: 'reviewer' }, state: 'CHANGES_REQUESTED', body: 'Bitte „Gratis Versand“ fett setzen.' }] })).ok()).toBeTruthy();
+  const fb = page.getByRole('log').getByRole('region', { name: `Rückmeldung zu Pull Request #${prNo}` });
+  await expect(fb).toBeVisible({ timeout: 30_000 });
+  await expect(fb.getByText('Bitte „Gratis Versand“ fett setzen.')).toBeVisible();
+  await expect(fb.getByText(/Änderungen angefordert · von @reviewer/)).toBeVisible();
+  const aiRequests = async () => (await (await request.get(`${aiUrl}/__fake/requests`)).json()) as { text: string }[];
+  expect((await aiRequests()).some(r => r.text.includes('fett setzen'))).toBe(false); // nothing reaches the AI before the click
+  await fb.getByRole('button', { name: 'An KI übergeben' }).click();
+  await expect(fb.getByText('An die KI übergeben.')).toBeVisible();
+  await expect(page.getByRole('log').getByText(`Bitte setze die Rückmeldung zu Pull Request #${prNo} um (1 Punkt).`)).toBeVisible();
+  // the AI gets the review as data between delimiters, after the user's line
+  await expect.poll(async () => (await aiRequests()).some(r => /\[PR-FEEDBACK\][^]*<pr-feedback-[0-9a-f]{12}>[^]*fett setzen/.test(r.text)), { timeout: 30_000 }).toBe(true);
+  await expect(page.getByRole('button', { name: 'Senden' })).toBeVisible({ timeout: 60_000 });
+
+  // merged on GitHub: the card offers to finish the task
+  expect((await feedback({ merged: true })).ok()).toBeTruthy();
+  const merged = page.getByRole('log').getByRole('region', { name: `Pull Request #${prNo} wurde gemergt` });
+  await expect(merged).toBeVisible({ timeout: 30_000 });
   page.once('dialog', d => void d.accept());
-  await page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Aufgabe abschließen' }).click();
+  await merged.getByRole('button', { name: 'Aufgabe abschließen' }).click();
   await expect(page.getByRole('region', { name: 'Sandbox' })).toHaveCount(0);
+  await expect(merged.getByText(/Die Sandbox ist abgeschlossen/)).toBeVisible();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
 });

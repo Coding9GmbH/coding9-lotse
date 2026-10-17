@@ -57,17 +57,18 @@ export function scrub(text: string, token = getGithubToken()): string {
 }
 
 /** One GitHub API call with the stored token. `path` starts with / and is built by the caller from validated parts. */
-export async function ghFetch<T = unknown>(path: string, init: { method?: string; body?: unknown } = {}): Promise<{ data: T; headers: Headers }> {
+export async function ghFetch<T = unknown>(path: string, init: { method?: string; body?: unknown; /** If-None-Match: 304 returns data null */ etag?: string } = {}): Promise<{ data: T; headers: Headers }> {
   const token = getGithubToken();
   if (!token) throw new Error('Noch kein GitHub-Token gespeichert.');
   const method = init.method ?? 'GET';
   const send = () => fetch(`${apiBase()}${path}`, {
     method, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS),
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'Lotse', ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}) },
+    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'Lotse', ...(init.etag ? { 'if-none-match': init.etag } : {}), ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}) },
     ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
   });
   const r = await (method === 'GET' ? fetchWithRetry(send, { label: 'github' }) : send())
     .catch((e: Error & { cause?: { code?: string } }) => { throw new Error(e.name === 'TimeoutError' ? 'GitHub antwortet nicht (Timeout).' : scrub(`GitHub nicht erreichbar: ${e.cause?.code || e.message}`, token)); });
+  if (r.status === 304 && init.etag) { await r.body?.cancel().catch(() => {}); return { data: null as T, headers: r.headers }; } // unchanged (does not count against the rate limit)
   const text = await r.text();
   let json: unknown = null;
   try { json = text ? JSON.parse(text) : null; } catch { /* handled below */ }
@@ -180,4 +181,32 @@ export async function checkSummary(repo: string, sha: string): Promise<{ total: 
     else s.failure++;
   }
   return s;
+}
+
+// ---- Feedback on a pull request (pr-watch.ts): conditional GETs, raw lists; the caller filters, redacts and caps ----
+/** A list read with If-None-Match: null = unchanged since `etag`. */
+export interface Conditional<T> { data: T[] | null; etag: string | null }
+async function ghConditional<T>(path: string, etag?: string | null): Promise<Conditional<T>> {
+  const { data, headers } = await ghFetch<T[] | { check_runs?: T[] } | null>(path, { etag: etag ?? undefined });
+  if (data === null) return { data: null, etag: etag ?? null };
+  const list = Array.isArray(data) ? data : Array.isArray(data?.check_runs) ? data.check_runs : null;
+  if (!list) throw new Error('GitHub: unerwartete Antwort (keine Liste).');
+  return { data: list, etag: headers.get('etag') };
+}
+export interface RawUser { login?: unknown; type?: unknown }
+export interface RawReview { id?: unknown; user?: RawUser | null; state?: unknown; body?: unknown; html_url?: unknown }
+export interface RawComment { id?: unknown; user?: RawUser | null; body?: unknown; html_url?: unknown; path?: unknown; line?: unknown; original_line?: unknown }
+export interface RawCheckRun { id?: unknown; name?: unknown; status?: unknown; conclusion?: unknown; html_url?: unknown; output?: { title?: unknown; summary?: unknown } | null }
+/** The pull request with If-None-Match: data null = unchanged. */
+export async function getPullIfChanged(repo: string, n: number, etag?: string | null): Promise<{ pull: Pull | null; etag: string | null }> {
+  const { data, headers } = await ghFetch<RawPull | null>(`${repoPath(repo)}/pulls/${assertPullNo(n)}`, { etag: etag ?? undefined });
+  return data === null ? { pull: null, etag: etag ?? null } : { pull: toPull(data), etag: headers.get('etag') };
+}
+/** First 100 of each (enough for a sandbox PR): reviews, line comments, comments on the conversation, check runs of the head commit. */
+export const listReviews = (repo: string, n: number, etag?: string | null) => ghConditional<RawReview>(`${repoPath(repo)}/pulls/${assertPullNo(n)}/reviews?per_page=100`, etag);
+export const listReviewComments = (repo: string, n: number, etag?: string | null) => ghConditional<RawComment>(`${repoPath(repo)}/pulls/${assertPullNo(n)}/comments?per_page=100`, etag);
+export const listIssueComments = (repo: string, n: number, etag?: string | null) => ghConditional<RawComment>(`${repoPath(repo)}/issues/${assertPullNo(n)}/comments?per_page=100`, etag);
+export function listCheckRuns(repo: string, sha: string, etag?: string | null) {
+  if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('Ungültiger Commit.');
+  return ghConditional<RawCheckRun>(`${repoPath(repo)}/commits/${sha}/check-runs?per_page=100`, etag);
 }

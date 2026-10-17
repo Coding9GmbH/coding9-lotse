@@ -43,6 +43,7 @@ const env: Record<string, string | undefined> = {
   LOTSE_SANDBOX_RUNNER: 'fake', // Sandbox Coding without Docker: in-memory runner
   LOTSE_GITHUB_CLONE_BASE: `file://${themeRepo.remoteBase}`,
   LOTSE_TEST_FILE_REMOTES: '1',
+  LOTSE_PR_POLL_MS: '2000', // feedback on pull requests within seconds
   ANTHROPIC_API_KEY: 'sk-ant-e2e-fake-key',
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
   DISABLE_AUTOUPDATER: '1',
