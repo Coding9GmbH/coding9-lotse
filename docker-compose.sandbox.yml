@@ -1,0 +1,85 @@
+# Opt-in: Docker access for "Sandbox Coding" (one Shopware container per code task).
+# Use together with the default file:   make sandbox-up
+#   (= docker compose -f docker-compose.yml -f docker-compose.sandbox.yml up -d)
+# Then switch it on in Lotse: Einstellungen → Sandbox. Without this file Lotse has no Docker access at all.
+#
+# Lotse never mounts the Docker socket itself. A filtering socket proxy only lets through what the sandbox needs
+# (containers incl. start/stop, images, networks, exec); everything else (volumes, build, swarm, secrets, system, …) is refused.
+# Docker access is still root-equivalent on the host: the proxy is defence in depth, the real boundary is the container
+# spec that only the Lotse server builds (pinned dockware/shopware image, no host paths, no privileges, internal network).
+services:
+  docker-proxy:
+    # pinned by digest (v0.5.0); update deliberately
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    container_name: lotse-docker-proxy
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+      ALLOW_RESTARTS: 0
+      ALLOW_PAUSE: 0
+      ALLOW_UNPAUSE: 0
+      IMAGES: 1
+      NETWORKS: 1
+      EXEC: 1
+      POST: 1
+      PING: 1
+      VERSION: 1
+      EVENTS: 0
+      AUTH: 0
+      SECRETS: 0
+      BUILD: 0
+      COMMIT: 0
+      CONFIGS: 0
+      DISTRIBUTION: 0
+      GRPC: 0
+      INFO: 0
+      NODES: 0
+      PLUGINS: 0
+      SERVICES: 0
+      SESSION: 0
+      SWARM: 0
+      SYSTEM: 0
+      TASKS: 0
+      VOLUMES: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [docker-api]          # no published port: only Lotse reaches the proxy
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  lotse:
+    environment:
+      DOCKER_HOST: tcp://docker-proxy:2375
+      LOTSE_SANDBOX_NETWORK: network
+      # = subnet of lotse-sandbox below: Lotse refuses every request from it (task containers never reach the Lotse API)
+      LOTSE_SANDBOX_SUBNET: 10.213.0.0/24
+      # = subnet of lotse-sandbox-egress, the network a task container joins only while a human allowed internet for it
+      # (Lotse creates it on demand, not attached to it itself); refused just the same
+      LOTSE_SANDBOX_EGRESS_SUBNET: 10.214.0.0/24
+    networks: [default, docker-api, lotse-sandbox]
+    depends_on: [docker-proxy]
+
+networks:
+  default: {}
+  # Lotse ↔ socket proxy only
+  docker-api:
+    internal: true
+  # Lotse ↔ task containers; internal = no route to the internet; isolated gateway (Docker Engine 28+) = the host has no
+  # address on this bridge, so task containers reach neither the host's services nor a live shop on the same server
+  lotse-sandbox:
+    name: lotse-sandbox
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+    ipam:
+      config:
+        - subnet: 10.213.0.0/24   # keep in sync with LOTSE_SANDBOX_SUBNET above
+    labels:
+      lotse.managed: "1"
+  # lotse-sandbox-egress (internet after approval) is NOT declared here: Lotse creates it on demand with LOTSE_SANDBOX_EGRESS_SUBNET,
+  # not internal, enable_icc=false (task containers on it cannot reach each other), and Lotse itself is never attached to it.

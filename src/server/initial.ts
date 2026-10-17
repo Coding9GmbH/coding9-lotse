@@ -5,6 +5,7 @@ import { chatListLive, chatSnapshot, peekSession } from './sessions';
 import { aiConfigured, publicSettings } from './settings';
 import { loadStyleguide } from './styleguide';
 import { log } from './log';
+import { sandboxStatus } from './sandbox/env';
 import type { Locale } from '@/lib/i18n/locales';
 
 export interface ShellInitial {
@@ -12,11 +13,13 @@ export interface ShellInitial {
   styleguide: Styleguide | null;
   /** Only "configured yes/no" (without network access); the UI checks afterwards whether the shop is reachable. */
   setup: { shopware: boolean; ai: boolean };
+  /** Sandbox Coding switched on (the nav entry is shown right away, without waiting for the status) */
+  sandbox?: boolean;
 }
 
 export function shellInitial(): ShellInitial | null {
   try {
-    return { chats: chatListLive(), styleguide: loadStyleguide(), setup: { shopware: publicSettings().shopware.configured, ai: aiConfigured() } };
+    return { chats: chatListLive(), styleguide: loadStyleguide(), setup: { shopware: publicSettings().shopware.configured, ai: aiConfigured() }, sandbox: sandboxStatus().enabled };
   } catch (e) {
     log.error('Startdaten nicht lesbar', { error: e });
     return null;

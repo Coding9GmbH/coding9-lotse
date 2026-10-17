@@ -265,3 +265,58 @@ test('steps without tool_result are closed by done/run_end/replay; replay with a
   assert.deepEqual(steps(chatReducer(live, { type: 'event', event: { t: 'done', error: 'kaputt' }, mode: 'live' })).map(x => x.state), ['done', 'bad']);
   assert.deepEqual(steps(chatReducer(live, { type: 'run_end' })).map(x => x.state), ['done', 'done']);
 });
+
+test('code chat cards: file changes, a command updated in place, sandbox status as one line, proposal; replay looks like live', () => {
+  const evs: ChatEvent[] = [
+    { t: 'user', text: 'Header grün' },
+    { t: 'sandbox_status', state: 'waking' },
+    { t: 'sandbox_status', state: 'ready' },
+    { t: 'tool', id: 'a', name: 'write_file', input: {} },
+    { t: 'tool_result', id: 'a', error: false, preview: 'ok' },
+    { t: 'file_change', path: 'src/x.twig', kind: 'create', added: 3, removed: 0 },
+    { t: 'command', id: 'c1', command: 'theme-compile', status: 'running' },
+    { t: 'command', id: 'c1', command: 'theme-compile', status: 'ok', exitCode: 0, tail: 'done', ms: 7100 },
+    { t: 'preview_reload' },
+    { t: 'publish_proposal', title: 'Header', body: 'grün' },
+    { t: 'done', error: null },
+  ];
+  let live: ChatState = { ...initialChatState, busy: true };
+  for (const ev of evs) live = chatReducer(live, { type: 'event', event: ev });
+  assert.deepEqual(live.items.map(i => i.kind), ['user', 'sandbox', 'steps', 'file', 'command', 'publish']);
+  const cmd = live.items.find(i => i.kind === 'command');
+  assert.ok(cmd?.kind === 'command' && cmd.status === 'ok' && cmd.ms === 7100);
+  assert.ok(live.items[1].kind === 'sandbox' && live.items[1].state === 'ready');
+  assert.equal(live.previewReload, 1);
+  const r = replay(evs.filter(e => e.t !== 'preview_reload'));
+  assert.deepEqual(r.items.map(i => i.kind), live.items.map(i => i.kind));
+  assert.equal(r.previewReload, 0, 'replay does not reload the preview');
+});
+
+test('pull request cards: proposal and PR card look the same live and replayed', () => {
+  const evs: ChatEvent[] = [
+    { t: 'publish_proposal', title: 'Header', body: 'grün' },
+    { t: 'done', error: null },
+    { t: 'pr', taskId: 't_aaaaaaaaaaaa', number: 7, url: 'https://github.com/acme/shop-theme/pull/7', title: 'Header', action: 'created', files: 2 },
+  ];
+  let live: ChatState = { ...initialChatState, busy: true };
+  for (const ev of evs) live = chatReducer(live, { type: 'event', event: ev });
+  const r = replay(evs);
+  assert.deepEqual(live.items.map(i => i.kind), ['publish', 'pr']);
+  assert.deepEqual(r.items.map(i => i.kind), ['publish', 'pr']);
+  assert.ok(r.items[0].kind === 'publish' && r.items[0].title === 'Header' && r.items[0].body === 'grün');
+  const { key: _k1, ...a } = live.items[1], { key: _k2, ...b } = r.items[1]; // eslint-disable-line @typescript-eslint/no-unused-vars
+  assert.deepEqual(a, b);
+  assert.ok(b.kind === 'pr' && b.number === 7 && b.action === 'created' && b.files === 2);
+});
+
+test('PR feedback: one card per id (chat stream and sandbox panel may both deliver it), handed over updates it; replay equals live', () => {
+  const fb: ChatEvent = { t: 'pr_feedback', id: 'f_aaaaaaaaaaaa', taskId: 't_aaaaaaaaaaaa', number: 7, url: 'https://github.com/acme/shop-theme/pull/7', items: [{ kind: 'review', id: 'r1', author: 'rev', state: 'CHANGES_REQUESTED', body: 'Bitte fett.' }] };
+  let live: ChatState = initialChatState;
+  for (const ev of [fb, fb]) live = chatReducer(live, { type: 'event', event: ev });
+  assert.equal(live.items.length, 1);
+  live = chatReducer(live, { type: 'event', event: { ...fb, handedOver: true } });
+  assert.ok(live.items.length === 1 && live.items[0].kind === 'pr_feedback' && live.items[0].handedOver === true);
+  const merged: ChatEvent = { t: 'pr_feedback', id: 'f_bbbbbbbbbbbb', taskId: 't_aaaaaaaaaaaa', number: 7, url: 'https://github.com/acme/shop-theme/pull/7', items: [], state: 'merged' };
+  const r = replay([{ ...fb, handedOver: true }, merged]);
+  assert.deepEqual(r.items.map(i => i.kind === 'pr_feedback' && [i.id, i.handedOver ?? false, i.state ?? null]), [['f_aaaaaaaaaaaa', true, null], ['f_bbbbbbbbbbbb', false, 'merged']]);
+});

@@ -2,10 +2,11 @@
 import type { FileAttachment } from './attachments';
 import type { CheckListItem } from './custom-checks';
 import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget } from './knowledge';
-import type { CodexLoginState, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
+import { createLineSplitter } from './ndjson';
+import type { CodexLoginState, GithubBranch, GithubPublic, GithubRepo, GithubTestResult, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
-  PublicSettings, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
-} from './protocol';
+  CodeTaskPublic, DumpPublic, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
+  PrStatus, PublishRequest, PublishResult } from './protocol';
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -67,6 +68,39 @@ export const api = {
   disconnectSistrix: () => request<SistrixPublic>('/api/sistrix', { method: 'DELETE' }),
   testSistrix: () => request<SistrixTestResult>('/api/sistrix/test', { method: 'POST' }),
   sistrixOverview: () => request<SistrixOverview>('/api/sistrix/overview'),
+  github: {
+    get: () => request<GithubPublic>('/api/github'),
+    save: (token: string) => request<GithubPublic>('/api/github', json('PUT', { token })),
+    disconnect: () => request<GithubPublic>('/api/github', { method: 'DELETE' }),
+    test: () => request<GithubTestResult>('/api/github/test', { method: 'POST' }),
+    repos: () => request<{ repos: GithubRepo[] }>('/api/github/repos'),
+    branches: (repo: string) => request<{ branches: GithubBranch[] }>(`/api/github/branches?repo=${encodeURIComponent(repo)}`),
+  },
+  sandbox: {
+    env: () => request<SandboxEnvView>('/api/sandbox/env'),
+    save: (patch: SandboxEnvPatch) => request<SandboxEnvView>('/api/sandbox/env', json('PUT', patch)),
+    /** "Umgebung prüfen": progress lines while the image is pulled, then the result */
+    check: (onEvent: (ev: SandboxCheckEvent) => void, signal?: AbortSignal) => checkStream(onEvent, signal),
+    tasks: () => request<{ tasks: CodeTaskPublic[] }>('/api/sandbox/tasks'),
+    /** attach a sandbox to a chat (one per chat) */
+    createTask: (t: { chatId: string; title?: string; repo: string; baseBranch: string; dumpId?: string }) => request<{ task: CodeTaskPublic }>('/api/sandbox/tasks', json('POST', t)),
+    task: (id: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`),
+    deleteTask: (id: string) => request<{ ok: true }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    /** "Änderungen": workspace against the base branch */
+    diff: (id: string) => request<TaskDiff>(`/api/sandbox/tasks/${encodeURIComponent(id)}/diff`),
+    /** start | stop | pause | resume | finish; start takes the step to retry from */
+    taskAction: (id: string, action: 'start' | 'stop' | 'pause' | 'resume' | 'finish', body: { fromStep?: string; ignoreVersion?: boolean } = {}) =>
+      request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/${action}`, json('POST', body)),
+    /** "Internet: an/aus" in the status line (the user's own decision; audited) */
+    internet: (id: string, on: boolean) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/internet`, json('POST', { on })),
+    /** "Datenbank ersetzen": import an uploaded dump into the task's sandbox */
+    replaceDb: (id: string, dumpId: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/dump`, json('POST', { dumpId })),
+    dump: (id: string) => request<{ dump: DumpPublic }>(`/api/sandbox/dumps/${encodeURIComponent(id)}`),
+    deleteDump: (id: string) => request<{ ok: true }>(`/api/sandbox/dumps/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    /** "Pull Request erstellen/aktualisieren": title and description only, the server fixes branch and base */
+    publish: (id: string, p: PublishRequest) => request<PublishResult>(`/api/sandbox/tasks/${encodeURIComponent(id)}/publish`, json('POST', p)),
+    prStatus: (id: string) => request<{ pr: PrStatus | null }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/pr`),
+  },
   seoOverview: (refresh = false) => request<SeoOverview>(`/api/seo${refresh ? '?refresh=1' : ''}`),
   seoStored: () => request<SeoOverview | null>('/api/seo?stored=1'),
   seoMark: (id: string, state: SeoMark['state'] | null) => request<{ mark: SeoMark | null }>('/api/seo/marks', json('PUT', { id, state })),
@@ -103,4 +137,52 @@ export const postChat = (body: ChatRequest, signal: AbortSignal) => fetch('/api/
 /** Connect to a chat: first "snapshot", then live events while the run is active. */
 export const listenChat = (chatId: string, signal: AbortSignal) => fetch(`/api/chat?chatId=${encodeURIComponent(chatId)}`, { signal });
 
+/** NDJSON of one code task (snapshot, then live events). */
+export const listenTask = (id: string, signal: AbortSignal) => fetch(`/api/sandbox/tasks/${encodeURIComponent(id)}/events`, { signal });
+
+export const DUMP_CHUNK = 8 * 1024 * 1024;
+const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, '0')).join('');
+/** Uploads a dump in chunks of 8 MB (each with its SHA-256 where the browser offers crypto.subtle), resumable:
+ *  pass the id of an earlier, unfinished upload of the same file to continue after the bytes the server already has. */
+export async function uploadDumpChunked(file: File, o: { resumeId?: string | null; onStart?: (id: string) => void; onProgress?: (received: number, total: number) => void; signal?: AbortSignal } = {}): Promise<DumpPublic> {
+  let dump: DumpPublic | null = null;
+  if (o.resumeId) {
+    dump = await api.sandbox.dump(o.resumeId).then(r => r.dump, () => null);
+    if (dump && (dump.size !== file.size || dump.name !== file.name || dump.status === 'deleted')) dump = null;
+  }
+  dump ??= (await request<{ dump: DumpPublic }>('/api/sandbox/dumps', json('POST', { name: file.name, size: file.size }))).dump;
+  o.onStart?.(dump.id);
+  if (dump.status === 'ready') return dump;
+  let offset = dump.received, stuck = 0;
+  o.onProgress?.(offset, file.size);
+  const subtle = typeof crypto !== 'undefined' ? crypto.subtle : undefined; // missing outside secure contexts
+  while (offset < file.size) {
+    const part = file.slice(offset, Math.min(file.size, offset + DUMP_CHUNK));
+    const sum = subtle ? hex(await subtle.digest('SHA-256', await part.arrayBuffer())) : null;
+    const r = await fetch(`/api/sandbox/dumps/${encodeURIComponent(dump.id)}?offset=${offset}`, withHeader({ method: 'PUT', body: part, signal: o.signal, headers: { 'content-type': 'application/octet-stream', ...(sum ? { 'x-chunk-sha256': sum } : {}) } }));
+    const body = await r.json().catch(() => null) as { received?: number; error?: string } | null;
+    if (r.status === 409 && typeof body?.received === 'number' && (body.received !== offset || ++stuck <= 5)) { // a lost answer or a chunk still being written: continue where the server is
+      if (body.received === offset) await new Promise(res => setTimeout(res, 1000));
+      offset = body.received; continue;
+    }
+    stuck = 0;
+    if (!r.ok || typeof body?.received !== 'number') throw new ApiError(body?.error ?? `HTTP ${r.status}`, r.status);
+    offset = body.received;
+    o.onProgress?.(offset, file.size);
+  }
+  return (await request<{ dump: DumpPublic }>(`/api/sandbox/dumps/${encodeURIComponent(dump.id)}/complete`, { ...json('POST', {}), signal: o.signal })).dump;
+}
+
 export const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+async function checkStream(onEvent: (ev: SandboxCheckEvent) => void, signal?: AbortSignal): Promise<void> {
+  const r = await fetch('/api/sandbox/env/check', withHeader({ method: 'POST', signal }));
+  if (!r.ok || !r.body) {
+    const body = await r.json().catch(() => null) as { error?: unknown } | null;
+    throw new ApiError(body?.error ? String(body.error) : `HTTP ${r.status}`, r.status);
+  }
+  const split = createLineSplitter(line => { try { onEvent(JSON.parse(line) as SandboxCheckEvent); } catch { /* ignore broken line */ } });
+  const reader = r.body.getReader();
+  for (;;) { const { done, value } = await reader.read(); if (done) break; split.push(value); }
+  split.end();
+}

@@ -11,7 +11,7 @@ const matches = (source: string, path: string) => source === '/:path*' || source
 const headersFor = (path: string) => Object.fromEntries(rules.filter(r => matches(r.source, path)).flatMap(r => r.headers.map(h => [h.key.toLowerCase(), h.value])));
 
 test('app routes: frame-ancestors none, DENY, object-src/base-uri/form-action, without script-src (Next inline scripts)', () => {
-  for (const path of ['/', '/settings', '/wissen', '/api/approve', '/api/settings']) {
+  for (const path of ['/', '/settings', '/wissen', '/sandbox-coding', '/sandbox-coding/t_abcdefabcdef', '/api/approve', '/api/settings']) {
     const h = headersFor(path);
     assert.equal(h['x-frame-options'], 'DENY', path);
     const csp = h['content-security-policy'] ?? '';
@@ -28,5 +28,14 @@ test('/shop, /staged and storefront paths: embeddable in our own UI, without app
     assert.equal(h['x-frame-options'], 'SAMEORIGIN', path);
     assert.equal(h['content-security-policy'], undefined, path);
     assert.equal(h['x-content-type-options'], 'nosniff');
+  }
+});
+
+test('/sbx (sandbox preview): SAMEORIGIN, no app CSP, Referer only within Lotse (the key in the path never leaves)', () => {
+  for (const path of ['/sbx/t_abcdefabcdef.0123456789abcdef0123', '/sbx/t_abcdefabcdef.0123456789abcdef0123/checkout/cart']) {
+    const h = headersFor(path);
+    assert.equal(h['x-frame-options'], 'SAMEORIGIN', path);
+    assert.equal(h['content-security-policy'], undefined, path);
+    assert.equal(h['referrer-policy'], 'same-origin', path);
   }
 });

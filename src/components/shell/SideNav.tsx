@@ -12,7 +12,7 @@ import type { ChatStatus, ChatSummary, Health } from '@/lib/protocol';
 import type { Messages } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { LanguageSwitch } from '@/components/i18n/LanguageSwitch';
-import { IconBook, IconChat, IconClose, IconHistory, IconPalette, IconPanel, IconPlus, IconSearch, IconSettings, IconTarget, IconTrash } from '@/components/ui/icons';
+import { IconBook, IconChat, IconCode, IconClose, IconHistory, IconPalette, IconPanel, IconPlus, IconSearch, IconSettings, IconTarget, IconTrash } from '@/components/ui/icons';
 import { useShell } from './ShellProvider';
 import styles from './SideNav.module.css';
 
@@ -138,6 +138,13 @@ export function SideNav() {
             </button>
           )}
         </li>
+        {s.sandbox && ( // only while Sandbox Coding is switched on (settings → Sandbox); needs no shop connection
+          <li>
+            <Link href="/sandbox-coding" className={styles.item} aria-current={path?.startsWith('/sandbox-coding') ? 'page' : undefined} onClick={close} aria-label={tip(t.sandbox)} data-tip={tip(t.sandbox)}>
+              <IconCode size={18} /><span className={styles.label}>{t.sandbox}</span>
+            </Link>
+          </li>
+        )}
       </ul>
 
       {collapsed ? (
@@ -237,6 +244,7 @@ function HistoryRow({ chat: c, state, active, confirming, onOpen, onAskDelete, o
           {state && <span className={cx(styles.stateText, styles[state])}>{t.nav.state[state]} · </span>}
           {c.target?.name && <>{c.target.name} · </>}<time dateTime={c.updatedAt} suppressHydrationWarning>{ago(c.updatedAt, undefined, locale)}</time>
           {c.published > 0 && <span className={styles.pub} title={t.nav.published(c.published)}> · ✓ {c.published}</span>}
+          {c.taskId && <span className={styles.code} title={t.nav.codeChat}> · {t.nav.codeBadge}</span>}
         </small>
       </button>
       <button type="button" className={styles.del} onClick={onAskDelete} aria-label={t.nav.deleteChat(c.title)} title={t.common.delete}><IconTrash size={15} /></button>

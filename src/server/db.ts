@@ -49,6 +49,12 @@ export const MIGRATIONS: ((d: DatabaseSync) => void)[] = [
   /* 4: AI cost per chat turn (cost brake, usage.ts) */ d => d.exec(`
     CREATE TABLE IF NOT EXISTS ai_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, chat_id TEXT, provider TEXT NOT NULL, model TEXT, cost_usd REAL, input INTEGER, output INTEGER, cache_read INTEGER, cache_write INTEGER);
     CREATE INDEX IF NOT EXISTS ai_usage_ts ON ai_usage(ts);`),
+  /* 5: Sandbox Coding tasks (one container per task; the full task is the JSON row) */ d => d.exec(`
+    CREATE TABLE IF NOT EXISTS code_tasks (id TEXT PRIMARY KEY, chat_id TEXT, template TEXT NOT NULL, repo TEXT NOT NULL, base_branch TEXT NOT NULL, branch TEXT NOT NULL, status TEXT NOT NULL, container_id TEXT, pr_number INTEGER, pr_url TEXT, pushed_sha TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, json TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS code_tasks_updated ON code_tasks(updated_at DESC);`),
+  /* 6: uploaded database dumps (Sandbox Coding): metadata only, the file lives in <data>/dumps/<id>/data until the import */ d => d.exec(`
+    CREATE TABLE IF NOT EXISTS code_dumps (id TEXT PRIMARY KEY, task_id TEXT, name TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, deleted_at TEXT);
+    CREATE INDEX IF NOT EXISTS code_dumps_task ON code_dumps(task_id);`),
 ];
 export const schemaVersion = (d: DatabaseSync) => (d.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
 export function runMigrations(d: DatabaseSync) {
@@ -73,6 +79,9 @@ export type StoredEvent = ChatEvent;
 export interface StoredChat {
   id: string; title: string | null; target: Target | null; createdAt: string; updatedAt: string;
   sdkSessionId: string | null; costTotal?: number | null; costSession?: string | null; codexThreadId?: string | null; draft: PageSpec | null; events: StoredEvent[];
+  /** sandbox task the AI session (sdkSessionId/codexThreadId) was started with (null = none; the Claude session belongs to its working
+   *  directory, so attaching or finishing a sandbox starts a new one). Missing in older rows = none. */ agentScope?: string | null;
+  /** legacy (rows from separate code chats): 'code' = its AI session ran in an empty working directory */ mode?: 'shop' | 'code';
 }
 const evType = (e: StoredEvent) => (e as { t: string }).t;
 function chatPutOn(d: DatabaseSync, c: StoredChat) {
@@ -83,16 +92,17 @@ function chatPutOn(d: DatabaseSync, c: StoredChat) {
 }
 export const chatGet = (id: string): StoredChat | null => { const r = db().prepare('SELECT json FROM chats WHERE id = ?').get(id) as { json: string } | undefined; return r ? (JSON.parse(r.json) as StoredChat) : null; };
 export const chatPut = (c: StoredChat) => chatPutOn(db(), c);
-interface ChatListRow { id: string; title: string; target: string; updated_at: string; published: number }
+interface ChatListRow { id: string; title: string; target: string; updated_at: string; published: number; task_id: string | null }
 /** Paging: cursor = last row of the previous page (updated_at, id); q searches the title. Without options: the newest 200 as before. */
 export interface ChatListOpts { limit?: number; before?: { updatedAt: string; id: string } | null; q?: string | null }
 export function chatList({ limit = CHAT_PAGE, before = null, q = null }: ChatListOpts = {}) {
   const where: string[] = [], args: (string | number)[] = [], term = q?.trim();
   if (before) { where.push('(updated_at < ? OR (updated_at = ? AND id < ?))'); args.push(before.updatedAt, before.updatedAt, before.id); }
   if (term) { where.push("title LIKE ? ESCAPE '\\'"); args.push(`%${term.replace(/[\\%_]/g, c => '\\' + c)}%`); }
-  const sql = `SELECT id, title, target, updated_at, published FROM chats ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY updated_at DESC, id DESC LIMIT ?`;
+  // chats with an attached sandbox (a task bound to the chat that is not finished) carry its id
+  const sql = `SELECT id, title, target, updated_at, published, (SELECT t.id FROM code_tasks t WHERE t.chat_id = chats.id AND t.status <> 'done' LIMIT 1) AS task_id FROM chats ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY updated_at DESC, id DESC LIMIT ?`;
   return (db().prepare(sql).all(...args, Math.max(1, Math.min(CHAT_PAGE, Math.floor(limit) || CHAT_PAGE))) as unknown as ChatListRow[])
-    .map(r => ({ id: r.id, title: r.title, target: JSON.parse(r.target) as Target | null, updatedAt: r.updated_at, published: r.published }));
+    .map(r => ({ id: r.id, title: r.title, target: JSON.parse(r.target) as Target | null, updatedAt: r.updated_at, published: r.published, ...(r.task_id ? { taskId: r.task_id } : {}) }));
 }
 export const chatDelete = (id: string) => { db().prepare('DELETE FROM chats WHERE id = ?').run(id); db().prepare('DELETE FROM changeset_runs WHERE chat_id = ?').run(id); };
 
@@ -104,6 +114,31 @@ export interface ChangeRun { csId: string; chatId: string; kind: string; title: 
 export const runPut = (r: ChangeRun) => { db().prepare('INSERT INTO changeset_runs (cs_id, chat_id, json) VALUES (?, ?, ?) ON CONFLICT(cs_id) DO UPDATE SET json = excluded.json').run(r.csId, r.chatId, JSON.stringify(r)); };
 export const runsOpen = (chatId: string): ChangeRun[] => (db().prepare('SELECT json FROM changeset_runs WHERE chat_id = ?').all(chatId) as unknown as { json: string }[]).map(r => JSON.parse(r.json) as ChangeRun);
 export const runDelete = (csId: string) => { db().prepare('DELETE FROM changeset_runs WHERE cs_id = ?').run(csId); };
+
+// ---- Code tasks (Sandbox Coding): columns for lookups, the JSON row is the truth ----
+export interface CodeTaskRow { id: string; chatId: string | null; template: string; repo: string; baseBranch: string; branch: string; status: string; containerId: string | null; prNumber: number | null; prUrl: string | null; pushedSha: string | null; createdAt: string; updatedAt: string }
+export const codeTaskPut = <T extends CodeTaskRow>(t: T) => {
+  db().prepare(`INSERT INTO code_tasks (id, chat_id, template, repo, base_branch, branch, status, container_id, pr_number, pr_url, pushed_sha, created_at, updated_at, json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET chat_id = excluded.chat_id, status = excluded.status, container_id = excluded.container_id, pr_number = excluded.pr_number, pr_url = excluded.pr_url, pushed_sha = excluded.pushed_sha, updated_at = excluded.updated_at, json = excluded.json`)
+    .run(t.id, t.chatId, t.template, t.repo, t.baseBranch, t.branch, t.status, t.containerId, t.prNumber, t.prUrl, t.pushedSha, t.createdAt, t.updatedAt, JSON.stringify(t));
+};
+export const codeTaskGet = <T extends CodeTaskRow = CodeTaskRow>(id: string): T | null => { const r = db().prepare('SELECT json FROM code_tasks WHERE id = ?').get(id) as { json: string } | undefined; return r ? (JSON.parse(r.json) as T) : null; };
+export const codeTaskList = <T extends CodeTaskRow = CodeTaskRow>(limit = 200): T[] => (db().prepare('SELECT json FROM code_tasks ORDER BY updated_at DESC LIMIT ?').all(limit) as unknown as { json: string }[]).map(r => JSON.parse(r.json) as T);
+export const codeTaskByChat = (chatId: string): string[] => (db().prepare('SELECT id FROM code_tasks WHERE chat_id = ?').all(chatId) as unknown as { id: string }[]).map(r => r.id);
+export const codeTaskDelete = (id: string) => { db().prepare('DELETE FROM code_tasks WHERE id = ?').run(id); };
+
+// ---- Uploaded dumps (Sandbox Coding): metadata only ----
+export interface CodeDumpRow { id: string; taskId: string | null; name: string; size: number; sha256: string | null; status: 'uploading' | 'ready' | 'deleted'; createdAt: string; expiresAt: string; deletedAt: string | null }
+interface DumpSql { id: string; task_id: string | null; name: string; size: number; sha256: string | null; status: CodeDumpRow['status']; created_at: string; expires_at: string; deleted_at: string | null }
+const dumpOf = (r: DumpSql): CodeDumpRow => ({ id: r.id, taskId: r.task_id, name: r.name, size: Number(r.size), sha256: r.sha256, status: r.status, createdAt: r.created_at, expiresAt: r.expires_at, deletedAt: r.deleted_at });
+export const codeDumpPut = (x: CodeDumpRow) => {
+  db().prepare(`INSERT INTO code_dumps (id, task_id, name, size, sha256, status, created_at, expires_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET task_id = excluded.task_id, sha256 = excluded.sha256, status = excluded.status, expires_at = excluded.expires_at, deleted_at = excluded.deleted_at`)
+    .run(x.id, x.taskId, x.name, x.size, x.sha256, x.status, x.createdAt, x.expiresAt, x.deletedAt);
+};
+export const codeDumpGet = (id: string): CodeDumpRow | null => { const r = db().prepare('SELECT * FROM code_dumps WHERE id = ?').get(id) as DumpSql | undefined; return r ? dumpOf(r) : null; };
+/** Dumps not deleted yet (optionally of one task). */
+export const codeDumpsLive = (taskId?: string): CodeDumpRow[] => (db().prepare(`SELECT * FROM code_dumps WHERE status <> 'deleted'${taskId ? ' AND task_id = ?' : ''} ORDER BY created_at`).all(...(taskId ? [taskId] : [])) as unknown as DumpSql[]).map(dumpOf);
 
 // ---- Audit (only writes after approval) & access log (what the AI has read) ----
 /** actor: login user name (LOTSE_PASSWORD) or NULL; if omitted, taken from the request context (./actor). */
@@ -165,6 +200,8 @@ function warnUnseal(e: unknown) {
   const w = unsealWarned(); if (w.done) return; w.done = true;
   void import('./log').then(({ log }) => log.warn('Gespeicherter geheimer Wert lässt sich nicht entschlüsseln (secret.key ersetzt oder Wert beschädigt); er wird als leer behandelt', { error: e instanceof Error ? e.message : String(e) })).catch(() => {});
 }
+/** Keyed hash with the data folder's secret (e.g. unguessable per-task URLs); `label` separates the purposes. */
+export const macOf = (label: string, msg: string): string => crypto.createHmac('sha256', key()).update(`${label}\0${msg}`).digest('hex');
 export function seal(text: unknown): string | null {
   if (text == null || text === '') return null;
   const iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', key(), iv), ct = Buffer.concat([c.update(String(text), 'utf8'), c.final()]);

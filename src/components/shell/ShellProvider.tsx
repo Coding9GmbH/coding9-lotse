@@ -20,9 +20,11 @@ export interface WorkspaceBridge {
   openRules: () => void;
   /** Put the task text into the input field (sending stays a separate click) */
   prefill: (text: string, fix?: PromptFix) => void;
+  /** "Sandbox starten" dialog for the current chat (Sandbox Coding on, no sandbox attached yet) */
+  openSandbox: () => void;
 }
 /** Task for the workspace when the navigation is used from another page. */
-export type WorkspaceIntent = { type: 'new' } | { type: 'new-context' } | { type: 'open'; id: string } | { type: 'context' } | { type: 'styleguide' } | { type: 'rules' } | { type: 'prompt'; text: string; fix?: PromptFix };
+export type WorkspaceIntent = { type: 'new' } | { type: 'new-context' } | { type: 'open'; id: string } | { type: 'context' } | { type: 'styleguide' } | { type: 'rules' } | { type: 'prompt'; text: string; fix?: PromptFix } | { type: 'sandbox' };
 /** Task belongs to a finding/lever: "in progress" after sending (shop check and SEO share this) */
 export interface PromptFix { id: string; title: string }
 
@@ -46,6 +48,8 @@ interface Shell {
   styleguideKnown: boolean;
   /** Shop/AI set up? Known immediately from the server, later updated from the status. */
   setup: { shopware: boolean; ai: boolean } | null;
+  /** Sandbox Coding switched on (from the server first, then from the status) */
+  sandbox: boolean;
   setStyleguide: (sg: Styleguide | null) => void;
   activeChatId: string | null;
   setActiveChatId: (id: string | null) => void;
@@ -59,7 +63,7 @@ interface Shell {
   registerWorkspace: (bridge: WorkspaceBridge | null) => void;
   /** Fetches (and clears) a queued task; the workspace calls this on start. */
   takeIntent: () => WorkspaceIntent | null;
-  nav: { newChat: () => void; newChatWithContext: () => void; openChat: (id: string) => void; deleteChat: (id: string) => void; openContext: () => void; openStyleguide: () => void; openRules: () => void; /** New chat with a prepared task (e.g. from the SEO overview) */ promptChat: (text: string, fix?: PromptFix) => void };
+  nav: { newChat: () => void; newChatWithContext: () => void; openChat: (id: string) => void; deleteChat: (id: string) => void; openContext: () => void; openStyleguide: () => void; openRules: () => void; /** New chat with a prepared task (e.g. from the SEO overview) */ promptChat: (text: string, fix?: PromptFix) => void; /** New chat with the "Sandbox starten" dialog open */ sandboxChat: () => void };
 }
 
 const ShellContext = createContext<Shell | null>(null);
@@ -156,6 +160,8 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
   const setStyleguide = useCallback((sg: Styleguide | null) => { setStyleguideState(sg); setStyleguideKnown(true); }, []);
   const setup = useMemo(() => (health ? { shopware: health.shopware.configured, ai: health.ai.configured } : initial?.setup ?? null), [health, initial]);
 
+  const sandbox = health ? !!health.sandbox?.enabled : !!initial?.sandbox;
+
   const value = useMemo<Shell>(() => {
     // Run directly on the workspace, otherwise queue it and switch there
     const via = (run: (b: WorkspaceBridge) => void, fallback: WorkspaceIntent) => {
@@ -164,7 +170,7 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
       else { intent.current = fallback; router.push('/'); }
     };
     return {
-      health, healthFailed, refreshHealth, chats: allChats, chatError, reloadChats, moreChats, moreState, loadMoreChats, doneIds, styleguide, styleguideKnown, setup, setStyleguide, activeChatId, setActiveChatId, contextName, setContextName,
+      health, healthFailed, refreshHealth, chats: allChats, chatError, reloadChats, moreChats, moreState, loadMoreChats, doneIds, styleguide, styleguideKnown, setup, sandbox, setStyleguide, activeChatId, setActiveChatId, contextName, setContextName,
       collapsed, toggleCollapsed, mobileOpen, setMobileOpen,
       registerWorkspace: b => { bridge.current = b; },
       takeIntent: () => { const i = intent.current; intent.current = null; return i; },
@@ -177,6 +183,7 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
         openStyleguide: () => via(b => b.openStyleguide(), { type: 'styleguide' }),
         openRules: () => via(b => b.openRules(), { type: 'rules' }),
         promptChat: (text, fix) => via(b => { b.newChat(); b.prefill(text, fix); }, { type: 'prompt', text, fix }),
+        sandboxChat: () => via(b => { b.newChat(); b.openSandbox(); }, { type: 'sandbox' }),
         deleteChat: id => {
           removed.current.add(id); setOlder(o => o.filter(c => c.id !== id));
           if (bridge.current) bridge.current.deleteChat(id);
@@ -184,7 +191,7 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
         },
       },
     };
-  }, [health, healthFailed, refreshHealth, allChats, chatError, reloadChats, moreChats, moreState, loadMoreChats, doneIds, styleguide, styleguideKnown, setup, setStyleguide, activeChatId, contextName, collapsed, toggleCollapsed, mobileOpen, router, setActiveChatId]);
+  }, [health, healthFailed, refreshHealth, allChats, chatError, reloadChats, moreChats, moreState, loadMoreChats, doneIds, styleguide, styleguideKnown, setup, sandbox, setStyleguide, activeChatId, contextName, collapsed, toggleCollapsed, mobileOpen, router, setActiveChatId]);
 
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

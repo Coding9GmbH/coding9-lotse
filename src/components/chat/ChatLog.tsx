@@ -10,6 +10,11 @@ import { ImageCard, PublishedCard, StyleguideCard } from './Cards';
 import { AiMessage, ErrorMessage, UserMessage } from './Message';
 import { QuestionCard } from './QuestionCard';
 import { Steps } from './Steps';
+import { CommandCard, InternetRequestCard, PublishProposalCard, SandboxAttachedLine, SandboxOfferCard, SandboxStatusLine, type SandboxOfferActions } from '@/components/sandbox/CommandCard';
+import { FileChangeCard } from '@/components/sandbox/FileChangeCard';
+import { PrCard } from '@/components/sandbox/PrCard';
+import { PrFeedbackCard, type PrFeedbackActions } from '@/components/sandbox/PrFeedbackCard';
+import type { PrProposal } from '@/components/sandbox/PublishCard';
 import styles from './ChatLog.module.css';
 
 interface Props {
@@ -23,6 +28,12 @@ interface Props {
   busy?: boolean;
   className?: string;
   children?: React.ReactNode;
+  /** start_sandbox cards: start (directly or via the dialog); missing = Sandbox Coding off */
+  sandbox?: SandboxOfferActions;
+  /** publish_proposal cards: open the "Pull Request" tab with this proposal (publishes nothing); missing = no sandbox attached */
+  onReviewPublish?: (p: PrProposal) => void;
+  /** pr_feedback cards: hand over to the AI, finish the task (merged/closed); missing = Sandbox Coding off */
+  prFeedback?: PrFeedbackActions;
 }
 
 function AnswerStatus({ busy, hasAnswer }: { busy: boolean; hasAnswer: boolean }) {
@@ -37,10 +48,10 @@ function AnswerStatus({ busy, hasAnswer }: { busy: boolean; hasAnswer: boolean }
 
 const NEAR_END = 140;
 /** These entries always scroll the log to the end (own message, decision needed). */
-const FORCE_FOLLOW = new Set<LogItem['kind']>(['user', 'question', 'changeset']);
+const FORCE_FOLLOW = new Set<LogItem['kind']>(['user', 'question', 'changeset', 'publish', 'pr', 'sandbox_offer', 'internet', 'pr_feedback']);
 
 /** Chat log. Stays "stuck" to the end as long as the user has not scrolled up. */
-export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStyleguide, busy = false, className, children }: Props) {
+export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStyleguide, busy = false, className, children, sandbox, onReviewPublish, prFeedback }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const lastKey = useRef<string | null>(null);
@@ -77,6 +88,15 @@ export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStylegui
               result={item.result} progress={item.progress} undo={item.undo} onDecide={(allow, sel) => onDecide(item.approvalId, allow, sel)} onUndo={() => onUndo(item.cs.id)} />;
           case 'published': return <PublishedCard key={item.key} info={item.info} target={item.target} cfg={cfg} />;
           case 'styleguide': return <StyleguideCard key={item.key} sg={item.sg} onOpen={onOpenStyleguide} />;
+          case 'file': return <FileChangeCard key={item.key} path={item.path} kind={item.change} added={item.added} removed={item.removed} />;
+          case 'command': return <CommandCard key={item.key} c={item} />;
+          case 'sandbox': return <SandboxStatusLine key={item.key} state={item.state} message={item.message} />;
+          case 'publish': return <PublishProposalCard key={item.key} title={item.title} body={item.body} onReview={onReviewPublish ? () => onReviewPublish({ key: item.key, title: item.title, body: item.body }) : undefined} />;
+          case 'pr': return <PrCard key={item.key} taskId={item.taskId} pr={item} done={{ action: item.action, files: item.files }} />;
+          case 'pr_feedback': return <PrFeedbackCard key={item.key} item={item} actions={prFeedback} />;
+          case 'sandbox_offer': return <SandboxOfferCard key={item.key} offer={item} actions={sandbox} />;
+          case 'sandbox_attached': return <SandboxAttachedLine key={item.key} repo={item.repo} baseBranch={item.baseBranch} />;
+          case 'internet': return <InternetRequestCard key={item.key} item={item} onDecide={allow => onDecide(item.approvalId, allow)} />;
         }
       })}
     </div>

@@ -5,6 +5,8 @@ import type { PlatformKind } from '@/lib/platforms';
 import { auditLog, notifyApplied, type ApplyPartial, type ApplyResult } from './changes';
 import type { PageSpec, PreviewCtx } from './cms';
 import { chatGet, chatList, chatPut, runDelete, runPut, runsOpen, type ChangeRun, type StoredChat } from './db';
+import { noteInternetDenied } from './sandbox/internet';
+import { attachedTask } from './sandbox/tasks';
 import { activeKind, getPlatform, undoWithPlatform } from './platform';
 import type { ShopLookup } from './platform/types';
 import { ReadOnlyShopware, type ShopReader } from './shopware';
@@ -21,6 +23,11 @@ export interface ChangeOutcome { status: ChangeStatus; message: string; applied?
 
 export interface Session {
   id: string;
+  /** Sandbox attached to this chat (Sandbox Coding), as of the start of the last turn: then the AI works only in the sandbox
+   *  (workspace + container tools, no live-shop tools). null = a normal shop chat. */
+  taskId: string | null;
+  /** sandbox task the AI session (sdkSessionId/codexThreadId) belongs to; a different one at the next turn starts a new AI session */
+  agentScope: string | null;
   /** Shop platform of this session (taken from the settings on creation) */
   platform: PlatformKind;
   /** protected read client of the platform (Shopware: the same object as sw); adapter tools cast to their type */
@@ -92,9 +99,33 @@ export const chatListLive = (): ChatSummary[] => chatList().map(c => {
 /** Current state of a chat: from memory (also while running) or persisted. `locale`: language for restart notices (otherwise the last one used). */
 export function chatSnapshot(id: string, locale?: Locale): ChatDetail | null {
   const s = peekSession(id);
-  if (s && (s.running || s.events.length)) return { id, title: s.title ?? '', target: s.target, events: s.events };
+  const sbx = () => { const t = attachedTask(id); return t ? { taskId: t.id } : {}; };
+  if (s && (s.running || s.events.length)) return { id, title: s.title ?? '', target: s.target, events: s.events, ...sbx() };
   const c = loadChat(id, locale);
-  return c ? { id: c.id, title: c.title ?? '', target: c.target, events: c.events } : null;
+  return c ? { id: c.id, title: c.title ?? '', target: c.target, events: c.events, ...sbx() } : null;
+}
+
+/** A sandbox was attached to the chat (by the user): a line in the history, live to open views; the next turn works in the sandbox.
+ *  A chat without messages yet is stored now (title from the task), so it appears in the history. */
+export function noteSandboxAttached(chatId: string, t: { id: string; title: string; repo: string; baseBranch: string }) {
+  const s = getSession(chatId);
+  const ev: ChatEvent = { t: 'sandbox_attached', taskId: t.id, repo: t.repo, baseBranch: t.baseBranch };
+  s.title ??= t.title.slice(0, 70);
+  s.events.push(ev);
+  if (!s.running) s.taskId = t.id;
+  persist(s);
+  for (const l of s.listeners) { try { l(ev); } catch { s.listeners.delete(l); } }
+}
+
+/** The chat is open in memory or stored (not deleted). */
+export const chatExists = (id: string) => !!peekSession(id) || !!chatGet(id);
+
+/** An event from outside a turn (e.g. the pull request the user published): saved in the history at once and sent to open views. */
+export function noteChatEvent(chatId: string, ev: ChatEvent) {
+  const s = getSession(chatId);
+  s.events.push(ev);
+  persist(s);
+  for (const l of s.listeners) { try { l(ev); } catch { s.listeners.delete(l); } }
 }
 
 /** Aborts a running turn; open questions/approvals count as rejected. */
@@ -104,6 +135,8 @@ export function stopChat(id: string): boolean {
   for (const [approvalId, resolve] of s.approvals) {
     const q = s.events.find(e => e.t === 'question' && e.approvalId === approvalId);
     if (q?.t === 'question' && q.answer === undefined) q.answer = messages(s.locale).server.cancelled; // otherwise it counts as "Nicht beantwortet (Neustart)" (not answered, restart) on the next load
+    const ir = s.events.find(e => e.t === 'internet_request' && e.approvalId === approvalId);
+    if (ir?.t === 'internet_request' && ir.decision === undefined) ir.decision = false; // the stop declines it (nothing is attached)
     resolve({ allow: false, answer: '' });
   }
   s.approvals.clear(); persist(s);
@@ -130,7 +163,7 @@ export function persist(s: Session) {
   if (s.deleted || !s.events.length) return;
   let lastDraft = -1; s.events.forEach((e, i) => { if (e.t === 'draft') lastDraft = i; });
   const events = s.events.map((e, i) => (e.t === 'draft' && i !== lastDraft ? { ...e, html: undefined } : e)); // keep only the last preview
-  const c: StoredChat = { id: s.id, title: s.title, target: s.target, createdAt: s.createdAt, updatedAt: new Date().toISOString(), sdkSessionId: s.sdkSessionId, costTotal: s.costTotal ?? null, costSession: s.costSession ?? null, codexThreadId: s.codexThreadId, draft: s.draft, events };
+  const c: StoredChat = { id: s.id, title: s.title, target: s.target, createdAt: s.createdAt, updatedAt: new Date().toISOString(), sdkSessionId: s.sdkSessionId, costTotal: s.costTotal ?? null, costSession: s.costSession ?? null, codexThreadId: s.codexThreadId, draft: s.draft, events, agentScope: s.agentScope };
   chatPut(c);
 }
 
@@ -173,7 +206,7 @@ const RESTART = 'Neustart, bitte erneut vorschlagen'; // reason in the audit (st
 /**
  * After a restart (crash, deploy): approvals live only in memory, an interrupted apply leaves its trace in changeset_runs.
  * - Set was being applied and got interrupted: result "partial/failed" with the undo steps saved so far (undo works)
- * - Set was still waiting for approval: "rejected" with a reason (like stopChat), questions get a marker
+ * - Set was still waiting for approval: "rejected" with a reason (like stopChat), questions get a marker, an internet request waiting for its click is declined (restart)
  * Each with an audit row. Returns true if something changed (then save). A second call changes nothing.
  */
 function recoverChat(c: StoredChat, locale: Locale): boolean {
@@ -184,6 +217,10 @@ function recoverChat(c: StoredChat, locale: Locale): boolean {
   let changed = false;
   for (const [i, e] of [...c.events].entries()) {
     if (e.t === 'question' && e.answer === undefined && i > lastDone) { e.answer = t.unansweredRestart; changed = true; }
+    if (e.t === 'internet_request' && e.decision === undefined && i > lastDone) {
+      e.decision = false; e.restart = true; changed = true; // nothing was attached: the click never came
+      const task = attachedTask(c.id); if (task) noteInternetDenied(task.id, e.reason, 'restart');
+    }
     if (e.t !== 'changeset' || resolved.has(e.cs.id)) continue;
     const cs = e.cs, run = open.get(cs.id);
     const base = { chatId: c.id, changeSet: cs.id, kind: cs.kind, title: cs.title, recoveredFrom: run?.startedAt ?? c.updatedAt }; // time of the incident, not of loading
@@ -241,6 +278,9 @@ const shopwareOnly = (kind: PlatformKind): ShopReader => {
   return { base: '', search: async () => no(), get: async () => no(), salesChannels: async () => no(), req: async () => no() };
 };
 
+/** AI-session scope of a stored chat: rows of the former separate code chats ran in an empty working directory ('legacy-code'). */
+const scopeOf = (c: StoredChat | null): string | null => c?.agentScope ?? (c?.mode === 'code' ? 'legacy-code' : null);
+
 export function getSession(id: string): Session {
   const all = sessions();
   const existing = all.get(id);
@@ -248,11 +288,11 @@ export function getSession(id: string): Session {
   // Platform switched: rebuild an idle session (history comes from the DB), a running one keeps its platform until the end of the turn
   if (existing && (existing.platform === activeKind() || existing.running)) return existing;
   if (existing) { persist(existing); all.delete(id); }
-  const kind = activeKind(), platform = getPlatform(kind);
-  const parts = platform.openSession(id); // privileged client stays in the adapter, is NEVER given to the AI
   const saved = loadChat(id);
+  const kind = activeKind();
+  const parts = getPlatform(kind).openSession(id); // privileged client stays in the adapter, is NEVER given to the AI
   const ss: Session = {
-    id, platform: kind, reader: parts.reader, lookup: parts.lookup,
+    id, taskId: attachedTask(id)?.id ?? null, agentScope: scopeOf(saved), platform: kind, reader: parts.reader, lookup: parts.lookup,
     sw: parts.reader instanceof ReadOnlyShopware ? parts.reader : new ReadOnlyShopware(shopwareOnly(kind)),
     storefrontFetch: parts.storefrontFetch, themeCss: parts.themeCss, draft: saved?.draft ?? null, sdkSessionId: saved?.sdkSessionId ?? null, costTotal: saved?.costTotal ?? null, costSession: saved?.costSession ?? null, codexThreadId: saved?.codexThreadId ?? null, title: saved?.title ?? null, target: saved?.target ?? null,
     createdAt: saved?.createdAt ?? new Date().toISOString(), events: saved?.events ?? [], emit: () => {}, running: false, lastUsed: Date.now(), abort: null, locale: ui().locale, listeners: new Set(), approvals: new Map(),
@@ -323,7 +363,7 @@ export function answerQuestion(chatId: string, approvalId: string, answer: strin
 
 export function decideChange(chatId: string, approvalId: string, allow: boolean, selected?: string[]): boolean {
   const ss = peekSession(chatId); if (!ss) return false;
-  const ev = ss.events.find(e => (e.t === 'changeset' || evType(e) === 'approval') && (e as { approvalId?: string }).approvalId === approvalId);
+  const ev = ss.events.find(e => (e.t === 'changeset' || e.t === 'internet_request' || evType(e) === 'approval') && (e as { approvalId?: string }).approvalId === approvalId);
   if (ev) { (ev as { decision?: boolean }).decision = allow; persist(ss); }
   const p = ss.approvals.get(approvalId);
   if (!p) return false;

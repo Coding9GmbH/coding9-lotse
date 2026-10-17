@@ -47,6 +47,7 @@ jobs:
           curl -fs localhost:3333/api/health
           curl -fs -o /dev/null localhost:3333/
           curl -fs -o /dev/null localhost:3333/settings
+          curl -fs -o /dev/null localhost:3333/sandbox-coding   # switched off by default: explanation page, no Docker access
 
   # Release check: if the version in package.json is bumped, package-lock.json must follow and CHANGELOG.md must have the matching section (see CONTRIBUTING.md). Ordinary PRs without a version change always pass.
   release-check:

@@ -16,6 +16,10 @@ import { persist, type Session } from './sessions';
 
 import { ok, fail, guard, type AnyTool } from './tool-kit';
 import { FEATURES } from './features';
+import { sandboxEnabled } from './sandbox/env';
+import { START_SANDBOX, startSandboxTool } from './sandbox/offer-tool';
+import { sandboxToolNames, sandboxTools } from './sandbox/workspace-tools';
+import { getSettings } from './settings';
 import type { Feature } from './features/types';
 // Image event for the UI (alt: null → omit, see protocol.ts)
 const imageEvent = (m: StagedResult) => ({ t: 'image' as const, ...m, alt: m.alt ?? undefined });
@@ -165,15 +169,21 @@ function coreTools(session: Session, p: PlatformAdapter): AnyTool[] {
   ] as AnyTool[];
 }
 
-export function buildTools(session: Session): AnyTool[] {
+type Provider = 'claude' | 'codex';
+const providerNow = (): Provider => getSettings().ai.provider;
+
+/** Tools of a session. With an attached sandbox: ONLY the sandbox tools (no live-shop tool at all), none while Sandbox Coding is off.
+ *  Otherwise the shop tools of its platform, plus start_sandbox while Sandbox Coding is on. */
+export function buildTools(session: Session, provider: Provider = providerNow()): AnyTool[] {
+  if (session.taskId) return sandboxEnabled() ? sandboxTools(session, provider) : [];
   const p = getPlatform(session.platform);
   const own = byOrder([...coreTools(session, p), ...p.tools(session)], t => t.name);
-  return [...own, ...featuresFor(p).flatMap(f => f.tools(session))];
+  return [...own, ...featuresFor(p).flatMap(f => f.tools(session)), ...(sandboxEnabled() ? [startSandboxTool(session)] : [])];
 }
 export type ShopTool = ReturnType<typeof buildTools>[number];
 
 /** Claude: tools as in-process MCP server "shop". */
-export const buildToolServer = (session: Session) => createSdkMcpServer({ name: 'shop', version: '1.0.0', tools: buildTools(session) });
+export const buildToolServer = (session: Session) => createSdkMcpServer({ name: 'shop', version: '1.0.0', tools: buildTools(session, 'claude') });
 
 /** Names of all tools of a platform (allowlist for the agent) */
 export const toolNamesFor = (kind: PlatformKind): string[] => {
@@ -181,5 +191,8 @@ export const toolNamesFor = (kind: PlatformKind): string[] => {
   return [...byOrder([...CORE_TOOL_NAMES, ...p.toolNames], n => n), ...featuresFor(p).flatMap(f => f.toolNames)];
 };
 export const allToolsFor = (kind: PlatformKind): string[] => toolNamesFor(kind).map(n => `mcp__shop__${n}`);
+/** MCP allowlist of a session: with an attached sandbox its sandbox tools, otherwise the tools of its platform (+ start_sandbox) */
+export const toolsAllowedFor = (s: Pick<Session, 'taskId' | 'platform'>, provider: Provider = providerNow()): string[] =>
+  (s.taskId ? sandboxToolNames(provider) : [...toolNamesFor(s.platform), ...(sandboxEnabled() ? [START_SANDBOX] : [])]).map(n => `mcp__shop__${n}`);
 /** Shopware (default), for tests and legacy calls */
 export const TOOL_NAMES: string[] = toolNamesFor('shopware');

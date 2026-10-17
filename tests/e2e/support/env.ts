@@ -9,7 +9,10 @@ export const E2E = {
   port,
   shopPort: num(process.env.E2E_SHOP_PORT, port + 1),
   aiPort: num(process.env.E2E_AI_PORT, port + 2),
+  githubPort: num(process.env.E2E_GITHUB_PORT, port + 3),
   baseURL: `http://127.0.0.1:${port}`,
   dataDir: process.env.E2E_DATA ?? path.join(os.tmpdir(), `lotse-e2e-${port}`),
 };
 export const shopUrl = `http://127.0.0.1:${E2E.shopPort}`;
+/** GitHub fake of the run: GET /__fake/calls lists the requests it received */
+export const githubUrl = `http://127.0.0.1:${E2E.githubPort}`;

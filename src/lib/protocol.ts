@@ -110,26 +110,52 @@ export type ChatEvent =
   | ({ t: 'image' } & StagedImage)
   | { t: 'styleguide'; sg: Styleguide }
   | { t: 'done'; error: string | null; cost?: number }
+  // ---- Chats with an attached sandbox (Sandbox Coding) ----
+  /** A workspace file was created, changed or deleted by the AI (added/removed: changed lines, 0/0 = unknown) */
+  | { t: 'file_change'; path: string; kind: FileChangeKind; added: number; removed: number }
+  /** A shell command in the task container (sandbox_bash): first 'running', then the result (same id); tail = redacted end of the output */
+  | { t: 'command'; id: string; command: string; args?: Record<string, string>; status: 'running' | 'ok' | 'failed'; exitCode?: number; tail?: string; ms?: number }
+  /** The task's container before the turn: waking (paused or still being set up) → ready, or failed (message) */
+  | { t: 'sandbox_status'; state: 'waking' | 'ready' | 'failed'; message?: string }
+  /** The storefront changed (theme compiled, cache cleared): the preview reloads (live only) */
+  | { t: 'preview_reload' }
+  /** The AI proposes to publish its changes as a pull request (card only; publishing itself comes from the user) */
+  | { t: 'publish_proposal'; title: string; body: string }
+  /** The user published the sandbox's changes: pull request created or updated (state as of that moment) */
+  | { t: 'pr'; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
+  /** The AI proposes to attach a sandbox to this chat (start_sandbox): a card; only the user's click creates the task */
+  | { t: 'sandbox_offer'; id: string; repo: string; baseBranch: string; reason: string }
+  /** The AI asks for internet in the task container (request_internet): a card; only the user's click allows it (decision: the answer).
+   *  Sent again with the same approvalId, decision false and error when attaching failed after the click (the card shows it);
+   *  restart: still open when Lotse restarted (closed as declined). */
+  | { t: 'internet_request'; approvalId: string; reason: string; decision?: boolean; error?: string; restart?: boolean }
+  /** Feedback on the task's pull request found by the watcher (pr-watch.ts): reviews, comments, failed checks (third-party text,
+   *  redacted and capped), or the PR was merged/closed (state). handedOver: the user handed it to the AI ("An KI übergeben").
+   *  The same id again updates the card (the watcher's event also reaches an open panel, see TaskEvent 'chat'). */
+  | { t: 'pr_feedback'; id: string; taskId: string; number: number; url: string; items: PrFeedbackItem[]; more?: number; state?: 'merged' | 'closed'; handedOver?: boolean }
+  /** A sandbox was attached to this chat (by the user) */
+  | { t: 'sandbox_attached'; taskId: string; repo: string; baseBranch: string }
   /** First line when reconnecting to a chat: history so far + whether it's still running */
   | { t: 'snapshot'; chat: ChatDetail; running: boolean };
 
 export type ChatEventType = ChatEvent['t'];
+export type FileChangeKind = 'create' | 'edit' | 'delete';
 
 // ---- REST ----
 /** locale: language of the AI responses (set by the server from cookie/Accept-Language) */
-export interface ChatRequest { chatId: string; message: string; target?: Target | null; onboarding?: boolean; locale?: Locale }
+export interface ChatRequest { chatId: string; message: string; target?: Target | null; onboarding?: boolean; locale?: Locale; /** "An KI übergeben": id of a pr_feedback event of this chat, wrapped as data into the prompt by the server */ prFeedback?: string }
 /** status: currently running ("running") or waiting for the human's reply/approval ("waiting"); missing = idle */
 export type ChatStatus = 'running' | 'waiting';
 /** Page size of the chat list (/api/chats): a full page means "there may be more". */
 export const CHAT_PAGE = 200;
-export interface ChatSummary { id: string; title: string; target: Target | null; updatedAt: string; published: number; status?: ChatStatus }
-export interface ChatDetail { id: string; title: string; target: Target | null; events: ChatEvent[]; /** turn is currently running (then connect live) */ running?: boolean }
+export interface ChatSummary { id: string; title: string; target: Target | null; updatedAt: string; published: number; status?: ChatStatus; /** sandbox attached to the chat (its task) */ taskId?: string }
+export interface ChatDetail { id: string; title: string; target: Target | null; events: ChatEvent[]; /** turn is currently running (then connect live) */ running?: boolean; /** sandbox attached to the chat (its task) */ taskId?: string }
 
 export type AiProvider = 'claude' | 'codex';
 /** shopware = connection to the active shop (legacy name, applies to every platform); platform = which platform is connected */
 /** Optional integrations: only when connected does the UI show matching examples */
-export interface Integrations { gsc: boolean; sistrix: boolean }
-export interface Health { shopware: { url: string; ok: boolean; configured: boolean; error?: string }; ai: { configured: boolean; provider?: AiProvider; /** cost brake (Claude with a monthly budget only): spent/limit in USD this month */ budget?: { spent: number; limit: number; warn: boolean; blocked: boolean } }; platform?: { kind: PlatformKind; label: string; available: boolean }; integrations?: Integrations }
+export interface Integrations { gsc: boolean; sistrix: boolean; github: boolean }
+export interface Health { shopware: { url: string; ok: boolean; configured: boolean; error?: string }; ai: { configured: boolean; provider?: AiProvider; /** cost brake (Claude with a monthly budget only): spent/limit in USD this month */ budget?: { spent: number; limit: number; warn: boolean; blocked: boolean } }; platform?: { kind: PlatformKind; label: string; available: boolean }; integrations?: Integrations; /** Sandbox Coding: switched on, Docker reachable (null = not checked), GitHub connected, configured image */ sandbox?: { enabled: boolean; docker: boolean | null; github: boolean; image: string | null } }
 /** The platform's path templates ({id} is replaced): admin links and storefront paths for category/product */
 export interface PlatformPaths { adminCategory: string; adminProduct: string; adminCms: string; category: string; product: string }
 export interface AppConfig { admin: string; storefront: string; imageGen: boolean; docker: boolean; version: string; platform?: PlatformKind; paths?: PlatformPaths }
@@ -213,6 +239,89 @@ export interface GscTestResult extends TestResult { sites: string[] }
 // ---- Sistrix (settings): API key only as "present", never in the browser ----
 export interface SistrixPublic { hasKey: boolean; domain: string; country: string; /** Optimizer project (hash), empty = automatic */ project: string; connected: boolean; updatedAt: string | null }
 export interface SistrixTestResult extends TestResult { credits: number | null }
+// ---- GitHub (settings): token only as "present", never in the browser ----
+export interface GithubPublic { hasToken: boolean; /** GitHub user of the token, known after the first successful test */ login: string | null; updatedAt: string | null }
+export interface GithubTestResult extends TestResult { login: string | null; /** repositories the token can see */ repos: number | null; /** visible repositories without write access (max. 20) */ readOnly: string[] }
+export interface GithubRepo { fullName: string; private: boolean; defaultBranch: string; /** may push (from GitHub's permissions) */ push: boolean; pushedAt: string | null }
+export interface GithubBranch { name: string; protected: boolean }
+// ---- Sandbox Coding: one container per task from a fixed template; secrets of the environment never reach the browser ----
+export type SandboxStepKey = 'check-image' | 'clone' | 'detect-layout' | 'start-container' | 'wait-ready' | 'version-check' | 'import-db' | 'set-domain' | 'install-plugin' | 'custom-after-db' | 'theme-compile' | 'custom-final' | 'screenshots' | 'ready';
+export type SandboxCommandKey = 'theme-compile' | 'cache-clear' | 'plugin-refresh' | 'theme-refresh' | 'lint-twig' | 'php-lint';
+/** When an own setup command runs: after the database (before theme:compile) or at the very end of the setup */
+export type CommandPhase = 'after-db' | 'final';
+export interface TemplateDescriptor { id: string; platform: 'shopware'; defaultImage: string; imagePattern: string; steps: { id: SandboxStepKey; custom?: CommandPhase; optional?: boolean }[]; commands: { id: SandboxCommandKey; args: string[] }[] }
+/** Environment variable for the task containers; a secret value is never sent back (value '' + hasValue) */
+export interface SandboxEnvVar { key: string; secret: boolean; value: string; hasValue: boolean }
+export interface SandboxCommand { id: string; label: string; command: string; phase: CommandPhase; timeoutSec: number }
+/** off = switched off in the settings, env = LOTSE_SANDBOX=0, open-bind = reachable from the network (or from the task containers) without LOTSE_PASSWORD */
+export type SandboxOffReason = 'off' | 'env' | 'open-bind';
+export interface SandboxStatus { enabled: boolean; reason?: SandboxOffReason; message?: string }
+export interface SandboxEnvPublic {
+  /** the switch in the settings (status says whether it is effective) */ enabled: boolean; status: SandboxStatus;
+  templateId: string; image: string; memoryMb: number; cpus: number; idleMinutes: number; /** LOTSE_SANDBOX_MAX: containers running at the same time */ maxRunning: number;
+  envVars: SandboxEnvVar[]; commands: SandboxCommand[]; updatedAt: string | null;
+  /** preselected in "Sandbox starten" (empty = none) */ defaultRepo: string; defaultBranch: string;
+  /** "Internet im Container": only after a human allowed it per task (default) or never */ internet: InternetPolicy;
+  /** storefront paths captured before (setup) and after (publish), desktop and mobile; empty = no screenshots */ screenshotPaths: string[];
+}
+export type InternetPolicy = 'approval' | 'never';
+/** Both modes: task containers only on the internal network lotse-sandbox. network = Lotse runs in Docker on that network; local = Lotse on the host reaches the container IPs */
+export interface SandboxDocker { reachable: boolean; apiVersion: string | null; version: string | null; mode: 'network' | 'local'; error?: string }
+/** GET /api/sandbox/env */
+export interface SandboxEnvView { env: SandboxEnvPublic; docker: SandboxDocker | null; imagePresent: boolean | null; templates: TemplateDescriptor[] }
+/** PUT /api/sandbox/env: secret value empty/undefined = unchanged; a command without id is new */
+export interface SandboxEnvPatch {
+  enabled?: boolean; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number; defaultRepo?: string; defaultBranch?: string; internet?: InternetPolicy; screenshotPaths?: string[];
+  envVars?: { key: string; secret: boolean; value?: string }[];
+  commands?: { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec?: number }[];
+}
+/** NDJSON lines of POST /api/sandbox/env/check */
+export type SandboxCheckEvent = { t: 'progress'; text: string; pct?: number } | { t: 'result'; ok: boolean; message: string; docker: SandboxDocker; imagePresent: boolean; pulled?: boolean };
+/** Code task lifecycle: setting_up → ready ⇄ paused (waking in between) → done; failed/interrupted stop the setup (retry possible) */
+export type CodeTaskStatus = 'setting_up' | 'ready' | 'waking' | 'paused' | 'failed' | 'interrupted' | 'done';
+export type TaskStepState = 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'interrupted';
+/** One setup step. key = template step; 'custom' = an own setup command of the environment (label = its name) */
+export interface TaskStep { id: string; key: SandboxStepKey | 'custom'; label?: string; state: TaskStepState; startedAt?: string; endedAt?: string; /** last lines, redacted */ log: string[]; error?: string }
+/** What the repository is: a plugin or a theme plugin below custom/plugins/<name> */
+export interface TaskLayout { kind: 'plugin' | 'theme'; name: string; pluginDir: string }
+export interface CodeTaskPublic {
+  id: string; title: string; goal: string; repo: string; baseBranch: string; branch: string; template: string;
+  status: CodeTaskStatus; steps: TaskStep[]; layout: TaskLayout | null; error: string | null;
+  /** a container exists and is running (null = none) */ container: { running: boolean } | null;
+  /** path prefix of the storefront preview (/sbx/<id>.<key>) */ preview: string;
+  /** uploaded database dump of the task (metadata only) */ dump: TaskDumpPublic | null;
+  prUrl: string | null; createdAt: string; updatedAt: string; lastActiveAt: string; finishedAt: string | null;
+  /** the chat the sandbox is attached to (one sandbox per chat) */ chatId: string | null;
+  /** the task's pull request (null = not published yet) */ pr: TaskPr | null;
+  /** publishing right now, or the last attempt failed / was cut off by a restart (a retry continues idempotently) */ publish: TaskPublish | null;
+  /** internet access a human allowed for this task (container attached to lotse-sandbox-egress); null = offline */ internet: { since: string } | null;
+  /** before (end of the setup) and after (at publishing) screenshots of the sandbox storefront, stored in Lotse only */ shots: TaskShots;
+}
+export type ShotDevice = 'desktop' | 'mobile';
+/** One stored screenshot; url = GET /api/sandbox/tasks/[id]/screenshots/[file] */
+export interface TaskShot { path: string; device: ShotDevice; url: string }
+export interface TaskShotSet { at: string; shots: TaskShot[]; /** why some or all shots are missing */ error?: string }
+export interface TaskShots { before: TaskShotSet | null; after: TaskShotSet | null }
+export interface TaskPr { number: number; url: string; title: string; /** seen by the PR watcher: merged or closed (missing = open or unknown) */ state?: 'merged' | 'closed' }
+/** One piece of PR feedback: review (state APPROVED/CHANGES_REQUESTED/COMMENTED), comment on the PR, line comment (path/line), failed check (name) */
+export interface PrFeedbackItem { kind: 'review' | 'comment' | 'line' | 'check'; id: string; author?: string; state?: string; name?: string; path?: string; line?: number; body: string; url?: string }
+export type PublishStep = 'check' | 'screenshots' | 'commit' | 'push' | 'pr';
+export interface TaskPublish { state: 'running' | 'failed' | 'interrupted'; step: PublishStep; error?: string; at: string }
+/** POST /api/sandbox/tasks/[id]/publish: title and description only (branch and base are fixed by the server) */
+export interface PublishRequest { title: string; body: string }
+export interface PublishResult { task: CodeTaskPublic; pr: TaskPr; action: 'created' | 'updated'; /** changed files in the pull request */ files: number }
+/** GET /api/sandbox/tasks/[id]/pr: live state from GitHub (cached briefly); checks null = not readable with the token */
+export interface PrStatus { number: number; url: string; title: string; state: 'open' | 'closed' | 'merged'; draft: boolean; checks: { total: number; success: number; failure: number; pending: number } | null; fetchedAt: string }
+/** GET /api/sandbox/tasks/[id]/diff: changes in the workspace against the base branch (redacted, capped) */
+export interface TaskDiff { files: { path: string; added: number; removed: number; status: 'added' | 'modified' | 'deleted' | 'renamed' }[]; diff: string; truncated: boolean }
+/** Dump of a task: imported once and deleted right after the import (also on failure). versionMismatch blocks until "Trotzdem fortfahren". */
+export interface TaskDumpPublic { name: string; size: number; sha256: string | null; imported: boolean; deleted: boolean; ignoreVersion: boolean; versionMismatch?: { dump: string; image: string } }
+/** An uploaded dump (GET/POST /api/sandbox/dumps…): metadata, never the content */
+export interface DumpPublic { id: string; name: string; size: number; received: number; status: 'uploading' | 'ready' | 'deleted'; sha256: string | null; taskId: string | null; expiresAt: string }
+/** NDJSON lines of GET /api/sandbox/tasks/[id]/events: full task on transitions, single log lines in between */
+export type TaskEvent = { t: 'task'; task: CodeTaskPublic } | { t: 'log'; step: string; line: string } | { t: 'deleted' }
+  /** an event the server added to the task's chat between turns (PR feedback): the open workspace shows it without reloading */
+  | { t: 'chat'; event: ChatEvent };
 /** SEO overview: levers from Search Console and Sistrix as ready-made tasks (prompt) for a new chat */
 export interface SeoItem { id: string; source: 'gsc' | 'sistrix' | 'site'; kind: 'meta' | 'gap' | 'striking' | 'cannibal' | 'decline' | 'keyword' | 'onpage' | 'site'; title: string; detail: string; metrics: { label: string; value: string }[]; /** sort value (estimated impact) */ impact: number; prompt: string; /** done/ignored by the user: hidden */ mark?: SeoMark }
 /** Done = hidden until a fetch at least SEO_DONE_RECHECK_DAYS later still reports the lever; ignored = hidden permanently */

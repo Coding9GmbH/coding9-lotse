@@ -41,3 +41,15 @@ test('memory snapshot and stored chat contain the same drafts (only one preview)
   assert.equal(mem.events.filter(e => e.t === 'draft' && e.html).length, 1);
   assert.ok(JSON.stringify(mem.events).length < 400, 'no old HTML in memory');
 });
+
+test('recordEvent: a command keeps only its last state, preview_reload is live only, file changes stay', () => {
+  const events: ChatEvent[] = [];
+  for (const ev of [
+    { t: 'command', id: 'c', command: 'theme-compile', status: 'running' },
+    { t: 'file_change', path: 'a.twig', kind: 'edit', added: 1, removed: 1 },
+    { t: 'command', id: 'c', command: 'theme-compile', status: 'ok', exitCode: 0, ms: 5 },
+    { t: 'preview_reload' },
+  ] as ChatEvent[]) recordEvent(events, ev);
+  assert.deepEqual(events.map(e => e.t), ['command', 'file_change']);
+  assert.equal((events[0] as { status: string }).status, 'ok');
+});

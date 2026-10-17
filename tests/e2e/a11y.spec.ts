@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
 // Accessibility (smoke test): only critical violations fail the test, the rest goes into the report
-for (const path of ['/', '/settings', '/settings/ki-zugriff', '/settings/integrationen', '/settings/protokolle', '/wissen']) {
+for (const path of ['/', '/settings', '/settings/ki-zugriff', '/settings/integrationen', '/settings/protokolle', '/settings/sandbox', '/wissen', '/sandbox-coding']) {
   test(`axe: no critical violations on ${path}`, async ({ page }, info) => {
     await page.goto(path);
     await expect(page.getByRole('heading').first()).toBeVisible();

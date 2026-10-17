@@ -1,6 +1,7 @@
 import type { NextConfig } from 'next';
 
-// For everything: /shop (live preview in the UI's iframe) and /staged set their own CSP, so only SAMEORIGIN here.
+// For everything: /shop and /sbx (live and sandbox preview in the UI's iframe) and /staged set their own CSP, so only SAMEORIGIN here.
+// Referrer-Policy same-origin also keeps the key in /sbx/<id>.<key> URLs from leaking to sites a sandbox page links to.
 const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'same-origin' },
@@ -15,7 +16,7 @@ const appHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'Content-Security-Policy', value: APP_CSP },
 ];
-const APP_ROUTES = ['/', '/settings/:path*', '/wissen/:path*', '/api/:path*'];
+const APP_ROUTES = ['/', '/settings/:path*', '/wissen/:path*', '/sandbox-coding/:path*', '/api/:path*'];
 
 const nextConfig: NextConfig = {
   output: 'standalone',           // slim Docker image: only the required files

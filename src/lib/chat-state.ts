@@ -5,7 +5,7 @@
 import { DEFAULT_LOCALE, INTL_LOCALE, messages, type Locale } from './i18n';
 import { parseAttachments, type Attachment, type FileAttachment } from './attachments';
 import { toolLabel } from './labels';
-import type { ChangeSet, ChatDetail, ChatEvent, DraftAudit, PublishedInfo, Styleguide, Target, UndoOutcome } from './protocol';
+import type { ChangeSet, ChatDetail, ChatEvent, DraftAudit, FileChangeKind, PrFeedbackItem, PublishedInfo, Styleguide, Target, UndoOutcome } from './protocol';
 import { asList, shopProxyPath } from './urls';
 
 export type StepState = 'run' | 'done' | 'bad';
@@ -29,7 +29,19 @@ export type LogItem =
     progress?: { done: number; total: number };
   }
   | { kind: 'published'; key: string; info: PublishedInfo; target: Target | null }
-  | { kind: 'styleguide'; key: string; sg: Styleguide };
+  | { kind: 'styleguide'; key: string; sg: Styleguide }
+  // chats with an attached sandbox (Sandbox Coding)
+  | { kind: 'file'; key: string; path: string; change: FileChangeKind; added: number; removed: number }
+  | { kind: 'command'; key: string; id: string; command: string; args?: Record<string, string>; status: 'running' | 'ok' | 'failed'; exitCode?: number; tail?: string; ms?: number }
+  | { kind: 'sandbox'; key: string; state: 'waking' | 'ready' | 'failed'; message?: string }
+  | { kind: 'publish'; key: string; title: string; body: string }
+  | { kind: 'pr'; key: string; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
+  | { kind: 'sandbox_offer'; key: string; id: string; repo: string; baseBranch: string; reason: string }
+  | { kind: 'sandbox_attached'; key: string; repo: string; baseBranch: string }
+  /** feedback on the sandbox's pull request (pr-watch.ts) or its merge/close; handedOver: given to the AI ("An KI übergeben") */
+  | { kind: 'pr_feedback'; key: string; id: string; taskId: string; number: number; url: string; items: PrFeedbackItem[]; more?: number; state?: 'merged' | 'closed'; handedOver?: boolean }
+  /** request_internet: the AI asks for internet in the task container; decision = the user's click (sent: clicked, answer pending) */
+  | { kind: 'internet'; key: string; approvalId: string; reason: string; decision?: boolean; error?: string; restart?: boolean; interactive: boolean };
 
 export type LogItemKind = LogItem['kind'];
 
@@ -56,6 +68,8 @@ export interface ChatState {
   status: string | null;
   /** Language of the status texts (UI language); kept when the history is cleared */
   locale: Locale;
+  /** Sandbox: counts storefront changes (theme compiled …); the sandbox preview reloads when it changes */
+  previewReload: number;
 }
 
 export type Mode = 'live' | 'replay';
@@ -83,7 +97,7 @@ export type ChatAction =
 
 export const initialChatState: ChatState = {
   items: [], seq: 0, curText: null, stepBox: null, target: null, draft: null, liveOverride: null, liveBust: 0,
-  tab: 'live', styleguide: null, cmsOverrides: {}, busy: false, status: null, locale: DEFAULT_LOCALE,
+  tab: 'live', styleguide: null, cmsOverrides: {}, busy: false, status: null, locale: DEFAULT_LOCALE, previewReload: 0,
 };
 
 const texts = (s: Pick<ChatState, 'locale'>) => messages(s.locale).lib.chat;
@@ -96,9 +110,12 @@ function liveStatus(ev: ChatEvent, locale: Locale): string | null {
     case 'draft_partial': return t.building;
     case 'question': return t.waitingAnswer;
     case 'changeset': return t.waitingApproval;
+    case 'internet_request': return ev.decision === undefined ? t.waitingApproval : t.thinking;
     case 'tool': return t.tool(toolLabel(ev.name, locale));
     case 'changeset_progress': return t.applyProgress(n(ev.done), n(ev.total));
-    case 'changeset_result': case 'tool_result': case 'image': return t.thinking;
+    case 'changeset_result': case 'tool_result': case 'image': case 'file_change': return t.thinking;
+    case 'command': return ev.status === 'running' ? t.command(ev.command) : t.thinking;
+    case 'sandbox_status': return ev.state === 'waking' ? t.waking : t.thinking;
     default: return null;
   }
 }
@@ -222,6 +239,32 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
       const [next] = push(s, { kind: 'styleguide', sg: ev.sg });
       return live ? { ...next, styleguide: ev.sg } : next;
     }
+    case 'file_change': return push(s, { kind: 'file', path: ev.path, change: ev.kind, added: ev.added, removed: ev.removed })[0];
+    case 'command': {
+      const item = { id: ev.id, command: ev.command, args: ev.args, status: ev.status, exitCode: ev.exitCode, tail: ev.tail, ms: ev.ms };
+      const next = update(s, 'command', i => i.id === ev.id, i => ({ ...i, ...item }));
+      return next !== s ? next : push(s, { kind: 'command', ...item })[0];
+    }
+    case 'sandbox_status': {
+      // waking → ready/failed: one line that changes, not two
+      const next = update(s, 'sandbox', i => i.state === 'waking' && s.items.at(-1)?.key === i.key, i => ({ ...i, state: ev.state, message: ev.message }));
+      return next !== s ? next : push(s, { kind: 'sandbox', state: ev.state, message: ev.message })[0];
+    }
+    case 'preview_reload': return live ? { ...s, previewReload: s.previewReload + 1 } : s;
+    case 'publish_proposal': return push(s, { kind: 'publish', title: ev.title, body: ev.body })[0];
+    case 'pr': return push(s, { kind: 'pr', taskId: ev.taskId, number: ev.number, url: ev.url, title: ev.title, action: ev.action, files: ev.files })[0];
+    case 'sandbox_offer': return push(s, { kind: 'sandbox_offer', id: ev.id, repo: ev.repo, baseBranch: ev.baseBranch, reason: ev.reason })[0];
+    case 'sandbox_attached': return push(s, { kind: 'sandbox_attached', repo: ev.repo, baseBranch: ev.baseBranch })[0];
+    case 'pr_feedback': {
+      // the same card can arrive twice (chat stream and the sandbox panel) or again marked as handed over: one card
+      if (s.items.some(i => i.kind === 'pr_feedback' && i.id === ev.id)) return ev.handedOver ? update(s, 'pr_feedback', i => i.id === ev.id, i => ({ ...i, handedOver: true })) : s;
+      return push(s, { kind: 'pr_feedback', id: ev.id, taskId: ev.taskId, number: ev.number, url: ev.url, items: ev.items, more: ev.more, state: ev.state, handedOver: ev.handedOver })[0];
+    }
+    case 'internet_request': {
+      // the same approvalId again = the outcome after the click (attaching failed): the card changes, no second card
+      const next = update(s, 'internet', i => i.approvalId === ev.approvalId, i => ({ ...i, decision: ev.decision, error: ev.error, interactive: false }));
+      return next !== s ? next : push(s, { kind: 'internet', approvalId: ev.approvalId, reason: ev.reason, decision: ev.decision, error: ev.error, restart: ev.restart, interactive: live && ev.decision === undefined })[0];
+    }
     case 'done': {
       const settled = settleSteps(s, ev.error ? 'bad' : 'done');
       return ev.error ? push(settled, { kind: 'error', text: ev.error })[0] : settled;
@@ -233,7 +276,7 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
 
 /** Clear the history view (styleguide and published layouts stay known). */
 const cleared = (s: ChatState): ChatState => ({
-  ...initialChatState, styleguide: s.styleguide, cmsOverrides: s.cmsOverrides, liveBust: s.liveBust, locale: s.locale,
+  ...initialChatState, styleguide: s.styleguide, cmsOverrides: s.cmsOverrides, liveBust: s.liveBust, locale: s.locale, previewReload: s.previewReload,
 });
 
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
@@ -257,7 +300,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case 'resume': {
       // Turn still running: make open questions/approvals usable again (the server is waiting for them)
       const items = state.items.map(i =>
-        (i.kind === 'question' && i.answer === undefined) || (i.kind === 'changeset' && i.decision === undefined && !i.result) ? { ...i, interactive: true } : i);
+        (i.kind === 'question' && i.answer === undefined) || (i.kind === 'changeset' && i.decision === undefined && !i.result) || (i.kind === 'internet' && i.decision === undefined) ? { ...i, interactive: true } : i);
       // steps assumed finished keep running if the turn is still running
       const reopened = items.map(i => (i.kind === 'steps' && i.steps.some(x => x.stale)
         ? { ...i, steps: i.steps.map(x => (x.stale ? { ...x, state: 'run' as const, stale: undefined } : x)) } : i));
@@ -272,8 +315,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
     case 'decide':
       return {
-        ...update(state, 'changeset', i => i.approvalId === action.approvalId, i => ({ ...i, interactive: false, decision: action.allow, sent: { allow: action.allow, selected: action.selected } })),
-        status: state.busy ? (action.allow ? texts(state).applying : thinking(state)) : state.status,
+        ...update(update(state, 'changeset', i => i.approvalId === action.approvalId, i => ({ ...i, interactive: false, decision: action.allow, sent: { allow: action.allow, selected: action.selected } })),
+          'internet', i => i.approvalId === action.approvalId, i => ({ ...i, interactive: false, decision: action.allow })),
+        status: state.busy ? (action.allow && !state.items.some(i => i.kind === 'internet' && i.approvalId === action.approvalId) ? texts(state).applying : thinking(state)) : state.status,
       };
     case 'undo': return update(state, 'changeset', i => i.cs.id === action.csId, i => ({ ...i, undo: action.phase, result: action.undoResults && i.result ? { ...i.result, undoResults: action.undoResults, undone: action.phase === 'done' } : i.result }));
     case 'select_target':
