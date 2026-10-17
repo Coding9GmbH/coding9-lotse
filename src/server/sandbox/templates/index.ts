@@ -1,9 +1,14 @@
-// Registry of sandbox templates. Only "dockware" exists; more templates are added here as code.
+// Registry of sandbox templates. Only "dockware" is enabled; more templates are added here as code. "shopify-theme" is a prepared,
+// disabled stub that shows the shape of a template without a container (see docs/architektur.md, "Weitere Vorlagen").
 import type { TemplateDescriptor } from '@/lib/protocol';
 import { dockware } from './dockware';
-import type { CommandCtx, SandboxTemplate } from './types';
+import { shopifyTheme } from './shopify-theme';
+import type { AnyTemplate, CommandCtx, SandboxTemplate } from './types';
 
-export const TEMPLATES: Record<string, SandboxTemplate> = { [dockware.id]: dockware };
+/** Every known template, enabled or not. */
+export const REGISTRY: readonly AnyTemplate[] = [dockware, shopifyTheme];
+/** The templates that can run: enabled, with a container (the setup, the runner and the preview need one today). */
+export const TEMPLATES: Record<string, SandboxTemplate> = Object.fromEntries(REGISTRY.filter((t): t is SandboxTemplate => t.enabled && t.runtime === 'container').map(t => [t.id, t]));
 export const DEFAULT_TEMPLATE = dockware.id;
 /** Earlier ids still stored in settings or task rows. */
 const RENAMED: Record<string, string> = { 'dockware-play': dockware.id };
