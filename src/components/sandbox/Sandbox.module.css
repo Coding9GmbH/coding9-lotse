@@ -146,10 +146,10 @@ a.iconBtn:hover { border-color: var(--dark); text-decoration: none; }
 .pvMark { flex: none; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .pvBar .pvMarkOn { background: var(--coral); border-color: var(--coral); color: var(--dark); }
 .pvAdmin { flex: none; font-size: 13px; color: var(--mute); }
-.pvNarrow { display: none; }
+.pvBar .pvNarrow { display: none; }
 @container (max-width: 560px) {
-  .pvWide { display: none; }
-  .pvNarrow { display: inline-flex; }
+  .pvBar .pvWide { display: none; }
+  .pvBar .pvNarrow { display: inline-flex; }
   .pvMark span { display: none; }
 }
 .pvView { position: relative; flex: 1; min-height: 360px; overflow: hidden; background: #fff; }
