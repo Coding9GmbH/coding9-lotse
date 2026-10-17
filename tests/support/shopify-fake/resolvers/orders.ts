@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 // Orders (only behind read_orders): just what Lotse's sales read queries. No customers, addresses or names.
 import type { ResolveInfo } from '../graphql';
 import { type ConnArgs, type Ctx, idOf, paginate, search } from '../context';

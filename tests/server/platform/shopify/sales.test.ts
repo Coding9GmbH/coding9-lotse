@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { Q } from '../../../../src/server/platform/shopify/data';
 
 process.env.AICB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-shopify-sales-'));
 delete process.env.SHOP_PLATFORM;
@@ -57,7 +58,7 @@ test('paging, line items beyond the first page, cap and note for periods older t
   fake.options.accessScopes.add('read_orders');
   const lines = Array.from({ length: 13 }, () => ({ quantity: 1, productId: VASE, discountedTotal: '1.00' }));
   fake.state.orders = [order(100, '2026-09-03T10:00:00Z', lines), ...Array.from({ length: SALES_ORDERS * 2 }, (_, i) => order(200 + i, '2026-09-04T10:00:00Z', [{ quantity: 1, productId: BECHER, discountedTotal: '2.00' }]))];
-  const q = (d: string, v?: Record<string, unknown>) => shopifyClient().gql(d, v);
+  const q: Q = (d, v) => shopifyClient().gql(d, v);
   const all = await shopifySales(q, range, { now });
   assert.equal(all.rows.find(x => x.productId === String(VASE))?.quantity, 13, 'all line items of a large order');
   assert.deepEqual([all.orders, all.capped], [SALES_ORDERS * 2 + 1, false]);
