@@ -12,6 +12,8 @@ export interface StepCtx {
   /** detected by detect-layout; null before */
   layout: () => TaskLayout | null;
   setLayout: (l: TaskLayout) => void;
+  /** technical name the user chose for a new plugin (used only if the cloned repository is empty) */
+  newPluginName: string | null;
   /** a fixed argv or the id of an allow-listed command; never a shell string from input. Throws on a non-zero exit (with the output's tail). */
   run: (cmd: readonly string[] | { command: SandboxCommandKey; args?: Record<string, string> }, o?: { timeoutMs?: number; okCodes?: number[]; /** polling: neither the command nor its output go to the log */ quiet?: boolean }) => Promise<{ exitCode: number; output: string }>;
   ensureImage: () => Promise<void>;
@@ -98,8 +100,8 @@ export interface SandboxTemplate {
   commands: CommandSpec[];
   /** container create body, pure: user or AI input never reaches it */
   buildSpec: (o: SpecInput) => ContainerSpec;
-  /** what the cloned repository is; throws a clear German error for unsupported layouts */
-  detectLayout: (worktree: string) => TaskLayout;
+  /** what the cloned repository is (an empty one: a new plugin named `newPluginName`); throws a clear German error for unsupported layouts */
+  detectLayout: (worktree: string, o?: { newPluginName?: string | null; repo?: string }) => TaskLayout;
   /** absolute directory in the container the workspace is mirrored to */
   syncTarget: (l: TaskLayout) => string;
   /** user and working directory for setup commands and own commands */

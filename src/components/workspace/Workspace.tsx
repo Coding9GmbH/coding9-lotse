@@ -14,7 +14,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { CHAT_COOKIE, setupReady } from '@/lib/nav';
 import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, CheckFinding, CodeTaskPublic, Health, PublishResult, Target } from '@/lib/protocol';
 import { liveSrc, withBust } from '@/lib/urls';
-import { statusTone } from '@/lib/sandbox-task';
+import { PLUGIN_NAME, statusTone } from '@/lib/sandbox-task';
 import { INTL_LOCALE } from '@/lib/i18n';
 import Link from 'next/link';
 import { useShell, type WorkspaceBridge } from '@/components/shell/ShellProvider';
@@ -82,7 +82,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   // Sandbox Coding: the sandbox attached to this chat (then the right side shows it), the "Sandbox starten" dialog and its preset
   const [taskId, setTaskId] = useState<string | null>(initialChat?.taskId ?? null);
   const [sbxTask, setSbxTask] = useState<CodeTaskPublic | null>(null);
-  const [sbxDialog, setSbxDialog] = useState<{ repo: string; baseBranch: string; title?: string } | null | false>(false);
+  const [sbxDialog, setSbxDialog] = useState<{ repo: string; baseBranch: string; title?: string; pluginName?: string } | null | false>(false);
   const [sbxBusy, setSbxBusy] = useState(false);
   // "Prüfen und veröffentlichen" on a proposal card: that proposal (otherwise the latest) in the "Pull Request" tab, opened
   const [picked, setPicked] = useState<PrProposal | null>(null);
@@ -401,9 +401,15 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     attached: !!taskId, busy: sbxBusy, blocked: sbxBlocked,
     start: (o, direct) => {
       const title = o.reason ? offerTitle(o.reason) : undefined;
-      if (!direct || !chatId) { setSbxDialog({ repo: o.repo, baseBranch: o.baseBranch, title }); return; }
+      const dialog = () => setSbxDialog({ repo: o.repo, baseBranch: o.baseBranch, title, ...(o.pluginName ? { pluginName: o.pluginName } : {}) });
+      if (!direct || !chatId) { dialog(); return; }
       setSbxBusy(true);
-      api.sandbox.createTask({ chatId, repo: o.repo, baseBranch: o.baseBranch, ...(title ? { title } : {}) }).then(r => attached(r.task), e => reportError(errorText(e))).finally(() => setSbxBusy(false));
+      // an empty repository needs the new plugin's name: started directly only with a valid one from the card, else the dialog asks
+      api.sandbox.repoProbe(o.repo, o.baseBranch).catch(() => null).then(p => {
+        const pluginName = p?.empty ? o.pluginName ?? '' : '';
+        if (p?.empty && !PLUGIN_NAME.test(pluginName)) { dialog(); return; }
+        return api.sandbox.createTask({ chatId, repo: o.repo, baseBranch: o.baseBranch, ...(title ? { title } : {}), ...(pluginName ? { pluginName } : {}) }).then(r => attached(r.task));
+      }).catch(e => reportError(errorText(e))).finally(() => setSbxBusy(false));
     },
   } : undefined;
   // PR feedback of the attached sandbox not handed to the AI yet (a dot on the "Pull Request" tab, a warning when finishing)

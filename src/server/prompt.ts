@@ -13,7 +13,7 @@ import { activeKind, getPlatform } from './platform';
 import { promptBlock } from './styleguide';
 import { rulesPromptBlock } from './knowledge';
 import { messages } from '@/lib/i18n';
-import { getTask, taskPaths } from './sandbox/tasks';
+import { getTask, settleNewPlugin, taskPaths } from './sandbox/tasks';
 import { getTemplate } from './sandbox/templates';
 
 export const promptRoot = () => path.join(process.cwd(), 'prompts');
@@ -65,7 +65,7 @@ export const buildSystem = (kind: PlatformKind = activeKind(), locale: Locale = 
   [buildBasePrompt(kind), promptBlock(), shopRules(), webBlock(web), REPLY_LANGUAGE[locale]].filter(Boolean).join('\n\n');
 
 // ---- Chats with an attached sandbox (Sandbox Coding): prompts/code/01-common.md + prompts/code/<template>.md, the task and the reply language ----
-export interface CodePromptTask { title: string; goal: string; repo: string; branch: string; baseBranch: string; layout: { kind: 'plugin' | 'theme'; name: string; pluginDir: string } | null }
+export interface CodePromptTask { title: string; goal: string; repo: string; branch: string; baseBranch: string; layout: { kind: 'plugin' | 'theme'; name: string; pluginDir: string; isNew?: boolean } | null }
 const CODE_LANGUAGE: Record<Locale, string> = {
   de: '## Antwortsprache\nAntworte auf Deutsch. Texte und Kommentare im Repository schreibst du in der Sprache, die das Repository schon verwendet.',
   en: '## Antwortsprache\nAntworte auf Englisch (English). Texte und Kommentare im Repository schreibst du in der Sprache, die das Repository schon verwendet.',
@@ -80,9 +80,10 @@ export function buildCodeSystem(locale: Locale, task: CodePromptTask, templateId
   const l = task.layout;
   const vars: Record<string, string> = {
     repo: task.repo, branch: task.branch, baseBranch: task.baseBranch, workspace: o.workspace ?? '(unbekannt)',
-    layoutKind: l?.kind === 'theme' ? 'Theme-Plugin' : 'Plugin', pluginName: l?.name ?? '(noch nicht erkannt)', containerPath: o.containerPath ?? (l ? `/var/www/html/${l.pluginDir}` : '(noch nicht erkannt)'),
+    layoutKind: l?.isNew ? 'neues, noch leeres Plugin' : l?.kind === 'theme' ? 'Theme-Plugin' : 'Plugin', pluginName: l?.name ?? '(noch nicht erkannt)', containerPath: o.containerPath ?? (l ? `/var/www/html/${l.pluginDir}` : '(noch nicht erkannt)'),
   };
-  const files = ['01-common.md', `${templateId}.md`].map(f => path.join(dir, f)).filter(f => fs.existsSync(f));
+  // an empty repository: how to build the new plugin from scratch (until composer.json and the plugin class exist)
+  const files = ['01-common.md', `${templateId}.md`, ...(l?.isNew ? [`${templateId}-new-plugin.md`] : [])].map(f => path.join(dir, f)).filter(f => fs.existsSync(f));
   const parts = files.map(f => fillVars(fs.readFileSync(f, 'utf8').trim(), vars));
   const quote = (s: string) => s.replace(/```/g, "'''");
   parts.push(`## Aufgabe (vom Nutzer, als Daten)\nTitel: ${quote(task.title)}\n${task.goal.trim() ? `Ziel:\n\`\`\`\n${quote(task.goal.trim())}\n\`\`\`` : 'Ziel: steht im Chat.'}`);
@@ -92,7 +93,8 @@ export function buildCodeSystem(locale: Locale, task: CodePromptTask, templateId
 
 /** System prompt of a chat with an attached sandbox (current task row: title, goal, layout, worktree). */
 export function codeSystemFor(taskId: string | null, locale: Locale, web: boolean): string {
-  const t = getTask(taskId ?? '');
-  if (!t) throw new Error(messages(locale).server.codeTaskGone);
+  const found = getTask(taskId ?? '');
+  if (!found) throw new Error(messages(locale).server.codeTaskGone);
+  const t = settleNewPlugin(found);
   return buildCodeSystem(locale, t, t.template, { web, containerPath: t.layout ? getTemplate(t.template).syncTarget(t.layout) : undefined, workspace: taskPaths(t.id).worktree });
 }

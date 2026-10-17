@@ -36,7 +36,7 @@ export type LogItem =
   | { kind: 'sandbox'; key: string; state: 'waking' | 'ready' | 'failed' | 'finished'; message?: string }
   | { kind: 'publish'; key: string; title: string; body: string }
   | { kind: 'pr'; key: string; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
-  | { kind: 'sandbox_offer'; key: string; id: string; repo: string; baseBranch: string; reason: string }
+  | { kind: 'sandbox_offer'; key: string; id: string; repo: string; baseBranch: string; reason: string; pluginName?: string }
   | { kind: 'sandbox_attached'; key: string; repo: string; baseBranch: string }
   /** feedback on the sandbox's pull request (pr-watch.ts) or its merge/close; handedOver: given to the AI ("An KI übergeben") */
   | { kind: 'pr_feedback'; key: string; id: string; taskId: string; number: number; url: string; items: PrFeedbackItem[]; more?: number; state?: 'merged' | 'closed'; handedOver?: boolean }
@@ -253,7 +253,7 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
     case 'preview_reload': return live ? { ...s, previewReload: s.previewReload + 1 } : s;
     case 'publish_proposal': return push(s, { kind: 'publish', title: ev.title, body: ev.body })[0];
     case 'pr': return push(s, { kind: 'pr', taskId: ev.taskId, number: ev.number, url: ev.url, title: ev.title, action: ev.action, files: ev.files })[0];
-    case 'sandbox_offer': return push(s, { kind: 'sandbox_offer', id: ev.id, repo: ev.repo, baseBranch: ev.baseBranch, reason: ev.reason })[0];
+    case 'sandbox_offer': return push(s, { kind: 'sandbox_offer', id: ev.id, repo: ev.repo, baseBranch: ev.baseBranch, reason: ev.reason, ...(ev.pluginName ? { pluginName: ev.pluginName } : {}) })[0];
     case 'sandbox_attached': return push(s, { kind: 'sandbox_attached', repo: ev.repo, baseBranch: ev.baseBranch })[0];
     case 'pr_feedback': {
       // the same card can arrive twice (chat stream and the sandbox panel) or again marked as handed over: one card

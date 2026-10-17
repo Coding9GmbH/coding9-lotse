@@ -1,5 +1,5 @@
 // For tests and local checks only: tiny fake of the GitHub REST API (Bearer token, JSON, 404 for repositories without access).
-// Endpoints: /user, /user/repos, /repos/:o/:r, /repos/:o/:r/branches, GET (head/state filter) + POST /repos/:o/:r/pulls,
+// Endpoints: /user, /user/repos, /repos/:o/:r, /repos/:o/:r/branches, /repos/:o/:r/contents (root names from FakeRepo.files), GET (head/state filter) + POST /repos/:o/:r/pulls,
 // GET + PATCH /repos/:o/:r/pulls/:n, GET /repos/:o/:r/commits/:sha/check-runs, GET /repos/:o/:r/pulls/:n/reviews, …/pulls/:n/comments
 // and …/issues/:n/comments (feedback, keyed "owner/repo#n"). Every GET answers with an ETag and 304 on a matching If-None-Match.
 // GET /__fake/calls (no auth): the calls so far; POST /__fake/feedback: add feedback to a pull request or merge it (E2E).
@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-export interface FakeRepo { fullName: string; private?: boolean; defaultBranch?: string; push?: boolean; branches?: string[] }
+export interface FakeRepo { fullName: string; private?: boolean; defaultBranch?: string; push?: boolean; branches?: string[]; /** names in the root (GET …/contents); default: a plugin's */ files?: string[] }
 export interface FakePull { number: number; title: string; head: string; base: string; body: string; html_url: string; state: 'open' | 'closed'; merged?: boolean; draft?: boolean; headSha?: string }
 export interface FakeCheckRun { id?: number; name: string; status: 'queued' | 'in_progress' | 'completed'; conclusion?: string | null; html_url?: string; output?: { title?: string; summary?: string } }
 export interface FakeUser { login: string; type?: string }
@@ -74,11 +74,12 @@ export async function startFakeGithub(o: { token: string; login?: string; repos?
       const per = Number(url.searchParams.get('per_page') ?? 30), page = Number(url.searchParams.get('page') ?? 1);
       return send(200, f.repos.slice((page - 1) * per, page * per).map(repoJson));
     }
-    const m = /^\/repos\/([^/]+)\/([^/]+)(\/branches|\/pulls(?:\/(\d+))?|\/commits\/([0-9a-f]{40})\/check-runs|\/(pulls|issues)\/(\d+)\/(reviews|comments))?$/.exec(p);
+    const m = /^\/repos\/([^/]+)\/([^/]+)(\/branches|\/contents|\/pulls(?:\/(\d+))?|\/commits\/([0-9a-f]{40})\/check-runs|\/(pulls|issues)\/(\d+)\/(reviews|comments))?$/.exec(p);
     const repo = m && f.repos.find(r => r.fullName === `${decodeURIComponent(m[1])}/${decodeURIComponent(m[2])}`);
     if (!m || !repo) return send(404, { message: 'Not Found' });
     if (!m[3]) return send(200, repoJson(repo));
     if (m[3] === '/branches') return send(200, (repo.branches ?? [repo.defaultBranch ?? 'main']).map(name => ({ name, protected: name === (repo.defaultBranch ?? 'main'), commit: { sha: '0'.repeat(40) } })));
+    if (m[3] === '/contents') return send(200, (repo.files ?? ['composer.json', 'src', 'README.md']).map(name => ({ name, type: name.includes('.') ? 'file' : 'dir' })));
     if (m[5]) { const runs = f.checkRuns[m[5]] ?? []; return send(200, { total_count: runs.length, check_runs: runs }); }
     if (m[6]) {
       const k = `${repo.fullName}#${m[7]}`;

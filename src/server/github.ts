@@ -122,6 +122,13 @@ export async function listBranches(repo: string): Promise<GithubBranch[]> {
     .filter(b => typeof b.name === 'string').map(b => ({ name: b.name as string, protected: b.protected === true }));
 }
 
+/** Names in the root of a branch (files and folders), for "is this repository still empty?". At most one page (1000 entries). */
+export async function listRootNames(repo: string, ref: string): Promise<string[]> {
+  const { data } = await ghFetch<{ name?: unknown }[]>(`${repoPath(repo)}/contents?ref=${encodeURIComponent(ref)}`);
+  if (!Array.isArray(data)) throw new Error('GitHub: unerwartete Antwort (keine Liste).');
+  return data.map(e => e.name).filter((n): n is string => typeof n === 'string');
+}
+
 /** Can the token see the repository and may it push? 404 = no access (GitHub hides repositories without access). */
 export async function checkRepoAccess(repo: string): Promise<GithubRepo> {
   try { return toRepo((await ghFetch<RawRepo>(repoPath(repo))).data); }

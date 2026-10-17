@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
 import type { CodeTaskPublic, CodeTaskStatus, TaskDumpPublic, CommandPhase, ShotDevice, TaskEvent, TaskLayout, TaskPublish, TaskShotSet, TaskStep } from '@/lib/protocol';
+import { PLUGIN_NAME } from '@/lib/sandbox-task';
 import { codeTaskByChat, codeTaskGet, codeTaskList, codeTaskPut, dataDir, macOf, type CodeTaskRow } from '../db';
 import { assertLotseBranch } from '../git';
 import { singleton } from '../state';
@@ -29,6 +30,7 @@ export interface CodeTask extends CodeTaskRow {
   /** where Lotse ran when the container was created; port: only containers from before the internal network (refused) */ mode: NetworkMode | null; port: number | null;
   lastActiveAt: string; finishedAt: string | null;
   /** missing in rows from before dumps existed */ dump?: StoredDump | null;
+  /** technical name for a new plugin, used when the cloned repository is empty (validated PLUGIN_NAME) */ pluginName?: string | null;
   /** title of the pull request (number, URL and pushed SHA are columns) */ prTitle?: string | null;
   /** publishing (running, failed or interrupted by a restart); null after success */ publish?: TaskPublish | null;
   /** internet a human allowed (container attached to lotse-sandbox-egress, internet.ts); null/missing = offline */ internet?: { since: string; via: 'chat' | 'panel' } | null;
@@ -142,7 +144,7 @@ export function publicTask(t: CodeTask, o: { logs?: boolean } = {}): CodeTaskPub
     steps: t.steps.map(({ id, key, label, state, startedAt, endedAt, log, error }) => ({ id, key, ...(label ? { label } : {}), state, ...(startedAt ? { startedAt } : {}), ...(endedAt ? { endedAt } : {}), log: o.logs === false ? [] : log, ...(error ? { error } : {}) })),
     container: t.containerId ? { running: t.containerRunning } : null,
     preview: previewPath(t.id), dump: t.dump ? publicTaskDump(t.dump) : null, prUrl: t.prUrl, createdAt: t.createdAt, updatedAt: t.updatedAt, lastActiveAt: t.lastActiveAt, finishedAt: t.finishedAt,
-    chatId: t.chatId, pr: t.prNumber && t.prUrl ? { number: t.prNumber, url: t.prUrl, title: t.prTitle ?? t.title, ...(t.prWatch?.number === t.prNumber && t.prWatch.state !== 'open' ? { state: t.prWatch.state } : {}) } : null, publish: t.publish ?? null,
+    chatId: t.chatId, pluginName: t.pluginName ?? null, pr: t.prNumber && t.prUrl ? { number: t.prNumber, url: t.prUrl, title: t.prTitle ?? t.title, ...(t.prWatch?.number === t.prNumber && t.prWatch.state !== 'open' ? { state: t.prWatch.state } : {}) } : null, publish: t.publish ?? null,
     internet: t.internet ? { since: t.internet.since } : null,
     shots: { before: publicShots(t.id, t.shots?.before), after: publicShots(t.id, t.shots?.after) },
   };
@@ -172,7 +174,7 @@ export function planSteps(templateId: string, commands: { id: string; label: str
   return out;
 }
 
-export interface NewTask { chatId: string; title?: string; goal?: string; repo: string; baseBranch: string; dumpId?: string }
+export interface NewTask { chatId: string; title?: string; goal?: string; repo: string; baseBranch: string; dumpId?: string; pluginName?: string }
 /** Creates the row only (not running yet: runSteps sets setting_up), bound to the chat it was started from.
  *  Title (branch name, list): given, otherwise the repository's name. Own commands are taken from the environment now. */
 export const ATTACHED_MSG = 'An diesem Chat hängt schon eine Sandbox. Erst „Aufgabe abschließen“, dann eine neue starten.';
@@ -181,15 +183,32 @@ export function createTask(p: NewTask): CodeTask {
   if (!p.chatId) throw new Error('Chat fehlt.');
   // checked again here, without an await before codeTaskPut: two overlapping requests never attach two sandboxes to one chat
   if (attachedTask(p.chatId)) throw Object.assign(new Error(ATTACHED_MSG), { status: 409 });
+  if (p.pluginName && !PLUGIN_NAME.test(p.pluginName)) throw Object.assign(new Error(PLUGIN_NAME_MSG), { status: 400 });
   const title = (p.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || `Sandbox ${p.repo.split('/').pop() ?? p.repo}`;
   const t: CodeTask = {
     id, chatId: p.chatId, template: cfg.templateId, repo: p.repo, baseBranch: p.baseBranch, branch: branchFor(title, id),
     status: 'interrupted', containerId: null, prNumber: null, prUrl: null, pushedSha: null, createdAt: ts, updatedAt: ts,
     title, goal: (p.goal ?? '').trim().slice(0, 4000), steps: planSteps(cfg.templateId, cfg.commands), layout: null, error: null,
-    containerRunning: false, mode: null, port: null, lastActiveAt: ts, finishedAt: null, dump: null,
+    containerRunning: false, mode: null, port: null, lastActiveAt: ts, finishedAt: null, dump: null, pluginName: p.pluginName || null,
   };
   if (p.dumpId) setTaskDump(t, p.dumpId);
   codeTaskPut(t);
+  return t;
+}
+
+export const PLUGIN_NAME_MSG = 'Ungültiger Plugin-Name: Buchstaben und Ziffern, beginnt mit einem Großbuchstaben, 2 bis 61 Zeichen (z. B. CoNineHeaderBanner).';
+
+/** A new plugin (empty repository) becomes an ordinary one once the AI has written composer.json and the plugin class: the layout
+ *  then says what the repository is (plugin or theme, the class's name). The folder in the container stays where the setup put it,
+ *  so the running sandbox keeps syncing to the same place; a new setup detects everything from scratch. No change while the
+ *  repository is still incomplete. Returns the (possibly updated) task. */
+export function settleNewPlugin(t: CodeTask): CodeTask {
+  if (!t.layout?.isNew) return t;
+  let found: TaskLayout;
+  try { found = getTemplate(t.template).detectLayout(taskPaths(t.id).worktree); } catch { return t; }
+  if (found.isNew) return t;
+  t.layout = { kind: found.kind, name: found.name, pluginDir: t.layout.pluginDir };
+  saveTask(t);
   return t;
 }
 

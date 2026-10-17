@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { CodeTaskPublic, TaskStep } from '@/lib/protocol';
 import { useI18n } from '@/lib/i18n/I18nProvider';
-import { canRetryFrom, errorSummary, formatSeconds, setupProgress, setupSeconds, stepSeconds, willSkip } from '@/lib/sandbox-task';
+import { canRetryFrom, errorSummary, formatSeconds, setupProgress, setupSeconds, skipReason, stepSeconds } from '@/lib/sandbox-task';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import styles from './Sandbox.module.css';
@@ -53,7 +53,7 @@ export function StepTimeline({ task, onRetry, onIgnoreVersion, busy }: { task: C
       <ol className={styles.timeline}>
         {shown.map(s => {
           const sec = stepSeconds(s), label = s.key === 'custom' ? s.label ?? s.id : all.sandbox.steps[s.key];
-          const skip = willSkip(task, s), state = skip ? 'skipped' : s.state;
+          const skip = skipReason(task, s), state = skip ? 'skipped' : s.state;
           const autoLog = s.state === 'running' || s.state === 'failed';
           const hasLog = s.log.length > 0;
           const summary = s.error ? errorSummary(s.error) : null;
@@ -63,7 +63,7 @@ export function StepTimeline({ task, onRetry, onIgnoreVersion, busy }: { task: C
               <div className={styles.tlBody}>
                 <div className={styles.tlHead}>
                   <span className={styles.tlLabel}>{label}</span>
-                  <span className={styles.muted}>{skip ? t.willSkip : t.stepState[s.state]}{sec !== null && s.state !== 'skipped' ? ` · ${formatSeconds(sec)}` : ''}</span>
+                  <span className={styles.muted}>{skip ? t.willSkip[skip] : t.stepState[s.state]}{sec !== null && s.state !== 'skipped' ? ` · ${formatSeconds(sec)}` : ''}</span>
                   {!autoLog && hasLog && <button type="button" className={styles.tlLogBtn} aria-expanded={logs.has(s.id)} onClick={() => toggleLog(s.id)}>{t.log} ({s.log.length})</button>}
                   {canRetryFrom(task, s) && <Button size="sm" variant="primary" onClick={() => onRetry(s.id)} disabled={busy}>{t.retryFrom}</Button>}
                 </div>

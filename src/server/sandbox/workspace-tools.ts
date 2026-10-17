@@ -23,7 +23,7 @@ import { fetchUpstream, sandboxUpstream } from './preview';
 import { getRunner } from './runner';
 import { syncAll, syncPaths } from './sync';
 import { getTemplate } from './templates';
-import { mustTask, taskPaths, type CodeTask } from './tasks';
+import { mustTask, settleNewPlugin, taskPaths, type CodeTask } from './tasks';
 import { deleteText, listFiles, readText, searchFiles, type Change } from './workspace-fs';
 
 /** MCP tools of every sandbox chat */
@@ -121,6 +121,7 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
       act('sandbox_bash', async ({ command, timeout_sec }) => {
         if (command.includes('\0')) return fail('Ungültiger Befehl.');
         if (!task().layout) return fail('Die Einrichtung ist noch nicht fertig.');
+        settleNewPlugin(task()); // a new plugin with composer.json and class is an ordinary plugin from now on
         await ensureAwake(taskId); // paused meanwhile (idle, button): start it again, no new setup
         const tpl = getTemplate(task().template);
         const id = `cmd_${crypto.randomBytes(6).toString('hex')}`, t0 = Date.now(), shown = cardText(command);

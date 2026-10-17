@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ContainerSpec } from '../runner';
 import type { TaskLayout } from '@/lib/protocol';
+import { PLUGIN_NAME, isEmptyRepoListing, pluginNameFromRepo } from '@/lib/sandbox-task';
 import { MANAGED, SANDBOX_NET, TASK_LABEL, sandboxAlias } from '../labels';
 import type { CommandArg, CommandSpec, SandboxTemplate, SpecInput, StepCtx, TemplateStep } from './types';
 
@@ -96,12 +97,19 @@ async function importDb(ctx: StepCtx): Promise<void | 'skipped'> {
 const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
   'check-image': ctx => ctx.ensureImage(),
   clone: async ctx => { const { head } = await ctx.clone(); ctx.log(`Commit ${head.slice(0, 12)}`); },
-  'detect-layout': async ctx => { const l = detectLayout(ctx.worktree); ctx.setLayout(l); ctx.log(`${l.kind === 'theme' ? 'Theme' : 'Plugin'} ${l.name} → ${l.pluginDir}`); },
+  'detect-layout': async ctx => {
+    const l = detectLayout(ctx.worktree, { newPluginName: ctx.newPluginName, repo: ctx.repo });
+    ctx.setLayout(l);
+    ctx.log(l.isNew
+      ? `Das Repository ist leer – neues Plugin ${l.name} → ${l.pluginDir}. Die KI legt es in der Sandbox an; Installieren und Theme-Kompilieren entfallen bei der Einrichtung.`
+      : `${l.kind === 'theme' ? 'Theme' : 'Plugin'} ${l.name} → ${l.pluginDir}`);
+  },
   'start-container': ctx => ctx.createContainer(),
   'wait-ready': ctx => waitReady(ctx),
   'install-plugin': async ctx => {
     const l = pluginName(ctx);
     await ctx.syncAll();
+    if (l.isNew) { ctx.log(`Neues Plugin: Es gibt noch nichts zu installieren. Sobald composer.json und die Plugin-Klasse angelegt sind, installiert die KI es mit bin/console plugin:install --activate ${l.name}.`); return 'skipped'; }
     // plugin:refresh and plugin:install exit with 0 even when the plugin was not found (e.g. composer.json invalid): check the database
     const refresh = await ctx.run(bin('plugin:refresh'));
     await ctx.run(bin('plugin:install', '--activate', '--', l.name));
@@ -120,7 +128,10 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
     try { await ctx.run(TIDY_ARGV, { timeoutMs: 2 * MIN }); ctx.log('Debug-Leiste und Cookie-Hinweis in der Sandbox ausgeschaltet.'); }
     catch (e) { if (ctx.signal.aborted) throw e; ctx.log(`Übersprungen: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`); return 'skipped'; }
   },
-  'theme-compile': async ctx => { await ctx.run(bin('theme:compile')); await ctx.run(bin('cache:clear')); },
+  'theme-compile': async ctx => {
+    if (ctx.layout()?.isNew) { ctx.log('Neues Plugin: Die Storefront bleibt vorerst unverändert; kompiliert wird, sobald das Plugin Styles oder Templates mitbringt.'); return 'skipped'; }
+    await ctx.run(bin('theme:compile')); await ctx.run(bin('cache:clear'));
+  },
   screenshots: ctx => ctx.screenshots(),
   ready: async ctx => { const s = await ctx.httpStatus('/'); if (s !== 200) throw new Error(`Die Storefront antwortet mit HTTP ${s}.`); },
 };
@@ -156,16 +167,26 @@ const COMMANDS: CommandSpec[] = [
   cmd('php-lint', (a, c) => ['php', '-l', `${c.pluginDir}/${a.path}`], [pathArg(/^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._/-]{0,195}\.php$/)], MIN),
 ];
 
-const PLUGIN_NAME = /^[A-Z][A-Za-z0-9]{1,60}$/;
 const FULL_PROJECT = 'Vollständige Shopware-Projekte werden von dieser Vorlage noch nicht unterstützt – nur Plugin- und Theme-Repositorys (custom/plugins/<Name>).';
-const NO_PLUGIN = 'Kein Shopware-Plugin erkannt: composer.json mit type „shopware-platform-plugin“ und extra.shopware-plugin-class fehlt.';
+const NO_PLUGIN = 'Kein Shopware-Plugin erkannt: composer.json mit type „shopware-platform-plugin“ und extra.shopware-plugin-class fehlt. Für ein neues Plugin ein leeres Repository wählen (höchstens README, LICENSE, .gitignore).';
 
-/** composer.json type shopware-platform-plugin + extra.shopware-plugin-class → plugin name; src/Resources/theme.json → theme. */
-export function detectLayout(worktree: string): TaskLayout {
+const NO_NAME = 'Das Repository ist leer, aber es fehlt ein gültiger technischer Name für das neue Plugin (z. B. CoNineHeaderBanner: Buchstaben und Ziffern, beginnt mit einem Großbuchstaben). Sandbox abschließen und mit Plugin-Namen neu starten.';
+
+/** Options for an empty repository: the name the user chose for the new plugin (else one derived from the repository name). */
+export interface DetectOptions { newPluginName?: string | null; repo?: string }
+
+/** composer.json type shopware-platform-plugin + extra.shopware-plugin-class → plugin name; src/Resources/theme.json → theme.
+ *  An (almost) empty repository (README, LICENSE, .gitignore at most) becomes a new plugin that the AI builds in the sandbox. */
+export function detectLayout(worktree: string, o: DetectOptions = {}): TaskLayout {
   const file = path.join(worktree, 'composer.json');
   const has = (rel: string) => fs.existsSync(path.join(worktree, rel));
   let st: fs.Stats | null = null;
   try { st = fs.lstatSync(file); } catch { /* missing */ }
+  if (!st && isEmptyRepoListing(fs.readdirSync(worktree))) {
+    const name = o.newPluginName?.trim() || pluginNameFromRepo(o.repo ?? '');
+    if (!PLUGIN_NAME.test(name)) throw new Error(NO_NAME);
+    return { kind: 'plugin', name, pluginDir: `custom/plugins/${name}`, isNew: true };
+  }
   if (!st) throw new Error(has('bin/console') || has('symfony.lock') ? FULL_PROJECT : NO_PLUGIN);
   if (!st.isFile() || st.size > 1024 * 1024) throw new Error('composer.json ist keine normale Datei oder zu groß.');
   let c: { type?: unknown; extra?: Record<string, unknown>; require?: Record<string, unknown> };

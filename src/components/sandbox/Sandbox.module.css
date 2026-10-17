@@ -45,6 +45,11 @@
 .row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
 .label { font-size: 13px; font-weight: 600; color: var(--mute); }
 .field { display: flex; flex-direction: column; gap: 4px; margin: 12px 0 6px; }
+/* empty repository: the new plugin's technical name, set off like a note */
+.newPlugin { padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--green); border-radius: 8px; background: var(--green-bg); }
+.newPluginNote { margin: 0 0 4px; font-size: 13px; color: var(--ink); }
+.fieldNote { font-size: 12px; color: var(--mute); }
+.fieldBad { color: var(--warn); }
 .fieldHint { color: var(--mute); font-size: 12px; }
 .card input:not([type=checkbox]), .card select, .card textarea { width: 100%; min-width: 0; padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; outline: none; }
 .card input:focus, .card select:focus, .card textarea:focus { border-color: var(--green); }
@@ -95,6 +100,7 @@
 .form { display: flex; flex-direction: column; }
 .form input, .form select, .form textarea { width: 100%; min-width: 0; padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; outline: none; }
 .form input:focus, .form select:focus, .form textarea:focus { border-color: var(--green); }
+.form input[aria-invalid=true] { border-color: var(--coral-d); }
 .form textarea { resize: vertical; }
 
 .back { display: inline-block; font-size: 13px; color: var(--mute); margin-bottom: 10px; }
