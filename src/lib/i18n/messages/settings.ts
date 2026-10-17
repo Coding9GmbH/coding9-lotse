@@ -171,7 +171,7 @@ export const de = {
   sandbox: {
     heading: 'Sandbox Coding',
     toggle: 'Sandbox Coding einschalten',
-    toggleHint: 'Startet pro Code-Aufgabe einen Shopware-Container (dockware/play) auf diesem Rechner. Aus: kein Reiter, keine Container, keine Code-Werkzeuge für die KI. Beim Ausschalten werden laufende Container gestoppt (nicht gelöscht).',
+    toggleHint: 'Startet pro Code-Aufgabe einen Shopware-Container (dockware/shopware) auf diesem Rechner. Aus: kein Reiter, keine Container, keine Code-Werkzeuge für die KI. Beim Ausschalten werden laufende Container gestoppt (nicht gelöscht).',
     envOff: 'Per LOTSE_SANDBOX=0 hart abgeschaltet – der Schalter wirkt erst, wenn die Variable entfernt ist.',
     openBind: 'Gesperrt: Lotse wäre ohne LOTSE_PASSWORD aus dem Netzwerk oder aus den Aufgaben-Containern erreichbar. Erst LOTSE_PASSWORD setzen (oder mit make sandbox-up starten, das LOTSE_SANDBOX_SUBNET festlegt).',
     dockerOk: (version: string) => `Docker ${version} erreichbar`,
@@ -385,7 +385,7 @@ export const en: typeof de = {
   sandbox: {
     heading: 'Sandbox Coding',
     toggle: 'Switch on Sandbox Coding',
-    toggleHint: 'Starts a Shopware container (dockware/play) per code task on this machine. Off: no tab, no containers, no code tools for the AI. Switching off stops running containers (they are not deleted).',
+    toggleHint: 'Starts a Shopware container (dockware/shopware) per code task on this machine. Off: no tab, no containers, no code tools for the AI. Switching off stops running containers (they are not deleted).',
     envOff: 'Hard-disabled via LOTSE_SANDBOX=0 – the switch only takes effect once the variable is removed.',
     openBind: 'Blocked: without LOTSE_PASSWORD, Lotse would be reachable from the network or from the task containers. Set LOTSE_PASSWORD first (or start with make sandbox-up, which sets LOTSE_SANDBOX_SUBNET).',
     dockerOk: (version: string) => `Docker ${version} reachable`,

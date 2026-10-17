@@ -69,7 +69,7 @@ export interface SandboxTemplate {
   id: string;
   labelKey: string;
   platform: 'shopware';
-  /** the one allowed image must match this, e.g. ^dockware/play:<version>$ */
+  /** the one allowed image must match this, e.g. ^dockware/shopware:<version>$ */
   imagePattern: RegExp;
   defaultImage: string;
   steps: TemplateStep[];

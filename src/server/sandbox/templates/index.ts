@@ -1,13 +1,17 @@
-// Registry of sandbox templates. Only "dockware-play" exists; more templates are added here as code.
+// Registry of sandbox templates. Only "dockware" exists; more templates are added here as code.
 import type { TemplateDescriptor } from '@/lib/protocol';
-import { dockwarePlay } from './dockware-play';
+import { dockware } from './dockware';
 import type { CommandCtx, SandboxTemplate } from './types';
 
-export const TEMPLATES: Record<string, SandboxTemplate> = { [dockwarePlay.id]: dockwarePlay };
-export const DEFAULT_TEMPLATE = dockwarePlay.id;
+export const TEMPLATES: Record<string, SandboxTemplate> = { [dockware.id]: dockware };
+export const DEFAULT_TEMPLATE = dockware.id;
+/** Earlier ids still stored in settings or task rows. */
+const RENAMED: Record<string, string> = { 'dockware-play': dockware.id };
+export const canonicalTemplateId = (id: string) => (Object.hasOwn(RENAMED, id) ? RENAMED[id] : id);
 
 export function getTemplate(id: string): SandboxTemplate {
-  const t = Object.hasOwn(TEMPLATES, id) ? TEMPLATES[id] : undefined;
+  const key = canonicalTemplateId(id);
+  const t = Object.hasOwn(TEMPLATES, key) ? TEMPLATES[key] : undefined;
   if (!t) throw new Error(`Unbekannte Sandbox-Vorlage: ${id}`);
   return t;
 }

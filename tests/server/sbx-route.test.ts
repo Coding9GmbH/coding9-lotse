@@ -19,7 +19,7 @@ const R = await import('../../src/server/sandbox/reconcile');
 const route = await import('../../src/app/sbx/[task]/[[...path]]/route');
 
 const fake = new FakeRunner();
-fake.images.add('dockware/play:6.7.2.2');
+fake.images.add('dockware/shopware:6.7.15.1');
 setRunner(fake);
 E.saveSandbox({ enabled: true });
 after(async () => { R.resetReconcile(); await fake.close(); });
@@ -47,7 +47,7 @@ fake.storefront = (req, res) => {
 async function readyTask(status: 'ready' | 'paused' | 'failed' | 'done' = 'ready') {
   answer = DEFAULT;
   const t = T.createTask({ title: 'Vorschau', goal: '', repo: 'acme/shop-theme', baseBranch: 'main' });
-  const spec = { name: `lotse-sbx-${t.id.replace(/_/g, '-')}`, Image: 'dockware/play:6.7.2.2', Labels: { 'lotse.managed': '1', 'lotse.task': t.id } };
+  const spec = { name: `lotse-sbx-${t.id.replace(/_/g, '-')}`, Image: 'dockware/shopware:6.7.15.1', Labels: { 'lotse.managed': '1', 'lotse.task': t.id } };
   t.containerId = await fake.create(spec);
   if (status !== 'paused') await fake.start(t.containerId);
   const wt = T.taskPaths(t.id).worktree;

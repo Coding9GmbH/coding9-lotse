@@ -56,7 +56,7 @@ export const de = {
     templateHint: 'Feste Schritte: Shopware starten, Plugin installieren, Theme kompilieren. Die KI kann daran nichts ändern.',
     steps: 'Schritte der Vorlage',
     image: 'Image',
-    imageHint: 'Nur dockware/play mit fester Version (z. B. dockware/play:6.7.2.2), kein „latest“.',
+    imageHint: 'Nur dockware/shopware mit fester Version (neueste bekannte: dockware/shopware:6.7.15.1), kein „latest“ oder „6.7-latest“. Ältere dockware/play-Versionen gehen weiterhin.',
     check: 'Umgebung prüfen',
     checking: 'Prüfe …',
     pulling: (text: string, pct?: number) => `${text}${pct !== undefined ? ` (${pct} %)` : ''}`,
@@ -182,7 +182,7 @@ export const de = {
   },
   steps,
   commands,
-  templates: { 'dockware-play': 'Dockware Play' } as Record<string, string>,
+  templates: { dockware: 'Dockware (Shopware)' } as Record<string, string>,
 };
 
 export const en: typeof de = {
@@ -213,7 +213,7 @@ export const en: typeof de = {
     templateHint: 'Fixed steps: start Shopware, install the plugin, compile the theme. The AI cannot change them.',
     steps: 'Template steps',
     image: 'Image',
-    imageHint: 'Only dockware/play with a fixed version (e.g. dockware/play:6.7.2.2), no “latest”.',
+    imageHint: 'Only dockware/shopware with a fixed version (newest known: dockware/shopware:6.7.15.1), no “latest” or “6.7-latest”. Older dockware/play versions still work.',
     check: 'Check environment',
     checking: 'Checking …',
     pulling: (text: string, pct?: number) => `${text}${pct !== undefined ? ` (${pct} %)` : ''}`,
@@ -358,5 +358,5 @@ export const en: typeof de = {
     'lint-twig': 'Check Twig template',
     'php-lint': 'Check PHP syntax',
   },
-  templates: { 'dockware-play': 'Dockware Play' },
+  templates: { dockware: 'Dockware (Shopware)' },
 };

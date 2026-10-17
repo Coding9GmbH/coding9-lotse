@@ -11,7 +11,7 @@ import { singleton } from '../state';
 import { errMsg } from '../util';
 import { ensureNetwork, networkMode } from './network';
 import { getRunner } from './runner';
-import { DEFAULT_TEMPLATE, getTemplate } from './templates';
+import { DEFAULT_TEMPLATE, canonicalTemplateId, getTemplate } from './templates';
 import type { SandboxTemplate } from './templates/types';
 
 interface StoredVar { key: string; secret: boolean; /** sealed when secret */ value: string }
@@ -20,7 +20,10 @@ interface StoredSandbox {
   envVars?: StoredVar[]; commands?: SandboxCommand[]; updatedAt?: string;
 }
 const KV = 'sandbox';
-const stored = (): StoredSandbox => kvGet<StoredSandbox>(KV) ?? {};
+const stored = (): StoredSandbox => {
+  const s = kvGet<StoredSandbox>(KV) ?? {};
+  return s.templateId ? { ...s, templateId: canonicalTemplateId(s.templateId) } : s; // 'dockware-play' was renamed to 'dockware'
+};
 
 export const LIMITS = {
   memoryMb: { min: 1024, max: 32768, def: 4096 },
@@ -59,11 +62,11 @@ export function sandboxStatus(env: Record<string, string | undefined> = process.
 }
 export const sandboxEnabled = () => sandboxStatus().enabled;
 
-/** Image check against the template: only dockware/play with a fixed version. */
+/** Image check against the template: only dockware/shopware (or the older dockware/play) with a fixed version. */
 export function validateImage(image: string, t: SandboxTemplate = getTemplate(DEFAULT_TEMPLATE)): string {
   const s = image.trim();
-  if (/:latest$/i.test(s) || !s.includes(':')) throw new Error('Bitte eine feste Version angeben (z. B. dockware/play:6.7.2.2) – „latest“ ist nicht erlaubt.');
-  if (!t.imagePattern.test(s)) throw new Error('Nur dockware/play von Docker Hub mit fester Version ist erlaubt (z. B. dockware/play:6.7.2.2).');
+  if (/[:-]latest$/i.test(s) || !s.includes(':')) throw new Error(`Bitte eine feste Version angeben (z. B. ${t.defaultImage}) – „latest“ ist nicht erlaubt.`);
+  if (!t.imagePattern.test(s)) throw new Error(`Nur dockware/shopware von Docker Hub mit fester Version ist erlaubt (z. B. ${t.defaultImage}).`);
   return s;
 }
 

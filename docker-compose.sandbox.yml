@@ -6,7 +6,7 @@
 # Lotse never mounts the Docker socket itself. A filtering socket proxy only lets through what the sandbox needs
 # (containers incl. start/stop, images, networks, exec); everything else (volumes, build, swarm, secrets, system, …) is refused.
 # Docker access is still root-equivalent on the host: the proxy is defence in depth, the real boundary is the container
-# spec that only the Lotse server builds (pinned dockware/play image, no host paths, no privileges, internal network).
+# spec that only the Lotse server builds (pinned dockware/shopware image, no host paths, no privileges, internal network).
 services:
   docker-proxy:
     # pinned by digest (v0.5.0); update deliberately

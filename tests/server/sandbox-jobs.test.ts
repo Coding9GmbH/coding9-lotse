@@ -36,7 +36,7 @@ const eventsRoute = await import('../../src/app/api/sandbox/tasks/[id]/events/ro
 allowFileRemotesForTests(true);
 saveGithub({ token: TOKEN });
 const fake = new FakeRunner();
-fake.images.add('dockware/play:6.7.2.2');
+fake.images.add('dockware/shopware:6.7.15.1');
 setRunner(fake);
 E.saveSandbox({ enabled: true, commands: [
   { label: 'Demodaten', command: 'bin/console framework:demodata --products=5', phase: 'after-db' },
@@ -279,7 +279,7 @@ test('reconcile after a restart: running steps interrupted, orphan containers re
   const stale = newTask('Unterbrochen');
   stale.status = 'setting_up'; stale.steps[1].state = 'running'; stale.steps[0].state = 'done';
   db.codeTaskPut(stale);
-  const orphan = await fake.create({ name: 'lotse-sbx-t-orphan000000', Image: 'dockware/play:6.7.2.2', Labels: { 'lotse.managed': '1', 'lotse.task': 't_orphan000000' } });
+  const orphan = await fake.create({ name: 'lotse-sbx-t-orphan000000', Image: 'dockware/shopware:6.7.15.1', Labels: { 'lotse.managed': '1', 'lotse.task': 't_orphan000000' } });
   assert.deepEqual(R.interruptStale(), [stale.id]);
   const s = T.getTask(stale.id)!;
   assert.equal(s.status, 'interrupted');

@@ -7,18 +7,18 @@ import { getEventListeners } from 'node:events';
 import '../isolate-data';
 /* eslint-disable @typescript-eslint/no-explicit-any -- container spec as loose JSON */
 
-// Template dockware-play: the container spec is built only from server values (no privileges, binds, devices; ports only on
+// Template dockware: the container spec is built only from server values (no privileges, binds, devices; ports only on
 // loopback in local mode, none in network mode) and passes the allow-list guard; detectLayout for plugin, theme, invalid name, full project.
-const { buildSpec, detectLayout, sleep } = await import('../../src/server/sandbox/templates/dockware-play');
+const { buildSpec, detectLayout, sleep } = await import('../../src/server/sandbox/templates/dockware');
 const { assertSafeSpec } = await import('../../src/server/sandbox/guards');
 
-const base = { taskId: 't_abcdefghij12', image: 'dockware/play:6.7.2.2', memoryMb: 4096, cpus: 2, env: ['FOO=bar'] };
+const base = { taskId: 't_abcdefghij12', image: 'dockware/shopware:6.7.15.1', memoryMb: 4096, cpus: 2, env: ['FOO=bar'] };
 
 test('buildSpec network mode: own network + alias, no ports, labels, limits, dropped capabilities', () => {
   const s = buildSpec({ ...base, mode: 'network' }) as any;
   assert.equal(s.name, 'lotse-sbx-t-abcdefghij12');
-  assert.equal(s.Image, 'dockware/play:6.7.2.2');
-  assert.deepEqual(s.Labels, { 'lotse.managed': '1', 'lotse.task': 't_abcdefghij12', 'lotse.template': 'dockware-play' });
+  assert.equal(s.Image, 'dockware/shopware:6.7.15.1');
+  assert.deepEqual(s.Labels, { 'lotse.managed': '1', 'lotse.task': 't_abcdefghij12', 'lotse.template': 'dockware' });
   assert.deepEqual(s.Env, ['FOO=bar']);
   assert.equal(s.HostConfig.NetworkMode, 'lotse-sandbox');
   assert.deepEqual(s.NetworkingConfig.EndpointsConfig['lotse-sandbox'].Aliases, ['lotse-sbx-t-abcdefghij12']);
@@ -39,7 +39,7 @@ test('buildSpec local mode: port 80 on 127.0.0.1 only; invalid input refused', (
   assert.equal(s.NetworkingConfig, undefined);
   assert.doesNotThrow(() => assertSafeSpec(s));
   assert.throws(() => buildSpec({ ...base, mode: 'local' }), /Port/);
-  assert.throws(() => buildSpec({ ...base, mode: 'network', image: 'dockware/play:latest' }), /Image/);
+  assert.throws(() => buildSpec({ ...base, mode: 'network', image: 'dockware/shopware:latest' }), /Image/);
   assert.throws(() => buildSpec({ ...base, mode: 'network', image: 'evil/image:1.0' }), /Image/);
   assert.throws(() => buildSpec({ ...base, mode: 'network', taskId: '../x' }), /Aufgaben-ID/);
   // the guard refuses what the builder never produces

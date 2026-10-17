@@ -8,7 +8,7 @@ import http from 'node:http';
 import { singleton } from '../state';
 import { getTask, previewKey, previewPath, sandboxOrigin, TASK_ID, type CodeTask } from './tasks';
 
-/** Dockware's storefront domain (APP_URL and sales channel domain stay http://localhost, see templates/dockware-play.ts). */
+/** Dockware's storefront domain (APP_URL and sales channel domain stay http://localhost, see templates/dockware.ts). */
 export const SANDBOX_HOST = 'localhost';
 export const SANDBOX_BASE = `http://${SANDBOX_HOST}`;
 export const sandboxPrefix = previewPath;

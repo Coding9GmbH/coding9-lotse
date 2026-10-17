@@ -20,7 +20,7 @@ import { getRunner } from './runner';
 import { TASK_LABEL } from './labels';
 import { syncAll } from './sync';
 import { getTemplate, resolveCommand } from './templates';
-import { waitReady } from './templates/dockware-play';
+import { waitReady } from './templates/dockware';
 import type { StepCtx } from './templates/types';
 import { appendLog, emitTask, getTask, httpStatusOf, listTasks, mustTask, now, sandboxOrigin, saveTask, taskPaths, type CodeTask, type StoredStep } from './tasks';
 
