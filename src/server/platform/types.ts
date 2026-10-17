@@ -93,6 +93,26 @@ export interface PlatformContext {
   products(q: { term?: string | null; categoryId?: string | null }): Promise<ProductRow[]>;
 }
 
+/**
+ * Sales without personal data (features/sales.ts): sums per product over a period, read by the adapter with a FIXED query
+ * (never criteria from the AI). Only product ID, quantity, revenue and the number of orders leave the adapter: no customers,
+ * addresses, order numbers or single orders. Cancelled orders don't count.
+ */
+export interface SalesRange { /** first day, YYYY-MM-DD (UTC, inclusive) */ from: string; /** last day, YYYY-MM-DD (UTC, inclusive) */ to: string }
+/** productId = the ID the platform uses everywhere else for the (main) product (variants are added to their parent) */
+export interface SalesRow { productId: string; quantity: number; revenue: number; orders: number }
+export interface SalesReport {
+  rows: SalesRow[];
+  /** orders in the period (after excluding cancelled ones) */
+  orders: number;
+  /** currency of the revenue; null = mixed or unknown */
+  currency: string | null;
+  /** more orders than the adapter reads (rows are a lower bound) */
+  capped: boolean;
+  /** platform limits, e.g. Shopify without read_all_orders only sees the last 60 days */
+  notes?: string[];
+}
+
 export interface PlatformAdapter {
   kind: PlatformKind;
   label: string;
@@ -123,6 +143,8 @@ export interface PlatformAdapter {
   loadChecks(): Promise<void>;
   /** Active products in neutral form (name, texts, meta, price, stock, image) for custom checks; reads via the run's protected read client */
   scanProducts(reader: unknown): Promise<NeutralScan>;
+  /** Sales per product (see SalesReport); throws with an understandable message if the shop doesn't allow it (missing permission) */
+  sales(range: SalesRange): Promise<SalesReport>;
   /** Write an approved change set (privileged client, only here) */
   apply(cs: ChangeSet, payload: unknown, selected: Set<string>, ctx?: ApplyCtx): Promise<ApplyResult>;
   /** Undo: run this platform's UndoOps in reverse order */

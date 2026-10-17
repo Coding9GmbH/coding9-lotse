@@ -1559,11 +1559,23 @@ type CustomerConnection {
 
 type Order implements Node {
   id: ID!
+  createdAt: DateTime!
+  cancelledAt: DateTime
+  test: Boolean!
+  currencyCode: CurrencyCode!
+  totalPriceSet: MoneyBag!
+  lineItems(${CONN_ARGS}): LineItemConnection!
 }
 
-type OrderConnection {
-  nodes: [Order!]!
+type LineItem implements Node {
+  id: ID!
+  quantity: Int!
+  product: Product
+  discountedTotalSet: MoneyBag!
 }
+${connection('LineItem')}
+
+${connection('Order')}
 
 type DraftOrder implements Node {
   id: ID!
@@ -1633,8 +1645,8 @@ type Query {
   customerByIdentifier(identifier: JSON!): Customer @access(scope: "read_customers") @opaque
   customersCount(query: String, limit: Int): Count @access(scope: "read_customers") @opaque
   customerSegmentMembers(${CONN_ARGS}, query: String, segmentId: ID): CustomerConnection! @access(scope: "read_customers") @opaque
-  orders(${CONN_ARGS}, query: String, sortKey: String): OrderConnection! @access(scope: "read_orders") @opaque
-  order(id: ID!): Order @access(scope: "read_orders") @opaque
+  orders(${CONN_ARGS}, query: String, sortKey: String): OrderConnection! @access(scope: "read_orders")
+  order(id: ID!): Order @access(scope: "read_orders")
   orderByIdentifier(identifier: JSON!): Order @access(scope: "read_orders") @opaque
   ordersCount(query: String, limit: Int): Count @access(scope: "read_orders") @opaque
   draftOrders(${CONN_ARGS}, query: String): DraftOrderConnection! @access(scope: "read_draft_orders") @opaque

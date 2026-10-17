@@ -23,7 +23,7 @@ export const de = {
     list_product_streams: 'Produktstreams lesen', get_product_stream: 'Produktstream lesen', preview_product_stream: 'Stream-Treffer prüfen',
     propose_product_stream: 'Produktstream vorschlagen', propose_stream_assignment: 'Stream-Zuordnung vorschlagen',
     read_supplier_file: 'Lieferantendatei lesen', save_import_mapping: 'Zuordnung speichern', preview_import: 'Import prüfen', propose_import: 'Import vorschlagen',
-    gsc_performance: 'Search-Console-Daten lesen', gsc_opportunities: 'Search-Console-Chancen finden', gsc_content_gaps: 'Inhaltslücken finden', gsc_rankings: 'Rankings analysieren', seo_site_check: 'Technik der Shop-Seiten prüfen', gsc_measure_effect: 'Erfolg messen',
+    gsc_performance: 'Search-Console-Daten lesen', gsc_opportunities: 'Search-Console-Chancen finden', gsc_content_gaps: 'Inhaltslücken finden', gsc_rankings: 'Rankings analysieren', seo_site_check: 'Technik der Shop-Seiten prüfen', gsc_measure_effect: 'Erfolg messen', sales_report: 'Abverkauf auswerten',
     WebSearch: 'Im Internet suchen', WebFetch: 'Webseite lesen', web_search: 'Im Internet suchen',
     sistrix_visibility: 'Sichtbarkeitsindex lesen', sistrix_top_pages: 'Top-Seiten lesen', sistrix_opportunities: 'Sistrix-Chancen finden', sistrix_competitors: 'Wettbewerber lesen', sistrix_keyword_metrics: 'Keyword-Kennzahlen lesen', sistrix_onpage: 'OnPage-Crawl lesen',
     add_knowledge: 'Wissen aufnehmen', search_knowledge: 'Wissensbasis durchsuchen', get_product_knowledge: 'Produktwissen lesen', list_knowledge: 'Wissensbasis lesen',
@@ -150,7 +150,7 @@ export const de = {
     byId: {
       'recht.gpsr': 'GPSR-Pflichtangaben', 'recht.grundpreis': 'Grundpreisangaben', 'recht.rechtstexte': 'Rechtstexte',
       'bfsg.texte': 'Barrierefreiheit: Texte', 'bfsg.kontrast': 'Barrierefreiheit: Kontraste',
-      'gsc.low-ctr': 'Search Console: niedrige Klickrate', 'gsc.measure-due': 'Search Console: Messung fällig', 'gsc.impact-worse': 'Search Console: Änderung hat geschadet',
+      'gsc.low-ctr': 'Search Console: niedrige Klickrate', 'gsc.measure-due': 'Search Console: Messung fällig', 'gsc.impact-worse': 'Search Console: Änderung hat geschadet', 'sales.weak-top-sellers': 'Abverkauf: Top-Seller mit schwachen Texten', 'sales.slow-movers': 'Abverkauf: Ladenhüter',
       'sistrix.visibility-drop': 'Sistrix: Sichtbarkeit gesunken', 'sistrix.onpage-errors': 'Sistrix: OnPage-Fehler',
     },
   },
@@ -220,6 +220,7 @@ export const de = {
       shop: { label: 'Shop-Grunddaten', hint: 'Verkaufskanäle & Domains, Sprachen, Währungen, Theme-Einstellungen (Farben, Schriften)' },
       gsc: { label: 'Search Console', hint: 'Klicks, Impressionen, Klickrate und Position deiner Seiten (Google Search Console)' },
       sistrix: { label: 'Sistrix', hint: 'Sichtbarkeitsindex, Wettbewerber, Keyword-Potenzial und OnPage-Crawl (Sistrix)' },
+      sales: { label: 'Abverkauf', hint: 'Stückzahl, Umsatz und Anzahl Bestellungen je Produkt, nur als Summe (keine Kunden, Adressen oder einzelnen Bestellungen)' },
       web: { label: 'Internetrecherche', hint: 'Websuche und Abruf öffentlicher Webseiten, z. B. Herstellerangaben, Datenblätter, Normen' },
     },
     shopify: {
@@ -262,7 +263,7 @@ export const en: typeof de = {
     list_product_streams: 'Read product streams', get_product_stream: 'Read product stream', preview_product_stream: 'Check stream matches',
     propose_product_stream: 'Propose product stream', propose_stream_assignment: 'Propose stream assignment',
     read_supplier_file: 'Read supplier file', save_import_mapping: 'Save mapping', preview_import: 'Check import', propose_import: 'Propose import',
-    gsc_performance: 'Read Search Console data', gsc_opportunities: 'Find Search Console opportunities', gsc_content_gaps: 'Find content gaps', gsc_rankings: 'Analyze rankings', seo_site_check: 'Check shop page technology', gsc_measure_effect: 'Measure impact',
+    gsc_performance: 'Read Search Console data', gsc_opportunities: 'Find Search Console opportunities', gsc_content_gaps: 'Find content gaps', gsc_rankings: 'Analyze rankings', seo_site_check: 'Check shop page technology', gsc_measure_effect: 'Measure impact', sales_report: 'Analyze sales',
     WebSearch: 'Search the web', WebFetch: 'Read web page', web_search: 'Search the web',
     sistrix_visibility: 'Read visibility index', sistrix_top_pages: 'Read top pages', sistrix_opportunities: 'Find Sistrix opportunities', sistrix_competitors: 'Read competitors', sistrix_keyword_metrics: 'Read keyword metrics', sistrix_onpage: 'Read OnPage crawl',
     add_knowledge: 'Add knowledge', search_knowledge: 'Search knowledge base', get_product_knowledge: 'Read product knowledge', list_knowledge: 'Read knowledge base',
@@ -380,7 +381,7 @@ export const en: typeof de = {
     byId: {
       'recht.gpsr': 'GPSR mandatory details', 'recht.grundpreis': 'Unit price details', 'recht.rechtstexte': 'Legal pages',
       'bfsg.texte': 'Accessibility: text', 'bfsg.kontrast': 'Accessibility: contrast',
-      'gsc.low-ctr': 'Search Console: low click-through rate', 'gsc.measure-due': 'Search Console: measurement due', 'gsc.impact-worse': 'Search Console: change did harm',
+      'gsc.low-ctr': 'Search Console: low click-through rate', 'gsc.measure-due': 'Search Console: measurement due', 'gsc.impact-worse': 'Search Console: change did harm', 'sales.weak-top-sellers': 'Sales: top sellers with weak content', 'sales.slow-movers': 'Sales: slow movers',
       'sistrix.visibility-drop': 'Sistrix: visibility dropped', 'sistrix.onpage-errors': 'Sistrix: OnPage errors',
     },
   },
@@ -444,6 +445,7 @@ export const en: typeof de = {
       shop: { label: 'Shop basics', hint: 'Sales channels & domains, languages, currencies, theme settings (colors, fonts)' },
       gsc: { label: 'Search Console', hint: 'Clicks, impressions, click-through rate and position of your pages (Google Search Console)' },
       sistrix: { label: 'Sistrix', hint: 'Visibility index, competitors, keyword potential and OnPage crawl (Sistrix)' },
+      sales: { label: 'Sales', hint: 'Quantity, revenue and number of orders per product, only as totals (no customers, addresses or single orders)' },
       web: { label: 'Web research', hint: 'Web search and fetching public web pages, e.g. manufacturer details, data sheets, standards' },
     },
     shopify: {

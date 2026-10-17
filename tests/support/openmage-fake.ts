@@ -1,7 +1,8 @@
 // For tests only: small fake of the Lotse_Connector API (OpenMage module, integrations/openmage/openapi.yaml), data in memory.
 // Mimics the scope logic (global values + values per store view, null in store scope removes the value, 400 in global scope),
 // store_overrides, gallery with roles, stock, categories with assignment, CMS pages/blocks, price rules, URL rewrites (also
-// "Save Rewrites History" with rewrites_added). Checks the bearer token; customer/order paths don't exist (404 not_found).
+// "Save Rewrites History" with rewrites_added), sales sums per product (GET /v1/sales from seeded orders). Checks the bearer token;
+// customer/order paths don't exist (404 not_found).
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
@@ -9,10 +10,14 @@ type Rec = Record<string, unknown>;
 type Vals = Record<number, Rec>;
 export interface FakeImage { id: number; file: string; vals: Record<number, { label?: string | null; position?: number | null; disabled?: boolean }> }
 export interface FakeProduct { id: number; sku: string; type_id: string; attribute_set_id: number; vals: Vals; website_ids: number[]; stock: { qty: number; is_in_stock: boolean; manage_stock: boolean }; images: FakeImage[]; categories: { id: number; position: number }[]; children?: string[]; axes?: string[] }
+/** Seeded order for GET /v1/sales: only what the module aggregates (day = created_at in UTC, items already parent rows) */
+export interface FakeOrder { day: string; canceled?: boolean; currency?: string; items: { product_id: number; qty: number; revenue: number }[] }
 export interface FakeCategory { id: number; parent_id: number; level: number; path: string; position: number; vals: Vals }
 export interface FakeOpenmage {
   base: string; token: string;
   products: FakeProduct[]; categories: FakeCategory[]; cmsPages: Rec[]; cmsBlocks: Rec[]; rules: Rec[]; rewrites: Rec[];
+  /** orders for GET /v1/sales; salesMissing = module older than 1.3.0 (endpoint unknown → 404) */
+  orders: FakeOrder[]; salesMissing: boolean;
   info: Rec;
   log: { method: string; path: string; store: string; body?: unknown }[];
   snapshot: () => string;
@@ -40,8 +45,8 @@ const urlKey = (s: string) => s.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g
 const like = (hay: unknown, needle: string) => String(hay ?? '').toLowerCase().includes(needle.toLowerCase());
 const err = (status: number, code: string, message: string) => ({ status, body: { error: { code, message, details: [] } } });
 
-export async function startFakeOpenmage(seed: Partial<Pick<FakeOpenmage, 'products' | 'categories' | 'cmsPages' | 'cmsBlocks' | 'rules' | 'rewrites' | 'info'>> = {}): Promise<FakeOpenmage> {
-  const f = { token: 'fixtoken_0123456789abcdef', products: [], categories: [], cmsPages: [], cmsBlocks: [], rules: [], rewrites: [], info: {}, log: [], ...seed } as unknown as FakeOpenmage;
+export async function startFakeOpenmage(seed: Partial<Pick<FakeOpenmage, 'products' | 'categories' | 'cmsPages' | 'cmsBlocks' | 'rules' | 'rewrites' | 'info' | 'orders' | 'salesMissing'>> = {}): Promise<FakeOpenmage> {
+  const f = { token: 'fixtoken_0123456789abcdef', products: [], categories: [], cmsPages: [], cmsBlocks: [], rules: [], rewrites: [], info: {}, log: [], orders: [], salesMissing: false, ...seed } as unknown as FakeOpenmage;
   let nextId = 1000;
   const mediaUrl = (file: string) => `${f.base}/media/catalog/product${file}`;
   const info = () => ({ platform: 'openmage', version: '20.18.0', magento_version: '1.9.4.5', edition: 'Community', php_version: '8.2', module_version: '1.2.0', shop_name: 'Haus Holm', default_store_view: 'default', price_includes_tax: true, catalog_price_scope: 'global', save_rewrites_history: true, product_url_suffix: '.html', category_url_suffix: '.html', indexers: [],
@@ -109,6 +114,22 @@ export async function startFakeOpenmage(seed: Partial<Pick<FakeOpenmage, 'produc
     let mm: RegExpExecArray | null;
     try {
       if (p === '/v1/info' && method === 'GET') return data(info());
+      // ---- Sales (module 1.3.0+): sums per product of non-canceled orders, store scope ignored ----
+      if (p === '/v1/sales' && !f.salesMissing) {
+        if (method !== 'GET') throw err(405, 'method_not_allowed', 'Methode nicht erlaubt.');
+        const from = q.get('from') ?? '', to = q.get('to') ?? '', day = /^\d{4}-\d{2}-\d{2}$/;
+        if (!day.test(from) || !day.test(to)) throw err(400, 'validation', 'from/to fehlt oder ist kein Datum (JJJJ-MM-TT).');
+        if (from > to) throw err(400, 'validation', 'from liegt nach to.');
+        if ((Date.parse(to) - Date.parse(from)) / 86_400_000 + 1 > 366) throw err(400, 'validation', 'Zeitraum höchstens 366 Tage.');
+        const os = f.orders.filter(o => !o.canceled && o.day >= from && o.day <= to), by = new Map<number, { product_id: number; qty: number; revenue: number; orders: number }>();
+        for (const o of os) for (const pid of new Set(o.items.map(i => i.product_id))) {
+          const r = by.get(pid) ?? { product_id: pid, qty: 0, revenue: 0, orders: 0 }; r.orders++;
+          for (const i of o.items.filter(x => x.product_id === pid)) { r.qty += i.qty; r.revenue = Math.round((r.revenue + i.revenue) * 100) / 100; }
+          by.set(pid, r);
+        }
+        const cur = new Set(os.map(o => o.currency ?? 'EUR'));
+        return data({ from, to, currency: cur.size > 1 ? null : [...cur][0] ?? 'EUR', orders: os.length, capped: false, rows: [...by.values()].sort((a, b) => b.revenue - a.revenue) });
+      }
       // ---- Products ----
       if (p === '/v1/products/attributes' && method === 'GET') return data({ attribute_sets: [{ id: 4, name: 'Default', is_default: true, attribute_codes: PRODUCT_ATTRS.map(a => a.code) }], attributes: PRODUCT_ATTRS.map(a => ({ ...a, options: q.get('options') === '0' ? undefined : a.options })) });
       if (p === '/v1/products' && method === 'GET') {

@@ -15,7 +15,11 @@ export interface FakeMagento {
   cmsPages: Rec[]; cmsBlocks: Rec[];
   /** Storefront URL rewrites: old path (without .html) → new URL key (GraphQL route responds with redirect_code 301) */
   rewrites: Record<string, string>;
-  log: { method: string; path: string; store: string; body?: unknown }[];
+  /** Orders for GET /V1/orders (sales sums): entity_id, created_at "YYYY-MM-DD HH:MM:SS", state, currency codes, items[] */
+  orders: Rec[];
+  /** true = the integration has no access to sales (GET /V1/orders → 403) */
+  ordersDenied: boolean;
+  log: { method: string; path: string; store: string; body?: unknown; query?: string }[];
   /** Controllable responses for client tests: the next REST requests fail with this status (Retry-After in seconds) */
   failNext: { status: number; retryAfter?: number }[];
   /** Invalidate the admin token (next request 401, new login required) */
@@ -65,8 +69,8 @@ function match(rec: Rec, f: { field: string; value: string; condition_type: stri
 const page = <T>(rows: T[], c: { pageSize: number; page: number }) => ({ items: rows.slice((c.page - 1) * c.pageSize, c.page * c.pageSize), total_count: rows.length });
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-export async function startFakeMagento(seed: Partial<Pick<FakeMagento, 'products' | 'categories' | 'sources' | 'sourceItems' | 'rules' | 'coupons' | 'cmsPages' | 'cmsBlocks' | 'rewrites'>> = {}): Promise<FakeMagento> {
-  const f = { token: 'fake-integration-token', products: [], categories: [], sources: [{ source_code: 'default', name: 'Default Source', enabled: true }], sourceItems: [], rules: [], coupons: [], cmsPages: [], cmsBlocks: [], rewrites: {}, log: [], failNext: [], delayMs: 0, open: 0, maxOpen: 0, ...seed } as unknown as FakeMagento;
+export async function startFakeMagento(seed: Partial<Pick<FakeMagento, 'products' | 'categories' | 'sources' | 'sourceItems' | 'rules' | 'coupons' | 'cmsPages' | 'cmsBlocks' | 'rewrites' | 'orders'>> = {}): Promise<FakeMagento> {
+  const f = { token: 'fake-integration-token', products: [], categories: [], sources: [{ source_code: 'default', name: 'Default Source', enabled: true }], sourceItems: [], rules: [], coupons: [], cmsPages: [], cmsBlocks: [], rewrites: {}, orders: [], ordersDenied: false, log: [], failNext: [], delayMs: 0, open: 0, maxOpen: 0, ...seed } as unknown as FakeMagento;
   let nextId = 1000, nextMedia = 500, adminTokenValid = true;
   f.expireToken = () => { adminTokenValid = false; };
   const attrs: Rec[] = [
@@ -105,15 +109,25 @@ export async function startFakeMagento(seed: Partial<Pick<FakeMagento, 'products
     const m = /^\/rest\/(?:([a-z][a-z0-9_]*)\/)?V1(\/.*)$/.exec(url.pathname);
     if (!m) return send(404, { message: 'Request does not match any route.' });
     const store = m[1] ?? 'default', s = STORES[store], p = m[2];
-    f.log.push({ method, path: p, store, ...(body !== undefined ? { body } : {}) });
+    f.log.push({ method, path: p, store, ...(body !== undefined ? { body } : {}), ...(p === '/orders' ? { query: url.search } : {}) });
     const fail = f.failNext.shift();
     if (fail) { res.writeHead(fail.status, { 'content-type': 'application/json', ...(fail.retryAfter != null ? { 'retry-after': String(fail.retryAfter) } : {}) }); return res.end(JSON.stringify({ message: `Fake: ${fail.status}` })); }
     if (p === '/integration/admin/token' && method === 'POST') { if (body?.username === 'admin' && body?.password === 'geheim') { adminTokenValid = true; return send(200, 'admin-jwt'); } return send(401, { message: 'The account sign-in was incorrect.' }); }
     const auth = String(req.headers.authorization ?? '').replace(/^Bearer /, '');
     if (auth !== f.token && !(auth === 'admin-jwt' && adminTokenValid)) return send(401, { message: 'The consumer isn\'t authorized to access %resources.', parameters: { resources: 'Magento_Catalog::products' } });
     if (s === undefined) return send(400, { message: 'Requested store is not found' });
-    if (/^\/(customers|orders|invoices|carts|guest-carts|creditmemo|transactions)/.test(p)) return send(403, { message: 'Fake: gesperrt' });
     const c = criteria(url.searchParams);
+    // ---- Orders (only the list, for sales sums): created_at range as string comparison, state neq, paging ----
+    if (p === '/orders' && method === 'GET') {
+      if (f.ordersDenied) return send(403, { message: 'The consumer isn\'t authorized to access %resources.', parameters: { resources: 'Magento_Sales::actions_view' } });
+      const ok = (o: Rec, fl: { field: string; value: string; condition_type: string }) => {
+        const v = String(o[fl.field] ?? '');
+        return fl.condition_type === 'gteq' ? v >= fl.value : fl.condition_type === 'lteq' ? v <= fl.value : fl.condition_type === 'neq' ? v !== fl.value : fl.condition_type === 'eq' ? v === fl.value : false;
+      };
+      const rows = f.orders.filter(o => c.groups.every(g => g.some(fl => ok(o, fl)))).sort((a, b) => Number(a.entity_id) - Number(b.entity_id));
+      return send(200, page(rows, c));
+    }
+    if (/^\/(customers|orders|invoices|carts|guest-carts|creditmemo|transactions)/.test(p)) return send(403, { message: 'Fake: gesperrt' });
     let mm: RegExpExecArray | null;
     // ---- Products ----
     if (p === '/products' && method === 'GET') {

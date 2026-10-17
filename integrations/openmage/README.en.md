@@ -80,7 +80,7 @@ In Lotse: platform "OpenMage", the shop's base URL, token.
 - **Constant-time token comparison** (`hash_equals` over SHA-256 hashes, so even the length reveals nothing). Wrong or missing token: 401 with `WWW-Authenticate: Bearer`.
 - **No session, no cookies**: the controller sets `FLAG_NO_START_SESSION`, there is no CSRF vector. The token must come from a header, never from the URL.
 - **Admin store context** like the core API (`Mage::app()->setCurrentStore('admin')`); the data scope comes exclusively from `?store=` or `X-Lotse-Store`.
-- **Privacy through non-existence**: The route table (`Model/Route.php`) contains no customer, order, cart, invoice, user, payment or newsletter routes; `tests/unit.php` checks this. Product, category and CMS responses contain no such relations. Price rules return usage only as a counter (`times_used`), coupons without customer reference.
+- **Privacy through non-existence**: The route table (`Model/Route.php`) contains no customer, order, cart, invoice, user, payment or newsletter routes; `tests/unit.php` checks this. Product, category and CMS responses contain no such relations. Price rules return usage only as a counter (`times_used`), coupons without customer reference. `GET /v1/sales` only returns sums per product (quantity, revenue, number of orders), never single orders, order numbers or customer data.
 - **Transport**: Only run over HTTPS. Additionally set the IP allowlist if Lotse has a fixed address.
 - **Layout XML as in the Admin**: `layout_update_xml`/`custom_layout_update_xml` (CMS pages) and `custom_layout_update` (products, categories) go through `adminhtml/layoutUpdate_validator`, which the Admin also uses: no template paths with `../`, no `helper=` attributes, no `setTemplate`, no blocked blocks (`validators/custom_layout/disallowed_block`). Rejected = 400 `validation` with `details.messages`, nothing is saved. The API therefore allows no directives that Magento denies the Admin.
 - **Image URLs only from public addresses**: `POST …/images` with `url` downloads server-side; targets in loopback, private (10/8, 172.16/12, 192.168/16), link-local (169.254/16, fe80::/10), multicast and documentation ranges as well as fc00::/7 are rejected, also as redirect targets (every hop is resolved and checked, at most 3 redirects). No blind SSRF on internal services.
@@ -117,6 +117,7 @@ Read:
 | GET | `/v1/salesrules`, `/v1/salesrules/{id}`, `/v1/salesrules/{id}/coupons` | Shopping cart price rules with condition trees, `times_used`, coupons (code, limits, counters) |
 | GET | `/v1/urlrewrites` | Filter required: `sku`, `product_id`, `category_id`, `request_path`, `id_path` (or `all=1`); `is_system`; store via scope |
 | GET | `/v1/urlrewrites/{id}` | A single rewrite |
+| GET | `/v1/sales?from=YYYY-MM-DD&to=YYYY-MM-DD` | Sales without personal data (since 1.3.0): per product `product_id`, `qty` (ordered minus canceled), `revenue` (row total incl. tax in base currency), `orders` (number of orders); plus total `orders`, `currency` (`null` with several base currencies) and `capped` (more than 20,000 products). Canceled orders don't count, child items (configurable/bundle) count towards the parent product. Days in UTC like `created_at`, at most 366 days, always the whole shop (the store scope is ignored) |
 
 Write (only for the privileged Lotse client after approval):
 

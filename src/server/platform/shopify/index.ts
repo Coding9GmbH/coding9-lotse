@@ -17,6 +17,7 @@ import { shopifyLookup } from './lookup';
 import { undoShopify } from './ops';
 import { shopifyPages } from './pages';
 import { applyShopifyPublish, type ShopifyPublishPayload } from './publish';
+import { shopifySales } from './sales';
 import { applyBulk, applyProducts, applyVariants, createProduct, type NewProductPayload } from './products';
 import { ShopifyReader } from './reader';
 import { applyShopifyImport, IMPORT_KIND_SHOPIFY, shopifyImportFeature, type ShopifyImportPayload } from './import';
@@ -63,6 +64,8 @@ export const SHOPIFY_CAPABILITIES: PlatformCapabilities = { pageTypes: ['landing
 
 /** Admin API scopes that Lotse needs for all tools (note in the connection test) */
 export const NEEDED_SCOPES = ['read_products', 'write_products', 'read_files', 'write_files', 'read_content', 'write_content', 'read_themes', 'write_themes', 'read_translations', 'write_translations', 'read_locales', 'read_discounts', 'write_discounts', 'read_publications', 'write_publications', 'read_online_store_navigation', 'write_online_store_navigation'];
+/** read_orders/read_all_orders are optional: only for „Abverkauf“ (sums per product, features/sales.ts) */
+const OPTIONAL_SCOPES = ['read_orders', 'read_all_orders'];
 const PRIVATE_SCOPES = /^(read|write)_(customers|orders|draft_orders|all_orders|users|gift_cards|checkouts|payment)/;
 
 /** Storefront path with short ID (/products/123, /collections/45) → handle path; context selection returns IDs, the storefront only knows handles */
@@ -94,7 +97,7 @@ export const shopify: PlatformAdapter = {
     try {
       const sc: string[] = (await c.gql<Json>('query Scopes { currentAppInstallation { accessScopes { handle } } }')).currentAppInstallation.accessScopes.map((x: Json) => x.handle);
       const missing = NEEDED_SCOPES.filter(x => !sc.includes(x) && !(x.startsWith('read_') && sc.includes(x.replace('read_', 'write_'))));
-      const extra = sc.filter(x => PRIVATE_SCOPES.test(x));
+      const extra = sc.filter(x => PRIVATE_SCOPES.test(x) && !OPTIONAL_SCOPES.includes(x));
       if (missing.length) hint += ` Fehlende Berechtigungen (einige Werkzeuge gehen dann nicht): ${missing.join(', ')}.`;
       if (extra.length) hint += ` Hinweis: Die App darf auch ${extra.join(', ')}; Lotse liest solche Daten nie, du kannst die Berechtigung entfernen.`;
     } catch { /* scopes not readable: don't abort */ }
@@ -121,6 +124,8 @@ export const shopify: PlatformAdapter = {
   features: [shopifyImportFeature],
   loadChecks: async () => { await import('./checks'); },
   scanProducts: async r => (await import('./checks')).neutralScan(r as ShopifyReader),
+  // fixed query via the privileged client, needs read_orders; only sums per product leave it (features/sales.ts)
+  sales: range => { const c = shopifyClient(); return shopifySales((d, v) => c.gql(d, v), range); },
 
   apply: (cs, payload, selected, ctx) => reg.apply(shopifyClient(), cs, payload, selected, ctx),
   undo: ops => undoShopify(shopifyClient(), ops),

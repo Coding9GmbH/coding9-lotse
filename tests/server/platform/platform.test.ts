@@ -61,7 +61,7 @@ test('tools per platform: core + platform + features, no duplicates; Shopware do
     const names = toolNamesFor(k);
     assert.deepEqual(names.filter((n, i) => names.indexOf(n) !== i), [], k);
     for (const n of CORE_TOOL_NAMES) assert.ok(names.includes(n), `${k}: ${n}`);
-    for (const n of ['run_shop_check', 'gsc_performance', 'sistrix_visibility', 'seo_site_check', 'search_knowledge']) assert.ok(names.includes(n), `${k}: core feature ${n}`);
+    for (const n of ['run_shop_check', 'gsc_performance', 'sistrix_visibility', 'seo_site_check', 'search_knowledge', 'sales_report']) assert.ok(names.includes(n), `${k}: core feature ${n}`);
   }
   assert.ok(toolNamesFor('shopware').includes('propose_promotion'));
   for (const n of ['list_sales_channels', 'get_cms_page', 'propose_product_data']) assert.ok(!toolNamesFor('shopify').includes(n), `Shopware tool ${n} not on Shopify`);
@@ -74,7 +74,7 @@ test('tools per platform: core + platform + features, no duplicates; Shopware do
   assert.deepEqual(getPlatform('shopify').features?.map(f => f.key), ['shopify-import']);
   for (const n of ['search_products', 'get_product', 'list_products', 'search_categories', 'get_category', 'search_media', 'propose_product_changes', 'propose_new_products', 'propose_category_changes', 'propose_product_images', 'propose_alt_texts', 'propose_translations', 'propose_promotion', 'seo_audit', 'find_image_gaps'])
     assert.ok(toolNamesFor('shopify').includes(n), `Shopify: shared name ${n}`);
-  assert.deepEqual(featuresFor(getPlatform('shopify')).map(f => f.key).sort(), ['gsc', 'knowledge-base', 'shopcheck', 'shopify-import', 'sistrix', 'site-check']);
+  assert.deepEqual(featuresFor(getPlatform('shopify')).map(f => f.key).sort(), ['gsc', 'knowledge-base', 'sales', 'shopcheck', 'shopify-import', 'sistrix', 'site-check']);
   // no duplicate tool names per platform (core + adapter + features)
   for (const k of PLATFORM_KINDS) { const names = toolNamesFor(k); assert.equal(new Set(names).size, names.length, `${k}: duplicate tool names ${names.filter((n, i) => names.indexOf(n) !== i).join(', ')}`); }
   // every tool has a display label in the chat (TOOL_LABELS)

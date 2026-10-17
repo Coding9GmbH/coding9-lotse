@@ -139,6 +139,9 @@ Bedingungen lassen sich mit **und** (alle) oder **oder** (mindestens eine) verkn
 ### Wirkung von Änderungen (Search Console)
 Ist die Search Console verbunden, merkt sich Lotse beim Anwenden die Suchdaten der 28 Tage davor: für Meta-Title und -Description, Name, Beschreibung, Kurzbeschreibung, FAQ, Titel und Inhalt von CMS-Seiten sowie für neue Layouts bzw. Seiteninhalte bestehender Kategorien und Produkte (höchstens 50 Seiten je Änderungsset, nur Seiten, die Google schon kennt). Im Bereich **SEO → Wirkung deiner Änderungen** siehst du je Änderung den Stand: *Wartet auf Daten* (mit Datum, ab wann gemessen werden kann), *Vorläufig* (ab 14 Tagen) oder *Gemessen* (nach 28 Tagen), mit Klicks pro Tag, Klickrate und Position im Vergleich und einer Einschätzung (*Verbessert*, *Verschlechtert*, *Kein klarer Effekt*, *Zu wenig Daten*). **Jetzt messen** fragt die Search Console für alle offenen Änderungen ab, ohne etwas zu schreiben. Hat eine Änderung geschadet, führt **Zum Chat** zum Änderungsset, wo du sie rückgängig machen kannst; der Shop-Check meldet solche Änderungen zusätzlich. Messungen lassen sich ausblenden.
 
+### Abverkauf: Top-Seller und Ladenhüter
+Ist unter Einstellungen → KI-Zugriff der Schalter **Abverkauf** an, liest Lotse aus den Bestellungen eines Zeitraums nur **Summen je Produkt**: Stückzahl, Umsatz (Positionssummen) und Anzahl Bestellungen, ohne stornierte Bestellungen. Kunden, Adressen und einzelne Bestellungen sieht weder Lotse noch die KI. Damit kannst du fragen: „Was sind meine Top-Seller der letzten 30 Tage?“, „Welche Produkte verkaufen sich nicht?“ oder „Welche Top-Seller haben schwache Texte?“. Der Shop-Check meldet im Bereich **Abverkauf** Top-Seller mit dünner Beschreibung, fehlenden Metas oder ohne Bild sowie Ladenhüter (Bestand, aber kein Verkauf in 90 Tagen). Voraussetzung im Shop: Shopware-Integration mit Lesezugriff auf Bestellungen; Shopify-App mit `read_orders` (ohne `read_all_orders` nur 60 Tage); Magento-Integration mit Zugriff auf Vertrieb → Bestellungen; OpenMage mit Modul `Lotse_Connector` ab Version 1.3.0.
+
 ## 9. Einstellungen
 
 | Abschnitt | Inhalt |
@@ -146,7 +149,7 @@ Ist die Search Console verbunden, merkt sich Lotse beim Anwenden die Suchdaten d
 | **Shop verbinden** | Plattform wählen, Zugangsdaten eintragen, Verbindung testen. Empfohlen: eigene Integration mit eingeschränkter Rolle statt Admin-Login |
 | **KI verbinden** | Anbieter (Claude per API-Schlüssel oder Codex per ChatGPT-Abo), Modell |
 | **Bild-KI** (optional) | OpenAI-Schlüssel und Modell für generierte Bilder; KI-Bilder werden sichtbar gekennzeichnet |
-| **KI-Zugriff** | Welche Bereiche Lotse lesen darf (Produkte, Kategorien, Layouts, Medien, Marketing, Shop-Grunddaten). Gesperrte Bereiche werden nicht gelesen, auch nicht vom Shop-Check |
+| **KI-Zugriff** | Welche Bereiche Lotse lesen darf (Produkte, Kategorien, Layouts, Medien, Marketing, Shop-Grunddaten). Gesperrte Bereiche werden nicht gelesen, auch nicht vom Shop-Check. Eigene Schalter (standardmäßig aus): **Abverkauf** (nur Summen je Produkt aus Bestellungen, siehe unten) und **Internet** (Websuche) |
 | **Protokolle** | **Zugriffe** (jeder Lesezugriff der KI, abgewiesene markiert) und **Änderungen** (freigegeben, abgelehnt, rückgängig, geändert) |
 | **Search Console** (optional) | Zugang für Chancen, Inhaltslücken und Erfolgsmessung |
 | **Sprache** | Deutsch oder Englisch für Oberfläche und KI-Antworten (siehe unten) |

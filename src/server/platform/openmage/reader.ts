@@ -35,8 +35,9 @@ const QUERY_FIELDS: Record<string, string[]> = {
 };
 /** Product attributes the list may additionally return (?fields=): content and SEO fields only */
 export const LIST_FIELDS = ['description', 'short_description', 'meta_title', 'meta_description', 'meta_keyword', 'url_path', 'small_image', 'thumbnail', 'manufacturer', 'cost'];
-// Paths related to customers, orders, users or access: hard-reject before the allowlist (clear message)
-const DENY_PATH = /(customer|order|invoice|creditmemo|shipment|transaction|carts?\b|quote|checkout|admin|user|token|payment|giftcard|gift-card|newsletter|password|api_user|roles?\b|config)/i;
+// Paths related to customers, orders, users or access: hard-reject before the allowlist (clear message).
+// /v1/sales (sums from orders) is only for the adapter's fixed query (sales.ts), never for the AI
+const DENY_PATH = /(customer|order|invoice|creditmemo|shipment|transaction|carts?\b|quote|checkout|admin|user|token|payment|giftcard|gift-card|newsletter|password|api_user|roles?\b|config|\/sales\b)/i;
 
 /** Remove attribute values with sensitive keys (email, phone, customer/order related) from attributes objects */
 export function scrubAttributes(data: unknown): number {

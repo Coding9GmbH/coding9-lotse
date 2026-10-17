@@ -188,6 +188,16 @@ $blocks0 = $j['data'] ?? [];
 ok('cms blocks', $s === 200 && count($blocks0) >= 1);
 [$s, $j] = call('GET', 'v1/cms/blocks/' . $blocks0[0]['id']);
 ok('cms block detail', $s === 200 && array_key_exists('content', data([$s, $j])));
+// sales: only sums per product, no personal fields
+[$s, $j] = call('GET', 'v1/sales?from=' . gmdate('Y-m-d', time() - 365 * 86400) . '&to=' . gmdate('Y-m-d'));
+$sales = $j['data'] ?? [];
+ok('sales 200 mit Summen', $s === 200 && isset($sales['orders'], $sales['rows']) && is_array($sales['rows']), [$s, $j]);
+ok('sales ohne Personenbezug', !preg_match('/customer|email|increment|address|firstname|lastname/i', (string) json_encode($sales)));
+ok('sales nur product_id/qty/revenue/orders', count(array_filter($sales['rows'] ?? [], fn($r) => array_keys($r) !== ['product_id', 'qty', 'revenue', 'orders'])) === 0);
+[$s] = call('GET', 'v1/sales?from=2026-01-01&to=kaputt');
+ok('sales ungültiges Datum → 400', $s === 400);
+[$s] = call('GET', 'v1/sales?from=2020-01-01&to=2026-01-01');
+ok('sales mehr als 366 Tage → 400', $s === 400);
 [$s, $j] = call('GET', 'v1/salesrules');
 $rules0 = $j['data'] ?? [];
 ok('salesrules', $s === 200 && count($rules0) >= 1 && isset($rules0[0]['times_used']) && !isset($rules0[0]['customers']));
