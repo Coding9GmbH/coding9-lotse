@@ -13,7 +13,7 @@ test('new chat appears in the history immediately: fetch on the turn\'s start ev
 
 test('without shop and AI: input, new chat, with context, style guide and knowledge base locked', () => {
   const ws = read('src/components/workspace/Workspace.tsx');
-  assert.match(ws, /const locked = !shell\.healthFailed && !setupReady\(setup\)/, 'load error does not lock');
+  assert.match(ws, /const locked = !shell\.healthFailed && \(taskId \? !!setup && !setup\.ai : !setupReady\(setup\)\)/, 'load error does not lock; a sandbox chat needs only the AI');
   assert.match(ws, /disabled=\{locked\}/);
   assert.match(ws, /\|\| locked\) return;/, 'send() does not send');
   const composer = read('src/components/chat/Composer.tsx');

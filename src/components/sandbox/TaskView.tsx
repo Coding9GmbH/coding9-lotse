@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useTaskEvents } from '@/hooks/useTaskEvents';
@@ -10,19 +10,23 @@ import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { DumpUpload } from './DumpUpload';
 import { SandboxOff } from './SandboxOff';
-import { CodeWorkspace } from './CodeWorkspace';
+import { useShell } from '@/components/shell/ShellProvider';
 import { StepTimeline } from './StepTimeline';
 import { TaskStatus } from './TaskList';
 import styles from './Sandbox.module.css';
 
 type Action = 'start' | 'stop' | 'pause' | 'resume' | 'finish';
 
-/** One code task: header (repo, branch, template, container), lifecycle buttons, goal and the live step timeline. */
+/** Overview of one sandbox task. The work happens in the chat it is attached to: an active task with a chat opens that chat
+ *  (the workspace shows the sandbox on the right); a finished one stays here as a record (header, steps, remove). */
 export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number }) {
   const { t: all } = useI18n();
   const t = all.sandbox.task;
   const router = useRouter();
+  const { nav } = useShell();
   const { task, setTask, error, gone, off } = useTaskEvents(id);
+  const toChat = !!task?.chatId && task.status !== 'done';
+  useEffect(() => { if (toChat && task?.chatId) nav.openChat(task.chatId); }, [toChat]); // eslint-disable-line react-hooks/exhaustive-deps -- once the task is known
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -51,6 +55,8 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
   if (off) return <div className={styles.page}><main className={styles.wrap}>{back}<SandboxOff status={off} /></main></div>;
   if (gone) return <div className={styles.page}><main className={styles.wrap}>{back}<p className={styles.alert}>{t.gone}</p></main></div>;
   if (!task) return <div className={styles.page}><main className={styles.wrap}>{back}<p className={styles.muted}>{error ? t.connection(error) : t.loading}</p></main></div>;
+
+  if (toChat) return <div className={styles.page}><main className={styles.wrap}>{back}<p className={styles.muted} role="status">{t.redirecting}</p></main></div>;
 
   const s = task.status, hint = t.hints[s];
   return (
@@ -81,7 +87,7 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
           {notice && <span className={styles.bad} role="alert">{notice}</span>}
         </div>
 
-        <CodeWorkspace task={task} />
+        {task.chatId && <p><button type="button" className={styles.linkBtn} onClick={() => nav.openChat(task.chatId!)}>{t.toChat}</button></p>}
         {task.goal && (
           <section className={styles.card} aria-labelledby="sbx-goal">
             <div className={styles.cardHead}><h2 id="sbx-goal">{t.goal}</h2></div>

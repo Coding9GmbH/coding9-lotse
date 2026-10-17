@@ -10,7 +10,7 @@ import { ImageCard, PublishedCard, StyleguideCard } from './Cards';
 import { AiMessage, ErrorMessage, UserMessage } from './Message';
 import { QuestionCard } from './QuestionCard';
 import { Steps } from './Steps';
-import { CommandCard, PublishProposalCard, SandboxStatusLine } from '@/components/sandbox/CommandCard';
+import { CommandCard, PublishProposalCard, SandboxAttachedLine, SandboxOfferCard, SandboxStatusLine, type SandboxOfferActions } from '@/components/sandbox/CommandCard';
 import { FileChangeCard } from '@/components/sandbox/FileChangeCard';
 import styles from './ChatLog.module.css';
 
@@ -25,6 +25,8 @@ interface Props {
   busy?: boolean;
   className?: string;
   children?: React.ReactNode;
+  /** start_sandbox cards: start (directly or via the dialog); missing = Sandbox Coding off */
+  sandbox?: SandboxOfferActions;
 }
 
 function AnswerStatus({ busy, hasAnswer }: { busy: boolean; hasAnswer: boolean }) {
@@ -39,10 +41,10 @@ function AnswerStatus({ busy, hasAnswer }: { busy: boolean; hasAnswer: boolean }
 
 const NEAR_END = 140;
 /** These entries always scroll the log to the end (own message, decision needed). */
-const FORCE_FOLLOW = new Set<LogItem['kind']>(['user', 'question', 'changeset', 'publish']);
+const FORCE_FOLLOW = new Set<LogItem['kind']>(['user', 'question', 'changeset', 'publish', 'sandbox_offer']);
 
 /** Chat log. Stays "stuck" to the end as long as the user has not scrolled up. */
-export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStyleguide, busy = false, className, children }: Props) {
+export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStyleguide, busy = false, className, children, sandbox }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const lastKey = useRef<string | null>(null);
@@ -83,6 +85,8 @@ export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStylegui
           case 'command': return <CommandCard key={item.key} c={item} />;
           case 'sandbox': return <SandboxStatusLine key={item.key} state={item.state} message={item.message} />;
           case 'publish': return <PublishProposalCard key={item.key} title={item.title} body={item.body} />;
+          case 'sandbox_offer': return <SandboxOfferCard key={item.key} offer={item} actions={sandbox} />;
+          case 'sandbox_attached': return <SandboxAttachedLine key={item.key} repo={item.repo} baseBranch={item.baseBranch} />;
         }
       })}
     </div>

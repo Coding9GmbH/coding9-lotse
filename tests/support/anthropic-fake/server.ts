@@ -7,9 +7,10 @@
  * Script (controlled via the last user message):
  *  - if it contains `[e2e:propose <product-id> <field>=<value>]`, the model calls `propose_product_changes`
  *    and, after the tool result, replies with "Erledigt: <status>"
- *  - code chats (Sandbox Coding): `[e2e:edit <path> <text>]` writes the file with write_file (a .html.twig becomes a template that
- *    extends Shopware's and puts <text> into the outer block), `[e2e:cmd <id>]` calls run_command; several markers run in order,
- *    one tool call per model request, then it replies "Fertig: <n> Schritte."
+ *  - chats with a sandbox (Sandbox Coding), with Claude Code's own file tools in the worktree (its path is read from the system prompt,
+ *    line "Arbeitsverzeichnis (Repository-Wurzel): …"): `[e2e:replace <path> <old>|<new>]` = Read, then Edit; `[e2e:write <path> <text>]`
+ *    = Write (a .html.twig becomes a template that extends Shopware's and puts <text> into the outer block); `[e2e:bash <command line>]`
+ *    = sandbox_bash. Several markers run in order, one tool call per model request, then it replies "Fertig: <n> Schritte."
  *  - otherwise it replies with a short text ("Hallo aus dem Test-Modell.")
  *
  * Control endpoints: GET /__fake/requests (received requests, truncated), POST /__fake/reset, GET /__fake/health.
@@ -20,11 +21,12 @@ import { pathToFileURL } from 'node:url';
 
 type Block = { type: string; text?: string; content?: unknown; tool_use_id?: string; name?: string; input?: unknown; id?: string };
 interface Msg { role: string; content: string | Block[] }
-interface MessagesBody { model?: string; messages?: Msg[]; tools?: { name: string }[]; stream?: boolean }
+interface MessagesBody { model?: string; system?: string | { type: string; text?: string }[]; messages?: Msg[]; tools?: { name: string }[]; stream?: boolean }
 
 export const GREETING = 'Hallo aus dem Test-Modell.';
 const PROPOSE = /\[e2e:propose (\S+) (\w+)=([^\]]+)\]/;
-const CODE_STEP = /\[e2e:(edit|cmd) ([^\]\s]+)(?: ([^\]]+))?\]/g;
+const CODE_STEP = /\[e2e:(replace|write|bash) ([^\]]+)\]/g;
+const WORKDIR = /Arbeitsverzeichnis \(Repository-Wurzel\): (\S+)/;
 /** Outer block of a few Shopware storefront templates (the scripted edit extends it) */
 const BLOCKS: Record<string, string> = { 'header.html.twig': 'layout_header', 'footer.html.twig': 'layout_footer' };
 
@@ -36,19 +38,31 @@ export function scriptedFile(path: string, text: string): string {
   return `{% sw_extends '@Storefront/${m[1]}' %}\n\n{% block ${block} %}\n    <div class="lotse-e2e-note">${text}</div>\n    {{ parent() }}\n{% endblock %}\n`;
 }
 
+/** The calls of the code markers in order: replace = Read + Edit (Claude Code edits only files it has read). */
+function codeCalls(text: string, root: string): { name: string; input: unknown }[] {
+  const abs = (p: string) => `${root}/${p}`;
+  return [...text.matchAll(CODE_STEP)].flatMap(([, kind, rest]): { name: string; input: unknown }[] => {
+    if (kind === 'bash') return [{ name: 'sandbox_bash', input: { command: rest.trim() } }];
+    const [p, ...more] = rest.trim().split(' '), arg = more.join(' ');
+    if (kind === 'write') return [{ name: 'Write', input: { file_path: abs(p), content: scriptedFile(p, arg || 'Lotse') } }];
+    const [oldText, newText] = arg.split('|');
+    return [{ name: 'Read', input: { file_path: abs(p) } }, { name: 'Edit', input: { file_path: abs(p), old_string: oldText, new_string: newText ?? '' } }];
+  });
+}
+
 /** Code script: the markers of the last user text, one tool call per request (tool calls since that message = steps done). */
-function codeTurn(msgs: Msg[], tools: { name: string }[]): { text?: string; tool?: { name: string; input: unknown } } | null {
+function codeTurn(msgs: Msg[], tools: { name: string }[], system: string): { text?: string; tool?: { name: string; input: unknown } } | null {
   const start = msgs.findLastIndex(m => m.role === 'user' && !blocks(m).some(b => b.type === 'tool_result')); // the user's last message
-  if (start < 0 || !/\[e2e:(edit|cmd) /.test(textOf(msgs[start]))) return null;
-  const steps = [...textOf(msgs[start]).matchAll(CODE_STEP)];
+  if (start < 0 || !/\[e2e:(replace|write|bash) /.test(textOf(msgs[start]))) return null;
+  const root = WORKDIR.exec(system)?.[1];
+  if (!root) return { text: 'Arbeitsverzeichnis fehlt im Systemprompt.' };
+  const calls = codeCalls(textOf(msgs[start]), root);
   const done = msgs.slice(start + 1).filter(m => m.role === 'assistant').flatMap(blocks).filter(b => b.type === 'tool_use').length;
-  const tool = (suffix: string) => tools.find(t => t.name.endsWith(suffix))?.name;
-  const step = steps[done];
-  if (!step) return { text: `Fertig: ${steps.length} Schritte.` };
-  const [, kind, arg, rest] = step;
-  const name = kind === 'edit' ? tool('write_file') : tool('run_command');
-  if (!name) return { text: `Werkzeug für ${kind} fehlt.` };
-  return { tool: { name, input: kind === 'edit' ? { path: arg, content: scriptedFile(arg, (rest ?? 'Lotse').trim()) } : { command: arg } } };
+  const step = calls[done];
+  if (!step) return { text: `Fertig: ${calls.length} Schritte.` };
+  const name = tools.find(t => t.name === step.name || t.name.endsWith(`__${step.name}`))?.name;
+  if (!name) return { text: `Werkzeug ${step.name} fehlt.` };
+  return { tool: { name, input: step.input } };
 }
 
 const blocks = (m: Msg): Block[] => (typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : m.content);
@@ -61,7 +75,8 @@ export function nextTurn(body: MessagesBody): { text?: string; tool?: { name: st
   const msgs = (body.messages ?? []).filter(m => m.role === 'user' || m.role === 'assistant');
   const last = msgs.at(-1);
   if (!last) return { text: GREETING };
-  const code = codeTurn(msgs, body.tools ?? []);
+  const system = typeof body.system === 'string' ? body.system : (body.system ?? []).map(b => b.text ?? '').join('\n');
+  const code = codeTurn(msgs, body.tools ?? [], system);
   if (code) return code;
   const toolResult = blocks(last).find(b => b.type === 'tool_result');
   if (toolResult) {

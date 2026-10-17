@@ -13,7 +13,7 @@ import path from 'node:path';
 import { startFakeShopify } from '../../support/shopify-fake/server';
 import { startFakeAnthropic } from '../../support/anthropic-fake/server';
 import { startFakeGithub } from '../../support/github-fake';
-import { makePluginRepo } from '../../support/plugin-repo';
+import { HEADER_TEMPLATE, headerTemplate, makePluginRepo } from '../../support/plugin-repo';
 import { GITHUB_TOKEN as E2E_GITHUB_TOKEN } from './github';
 import { E2E } from './env';
 
@@ -22,7 +22,7 @@ fs.mkdirSync(E2E.dataDir, { recursive: true });
 const remoteRoot = `${E2E.dataDir}-git`;
 fs.rmSync(remoteRoot, { recursive: true, force: true });
 fs.mkdirSync(remoteRoot, { recursive: true });
-const themeRepo = makePluginRepo(remoteRoot, { repo: 'acme/shop-theme', name: 'AcmeShopTheme', theme: true });
+const themeRepo = makePluginRepo(remoteRoot, { repo: 'acme/shop-theme', name: 'AcmeShopTheme', theme: true, files: { [HEADER_TEMPLATE]: headerTemplate('Lotse Test-Header') } });
 
 const shop = await startFakeShopify({ port: E2E.shopPort, log: false });
 const ai = await startFakeAnthropic({ port: E2E.aiPort, quiet: process.env.E2E_VERBOSE !== '1' });

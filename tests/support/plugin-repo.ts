@@ -5,6 +5,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+/** A storefront header template of a theme (fixture for edits): extends Shopware's header and shows `text` above it. */
+export const HEADER_TEMPLATE = 'src/Resources/views/storefront/layout/header/header.html.twig';
+export const headerTemplate = (text: string) => `{% sw_extends '@Storefront/storefront/layout/header/header.html.twig' %}\n\n{% block layout_header %}\n    <div class="lotse-e2e-note">${text}</div>\n    {{ parent() }}\n{% endblock %}\n`;
+
 export interface PluginRepo { remoteBase: string; bare: string; repo: string; name: string }
 
 const git = (args: string[], cwd: string) => execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', '-c', 'init.defaultBranch=main', ...args],

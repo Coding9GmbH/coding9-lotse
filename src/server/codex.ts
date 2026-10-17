@@ -56,8 +56,8 @@ const DISABLED_FEATURES = [
 // Deliberately ON: code_mode_host. Newer models call tools only via code mode (JavaScript isolate without require/fetch/
 // files/environment, verified). The only write tool in it is apply_patch; the permission profile blocks that.
 
-/** Configuration for every run (as `--config` overrides). */
-export function codexConfig(opts: { mcpUrl: string; instructions: string; web?: boolean }) {
+/** Configuration for every run (as `--config` overrides). `workspace`: worktree of an attached sandbox, the only place Codex may write. */
+export function codexConfig(opts: { mcpUrl: string; instructions: string; web?: boolean; workspace?: string }) {
   return {
     config: {
       developer_instructions: opts.instructions,
@@ -80,9 +80,11 @@ export function codexConfig(opts: { mcpUrl: string; instructions: string; web?: 
         },
       },
     },
-    // No file access for commands started by Codex, not escalatable
-    configOverrides: ['permissions.lotse.filesystem={":root"="deny"}'],
-    workingDirectory: workDir(),
+    // No file access, not escalatable; with a sandbox only its worktree (without .git) for Codex' own patches
+    configOverrides: [opts.workspace
+      ? `permissions.lotse.filesystem={":root"="deny",${JSON.stringify(opts.workspace)}="write",${JSON.stringify(`${opts.workspace}/.git`)}="deny"}`
+      : 'permissions.lotse.filesystem={":root"="deny"}'],
+    workingDirectory: opts.workspace ?? workDir(),
   };
 }
 

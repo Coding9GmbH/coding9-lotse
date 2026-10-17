@@ -1,5 +1,6 @@
 // For server tests only: Sandbox Coding switched on with the FakeRunner, a GitHub fake and a bare file:// theme repository,
 // plus a task whose setup reached "ready". Import after '../isolate-data' and before the modules under test.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -31,9 +32,9 @@ export async function sandboxForTests(o: { env?: { key: string; value: string; s
   setRunner(fake);
   E.saveSandbox({ enabled: true, envVars: o.env ?? [] });
   const until = async (fn: () => boolean, ms = 10_000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw new Error('timeout'); await new Promise(r => setTimeout(r, 10)); } };
-  /** a task whose setup finished (status ready, container running) */
-  const readyTask = async (title = 'Header anpassen') => {
-    const t = T.createTask({ title, goal: 'Im Header soll „Gratis Versand“ stehen.', repo: 'acme/shop-theme', baseBranch: 'main' });
+  /** a task whose setup finished (status ready, container running), attached to `chatId` (default: a new chat) */
+  const readyTask = async (title = 'Header anpassen', chatId: string = crypto.randomUUID()) => {
+    const t = T.createTask({ chatId, title, goal: 'Im Header soll „Gratis Versand“ stehen.', repo: 'acme/shop-theme', baseBranch: 'main' });
     J.runSteps(t.id);
     await until(() => !J.setupRunning(t.id) && T.getTask(t.id)!.status !== 'setting_up');
     const done = T.getTask(t.id)!;

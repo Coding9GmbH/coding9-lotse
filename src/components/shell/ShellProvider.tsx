@@ -20,9 +20,11 @@ export interface WorkspaceBridge {
   openRules: () => void;
   /** Put the task text into the input field (sending stays a separate click) */
   prefill: (text: string, fix?: PromptFix) => void;
+  /** "Sandbox starten" dialog for the current chat (Sandbox Coding on, no sandbox attached yet) */
+  openSandbox: () => void;
 }
 /** Task for the workspace when the navigation is used from another page. */
-export type WorkspaceIntent = { type: 'new' } | { type: 'new-context' } | { type: 'open'; id: string } | { type: 'context' } | { type: 'styleguide' } | { type: 'rules' } | { type: 'prompt'; text: string; fix?: PromptFix };
+export type WorkspaceIntent = { type: 'new' } | { type: 'new-context' } | { type: 'open'; id: string } | { type: 'context' } | { type: 'styleguide' } | { type: 'rules' } | { type: 'prompt'; text: string; fix?: PromptFix } | { type: 'sandbox' };
 /** Task belongs to a finding/lever: "in progress" after sending (shop check and SEO share this) */
 export interface PromptFix { id: string; title: string }
 
@@ -61,7 +63,7 @@ interface Shell {
   registerWorkspace: (bridge: WorkspaceBridge | null) => void;
   /** Fetches (and clears) a queued task; the workspace calls this on start. */
   takeIntent: () => WorkspaceIntent | null;
-  nav: { newChat: () => void; newChatWithContext: () => void; openChat: (id: string) => void; deleteChat: (id: string) => void; openContext: () => void; openStyleguide: () => void; openRules: () => void; /** New chat with a prepared task (e.g. from the SEO overview) */ promptChat: (text: string, fix?: PromptFix) => void };
+  nav: { newChat: () => void; newChatWithContext: () => void; openChat: (id: string) => void; deleteChat: (id: string) => void; openContext: () => void; openStyleguide: () => void; openRules: () => void; /** New chat with a prepared task (e.g. from the SEO overview) */ promptChat: (text: string, fix?: PromptFix) => void; /** New chat with the "Sandbox starten" dialog open */ sandboxChat: () => void };
 }
 
 const ShellContext = createContext<Shell | null>(null);
@@ -181,6 +183,7 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
         openStyleguide: () => via(b => b.openStyleguide(), { type: 'styleguide' }),
         openRules: () => via(b => b.openRules(), { type: 'rules' }),
         promptChat: (text, fix) => via(b => { b.newChat(); b.prefill(text, fix); }, { type: 'prompt', text, fix }),
+        sandboxChat: () => via(b => { b.newChat(); b.openSandbox(); }, { type: 'sandbox' }),
         deleteChat: id => {
           removed.current.add(id); setOlder(o => o.filter(c => c.id !== id));
           if (bridge.current) bridge.current.deleteChat(id);

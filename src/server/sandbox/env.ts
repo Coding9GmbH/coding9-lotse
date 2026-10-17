@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import type { CommandPhase, SandboxCheckEvent, SandboxCommand, SandboxDocker, SandboxEnvPatch, SandboxEnvPublic, SandboxStatus } from '@/lib/protocol';
 import { exposedWithoutPassword, sandboxSubnet } from '../access';
 import { kvGet, kvSet, seal, unseal } from '../db';
+import { assertRepoName } from '../github';
 import { singleton } from '../state';
 import { errMsg } from '../util';
 import { ensureNetwork, networkMode } from './network';
@@ -17,7 +18,7 @@ import type { SandboxTemplate } from './templates/types';
 interface StoredVar { key: string; secret: boolean; /** sealed when secret */ value: string }
 interface StoredSandbox {
   enabled?: boolean; templateId?: string; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number;
-  envVars?: StoredVar[]; commands?: SandboxCommand[]; updatedAt?: string;
+  envVars?: StoredVar[]; commands?: SandboxCommand[]; updatedAt?: string; defaultRepo?: string; defaultBranch?: string;
 }
 const KV = 'sandbox';
 const stored = (): StoredSandbox => {
@@ -116,6 +117,12 @@ function checkCommands(next: NonNullable<SandboxEnvPatch['commands']>): SandboxC
   });
 }
 
+/** Base branch preset: the same character rules as git check-ref-format (checked again with git when a task is created). */
+const branchName = (b: string) => {
+  if (b.length > 200 || b.startsWith('-') || b.includes('@{') || b.includes('..') || /[\s\x00-\x1f\x7f~^:?*[\\]/.test(b)) throw new Error('Ungültiger Branch-Name.');
+  return b;
+};
+
 /** Saves the environment. Returns the changed field names (for the audit; never values). */
 export function saveSandbox(p: SandboxEnvPatch, env: Record<string, string | undefined> = process.env): { changed: string[] } {
   const s = stored(), next: StoredSandbox = { ...s };
@@ -131,6 +138,8 @@ export function saveSandbox(p: SandboxEnvPatch, env: Record<string, string | und
   if (p.memoryMb !== undefined) { next.memoryMb = num(p.memoryMb, LIMITS.memoryMb, 'Arbeitsspeicher (MB)'); if (next.memoryMb !== s.memoryMb) changed.push('memoryMb'); }
   if (p.cpus !== undefined) { next.cpus = num(p.cpus, LIMITS.cpus, 'CPUs', false); if (next.cpus !== s.cpus) changed.push('cpus'); }
   if (p.idleMinutes !== undefined) { next.idleMinutes = num(p.idleMinutes, LIMITS.idleMinutes, 'Pause nach Inaktivität (Minuten)'); if (next.idleMinutes !== s.idleMinutes) changed.push('idleMinutes'); }
+  if (p.defaultRepo !== undefined) { const r = p.defaultRepo.trim(); next.defaultRepo = r ? assertRepoName(r) : ''; if (next.defaultRepo !== (s.defaultRepo ?? '')) changed.push('defaultRepo'); }
+  if (p.defaultBranch !== undefined) { const b = p.defaultBranch.trim(); next.defaultBranch = b ? branchName(b) : ''; if (next.defaultBranch !== (s.defaultBranch ?? '')) changed.push('defaultBranch'); }
   if (p.envVars !== undefined) {
     next.envVars = mergeVars(s.envVars ?? [], p.envVars);
     const before = new Map((s.envVars ?? []).map(v => [v.key, v]));
@@ -152,7 +161,7 @@ export function sandboxPublic(env: Record<string, string | undefined> = process.
     enabled: !!s.enabled, status: sandboxStatus(env), templateId: t.id, image: s.image ?? t.defaultImage,
     memoryMb: s.memoryMb ?? LIMITS.memoryMb.def, cpus: s.cpus ?? LIMITS.cpus.def, idleMinutes: s.idleMinutes ?? defaultIdle(env), maxRunning: maxRunning(env),
     envVars: (s.envVars ?? []).map(v => ({ key: v.key, secret: v.secret, value: v.secret ? '' : v.value, hasValue: !!v.value })),
-    commands: s.commands ?? [], updatedAt: s.updatedAt ?? null,
+    commands: s.commands ?? [], updatedAt: s.updatedAt ?? null, defaultRepo: s.defaultRepo ?? '', defaultBranch: s.defaultBranch ?? '',
   };
 }
 

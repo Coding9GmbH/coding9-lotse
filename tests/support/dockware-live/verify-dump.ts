@@ -7,6 +7,7 @@
 //     npx tsx --conditions=react-server tests/support/dockware-live/verify-dump.ts
 //   Optional: LOTSE_DOCKWARE_IMAGE (default dockware/shopware:6.7.15.1, must be pulled), DOCKER_HOST.
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -63,7 +64,7 @@ try {
   console.log(`Dump hochgeladen: ${data.length} Bytes in ${parts} Teilen.`);
 
   const t0 = Date.now();
-  const t = T.createTask({ title: 'Live-Test Dump', goal: 'Dump importieren', repo: repo.repo, baseBranch: 'main', dumpId: dump.id });
+  const t = T.createTask({ chatId: crypto.randomUUID(), title: 'Live-Test Dump', goal: 'Dump importieren', repo: repo.repo, baseBranch: 'main', dumpId: dump.id });
   taskId = t.id;
   J.runSteps(t.id);
   let last = '';

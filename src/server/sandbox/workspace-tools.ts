@@ -1,12 +1,14 @@
 import 'server-only';
-// Tools of a code chat (Sandbox Coding), the same for Claude (in-process MCP) and Codex (MCP over HTTP).
-// They only reach the task's worktree (workspace-fs: realpath-confined), allow-listed commands of the template in the task container
-// and the task's own storefront. Nothing commits, pushes, calls GitHub or controls Docker beyond run_command; nothing runs on the host.
-// Every write is mirrored into the container at once and shown as a file_change card. Cheap to build, no side effects.
+// MCP tools of a chat with an attached sandbox (Sandbox Coding), the same for Claude (in-process) and Codex (over HTTP).
+// Files are read and edited with the agent's own tools (Claude: Read/Edit/Write/Glob/Grep, see native-tools.ts; Codex: its patches),
+// confined to the task's worktree. Here only what those do not cover: sandbox_bash (any shell command INSIDE the task container,
+// never on the host), delete_file, git_diff, the task's own storefront, the environment, questions and the PR proposal.
+// Codex has no file reading of its own without a shell, so it also gets list_files/read_file/search_files.
+// Nothing commits, pushes, calls GitHub or controls Docker beyond the container exec. Cheap to build, no side effects.
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
-import type { ChatEvent, SandboxCommandKey } from '@/lib/protocol';
+import type { ChatEvent } from '@/lib/protocol';
 import { accessAdd } from '../db';
 import { decodeEntities } from '../html-sanitize';
 import { redact } from '../settings';
@@ -18,19 +20,24 @@ import { ensureAwake, touchTask, withTaskLock } from './jobs';
 import { fetchUpstream, sandboxUpstream } from './preview';
 import { getRunner } from './runner';
 import { syncAll, syncPaths } from './sync';
-import { getTemplate, resolveCommand } from './templates';
+import { getTemplate } from './templates';
 import { mustTask, taskPaths, type CodeTask } from './tasks';
-import { deleteText, editText, listFiles, readText, searchFiles, writeText, type Change } from './workspace-fs';
+import { deleteText, listFiles, readText, searchFiles, type Change } from './workspace-fs';
 
-export const CODE_TOOL_NAMES = ['list_files', 'read_file', 'search_files', 'edit_file', 'write_file', 'delete_file', 'git_diff', 'run_command', 'read_sandbox_page', 'get_environment', 'ask_user', 'propose_publish'] as const;
-/** Output of run_command for the AI (end of the output, redacted) */
-export const COMMAND_OUTPUT = 8 * 1024;
+/** MCP tools of every sandbox chat */
+export const SANDBOX_TOOL_NAMES = ['sandbox_bash', 'delete_file', 'git_diff', 'read_sandbox_page', 'get_environment', 'ask_user', 'propose_publish'] as const;
+/** Codex only: reading the worktree (Claude reads with its own Read/Glob/Grep) */
+export const CODEX_READ_TOOL_NAMES = ['list_files', 'read_file', 'search_files'] as const;
+export const sandboxToolNames = (provider: 'claude' | 'codex'): string[] => (provider === 'codex' ? [...CODEX_READ_TOOL_NAMES, ...SANDBOX_TOOL_NAMES] : [...SANDBOX_TOOL_NAMES]);
+/** Output of sandbox_bash for the AI (end of the output, redacted) */
+export const COMMAND_OUTPUT = 12 * 1024;
+export const BASH_TIMEOUT = { def: 120, max: 600 } as const;
 const DIFF_FOR_AI = 30 * 1024, PAGE_TEXT = 12 * 1024, PAGE_HTML = 30 * 1024;
-/** Commands after which the storefront looks different: the preview reloads */
-const RELOADS = new Set<string>(['theme-compile', 'cache-clear', 'theme-refresh']);
+/** After these the storefront looks different: the preview reloads */
+const RELOADS = /\b(theme:(compile|refresh|change)|cache:(clear|pool:clear)|assets:install|plugin:(install|activate|deactivate|update|refresh|uninstall))\b/;
 
 /** What the tools need from the chat session. */
-export interface CodeToolHost {
+export interface SandboxToolHost {
   id: string;
   taskId: string | null;
   emit: (ev: ChatEvent) => void;
@@ -38,7 +45,7 @@ export interface CodeToolHost {
   abort: AbortController | null;
 }
 
-const tail = (text: string, max: number) => (Buffer.byteLength(text) > max ? `…${Buffer.from(text).subarray(-max).toString('utf8').replace(/^�+/, '')}` : text);
+export const tail = (text: string, max: number) => (Buffer.byteLength(text) > max ? `…${Buffer.from(text).subarray(-max).toString('utf8').replace(/^�+/, '')}` : text);
 
 /** Visible text of an HTML page: title + text without scripts, styles and tags. */
 export function pageText(html: string): { title: string; text: string } {
@@ -50,7 +57,21 @@ export function pageText(html: string): { title: string; text: string } {
   return { title, text };
 }
 
-export function codeTools(host: CodeToolHost): AnyTool[] {
+/** Mirror changed worktree files into the running container (under the task lock); a paused one gets everything when it wakes.
+ *  Returns a short note for the AI. Shared by delete_file, Claude's native Edit/Write and Codex' patches. */
+export async function syncChanged(taskId: string, rels: string[]): Promise<string> {
+  return withTaskLock(taskId, async () => {
+    const t = mustTask(taskId), tpl = getTemplate(t.template);
+    if (!t.containerId || !t.containerRunning || !t.layout) return ' (Container pausiert: wird beim Fortsetzen übertragen)';
+    await syncPaths({ runner: getRunner(), containerId: t.containerId, worktree: taskPaths(taskId).worktree, target: tpl.syncTarget(t.layout), user: tpl.execUser }, rels);
+    return ' und in den Container übertragen';
+  }).catch(e => ` – Übertragung in den Container fehlgeschlagen: ${redact(e instanceof Error ? e.message : e).slice(0, 300)}`);
+}
+
+/** Text for the command card: one line, redacted, at most 300 characters. */
+const cardText = (cmd: string) => { const one = redact(cmd).replace(/\s*\n\s*/g, ' ⏎ ').trim(); return one.length > 300 ? `${one.slice(0, 299)}…` : one; };
+
+export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex' = 'claude'): AnyTool[] {
   const taskId = host.taskId ?? '';
   const task = (): CodeTask => mustTask(taskId);
   const worktree = () => taskPaths(taskId).worktree;
@@ -60,23 +81,13 @@ export function codeTools(host: CodeToolHost): AnyTool[] {
     touchTask(taskId);
     try { const r = await fn(a); log(op); return r; } catch (e) { log(op, 0, e instanceof Error ? e.message.slice(0, 200) : 'Fehler'); throw e; }
   });
-
-  /** Mirror changed files into the running container (under the task lock); a paused one gets everything when it wakes. */
-  const sync = async (rels: string[]): Promise<string> => withTaskLock(taskId, async () => {
-    const t = task(), tpl = getTemplate(t.template);
-    if (!t.containerId || !t.containerRunning || !t.layout) return ' (Container pausiert: wird beim Fortsetzen übertragen)';
-    await syncPaths({ runner: getRunner(), containerId: t.containerId, worktree: worktree(), target: tpl.syncTarget(t.layout), user: tpl.execUser }, rels);
-    return ' und in den Container übertragen';
-  }).catch(e => ` – Übertragung in den Container fehlgeschlagen: ${redact(e instanceof Error ? e.message : e).slice(0, 300)}`);
-  const changed = async (c: Change, extra = '') => {
-    const note = await sync([c.path]);
+  const changed = async (c: Change) => {
+    const note = await syncChanged(taskId, [c.path]);
     host.emit({ t: 'file_change', path: c.path, kind: c.kind, added: c.added, removed: c.removed });
-    return ok(`${c.path}: ${c.kind === 'create' ? 'angelegt' : c.kind === 'delete' ? 'gelöscht' : 'geändert'} (+${c.added} −${c.removed})${extra}${note}.`);
+    return ok(`${c.path}: gelöscht (−${c.removed})${note}.`);
   };
 
-  const commandIds = () => getTemplate(task().template).commands.map(c => c.id);
-
-  return [
+  const reads = (provider !== 'codex' ? [] : [
     tool('list_files', 'Listet Dateien und Ordner im Repository der Aufgabe (relativ zur Wurzel, Ordner mit „/“). .git und geheime Dateien sind ausgeblendet; vendor/ und node_modules/ nur, wenn ausdrücklich angefragt.',
       { path: z.string().max(500).optional().describe('Ordner relativ zur Repository-Wurzel, leer = Wurzel'), depth: z.number().int().min(1).max(6).optional().describe('Tiefe, Standard 3') },
       act('list_files', async ({ path, depth }) => {
@@ -97,20 +108,41 @@ export function codeTools(host: CodeToolHost): AnyTool[] {
         const r = searchFiles(worktree(), pattern, { dir: path, glob, ignoreCase: ignore_case });
         return ok(`${redact(r.hits.join('\n')) || 'Keine Treffer.'}${r.truncated ? '\n… (gekürzt: Suche eingrenzen)' : ''}`);
       })),
+  ]) as AnyTool[];
 
-    tool('edit_file', 'Ändert eine Datei: ersetzt old_str durch new_str. old_str muss genau einmal vorkommen (sonst mehr Kontext angeben oder replace_all). Die Änderung wird sofort in den Container übertragen.',
-      { path: z.string().min(1).max(500), old_str: z.string().min(1), new_str: z.string(), replace_all: z.boolean().optional() },
-      act('edit_file', async ({ path, old_str, new_str, replace_all }) => {
-        const c = editText(worktree(), path, old_str, new_str, replace_all);
-        return changed(c, c.replaced > 1 ? `, ${c.replaced} Stellen` : '');
+  return [
+    ...reads,
+    tool('sandbox_bash', `Führt einen Shell-Befehl IM Container der Aufgabe aus (bash -lc, als www-data in /var/www/html; der Container ist ein Wegwerf-Shopware ohne Internet und ohne Zugriff auf den Live-Shop). Vorher wird das Repository in den Container übertragen. Für bin/console (z. B. theme:compile, cache:clear, plugin:refresh), Logs (var/log), mysql -uroot -proot -h127.0.0.1 shopware, curl -H 'Host: localhost' http://127.0.0.1/…, php -l usw. Nach theme:compile/cache:clear lädt die Vorschau neu. Dateien des Repositorys änderst du NICHT hier (Änderungen im Container gehen beim nächsten Übertragen verloren), sondern mit den Datei-Werkzeugen. Zeitlimit Standard ${BASH_TIMEOUT.def} s, höchstens ${BASH_TIMEOUT.max} s; die Ausgabe wird gekürzt (Ende) und geschwärzt.`,
+      { command: z.string().min(1).max(10_000).describe('Befehlszeile für bash -lc'), timeout_sec: z.number().int().min(1).max(BASH_TIMEOUT.max).optional().describe(`Zeitlimit in Sekunden (Standard ${BASH_TIMEOUT.def})`) },
+      act('sandbox_bash', async ({ command, timeout_sec }) => {
+        if (command.includes('\0')) return fail('Ungültiger Befehl.');
+        if (!task().layout) return fail('Die Einrichtung ist noch nicht fertig.');
+        await ensureAwake(taskId); // paused meanwhile (idle, button): start it again, no new setup
+        const tpl = getTemplate(task().template);
+        const id = `cmd_${crypto.randomBytes(6).toString('hex')}`, t0 = Date.now(), shown = cardText(command);
+        host.emit({ t: 'command', id, command: shown, status: 'running' });
+        let res: { exitCode: number; output: string; truncated?: boolean };
+        try {
+          res = await withTaskLock(taskId, async () => {
+            const fresh = task();
+            if (!fresh.containerId || !fresh.containerRunning || !fresh.layout) throw new Error('Der Container läuft nicht.');
+            await syncAll({ runner: getRunner(), containerId: fresh.containerId, worktree: worktree(), target: tpl.syncTarget(fresh.layout), user: tpl.execUser, signal: host.abort?.signal });
+            return getRunner().exec(fresh.containerId, ['bash', '-lc', command], { user: tpl.execUser, workdir: tpl.workdir, timeoutMs: (timeout_sec ?? BASH_TIMEOUT.def) * 1000, maxOutput: 256 * 1024, signal: host.abort?.signal });
+          });
+        } catch (e) {
+          const msg = redact(e instanceof Error ? e.message : e).slice(0, 500);
+          host.emit({ t: 'command', id, command: shown, status: 'failed', tail: msg, ms: Date.now() - t0 });
+          throw new Error(msg);
+        }
+        const out = redact(res.output).trim(), good = res.exitCode === 0, ms = Date.now() - t0, reload = good && RELOADS.test(command);
+        host.emit({ t: 'command', id, command: shown, status: good ? 'ok' : 'failed', exitCode: res.exitCode, tail: out.split('\n').slice(-15).join('\n').slice(-1500), ms });
+        if (reload) host.emit({ t: 'preview_reload' });
+        const body = `Exit-Code ${res.exitCode} nach ${(ms / 1000).toFixed(1)} s${reload ? ' – die Vorschau lädt neu' : ''}\n${tail(out, COMMAND_OUTPUT) || '(keine Ausgabe)'}`;
+        return good ? ok(body) : fail(body);
       })),
 
-    tool('write_file', 'Legt eine Datei an oder überschreibt sie komplett (höchstens 512 KB). Fehlende Ordner werden angelegt. Für kleine Änderungen lieber edit_file.',
-      { path: z.string().min(1).max(500), content: z.string() },
-      act('write_file', async ({ path, content }) => changed(writeText(worktree(), path, content)))),
-
     tool('delete_file', 'Löscht eine Datei des Repositorys (keine Ordner); auch im Container.',
-      { path: z.string().min(1).max(500) },
+      { path: z.string().min(1).max(500).describe('Pfad relativ zur Repository-Wurzel') },
       act('delete_file', async ({ path }) => changed(deleteText(worktree(), path)))),
 
     tool('git_diff', 'Zeigt alle bisherigen Änderungen gegenüber dem Basis-Branch (Dateiliste mit +/− und Patch, gekürzt).', {},
@@ -119,37 +151,6 @@ export function codeTools(host: CodeToolHost): AnyTool[] {
         if (!d.files.length) return ok('Keine Änderungen gegenüber dem Basis-Branch.');
         return ok(`${d.files.map(f => `${f.status} ${f.path} (+${f.added} −${f.removed})`).join('\n')}\n\n${d.diff}`);
       })),
-
-    tool('run_command', 'Führt einen freigegebenen Befehl im Container der Aufgabe aus (als www-data in /var/www/html; vorher wird das Repository übertragen). Nur diese IDs: theme-compile (Theme kompilieren, danach lädt die Vorschau neu), cache-clear, plugin-refresh, theme-refresh, lint-twig (args.path: Twig-Datei relativ zum Plugin), php-lint (args.path: PHP-Datei relativ zum Plugin). Keine eigenen Shell-Befehle.',
-      { command: z.string().min(1).max(40), args: z.record(z.string(), z.string().max(300)).optional() },
-      act('run_command', async ({ command, args }) => {
-        const t = task(), tpl = getTemplate(t.template);
-        if (!commandIds().includes(command as SandboxCommandKey)) return fail(`Befehl „${command.slice(0, 40)}“ ist nicht freigegeben (erlaubt: ${commandIds().join(', ')}).`);
-        if (!t.layout) return fail('Die Einrichtung ist noch nicht fertig.');
-        const r = resolveCommand(tpl, command, args ?? {}, { pluginDir: t.layout.pluginDir });
-        await ensureAwake(taskId); // paused meanwhile (idle, button): start it again, no new setup
-        const id = `cmd_${crypto.randomBytes(6).toString('hex')}`, t0 = Date.now();
-        host.emit({ t: 'command', id, command, ...(args && Object.keys(args).length ? { args } : {}), status: 'running' });
-        let res: { exitCode: number; output: string };
-        try {
-          res = await withTaskLock(taskId, async () => {
-            const fresh = task();
-            if (!fresh.containerId || !fresh.containerRunning || !fresh.layout) throw new Error('Der Container läuft nicht.');
-            await syncAll({ runner: getRunner(), containerId: fresh.containerId, worktree: worktree(), target: tpl.syncTarget(fresh.layout), user: tpl.execUser, signal: host.abort?.signal });
-            return getRunner().exec(fresh.containerId, r.argv, { user: r.user, workdir: r.workdir, timeoutMs: r.timeoutMs, maxOutput: r.maxOutput, signal: host.abort?.signal });
-          });
-        } catch (e) {
-          const msg = redact(e instanceof Error ? e.message : e).slice(0, 500);
-          host.emit({ t: 'command', id, command, status: 'failed', tail: msg, ms: Date.now() - t0 });
-          throw new Error(msg);
-        }
-        const out = redact(res.output).trim(), good = res.exitCode === 0, ms = Date.now() - t0;
-        host.emit({ t: 'command', id, command, status: good ? 'ok' : 'failed', exitCode: res.exitCode, tail: out.split('\n').slice(-15).join('\n').slice(-1500), ms });
-        if (good && RELOADS.has(command)) host.emit({ t: 'preview_reload' });
-        const body = `${command}: Exit-Code ${res.exitCode} nach ${(ms / 1000).toFixed(1)} s${good && RELOADS.has(command) ? ' – die Vorschau lädt neu' : ''}\n${tail(out, COMMAND_OUTPUT) || '(keine Ausgabe)'}`;
-        return good ? ok(body) : fail(body);
-      })),
-
     tool('read_sandbox_page', 'Ruft eine Seite der Sandbox-Storefront dieser Aufgabe ab (nur diese, z. B. "/" oder "/checkout/cart") und liefert Status, Titel und sichtbaren Text – mit format "html" den HTML-Quelltext (gekürzt). Zum Prüfen, ob eine Änderung wirkt.',
       { path: z.string().min(1).max(500).describe('Pfad der Storefront, beginnt mit /'), format: z.enum(['text', 'html']).optional() },
       act('read_sandbox_page', async ({ path, format }) => {
@@ -167,13 +168,12 @@ export function codeTools(host: CodeToolHost): AnyTool[] {
         return ok(`${head}\nTitel: ${p.title || '–'}\n\n${redact(p.text.length > PAGE_TEXT ? `${p.text.slice(0, PAGE_TEXT)}\n…` : p.text)}`);
       })),
 
-    tool('get_environment', 'Liest die Umgebung der Aufgabe: Vorlage, Image, Plugin/Theme und Pfad im Container, freigegebene Befehle, die Namen der Umgebungsvariablen (ohne Werte) und die eigenen Einrichtungsbefehle. Nur lesen – ändern kann das nur der Nutzer in der Umgebung.', {},
+    tool('get_environment', 'Liest die Umgebung der Aufgabe: Vorlage, Image, Plugin/Theme und Pfad im Container, die Namen der Umgebungsvariablen (ohne Werte) und die eigenen Einrichtungsbefehle. Nur lesen – ändern kann das nur der Nutzer in der Umgebung.', {},
       act('get_environment', async () => {
         const t = task(), env = sandboxPublic(), tpl = getTemplate(t.template);
         return ok({
           template: t.template, image: env.image, repo: t.repo, baseBranch: t.baseBranch, branch: t.branch, status: t.status,
           layout: t.layout, containerPath: t.layout ? tpl.syncTarget(t.layout) : null,
-          commands: tpl.commands.map(c => ({ id: c.id, args: c.args.map(a => a.name) })),
           envVars: env.envVars.map(v => ({ key: v.key, secret: v.secret })),
           setupCommands: env.commands.map(c => ({ label: c.label, phase: c.phase, command: redact(c.command) })),
         });

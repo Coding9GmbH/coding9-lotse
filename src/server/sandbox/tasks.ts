@@ -6,12 +6,11 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
 import type { CodeTaskPublic, CodeTaskStatus, TaskDumpPublic, CommandPhase, TaskEvent, TaskLayout, TaskStep } from '@/lib/protocol';
-import { codeTaskGet, codeTaskList, codeTaskPut, dataDir, macOf, type CodeTaskRow } from '../db';
+import { codeTaskByChat, codeTaskGet, codeTaskList, codeTaskPut, dataDir, macOf, type CodeTaskRow } from '../db';
 import { assertLotseBranch } from '../git';
 import { singleton } from '../state';
 import { attachDump, deleteDump } from './dumps';
 import { getSandboxConfig } from './env';
-import { sandboxAlias } from './labels';
 import type { NetworkMode } from './network';
 import { getRunner } from './runner';
 import { canonicalTemplateId, getTemplate } from './templates';
@@ -27,7 +26,7 @@ export interface StoredDump { id: string; name: string; size: number; sha256: st
 export interface CodeTask extends CodeTaskRow {
   title: string; goal: string; status: CodeTaskStatus; steps: StoredStep[]; layout: TaskLayout | null; error: string | null;
   /** container state as Lotse last set or saw it */ containerRunning: boolean;
-  /** how Lotse reaches the container: alias on lotse-sandbox or a port on 127.0.0.1 */ mode: NetworkMode | null; port: number | null;
+  /** where Lotse ran when the container was created; port: only containers from before the internal network (refused) */ mode: NetworkMode | null; port: number | null;
   lastActiveAt: string; finishedAt: string | null;
   /** missing in rows from before dumps existed */ dump?: StoredDump | null;
 }
@@ -89,10 +88,11 @@ export function appendLog(t: CodeTask, step: StoredStep, text: string, redact: (
   saveSoon(t);
 }
 
-/** The task's code chat: created with the task; rows from before code chats existed get one on first use. */
-export function ensureTaskChat(t: CodeTask): string {
-  if (!t.chatId) { t.chatId = crypto.randomUUID(); saveTask(t, false); }
-  return t.chatId;
+/** The sandbox attached to a chat: its task that is not finished yet (one per chat), or null. Finishing detaches it. */
+export function attachedTask(chatId: string): CodeTask | null {
+  if (!chatId) return null;
+  for (const id of codeTaskByChat(chatId)) { const t = getTask(id); if (t && t.status !== 'done') return t; }
+  return null;
 }
 
 // ---- Chat turns running for a task (count as activity: the idle sweeper does not pause the container meanwhile) ----
@@ -147,16 +147,17 @@ export function planSteps(templateId: string, commands: { id: string; label: str
   return out;
 }
 
-export interface NewTask { title: string; goal: string; repo: string; baseBranch: string; dumpId?: string }
-/** Creates the row only (not running yet: runSteps sets setting_up). Own commands are taken from the environment now. */
+export interface NewTask { chatId: string; title?: string; goal?: string; repo: string; baseBranch: string; dumpId?: string }
+/** Creates the row only (not running yet: runSteps sets setting_up), bound to the chat it was started from.
+ *  Title (branch name, list): given, otherwise the repository's name. Own commands are taken from the environment now. */
 export function createTask(p: NewTask): CodeTask {
   const cfg = getSandboxConfig(), id = newTaskId(), ts = now();
-  const title = p.title.replace(/\s+/g, ' ').trim().slice(0, 120);
-  if (!title) throw new Error('Titel fehlt.');
+  if (!p.chatId) throw new Error('Chat fehlt.');
+  const title = (p.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || `Sandbox ${p.repo.split('/').pop() ?? p.repo}`;
   const t: CodeTask = {
-    id, chatId: crypto.randomUUID(), template: cfg.templateId, repo: p.repo, baseBranch: p.baseBranch, branch: branchFor(title, id),
+    id, chatId: p.chatId, template: cfg.templateId, repo: p.repo, baseBranch: p.baseBranch, branch: branchFor(title, id),
     status: 'interrupted', containerId: null, prNumber: null, prUrl: null, pushedSha: null, createdAt: ts, updatedAt: ts,
-    title, goal: p.goal.trim().slice(0, 4000), steps: planSteps(cfg.templateId, cfg.commands), layout: null, error: null,
+    title, goal: (p.goal ?? '').trim().slice(0, 4000), steps: planSteps(cfg.templateId, cfg.commands), layout: null, error: null,
     containerRunning: false, mode: null, port: null, lastActiveAt: ts, finishedAt: null, dump: null,
   };
   if (p.dumpId) setTaskDump(t, p.dumpId);
@@ -164,13 +165,14 @@ export function createTask(p: NewTask): CodeTask {
   return t;
 }
 
-/** Where Lotse reaches the task's storefront: the alias on lotse-sandbox, or the loopback port Docker reports. */
+/** Where Lotse reaches the task's storefront: the container's address on the internal network lotse-sandbox, as Docker reports it
+ *  (never from a request). Containers from before the internal network (published port on the default bridge) are refused. */
 export async function sandboxOrigin(t: CodeTask): Promise<string> {
   if (!t.containerId) throw new Error('Kein Container für diese Aufgabe.');
-  if (t.mode === 'network') return `http://${sandboxAlias(t.id)}`;
+  if (t.port) throw Object.assign(new Error('Dieser Container wurde noch mit Internetzugang angelegt. Einrichtung ab „Container starten“ erneut versuchen.'), { code: 'ELEGACY' });
   const info = await getRunner().inspect(t.containerId);
-  if (!info?.running || !info.port) throw Object.assign(new Error('Der Container läuft nicht.'), { code: 'ENOTRUNNING' });
-  return `http://127.0.0.1:${info.port}`;
+  if (!info?.running || !info.address) throw Object.assign(new Error('Der Container läuft nicht.'), { code: 'ENOTRUNNING' });
+  return `http://${info.address.host}:${info.address.port}`;
 }
 
 /** Status of a storefront path, with Host: localhost (Dockware answers other hosts with 400). No redirects followed. */

@@ -1,16 +1,14 @@
 import 'server-only';
 // Setup job and container lifecycle of code tasks. Everything runs detached from the HTTP request (like a chat turn):
 // - runSteps: the template's steps in order, each persisted at once, with a time limit and an AbortController per task
-// - one lock per task: setup steps, wake-up and (later) run_command never run in the same container at the same time
+// - one lock per task: setup steps, wake-up and sandbox_bash never run in the same container at the same time
 // - LOTSE_SANDBOX_MAX running containers: one more stops a failed task's container or pauses the least recently used ready task, otherwise 409
 // - pause = docker stop (code, database and changes stay), wake = docker start + wait + full sync (no new setup)
 // - finish = container, workspace, git dir, dump and screenshots removed; the task stays as a record (done)
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CodeTaskStatus } from '@/lib/protocol';
-import { chatDelete, codeTaskDelete } from '../db';
-import { clearMcpToken } from '../codex';
-import { dropSession } from '../sessions';
+import { codeTaskDelete } from '../db';
 import { cloneRepo } from '../git';
 import { log } from '../log';
 import { redact } from '../settings';
@@ -18,7 +16,7 @@ import { singleton } from '../state';
 import { errMsg } from '../util';
 import { assertAttachable, deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
 import { getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
-import { allocateLocalPort, ensureNetwork, networkMode } from './network';
+import { ensureNetwork, networkMode, probeRoute } from './network';
 import { clearJar, forgetUpstream } from './preview';
 import { getRunner } from './runner';
 import { TASK_LABEL } from './labels';
@@ -40,6 +38,8 @@ interface Job { ac: AbortController; done: Promise<void> }
 interface Jobs { setup: Map<string, Job>; wakes: Map<string, Job>; locks: Map<string, Promise<unknown>>; finishing: Set<string> }
 const jobs = () => singleton<Jobs>('sandboxJobs', () => ({ setup: new Map(), wakes: new Map(), locks: new Map(), finishing: new Set() }));
 export const setupRunning = (id: string) => jobs().setup.has(id);
+/** Resolves when the task's running setup (if any) has ended, successfully or not. */
+export const setupSettled = (id: string): Promise<void> => jobs().setup.get(id)?.done ?? Promise.resolve();
 const abortAndWait = async (j: Job | undefined) => { if (!j) return; j.ac.abort(); await j.done.catch(() => {}); };
 
 /** Serializes everything that execs in one task container. */
@@ -215,16 +215,18 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
     createContainer: async () => {
       const cfg = getSandboxConfig(), mode = networkMode();
       for (const c of await runner.list({ [TASK_LABEL]: t.id })) { lg(`Alten Container ${c.name} entfernen …`); await runner.remove(c.id); }
-      t.containerId = null; t.containerRunning = false; clearJar(t.id); // a new shop: the old storefront session is meaningless
-      if (mode === 'network') await ensureNetwork(runner);
-      const port = mode === 'local' ? await allocateLocalPort() : undefined;
-      const spec = tpl.buildSpec({ taskId: t.id, image: cfg.image, memoryMb: cfg.memoryMb, cpus: cfg.cpus, env: cfg.env, mode, port });
+      t.containerId = null; t.containerRunning = false; t.port = null; clearJar(t.id); // a new shop: the old storefront session is meaningless
+      await ensureNetwork(runner); // both modes: the internal network only, no internet, no live shop
+      const spec = tpl.buildSpec({ taskId: t.id, image: cfg.image, memoryMb: cfg.memoryMb, cpus: cfg.cpus, env: cfg.env });
       t.containerId = await runner.create(spec);
-      t.mode = mode; t.port = port ?? null;
+      t.mode = mode;
       saveTask(t, false);
       await runner.start(t.containerId);
       t.containerRunning = true; saveTask(t);
-      lg(`Container ${spec.name} gestartet (${mode === 'local' ? `127.0.0.1:${port}` : 'Netzwerk lotse-sandbox'}).`);
+      const addr = (await runner.inspect(t.containerId))?.address;
+      if (!addr) throw new Error('Der Container hat keine Adresse im Netzwerk lotse-sandbox.');
+      if (mode === 'local') await probeRoute(addr.host, addr.port, { signal });
+      lg(`Container ${spec.name} gestartet (internes Netzwerk lotse-sandbox, ${addr.host}, ohne Internetzugang).`);
     },
     httpStatus: async path => httpStatusOf(await sandboxOrigin(t), path, signal),
     dump: () => {
@@ -353,13 +355,12 @@ export async function finishTask(id: string): Promise<CodeTask> {
   return mustTask(id);
 }
 
-/** Remove the task completely (also its record). Containers and files go first; Docker unreachable = error, nothing deleted. */
+/** Remove the task completely (also its record, not the chat). Containers and files go first; Docker unreachable = error, nothing deleted. */
 export async function deleteTask(id: string): Promise<void> {
   const t = mustTask(id);
   if (t.status !== 'done' || t.containerId) await finishTask(id);
   else { for (const d of Object.values(taskPaths(id))) fs.rmSync(d, { recursive: true, force: true }); deleteTaskDumps(id); }
-  codeTaskDelete(id);
-  if (t.chatId) { dropSession(t.chatId); chatDelete(t.chatId); clearMcpToken(t.chatId); } // the task's code chat goes with it
+  codeTaskDelete(id); // the chat stays: it is a normal chat of the workspace
   emitTask(id, { t: 'deleted' });
 }
 

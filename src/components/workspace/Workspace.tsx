@@ -12,7 +12,7 @@ import { chatReducer, initialChatState, isHome, isStillRunning, pendingQuestion,
 import { defaultPlaceholder, placeholderFor, suggestions } from '@/lib/labels';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { CHAT_COOKIE, setupReady } from '@/lib/nav';
-import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, CheckFinding, Health, Target } from '@/lib/protocol';
+import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, CheckFinding, CodeTaskPublic, Health, Target } from '@/lib/protocol';
 import { liveSrc, withBust } from '@/lib/urls';
 import { INTL_LOCALE } from '@/lib/i18n';
 import Link from 'next/link';
@@ -29,6 +29,9 @@ import { TargetCard } from '@/components/chat/TargetCard';
 import { PreviewPane } from '@/components/preview/PreviewPane';
 import { AuditDialog } from '@/components/dialogs/AuditDialog';
 import { StyleguideDialog } from '@/components/dialogs/StyleguideDialog';
+import { AttachSandboxDialog } from '@/components/sandbox/AttachSandboxDialog';
+import { SandboxPanel } from '@/components/sandbox/SandboxPanel';
+import type { SandboxOfferActions } from '@/components/sandbox/CommandCard';
 import styles from './Workspace.module.css';
 
 // Active chat in a cookie: on the next load the server renders it right away
@@ -47,7 +50,7 @@ const narrow = () => typeof window !== 'undefined' && window.matchMedia('(max-wi
 export function Workspace({ initialChatId, initialChat }: { initialChatId: string; initialChat: ChatDetail | null }) {
   const shell = useShell();
   const { health, setup, chats, reloadChats: loadHistory, setActiveChatId, setContextName, setStyleguide: shareStyleguide } = shell;
-  const { locale, t: { workspace: t, context: tc } } = useI18n();
+  const { locale, t: { workspace: t, context: tc, sandbox: { code: tsb } } } = useI18n();
   // Initial state straight from the server data (stored chat, styleguide), so nothing jumps on load
   const [state, dispatch] = useReducer(chatReducer, null, () => {
     const base = { ...initialChatState, locale, styleguide: shell.styleguide };
@@ -66,6 +69,11 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const [notes, setNotes] = useState<Annotation[]>([]); // change requests from the preview
   const [previewOpen, setPreviewOpen] = useState(false); // narrow viewport: preview above the chat
   const [fixes, setFixes] = useState<FixMap>({}); // shop check findings being worked on in a chat
+  // Sandbox Coding: the sandbox attached to this chat (then the right side shows it), the "Sandbox starten" dialog and its preset
+  const [taskId, setTaskId] = useState<string | null>(initialChat?.taskId ?? null);
+  const [sbxTask, setSbxTask] = useState<CodeTaskPublic | null>(null);
+  const [sbxDialog, setSbxDialog] = useState<{ repo: string; baseBranch: string } | null | false>(false);
+  const [sbxBusy, setSbxBusy] = useState(false);
   const pendingFix = useRef<{ id: string; title: string; prompt: string } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sentApprovals = useRef(new Set<string>());
@@ -101,7 +109,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const wasBusy = useRef(busy), { refreshHealth } = shell;
   useEffect(() => { if (wasBusy.current && !busy) refreshHealth(); wasBusy.current = busy; }, [busy, refreshHealth]);
   // As long as shop or AI are missing, there is nothing to send (unknown state or load error: don't block)
-  const locked = !shell.healthFailed && !setupReady(setup);
+  // a chat with a sandbox needs only the AI, not the shop
+  const locked = !shell.healthFailed && (taskId ? !!setup && !setup.ai : !setupReady(setup));
   // For the setup card, "set up yes/no" is enough; the server already knows that on first render
   const homeHealth: Health | null = shell.healthFailed ? null : (health ?? (setup && { shopware: { url: '', ok: false, configured: setup.shopware }, ai: { configured: setup.ai } }));
 
@@ -109,8 +118,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   useEffect(() => { setActiveChatId(chatId); return () => setActiveChatId(null); }, [chatId, setActiveChatId]);
   useEffect(() => { setContextName(target ? (target.name ?? tc.newLanding) : null); return () => setContextName(null); }, [target, setContextName, tc.newLanding]);
   useEffect(() => { if (sgLoaded) shareStyleguide(sg); }, [sg, sgLoaded, shareStyleguide]);
-  const home = isHome(state);
-  const pv = showPreview(state);
+  const home = isHome(state) && !taskId;
+  const pv = !!taskId || showPreview(state);
   const question = pendingQuestion(state);
 
   const cats = useMemo(() => {
@@ -124,6 +133,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   // Live event of a run; on narrow viewports the finished draft opens the preview, questions/approvals bring the chat back
   const liveEvent = useCallback((event: ChatEvent) => {
     dispatch({ type: 'event', event, mode: 'live' });
+    if (event.t === 'sandbox_attached') setTaskId(event.taskId); // attached meanwhile (other tab)
     if (!narrow()) return;
     if (event.t === 'draft') setPreviewOpen(true);
     else if (event.t === 'question' || event.t === 'changeset') setPreviewOpen(false);
@@ -236,6 +246,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     const id = rememberChatId(crypto.randomUUID());
     setChatId(id);
     dispatch({ type: 'reset' });
+    setTaskId(null); setSbxTask(null);
     setInput('');
     setPreviewOpen(false);
     attachments.clear();
@@ -254,6 +265,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
         if (event.t === 'snapshot') {
           found = true; running = isStillRunning(event);
           setChatId(rememberChatId(event.chat.id));
+          setTaskId(event.chat.taskId ?? null); setSbxTask(null);
           dispatch({ type: 'replay', chat: event.chat });
           if (running) { busyRef.current = true; dispatch({ type: 'resume', last: event.chat.events.at(-1) }); }
           loadHistory();
@@ -295,6 +307,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       openStyleguide: () => { if (sg) setSgOpen(true); else if (sgLoaded && !busy) onboard(); },
       openRules: () => setSgOpen(true),
       prefill: (text, fix) => { pendingFix.current = fix ? { ...fix, prompt: text } : null; setInput(text); inputRef.current?.focus(); },
+      openSandbox: () => { if (shell.sandbox && !taskId) setSbxDialog(null); },
     };
   });
   useEffect(() => {
@@ -306,6 +319,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       openStyleguide: () => handlers.current?.openStyleguide(),
       openRules: () => handlers.current?.openRules(),
       prefill: (text, fix) => handlers.current?.prefill(text, fix),
+      openSandbox: () => handlers.current?.openSandbox(),
     });
     return () => shell.registerWorkspace(null);
   }, [shell.registerWorkspace]); // eslint-disable-line react-hooks/exhaustive-deps -- only on mount/unmount
@@ -322,6 +336,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     else if (intent.type === 'context') h.openContext();
     else if (intent.type === 'rules') h.openRules();
     else if (intent.type === 'prompt') { h.newChat(); h.prefill(intent.text, intent.fix); }
+    else if (intent.type === 'sandbox') { h.newChat(); h.openSandbox(); }
     else h.openStyleguide();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once on start
 
@@ -344,15 +359,38 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     if (e.type === 'drop') void attachments.addFiles(Array.from(e.dataTransfer.files));
   };
 
+  // ---- Sandbox: attach (dialog or the AI's card), follow its status, detach when finished ----
+  const attached = (task: CodeTaskPublic) => {
+    setTaskId(task.id); setSbxTask(task);
+    dispatch({ type: 'event', event: { t: 'sandbox_attached', taskId: task.id, repo: task.repo, baseBranch: task.baseBranch }, mode: 'live' });
+    loadHistory();
+  };
+  const onSandboxTask = (task: CodeTaskPublic) => {
+    setSbxTask(task);
+    if (task.status === 'done') { setTaskId(null); setPreviewOpen(false); dispatch({ type: 'status', text: tsb.finished }); loadHistory(); }
+  };
+  const sandboxActions: SandboxOfferActions | undefined = shell.sandbox ? {
+    attached: !!taskId, busy: sbxBusy,
+    start: (o, direct) => {
+      if (!direct || !chatId) { setSbxDialog({ repo: o.repo, baseBranch: o.baseBranch }); return; }
+      setSbxBusy(true);
+      api.sandbox.createTask({ chatId, repo: o.repo, baseBranch: o.baseBranch }).then(r => attached(r.task), e => reportError(errorText(e))).finally(() => setSbxBusy(false));
+    },
+  } : undefined;
+  const sandboxSetup = !!taskId && (!sbxTask || sbxTask.status === 'setting_up');
+
   const fixTask = (f: { id: string; title: string; prompt: string }) => { pendingFix.current = f; setInput(f.prompt); inputRef.current?.focus(); };
   const fixFinding = (f: CheckFinding) => fixTask({ id: f.id, title: f.title, prompt: f.fixPrompt });
   const fixLink = !home ? fixForChat(fixes, chatId) : null;
-  const placeholder = locked ? t.lockedPlaceholder : question ? t.answerPlaceholder : target ? placeholderFor(target.kind, target.name, locale) : defaultPlaceholder(locale);
-  const chips = !busy && target ? suggestions(target.kind, locale) : [];
+  const placeholder = locked ? t.lockedPlaceholder : question ? t.answerPlaceholder : taskId ? (sandboxSetup ? tsb.setupPlaceholder : tsb.placeholder) : target ? placeholderFor(target.kind, target.name, locale) : defaultPlaceholder(locale);
+  const chips = !busy && target && !taskId ? suggestions(target.kind, locale) : [];
   const mode = home ? 'home' : pv ? 'pv' : 'work';
   const overlay = pv && previewOpen; // narrow viewport: preview above the chat (desktop shows it on the right anyway)
 
   const contextChip = <ContextChip target={target} onPick={() => setContextOpen(true)} onClear={() => selectTarget(null)} />;
+  const sandboxButton = shell.sandbox && !taskId && (
+    <Button size="sm" className={styles.sbxBtn} title={tsb.buttonTitle} onClick={() => setSbxDialog(null)} disabled={!chatId}>{tsb.button}</Button>
+  );
   const budget = shell.health?.ai.budget, usd = (n: number) => n.toLocaleString(INTL_LOCALE[locale], { style: 'currency', currency: 'USD' });
   const budgetNote = budget?.warn && (
     <div className={`${styles.budgetBar}${budget.blocked ? ` ${styles.budgetBlocked}` : ''}`} role="status">
@@ -362,8 +400,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   );
   const composer = (
     <>{budgetNote}<Composer value={input} onChange={setInput} onSubmit={() => send()} onStop={stop} writing={writeInFlight(state)} busy={busy} placeholder={placeholder} home={home}
-      atts={attachments.atts} onFiles={f => void attachments.addFiles(f)} onRemoveAtt={attachments.remove} inputRef={inputRef} disabled={locked}
-      extra={!locked && (home || !target) && contextChip} /></>
+      atts={attachments.atts} onFiles={f => void attachments.addFiles(f)} onRemoveAtt={attachments.remove} inputRef={inputRef} disabled={locked} noAttach={!!taskId}
+      extra={!taskId && <>{!locked && (home || !target) && contextChip}{sandboxButton}</>} /></>
   );
   const status = <div className={styles.statusRow}><StatusLine text={state.status} /></div>;
 
@@ -381,14 +419,14 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
               {status}
               <ChatLog className={styles.homeLog} items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)}>
                 <HomeContent health={homeHealth} loadFailed={shell.healthFailed} hasStyleguide={sgLoaded ? !!sg : null} product={exampleProduct ?? t.exampleProduct} category={exampleCategory}
-                  recent={(chats ?? []).filter(c => c.mode !== 'code')} onExample={t => { setInput(t); inputRef.current?.focus(); }} onFix={fixFinding} onTask={fixTask} fixes={fixes} onOpenChat={id => void openChat(id)} onOnboard={onboard} />
+                  recent={chats ?? []} onExample={t => { setInput(t); inputRef.current?.focus(); }} onFix={fixFinding} onTask={fixTask} fixes={fixes} onOpenChat={id => void openChat(id)} onOnboard={onboard} />
               </ChatLog>
             </>
           ) : (
             <>
               {pv && (
                 <div className={styles.pvBar}>
-                  <Button size="sm" onClick={() => setPreviewOpen(true)}>{state.draft ? t.viewDraft : t.preview}</Button>
+                  <Button size="sm" onClick={() => setPreviewOpen(true)}>{taskId ? tsb.heading : state.draft ? t.viewDraft : t.preview}</Button>
                 </div>
               )}
               {fixLink && (
@@ -397,8 +435,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
                   <button type="button" onClick={() => newChat()}>{t.overview}</button>
                 </div>
               )}
-              {target && <TargetCard target={target} cfg={cfg} onClear={() => selectTarget(null)} />}
-              <ChatLog items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} />
+              {target && !taskId && <TargetCard target={target} cfg={cfg} onClear={() => selectTarget(null)} />}
+              <ChatLog items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} sandbox={sandboxActions} />
               {status}
               <Chips items={chips} onPick={s => { setInput(s); inputRef.current?.focus(); }} />
               {composer}
@@ -406,13 +444,18 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
           )}
         </section>
 
-        <PreviewPane className={styles.right} tab={state.tab} onTab={t => dispatch({ type: 'set_tab', tab: t })} draft={state.draft}
+        {taskId ? (
+          <SandboxPanel key={taskId} taskId={taskId} className={styles.right} reload={state.previewReload} busy={busy} files={state.items.filter(i => i.kind === 'file').length}
+            onClose={overlay ? () => setPreviewOpen(false) : undefined} onTask={onSandboxTask}
+            onSendNotes={text => { if (busyRef.current) setInput(text); else { setPreviewOpen(false); void run(text); } }} />
+        ) : <PreviewPane className={styles.right} tab={state.tab} onTab={t => dispatch({ type: 'set_tab', tab: t })} draft={state.draft}
           liveUrl={liveUrl} onOpenAudit={() => setAuditOpen(true)} busy={busy} onClose={overlay ? () => setPreviewOpen(false) : undefined}
           notes={notes} onAddNote={a => setNotes(l => [...l, { ...a, id: crypto.randomUUID() }])} onRemoveNote={id => setNotes(l => l.filter(n => n.id !== id))}
-          onClearNotes={() => setNotes([])} onSubmitNotes={where => { if (busyRef.current || !notes.length) return; const msg = annotationMessage(notes, where, locale); setNotes([]); void run(msg); }} />
+          onClearNotes={() => setNotes([])} onSubmitNotes={where => { if (busyRef.current || !notes.length) return; const msg = annotationMessage(notes, where, locale); setNotes([]); void run(msg); }} />}
       </main>
 
       <AuditDialog audit={state.draft?.audit ?? null} open={auditOpen} onClose={() => setAuditOpen(false)} />
+      {chatId && shell.sandbox && <AttachSandboxDialog open={sbxDialog !== false} onClose={() => setSbxDialog(false)} chatId={chatId} initial={sbxDialog || null} onCreated={attached} />}
       <StyleguideDialog sg={sg} open={sgOpen} onClose={() => setSgOpen(false)}
         onSaved={s => dispatch({ type: 'set_styleguide', sg: s })} onReanalyze={onboard} />
     </div>

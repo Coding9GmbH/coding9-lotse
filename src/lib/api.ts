@@ -82,7 +82,8 @@ export const api = {
     /** "Umgebung prüfen": progress lines while the image is pulled, then the result */
     check: (onEvent: (ev: SandboxCheckEvent) => void, signal?: AbortSignal) => checkStream(onEvent, signal),
     tasks: () => request<{ tasks: CodeTaskPublic[] }>('/api/sandbox/tasks'),
-    createTask: (t: { title: string; goal: string; repo: string; baseBranch: string; dumpId?: string }) => request<{ task: CodeTaskPublic }>('/api/sandbox/tasks', json('POST', t)),
+    /** attach a sandbox to a chat (one per chat) */
+    createTask: (t: { chatId: string; title?: string; repo: string; baseBranch: string; dumpId?: string }) => request<{ task: CodeTaskPublic }>('/api/sandbox/tasks', json('POST', t)),
     task: (id: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`),
     deleteTask: (id: string) => request<{ ok: true }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     /** "Änderungen": workspace against the base branch */

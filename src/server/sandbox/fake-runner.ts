@@ -73,7 +73,7 @@ export class FakeRunner implements SandboxRunner {
   }
   private managed(id: string): FakeContainer { const c = this.containers.get(assertId(id)); assertManaged(this.info(c)); return c!; }
   private info(c: FakeContainer | undefined): ContainerInfo | null {
-    return c ? { id: c.id, name: c.spec.name, image: c.spec.Image, state: c.running ? 'running' : 'exited', running: c.running, labels: c.spec.Labels, port: c.port } : null;
+    return c ? { id: c.id, name: c.spec.name, image: c.spec.Image, state: c.running ? 'running' : 'exited', running: c.running, labels: c.spec.Labels, address: c.port ? { host: '127.0.0.1', port: c.port } : null } : null;
   }
 
   async ping() { this.enter('ping'); }
@@ -139,7 +139,8 @@ export class FakeRunner implements SandboxRunner {
     const c = this.managed(id);
     if (!c.running) throw new Error('Container läuft nicht.');
     if (o.signal?.aborted) throw new Error('Abgebrochen.');
-    if (argv[0] === 'bin/console' && argv[1] === 'theme:compile') {
+    // theme:compile directly (setup, allow-listed command) or inside a shell command line (sandbox_bash)
+    if ((argv[0] === 'bin/console' && argv[1] === 'theme:compile') || (argv[0] === 'bash' && /\btheme:compile\b/.test(argv.at(-1) ?? ''))) {
       c.compiled = [...c.files].filter(([k]) => k.startsWith(PLUGINS) && /\/Resources\/views\/storefront\/.+\.html\.twig$/.test(k)).sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => renderTwig(v.toString('utf8')));
     }
     if (argv[0] === 'rm' && argv[argv.length - 2] === '--') { const target = argv[argv.length - 1]; for (const k of [...c.files.keys()]) if (k === target || k.startsWith(`${target}/`)) c.files.delete(k); }

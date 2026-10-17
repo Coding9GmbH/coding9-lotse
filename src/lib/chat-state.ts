@@ -30,11 +30,13 @@ export type LogItem =
   }
   | { kind: 'published'; key: string; info: PublishedInfo; target: Target | null }
   | { kind: 'styleguide'; key: string; sg: Styleguide }
-  // code chats (Sandbox Coding)
+  // chats with an attached sandbox (Sandbox Coding)
   | { kind: 'file'; key: string; path: string; change: FileChangeKind; added: number; removed: number }
   | { kind: 'command'; key: string; id: string; command: string; args?: Record<string, string>; status: 'running' | 'ok' | 'failed'; exitCode?: number; tail?: string; ms?: number }
   | { kind: 'sandbox'; key: string; state: 'waking' | 'ready' | 'failed'; message?: string }
-  | { kind: 'publish'; key: string; title: string; body: string };
+  | { kind: 'publish'; key: string; title: string; body: string }
+  | { kind: 'sandbox_offer'; key: string; id: string; repo: string; baseBranch: string; reason: string }
+  | { kind: 'sandbox_attached'; key: string; repo: string; baseBranch: string };
 
 export type LogItemKind = LogItem['kind'];
 
@@ -61,7 +63,7 @@ export interface ChatState {
   status: string | null;
   /** Language of the status texts (UI language); kept when the history is cleared */
   locale: Locale;
-  /** Code chats: counts storefront changes (theme compiled …); the sandbox preview reloads when it changes */
+  /** Sandbox: counts storefront changes (theme compiled …); the sandbox preview reloads when it changes */
   previewReload: number;
 }
 
@@ -244,6 +246,8 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
     }
     case 'preview_reload': return live ? { ...s, previewReload: s.previewReload + 1 } : s;
     case 'publish_proposal': return push(s, { kind: 'publish', title: ev.title, body: ev.body })[0];
+    case 'sandbox_offer': return push(s, { kind: 'sandbox_offer', id: ev.id, repo: ev.repo, baseBranch: ev.baseBranch, reason: ev.reason })[0];
+    case 'sandbox_attached': return push(s, { kind: 'sandbox_attached', repo: ev.repo, baseBranch: ev.baseBranch })[0];
     case 'done': {
       const settled = settleSteps(s, ev.error ? 'bad' : 'done');
       return ev.error ? push(settled, { kind: 'error', text: ev.error })[0] : settled;

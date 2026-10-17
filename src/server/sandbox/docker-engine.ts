@@ -6,6 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import type { Socket } from 'node:net';
 import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, PullProgress, SandboxRunner } from './runner';
 import { MANAGED, assertAllowedImage, assertContainerPath, assertId, assertManaged, assertSafeSpec } from './guards';
+import { SANDBOX_NET } from './labels';
 
 const PREFERRED_API = '1.41';
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -82,6 +83,12 @@ export function pullProgressParser(onProgress: (p: PullProgress) => void) {
     end() { if (rest.trim()) line(rest.trim()); rest = ''; return error; },
   };
 }
+
+/** Storefront address of a container: its IPv4 on the internal network lotse-sandbox, port 80. Anything else (other networks, no IP) = null. */
+export const netAddress = (nets: Record<string, { IPAddress?: string } | null> | undefined) => {
+  const ip = nets?.[SANDBOX_NET]?.IPAddress ?? '';
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(ip) ? { host: ip, port: 80 } : null;
+};
 
 const imageRef = (image: string) => { const i = image.lastIndexOf(':'); return { fromImage: image.slice(0, i), tag: image.slice(i + 1) }; };
 const enc = encodeURIComponent;
@@ -180,17 +187,16 @@ export class DockerEngine implements SandboxRunner {
     const r = await this.call('GET', `/containers/${enc(assertId(id))}/json`);
     if (r.status === 404) return null;
     if (r.status !== 200) throw apiError(r, 'Container prüfen');
-    const c = this.json<{ Id: string; Name?: string; Config?: { Image?: string; Labels?: Record<string, string> | null }; State?: { Status?: string; Running?: boolean }; NetworkSettings?: { Ports?: Record<string, { HostPort?: string }[] | null> } }>(r);
-    const port = Number(c.NetworkSettings?.Ports?.['80/tcp']?.[0]?.HostPort ?? '') || null;
-    return { id: c.Id, name: (c.Name ?? '').replace(/^\//, ''), image: c.Config?.Image ?? '', state: c.State?.Status ?? 'unknown', running: c.State?.Running === true, labels: c.Config?.Labels ?? {}, port };
+    const c = this.json<{ Id: string; Name?: string; Config?: { Image?: string; Labels?: Record<string, string> | null }; State?: { Status?: string; Running?: boolean }; NetworkSettings?: { Networks?: Record<string, { IPAddress?: string } | null> } }>(r);
+    return { id: c.Id, name: (c.Name ?? '').replace(/^\//, ''), image: c.Config?.Image ?? '', state: c.State?.Status ?? 'unknown', running: c.State?.Running === true, labels: c.Config?.Labels ?? {}, address: netAddress(c.NetworkSettings?.Networks) };
   }
   async list(labels: Record<string, string> = {}) {
     const filters = JSON.stringify({ label: Object.entries({ ...labels, ...MANAGED }).map(([k, v]) => `${k}=${v}`) });
     const r = await this.call('GET', '/containers/json', { query: { all: '1', filters } });
     if (r.status !== 200) throw apiError(r, 'Container auflisten');
-    return this.json<{ Id: string; Names?: string[]; Image?: string; State?: string; Labels?: Record<string, string>; Ports?: { PrivatePort?: number; PublicPort?: number }[] }[]>(r)
+    return this.json<{ Id: string; Names?: string[]; Image?: string; State?: string; Labels?: Record<string, string>; NetworkSettings?: { Networks?: Record<string, { IPAddress?: string } | null> } }[]>(r)
       .filter(c => c.Labels?.[Object.keys(MANAGED)[0]] === '1') // never trust the filter alone
-      .map(c => ({ id: c.Id, name: (c.Names?.[0] ?? '').replace(/^\//, ''), image: c.Image ?? '', state: c.State ?? 'unknown', running: c.State === 'running', labels: c.Labels ?? {}, port: c.Ports?.find(p => p.PrivatePort === 80 && p.PublicPort)?.PublicPort ?? null }));
+      .map(c => ({ id: c.Id, name: (c.Names?.[0] ?? '').replace(/^\//, ''), image: c.Image ?? '', state: c.State ?? 'unknown', running: c.State === 'running', labels: c.Labels ?? {}, address: netAddress(c.NetworkSettings?.Networks) }));
   }
   async putArchive(id: string, dir: string, tar: Buffer | ArchiveStream, o: { timeoutMs?: number; signal?: AbortSignal } = {}) {
     await this.managed(id);

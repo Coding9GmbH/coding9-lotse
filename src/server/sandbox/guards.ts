@@ -40,24 +40,13 @@ const posNum: Check = (v, k) => { if (typeof v !== 'number' || !Number.isFinite(
 const strings: Check = (v, k) => { if (!Array.isArray(v) || v.some(x => typeof x !== 'string')) deny(`${k} muss eine Liste von Texten sein.`); };
 const record = (keyRe: RegExp, val: Check): Check => (v, k) => { for (const [kk, vv] of Object.entries(obj(v, k))) { if (!keyRe.test(kk)) deny(`${k}: Schlüssel „${kk.slice(0, 60)}“ ist nicht erlaubt.`); val(vv, `${k}.${kk}`); } };
 const anyStr: Check = (v, k) => { if (typeof v !== 'string') deny(`${k} muss ein Text sein.`); };
-const empty: Check = (v, k) => only(obj(v, k), {}, k);
-const PORT = /^\d{1,5}\/(tcp|udp)$/;
 
 const HOST: Record<string, Check> = {
   Memory: posNum, NanoCpus: posNum, PidsLimit: posNum,
   // dropping capabilities only makes it narrower; CapAdd/Privileged/SecurityOpt stay outside the list
   CapDrop: (v, k) => { strings(v, k); if ((v as string[]).some(c => !/^[A-Z_]{2,30}$/.test(c))) deny(`${k} hat einen unzulässigen Wert.`); },
-  // own bridge network or Docker's default bridge only: never host, none, container:<id> or another network (docker-api!)
-  NetworkMode: (v, k) => { if (v !== SANDBOX_NET && v !== 'bridge') deny(`${k}=${String(v).slice(0, 60)} ist nicht erlaubt.`); },
-  // local mode publishes on loopback only
-  PortBindings: record(PORT, (v, k) => {
-    if (!Array.isArray(v)) deny(`${k} muss eine Liste sein.`);
-    for (const b of v as unknown[]) {
-      const o = obj(b, k);
-      only(o, { HostIp: () => {}, HostPort: str(/^\d{1,5}$/) }, k);
-      if (o.HostIp !== '127.0.0.1') deny(`${k}.HostIp muss 127.0.0.1 sein.`); // missing = 0.0.0.0
-    }
-  }),
+  // the internal sandbox network only: never host, none, bridge (egress), container:<id> or another network (docker-api!)
+  NetworkMode: (v, k) => { if (v !== SANDBOX_NET) deny(`${k}=${String(v).slice(0, 60)} ist nicht erlaubt.`); },
   RestartPolicy: (v, k) => only(obj(v, k), { Name: str(/^(no|on-failure|unless-stopped)?$/), MaximumRetryCount: (n, kk) => { if (!Number.isInteger(n) || (n as number) < 0) deny(`${kk} hat einen unzulässigen Wert.`); } }, k),
   Tmpfs: record(/^\/[A-Za-z0-9._/-]{1,200}$/, str(/^[A-Za-z0-9=,]{0,200}$/)),
   // logs stay with Docker: no driver that ships them over the network
@@ -65,7 +54,7 @@ const HOST: Record<string, Check> = {
 };
 const TOP: Record<string, Check> = {
   name: () => {}, Image: () => {}, Labels: record(/^[A-Za-z0-9._-]{1,100}$/, anyStr), Env: strings,
-  Hostname: str(/^[a-z0-9][a-z0-9-]{0,62}$/), ExposedPorts: record(PORT, empty),
+  Hostname: str(/^[a-z0-9][a-z0-9-]{0,62}$/),
   HostConfig: (v, k) => only(obj(v, k), HOST, k),
   // at most the internal sandbox network as endpoint
   NetworkingConfig: (v, k) => only(obj(v, k), { EndpointsConfig: (e, kk) => only(obj(e, kk), { [SANDBOX_NET]: (ep, kkk) => only(obj(ep, kkk), { Aliases: strings }, kkk) }, `${k}.${kk}`) }, k),
@@ -76,6 +65,8 @@ export function assertSafeSpec(spec: ContainerSpec): ContainerSpec {
   only(spec as unknown as Record<string, unknown>, TOP, '');
   if (typeof spec.name !== 'string' || !/^lotse-[a-z0-9-]{1,60}$/.test(spec.name)) throw new Error('Ungültiger Container-Name.');
   if (!isManaged(spec.Labels)) throw new Error('Container ohne Lotse-Label werden nicht angelegt.');
+  // a missing NetworkMode means Docker's default bridge, i.e. internet access: the internal network is mandatory
+  if ((spec.HostConfig as { NetworkMode?: unknown } | undefined)?.NetworkMode !== SANDBOX_NET) deny(`HostConfig.NetworkMode muss ${SANDBOX_NET} sein (kein Internetzugang).`);
   assertAllowedImage(spec.Image);
   return spec;
 }

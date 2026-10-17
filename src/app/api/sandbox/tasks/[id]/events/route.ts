@@ -1,7 +1,7 @@
 import type { TaskEvent } from '@/lib/protocol';
 import { taskRoute } from '@/server/sandbox/api';
 import { touchTask } from '@/server/sandbox/jobs';
-import { ensureTaskChat, listen, mustTask, publicTask } from '@/server/sandbox/tasks';
+import { listen, mustTask, publicTask } from '@/server/sandbox/tasks';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,7 +9,6 @@ export const dynamic = 'force-dynamic';
 export function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   return taskRoute(req, async () => {
     const t = mustTask((await params).id);
-    ensureTaskChat(t);
     touchTask(t.id);
     const enc = new TextEncoder();
     let stop: (() => void) | null = null;

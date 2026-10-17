@@ -9,7 +9,6 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useShell } from '@/components/shell/ShellProvider';
 import { Button } from '@/components/ui/Button';
 import { IconClose, IconPlus } from '@/components/ui/icons';
-import { NewTaskDialog } from './NewTaskDialog';
 import { SandboxOff } from './SandboxOff';
 import { TaskList } from './TaskList';
 import styles from './Sandbox.module.css';
@@ -18,14 +17,14 @@ const DOCS = { de: 'https://github.com/Coding9GmbH/coding9-lotse/blob/main/docs/
 
 interface VarRow { key: string; secret: boolean; value: string; hasValue: boolean; /** stored as secret with a value: unticking needs a new value */ wasSecret?: boolean }
 interface CmdRow { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec: string }
-interface Form { image: string; vars: VarRow[]; cmds: CmdRow[] }
+interface Form { image: string; defaultRepo: string; defaultBranch: string; vars: VarRow[]; cmds: CmdRow[] }
 const formOf = (v: SandboxEnvView): Form => ({
-  image: v.env.image,
+  image: v.env.image, defaultRepo: v.env.defaultRepo, defaultBranch: v.env.defaultBranch,
   vars: v.env.envVars.map(x => ({ ...x, wasSecret: x.secret && x.hasValue })),
   cmds: v.env.commands.map(c => ({ id: c.id, label: c.label, command: c.command, phase: c.phase, timeoutSec: String(c.timeoutSec) })),
 });
 const patchOf = (f: Form): SandboxEnvPatch => ({
-  image: f.image.trim(),
+  image: f.image.trim(), defaultRepo: f.defaultRepo.trim(), defaultBranch: f.defaultBranch.trim(),
   envVars: f.vars.filter(v => v.key.trim() || v.value).map(v => ({ key: v.key.trim(), secret: v.secret, ...(v.secret && !v.value ? {} : { value: v.value }) })),
   commands: f.cmds.filter(c => c.label.trim() || c.command.trim()).map(c => ({ ...(c.id ? { id: c.id } : {}), label: c.label, command: c.command, phase: c.phase, timeoutSec: Number(c.timeoutSec) || undefined })),
 });
@@ -77,12 +76,12 @@ export function SandboxView() {
   );
 }
 
-/** Task list (polled while a task starts) and "Neue Aufgabe". */
+/** Sandbox list (polled while one starts); a new sandbox is started in a new chat of the workspace. */
 function Tasks() {
   const t = useI18n().t.sandbox.tasks;
+  const { nav } = useShell();
   const [tasks, setTasks] = useState<CodeTaskPublic[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
   const busy = !!tasks?.some(x => isBusy(x.status));
   useEffect(() => {
     let live = true;
@@ -95,11 +94,10 @@ function Tasks() {
     <section className={styles.card} aria-labelledby="sbx-tasks">
       <div className={styles.cardHead}>
         <h2 id="sbx-tasks">{t.heading}</h2>
-        <Button size="sm" variant="primary" className={styles.headBtn} onClick={() => setCreating(true)}><IconPlus size={14} /> {t.add}</Button>
+        <Button size="sm" variant="primary" className={styles.headBtn} onClick={() => nav.sandboxChat()}><IconPlus size={14} /> {t.add}</Button>
       </div>
       {error && <p className={styles.alert} role="alert">{t.loadFailed(error)}</p>}
       {tasks && <TaskList tasks={tasks} />}
-      <NewTaskDialog open={creating} onClose={() => setCreating(false)} />
     </section>
   );
 }
@@ -184,6 +182,13 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
         {view.docker && (view.docker.reachable ? t.docker(view.docker.version ?? '?', view.docker.mode) : t.dockerDown)}
         {view.docker?.reachable && view.imagePresent !== null && <> · {view.imagePresent ? t.present : t.missing}</>}
       </p>
+
+      <h3 className={styles.h3}>{t.defaultsHeading}</h3>
+      <p className={styles.hint}>{t.defaultsHint}</p>
+      <div className={styles.defaultsRow}>
+        <input aria-label={t.defaultRepo} placeholder={`${t.defaultRepo} (${t.defaultRepoPlaceholder})`} value={form.defaultRepo} spellCheck={false} onChange={e => set(f => ({ ...f, defaultRepo: e.target.value }))} />
+        <input aria-label={t.defaultBranch} placeholder={t.defaultBranch} value={form.defaultBranch} spellCheck={false} onChange={e => set(f => ({ ...f, defaultBranch: e.target.value }))} />
+      </div>
 
       <h3 className={styles.h3}>{t.vars}</h3>
       <p className={styles.hint}>{t.varsHint}</p>
