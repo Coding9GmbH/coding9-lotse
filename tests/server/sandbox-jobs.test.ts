@@ -167,7 +167,7 @@ test('LOTSE_SANDBOX_MAX: a new task pauses the least recently used ready one; wi
     await J.pauseTask(b.id);
     assert.equal(T.getTask(b.id)!.status, 'paused');
     const n = fake.calls.length;
-    J.startWake(a.id);
+    await J.startWake(a.id);
     assert.equal(T.getTask(a.id)!.status, 'waking');
     await J.ensureAwake(a.id);
     const woke = T.getTask(a.id)!;
@@ -177,6 +177,83 @@ test('LOTSE_SANDBOX_MAX: a new task pauses the least recently used ready one; wi
     assert.ok(!fake.calls.slice(n).some(c => c.op === 'create' || c.argv?.includes('plugin:install')));
     for (const t of [a, b, c]) await J.finishTask(t.id);
   } finally { delete process.env.LOTSE_SANDBOX_MAX; }
+});
+
+test('LOTSE_SANDBOX_MAX counts a failed task whose container still runs and stops that one first', async () => {
+  for (const t of T.listTasks()) if (t.status !== 'done') await J.finishTask(t.id);
+  process.env.LOTSE_SANDBOX_MAX = '2';
+  try {
+    fake.script = argv => (argv[1] === 'theme:compile' ? { exitCode: 1, output: 'Error: kaputt' } : undefined);
+    const a = newTask('Fehlgeschlagen');
+    J.runSteps(a.id); await settled(a.id);
+    fake.script = () => undefined;
+    assert.equal(T.getTask(a.id)!.status, 'failed');
+    assert.equal(T.getTask(a.id)!.containerRunning, true, 'kept running for a quick retry');
+    const b = newTask('Bereit');
+    J.runSteps(b.id); await settled(b.id);
+    const c = newTask('Neu');
+    J.runSteps(c.id);
+    assert.equal(T.getTask(b.id)!.status, 'ready', 'the ready task is not paused while a failed one can make room');
+    await settled(c.id);
+    const fa = T.getTask(a.id)!;
+    assert.equal(fa.status, 'failed', 'status stays, only the container stops');
+    assert.equal(fa.containerRunning, false);
+    assert.equal(fake.containers.get(fa.containerId!)!.running, false);
+    assert.equal(T.listTasks().filter(t => t.containerRunning).length, 2);
+    for (const t of [a, b, c]) await J.finishTask(t.id);
+  } finally { delete process.env.LOTSE_SANDBOX_MAX; fake.script = () => undefined; }
+});
+
+test('switching off during a wake-up aborts it: paused with a stopped container, resumable afterwards', async () => {
+  const t = newTask('Aufwachen abbrechen');
+  J.runSteps(t.id); await settled(t.id);
+  await J.pauseTask(t.id);
+  const orig = fake.exec.bind(fake);
+  fake.exec = async (id, argv, o) => {
+    if (argv[0] === 'mysqladmin') await new Promise((_, fail) => o.signal?.addEventListener('abort', () => fail(new Error('Abgebrochen.')), { once: true }));
+    return orig(id, argv, o);
+  };
+  try {
+    await J.startWake(t.id);
+    await until(() => T.getTask(t.id)!.containerRunning);
+    await J.suspendAll();
+    const cur = T.getTask(t.id)!;
+    assert.equal(cur.status, 'paused');
+    assert.equal(cur.error, null);
+    assert.equal(cur.containerRunning, false);
+    assert.equal(fake.containers.get(cur.containerId!)!.running, false);
+  } finally { fake.exec = orig; }
+  await J.ensureAwake(t.id);
+  assert.equal(T.getTask(t.id)!.status, 'ready');
+  await J.finishTask(t.id);
+});
+
+test('a container stopped outside Lotse: resume wakes it, the sweeper marks the task paused', async () => {
+  const t = newTask('Extern gestoppt');
+  J.runSteps(t.id); await settled(t.id);
+  const cid = T.getTask(t.id)!.containerId!;
+  await fake.stop(cid); // Docker restart, OOM kill or docker stop
+  await J.ensureAwake(t.id);
+  assert.equal(T.getTask(t.id)!.status, 'ready');
+  assert.equal(fake.containers.get(cid)!.running, true, 'woken instead of trusting the stored flag');
+  await fake.stop(cid);
+  assert.deepEqual(await J.pauseIdle(Date.now()), []);
+  const cur = T.getTask(t.id)!;
+  assert.equal(cur.status, 'paused');
+  assert.equal(cur.containerRunning, false);
+  await J.finishTask(t.id);
+});
+
+test('no new setup or wake-up while the task is being finished', async () => {
+  fake.script = argv => (argv[1] === 'theme:compile' ? { exitCode: 1, output: 'Error' } : undefined);
+  const t = newTask('Abschluss-Rennen');
+  J.runSteps(t.id); await settled(t.id);
+  fake.script = () => undefined;
+  const finishing = J.finishTask(t.id);
+  assert.throws(() => J.runSteps(t.id), (e: any) => e.status === 409);
+  await finishing;
+  assert.equal(T.getTask(t.id)!.status, 'done');
+  assert.equal(T.getTask(t.id)!.containerId, null);
 });
 
 test('idle sweeper pauses ready tasks after idleMinutes, not while someone watches', async () => {
@@ -282,6 +359,7 @@ test('routes: 403 while off, create checks repository access, start/events, swit
   E.saveSandbox({ enabled: false });
   const off = await tasksRoute.GET(new Request('http://127.0.0.1/api/sandbox/tasks'));
   assert.equal(off.status, 403);
+  assert.equal((await off.json() as any).reason, 'off');
   E.saveSandbox({ enabled: true });
   const del = await taskRoute.DELETE(new Request(`http://127.0.0.1/api/sandbox/tasks/${task.id}`, { method: 'DELETE' }), { params: Promise.resolve({ id: task.id }) });
   assert.equal(del.status, 200);

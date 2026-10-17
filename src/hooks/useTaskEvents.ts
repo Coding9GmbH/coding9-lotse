@@ -3,14 +3,16 @@
 import { useEffect, useState } from 'react';
 import { errorText, listenTask } from '@/lib/api';
 import { createLineSplitter } from '@/lib/ndjson';
-import type { CodeTaskPublic, TaskEvent } from '@/lib/protocol';
+import type { CodeTaskPublic, SandboxStatus, TaskEvent } from '@/lib/protocol';
 import { applyTaskEvent } from '@/lib/sandbox-task';
 
-/** One code task, live: snapshot then events (NDJSON). Reconnects after a dropped stream; an open view keeps the container awake. */
+/** One code task, live: snapshot then events (NDJSON). Reconnects after a dropped stream; an open view keeps the container awake.
+ *  403 = Sandbox Coding switched off: no further retries, `off` carries the server's reason. */
 export function useTaskEvents(id: string) {
   const [task, setTask] = useState<CodeTaskPublic | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gone, setGone] = useState(false);
+  const [off, setOff] = useState<SandboxStatus | null>(null);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -21,7 +23,8 @@ export function useTaskEvents(id: string) {
           const r = await listenTask(id, ac.signal);
           if (r.status === 404) { setGone(true); return; }
           if (!r.ok || !r.body) {
-            const body = await r.json().catch(() => null) as { error?: string } | null;
+            const body = await r.json().catch(() => null) as { error?: string; reason?: SandboxStatus['reason'] } | null;
+            if (r.status === 403) { setOff({ enabled: false, reason: body?.reason, message: body?.error }); return; }
             throw new Error(body?.error ?? `HTTP ${r.status}`);
           }
           setError(null); wait = 1000;
@@ -46,5 +49,5 @@ export function useTaskEvents(id: string) {
     return () => ac.abort();
   }, [id]);
 
-  return { task, setTask, error, gone };
+  return { task, setTask, error, gone, off };
 }

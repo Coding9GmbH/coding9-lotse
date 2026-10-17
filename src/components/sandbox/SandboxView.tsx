@@ -10,6 +10,7 @@ import { useShell } from '@/components/shell/ShellProvider';
 import { Button } from '@/components/ui/Button';
 import { IconClose, IconPlus } from '@/components/ui/icons';
 import { NewTaskDialog } from './NewTaskDialog';
+import { SandboxOff } from './SandboxOff';
 import { TaskList } from './TaskList';
 import styles from './Sandbox.module.css';
 
@@ -51,12 +52,7 @@ export function SandboxView() {
         {!view && !loadError && <p className={styles.muted}>{all.settings.loading}</p>}
 
         {view && !on && (
-          <section className={styles.card} aria-labelledby="sbx-off">
-            <div className={styles.cardHead}><h2 id="sbx-off">{t.off.title}</h2></div>
-            <p className={styles.hint}>{t.off.text}</p>
-            {view.env.status.reason !== 'off' && view.env.status.message && <p className={styles.alert}>{view.env.status.message}</p>}
-            <Link className={styles.linkBtn} href="/settings/sandbox">{t.off.open}</Link>
-          </section>
+          <SandboxOff status={view.env.status} />
         )}
 
         {view && on && (

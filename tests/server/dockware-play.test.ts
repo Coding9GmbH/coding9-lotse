@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { getEventListeners } from 'node:events';
 import '../isolate-data';
 /* eslint-disable @typescript-eslint/no-explicit-any -- container spec as loose JSON */
 
 // Template dockware-play: the container spec is built only from server values (no privileges, binds, devices; ports only on
 // loopback in local mode, none in network mode) and passes the allow-list guard; detectLayout for plugin, theme, invalid name, full project.
-const { buildSpec, detectLayout } = await import('../../src/server/sandbox/templates/dockware-play');
+const { buildSpec, detectLayout, sleep } = await import('../../src/server/sandbox/templates/dockware-play');
 const { assertSafeSpec } = await import('../../src/server/sandbox/guards');
 
 const base = { taskId: 't_abcdefghij12', image: 'dockware/play:6.7.2.2', memoryMb: 4096, cpus: 2, env: ['FOO=bar'] };
@@ -68,4 +69,16 @@ test('detectLayout: plugin, theme plugin, invalid name, full project, no plugin'
   assert.throws(() => detectLayout(fixture('broken', { 'composer.json': '{nope' })), /kein gültiges JSON/);
   const link = path.join(dir, 'link'); fs.mkdirSync(link); fs.symlinkSync('/etc/hostname', path.join(link, 'composer.json'));
   assert.throws(() => detectLayout(link), /keine normale Datei/);
+});
+
+test('sleep: removes its abort listener after each wait and rejects at once on an aborted signal', async () => {
+  const ac = new AbortController();
+  for (let i = 0; i < 20; i++) await sleep(1, ac.signal);
+  assert.equal(getEventListeners(ac.signal, 'abort').length, 0, 'no listeners pile up during a long poll');
+  const pending = sleep(60_000, ac.signal);
+  ac.abort();
+  await assert.rejects(pending, /Abgebrochen/);
+  const t0 = Date.now();
+  await assert.rejects(sleep(60_000, ac.signal), /Abgebrochen/);
+  assert.ok(Date.now() - t0 < 1000);
 });

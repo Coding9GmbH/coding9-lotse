@@ -7,6 +7,7 @@ import { api, errorText } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useTaskEvents } from '@/hooks/useTaskEvents';
 import { Button } from '@/components/ui/Button';
+import { SandboxOff } from './SandboxOff';
 import { StepTimeline } from './StepTimeline';
 import { TaskStatus } from './TaskList';
 import styles from './Sandbox.module.css';
@@ -18,7 +19,7 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
   const { t: all } = useI18n();
   const t = all.sandbox.task;
   const router = useRouter();
-  const { task, setTask, error, gone } = useTaskEvents(id);
+  const { task, setTask, error, gone, off } = useTaskEvents(id);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -35,6 +36,7 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
   }
 
   const back = <Link className={styles.back} href="/sandbox-coding">← {t.back}</Link>;
+  if (off) return <div className={styles.page}><main className={styles.wrap}>{back}<SandboxOff status={off} /></main></div>;
   if (gone) return <div className={styles.page}><main className={styles.wrap}>{back}<p className={styles.alert}>{t.gone}</p></main></div>;
   if (!task) return <div className={styles.page}><main className={styles.wrap}>{back}<p className={styles.muted}>{error ? t.connection(error) : t.loading}</p></main></div>;
 
