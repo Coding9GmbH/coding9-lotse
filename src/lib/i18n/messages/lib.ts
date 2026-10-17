@@ -21,7 +21,7 @@ export const de = {
     // Sandbox Coding (code chats)
     list_files: 'Dateien auflisten', read_file: 'Datei lesen', search_files: 'Im Code suchen', delete_file: 'Datei löschen',
     Read: 'Datei lesen', Edit: 'Datei ändern', Write: 'Datei schreiben', Glob: 'Dateien suchen', Grep: 'Im Code suchen', TodoWrite: 'Arbeitsschritte planen',
-    git_diff: 'Änderungen ansehen', sandbox_bash: 'Befehl in der Sandbox', read_sandbox_page: 'Sandbox-Seite prüfen', get_environment: 'Umgebung lesen', propose_publish: 'Veröffentlichen vorschlagen', start_sandbox: 'Sandbox vorschlagen',
+    git_diff: 'Änderungen ansehen', sandbox_bash: 'Befehl in der Sandbox', read_sandbox_page: 'Sandbox-Seite prüfen', get_environment: 'Umgebung lesen', propose_publish: 'Veröffentlichen vorschlagen', start_sandbox: 'Sandbox vorschlagen', request_internet: 'Internet erbitten',
     get_variants: 'Varianten lesen', list_variant_properties: 'Varianten-Eigenschaften lesen', propose_variants: 'Varianten-Änderungen vorschlagen',
     preview_bulk_filter: 'Stapel-Auswahl zählen', propose_bulk_product_change: 'Stapeländerung vorschlagen',
     list_product_streams: 'Produktstreams lesen', get_product_stream: 'Produktstream lesen', preview_product_stream: 'Stream-Treffer prüfen',
@@ -267,7 +267,7 @@ export const en: typeof de = {
     get_page_texts: 'Read page texts', propose_page_translation: 'Propose page translation',
     list_files: 'List files', read_file: 'Read file', search_files: 'Search code', delete_file: 'Delete file',
     Read: 'Read file', Edit: 'Edit file', Write: 'Write file', Glob: 'Find files', Grep: 'Search code', TodoWrite: 'Plan steps',
-    git_diff: 'Review changes', sandbox_bash: 'Command in the sandbox', read_sandbox_page: 'Check sandbox page', get_environment: 'Read environment', propose_publish: 'Propose publishing', start_sandbox: 'Propose a sandbox',
+    git_diff: 'Review changes', sandbox_bash: 'Command in the sandbox', read_sandbox_page: 'Check sandbox page', get_environment: 'Read environment', propose_publish: 'Propose publishing', start_sandbox: 'Propose a sandbox', request_internet: 'Ask for internet',
     get_variants: 'Read variants', list_variant_properties: 'Read variant properties', propose_variants: 'Propose variant changes',
     preview_bulk_filter: 'Count bulk selection', propose_bulk_product_change: 'Propose bulk change',
     list_product_streams: 'Read product streams', get_product_stream: 'Read product stream', preview_product_stream: 'Check stream matches',

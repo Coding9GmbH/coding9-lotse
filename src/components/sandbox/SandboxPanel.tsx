@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
-import type { CodeTaskPublic, PublishResult } from '@/lib/protocol';
+import type { CodeTaskPublic, InternetPolicy, PublishResult } from '@/lib/protocol';
 import { useTaskEvents } from '@/hooks/useTaskEvents';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
@@ -27,6 +27,7 @@ const SETUP = new Set(['setting_up', 'failed', 'interrupted']);
 
 /**
  * Right panel of a chat with an attached sandbox (instead of the draft preview): a compact status line with the lifecycle buttons and
+ * "Internet: an/aus" (the user's own switch; request_internet in the chat asks for the same), and
  * the tabs Vorschau (the task's storefront), Einrichtung (step timeline) and Änderungen (diff). During the setup it shows
  * "Einrichtung" and switches to "Vorschau" once the sandbox is ready. `files`: file cards so far (refreshes the diff).
  * "Pull Request": the publish form (the AI's latest `proposal` prefilled) and the task's PR; `openPr` changing opens that tab.
@@ -47,10 +48,11 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
   const [newDump, setNewDump] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [idle, setIdle] = useState(30);
+  const [policy, setPolicy] = useState<InternetPolicy>('approval');
   const [prSeen, setPrSeen] = useState(openPr);
   const [prTick, setPrTick] = useState(0);
   if (openPr !== prSeen) { setPrSeen(openPr); setTab('pr'); }
-  useEffect(() => { api.sandbox.env().then(v => setIdle(v.env.idleMinutes), () => {}); }, []);
+  useEffect(() => { api.sandbox.env().then(v => { setIdle(v.env.idleMinutes); setPolicy(v.env.internet); }, () => {}); }, []);
 
   // setup → ready switches to the preview (also when the setup tab was picked by hand meanwhile)
   const status = task?.status ?? null;
@@ -67,6 +69,11 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
     if (action === 'finish' && !window.confirm(t.finishConfirm(task.title))) return;
     setActing(true); setNotice(null);
     try { setTask((await api.sandbox.taskAction(task.id, action, body)).task); } catch (e) { setNotice(t.actionFailed(errorText(e))); } finally { setActing(false); }
+  }
+  async function toggleInternet(on: boolean) {
+    if (!task || (on && !window.confirm(t.internet.confirm))) return;
+    setActing(true); setNotice(null);
+    try { setTask((await api.sandbox.internet(task.id, on)).task); } catch (e) { setNotice(t.actionFailed(errorText(e))); } finally { setActing(false); }
   }
   async function replaceDb() {
     if (!newDump || !task) return;
@@ -89,6 +96,12 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
       <div className={pp.bar}>
         <span className={pp.ttl} title={`${task.repo} · ${task.branch}`}>{task.title}<small>{task.repo} @ {task.baseBranch}</small></span>
         <TaskStatus task={task} />
+        {(s === 'ready' || task.internet) && (
+          <Button size="sm" variant={task.internet ? 'primary' : 'ghost'} aria-pressed={!!task.internet} disabled={acting || (!task.internet && policy === 'never')}
+            title={task.internet ? t.internet.revoke : policy === 'never' ? t.internet.never : t.internet.allow} onClick={() => void toggleInternet(!task.internet)}>
+            {task.internet ? t.internet.on : t.internet.off}
+          </Button>
+        )}
         {s === 'setting_up' && <Button size="sm" onClick={() => void act('stop')} disabled={acting}>{t.actions.stop}</Button>}
         {s === 'ready' && <Button size="sm" onClick={() => void act('pause')} disabled={acting}>{t.actions.pause}</Button>}
         {s === 'paused' && <Button size="sm" variant="primary" onClick={() => void act('resume')} disabled={acting}>{t.actions.resume}</Button>}

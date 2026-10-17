@@ -8,6 +8,7 @@ import styles from './CodeCards.module.css';
 
 type Command = Extract<LogItem, { kind: 'command' }>;
 type Offer = Extract<LogItem, { kind: 'sandbox_offer' }>;
+type InternetAsk = Extract<LogItem, { kind: 'internet' }>;
 
 /** Well-known Shopware commands get a readable name on the card (the command line is shown below anyway). */
 const KNOWN: [RegExp, string][] = [[/\btheme:compile\b/, 'theme-compile'], [/\bcache:clear\b/, 'cache-clear'], [/\bplugin:refresh\b/, 'plugin-refresh'], [/\btheme:refresh\b/, 'theme-refresh'], [/\blint:twig\b/, 'lint-twig'], [/\bphp -l\b/, 'php-lint']];
@@ -89,4 +90,22 @@ export function SandboxOfferCard({ offer, actions }: { offer: Offer; actions?: S
 export function SandboxAttachedLine({ repo, baseBranch }: { repo: string; baseBranch: string }) {
   const t = useI18n().t.sandbox.code.offer;
   return <p className={`${styles.sbx} ${styles.sbx_ready}`} role="status"><i aria-hidden="true" />{t.attachedLine(repo, baseBranch)}</p>;
+}
+
+/** request_internet: the AI asks for internet in the task container. Only the click on "Für diese Aufgabe erlauben" attaches it. */
+export function InternetRequestCard({ item, onDecide }: { item: InternetAsk; onDecide: (allow: boolean) => void }) {
+  const t = useI18n().t.sandbox.code.internet;
+  return (
+    <section className={styles.offer} aria-label={t.heading}>
+      <h3>{t.heading}</h3>
+      <p>{t.reason(item.reason)}</p>
+      <p className={styles.pubNote}>{t.note}</p>
+      {item.interactive ? (
+        <div className={styles.offerBtns}>
+          <Button size="sm" variant="primary" onClick={() => onDecide(true)}>{t.allow}</Button>
+          <Button size="sm" onClick={() => onDecide(false)}>{t.deny}</Button>
+        </div>
+      ) : <p className={styles.offerRepo} role="status"><b>{item.decision === true ? t.allowed : item.decision === false ? t.denied : t.open}</b></p>}
+    </section>
+  );
 }

@@ -4,9 +4,9 @@ import 'server-only';
 import http from 'node:http';
 import { pipeline } from 'node:stream/promises';
 import type { Socket } from 'node:net';
-import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, PullProgress, SandboxRunner } from './runner';
-import { MANAGED, assertAllowedImage, assertContainerPath, assertId, assertManaged, assertSafeSpec } from './guards';
-import { ISOLATED_GATEWAY, SANDBOX_NET } from './labels';
+import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, NetworkOpts, PullProgress, SandboxRunner } from './runner';
+import { MANAGED, assertAllowedImage, assertContainerPath, assertEgressNetwork, assertId, assertManaged, assertNetworkName, assertSafeSpec } from './guards';
+import { EGRESS_NET, ICC_OPTION, ISOLATED_GATEWAY, SANDBOX_NET } from './labels';
 
 const PREFERRED_API = '1.41';
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -89,6 +89,9 @@ export const netAddress = (nets: Record<string, { IPAddress?: string } | null> |
   const ip = nets?.[SANDBOX_NET]?.IPAddress ?? '';
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(ip) ? { host: ip, port: 80 } : null;
 };
+
+type Nets = Record<string, { IPAddress?: string } | null> | undefined;
+const netNames = (nets: Nets) => Object.keys(nets ?? {});
 
 const imageRef = (image: string) => { const i = image.lastIndexOf(':'); return { fromImage: image.slice(0, i), tag: image.slice(i + 1) }; };
 const enc = encodeURIComponent;
@@ -187,16 +190,16 @@ export class DockerEngine implements SandboxRunner {
     const r = await this.call('GET', `/containers/${enc(assertId(id))}/json`);
     if (r.status === 404) return null;
     if (r.status !== 200) throw apiError(r, 'Container prüfen');
-    const c = this.json<{ Id: string; Name?: string; Config?: { Image?: string; Labels?: Record<string, string> | null }; State?: { Status?: string; Running?: boolean }; NetworkSettings?: { Networks?: Record<string, { IPAddress?: string } | null> } }>(r);
-    return { id: c.Id, name: (c.Name ?? '').replace(/^\//, ''), image: c.Config?.Image ?? '', state: c.State?.Status ?? 'unknown', running: c.State?.Running === true, labels: c.Config?.Labels ?? {}, address: netAddress(c.NetworkSettings?.Networks) };
+    const c = this.json<{ Id: string; Name?: string; Config?: { Image?: string; Labels?: Record<string, string> | null }; State?: { Status?: string; Running?: boolean }; NetworkSettings?: { Networks?: Nets } }>(r);
+    return { id: c.Id, name: (c.Name ?? '').replace(/^\//, ''), image: c.Config?.Image ?? '', state: c.State?.Status ?? 'unknown', running: c.State?.Running === true, labels: c.Config?.Labels ?? {}, address: netAddress(c.NetworkSettings?.Networks), networks: netNames(c.NetworkSettings?.Networks) };
   }
   async list(labels: Record<string, string> = {}) {
     const filters = JSON.stringify({ label: Object.entries({ ...labels, ...MANAGED }).map(([k, v]) => `${k}=${v}`) });
     const r = await this.call('GET', '/containers/json', { query: { all: '1', filters } });
     if (r.status !== 200) throw apiError(r, 'Container auflisten');
-    return this.json<{ Id: string; Names?: string[]; Image?: string; State?: string; Labels?: Record<string, string>; NetworkSettings?: { Networks?: Record<string, { IPAddress?: string } | null> } }[]>(r)
+    return this.json<{ Id: string; Names?: string[]; Image?: string; State?: string; Labels?: Record<string, string>; NetworkSettings?: { Networks?: Nets } }[]>(r)
       .filter(c => c.Labels?.[Object.keys(MANAGED)[0]] === '1') // never trust the filter alone
-      .map(c => ({ id: c.Id, name: (c.Names?.[0] ?? '').replace(/^\//, ''), image: c.Image ?? '', state: c.State ?? 'unknown', running: c.State === 'running', labels: c.Labels ?? {}, address: netAddress(c.NetworkSettings?.Networks) }));
+      .map(c => ({ id: c.Id, name: (c.Names?.[0] ?? '').replace(/^\//, ''), image: c.Image ?? '', state: c.State ?? 'unknown', running: c.State === 'running', labels: c.Labels ?? {}, address: netAddress(c.NetworkSettings?.Networks), networks: netNames(c.NetworkSettings?.Networks) }));
   }
   async putArchive(id: string, dir: string, tar: Buffer | ArchiveStream, o: { timeoutMs?: number; signal?: AbortSignal } = {}) {
     await this.managed(id);
@@ -256,11 +259,26 @@ export class DockerEngine implements SandboxRunner {
     if (r.status !== 200) throw apiError(r, 'Netzwerk prüfen');
     const n = this.json<{ Name: string; Internal?: boolean; Labels?: Record<string, string> | null; Options?: Record<string, string> | null; IPAM?: { Config?: { Subnet?: string; Gateway?: string }[] | null } }>(r);
     const cfg = n.IPAM?.Config ?? [], gateway = cfg.find(c => c.Gateway)?.Gateway;
-    return { name: n.Name, internal: n.Internal === true, labels: n.Labels ?? {}, subnets: cfg.flatMap(c => (c.Subnet ? [c.Subnet] : [])), isolated: n.Options?.[ISOLATED_GATEWAY] === 'isolated', ...(gateway ? { gateway } : {}) };
+    return { name: n.Name, internal: n.Internal === true, labels: n.Labels ?? {}, subnets: cfg.flatMap(c => (c.Subnet ? [c.Subnet] : [])), isolated: n.Options?.[ISOLATED_GATEWAY] === 'isolated', icc: n.Options?.[ICC_OPTION] !== 'false', ...(gateway ? { gateway } : {}) };
   }
-  async createNetwork(name: string, opts: { internal: boolean; labels: Record<string, string>; subnet?: string; isolated?: boolean }) {
-    const r = await this.call('POST', '/networks/create', { body: { Name: name, Driver: 'bridge', Internal: opts.internal, Labels: opts.labels, CheckDuplicate: true,
-      ...(opts.isolated ? { Options: { [ISOLATED_GATEWAY]: 'isolated' } } : {}), ...(opts.subnet ? { IPAM: { Config: [{ Subnet: opts.subnet }] } } : {}) } });
+  async createNetwork(name: string, opts: NetworkOpts) {
+    const options = { ...(opts.isolated ? { [ISOLATED_GATEWAY]: 'isolated' } : {}), ...(opts.icc === false ? { [ICC_OPTION]: 'false' } : {}) };
+    const r = await this.call('POST', '/networks/create', { body: { Name: assertNetworkName(name), Driver: 'bridge', Internal: opts.internal, Labels: opts.labels, CheckDuplicate: true,
+      ...(Object.keys(options).length ? { Options: options } : {}), ...(opts.subnet ? { IPAM: { Config: [{ Subnet: opts.subnet }] } } : {}) } });
     if (r.status !== 201) throw apiError(r, 'Netzwerk anlegen');
+  }
+  async connectEgress(id: string) {
+    const c = await this.managed(id);
+    if (c.networks.includes(EGRESS_NET)) return;
+    assertEgressNetwork(await this.inspectNetwork(EGRESS_NET));
+    const r = await this.call('POST', `/networks/${enc(EGRESS_NET)}/connect`, { body: { Container: c.id } });
+    if (r.status !== 200) throw apiError(r, 'Internetzugang einrichten');
+  }
+  async disconnectEgress(id: string) {
+    const c = await this.inspect(id);
+    if (!c || !c.networks.includes(EGRESS_NET)) return;
+    assertManaged(c);
+    const r = await this.call('POST', `/networks/${enc(EGRESS_NET)}/disconnect`, { body: { Container: c.id, Force: true } });
+    if (r.status !== 200 && r.status !== 404) throw apiError(r, 'Internetzugang sperren');
   }
 }

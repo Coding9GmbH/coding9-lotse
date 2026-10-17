@@ -353,7 +353,7 @@ export function answerQuestion(chatId: string, approvalId: string, answer: strin
 
 export function decideChange(chatId: string, approvalId: string, allow: boolean, selected?: string[]): boolean {
   const ss = peekSession(chatId); if (!ss) return false;
-  const ev = ss.events.find(e => (e.t === 'changeset' || evType(e) === 'approval') && (e as { approvalId?: string }).approvalId === approvalId);
+  const ev = ss.events.find(e => (e.t === 'changeset' || e.t === 'internet_request' || evType(e) === 'approval') && (e as { approvalId?: string }).approvalId === approvalId);
   if (ev) { (ev as { decision?: boolean }).decision = allow; persist(ss); }
   const p = ss.approvals.get(approvalId);
   if (!p) return false;

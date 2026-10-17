@@ -22,8 +22,12 @@ export function inCidr(ip: string, entry: string): boolean {
 }
 /** LOTSE_SANDBOX_SUBNET: IPv4 CIDR of the internal network lotse-sandbox (pinned in docker-compose.sandbox.yml).
  *  Task containers live there; requests from it are never trusted (see proxy.ts). null = unset or invalid. */
-export function sandboxSubnet(env: Record<string, string | undefined> = process.env): string | null {
-  const v = env.LOTSE_SANDBOX_SUBNET?.trim() ?? '';
+export const sandboxSubnet = (env: Record<string, string | undefined> = process.env): string | null => cidr(env.LOTSE_SANDBOX_SUBNET);
+/** LOTSE_SANDBOX_EGRESS_SUBNET: IPv4 CIDR of lotse-sandbox-egress, the network a task container joins only while internet is allowed
+ *  (pinned in docker-compose.sandbox.yml). Requests from it are never trusted either. null = unset or invalid. */
+export const egressSubnet = (env: Record<string, string | undefined> = process.env): string | null => cidr(env.LOTSE_SANDBOX_EGRESS_SUBNET);
+function cidr(raw: string | undefined): string | null {
+  const v = raw?.trim() ?? '';
   const [net, bits] = v.split('/');
   return ipv4(net ?? '') !== null && /^\d+$/.test(bits ?? '') && Number(bits) >= 8 && Number(bits) <= 30 ? v : null;
 }

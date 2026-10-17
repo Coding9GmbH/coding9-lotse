@@ -140,7 +140,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     if (event.t === 'sandbox_attached') setTaskId(event.taskId); // attached meanwhile (other tab)
     if (!narrow()) return;
     if (event.t === 'draft') setPreviewOpen(true);
-    else if (event.t === 'question' || event.t === 'changeset') setPreviewOpen(false);
+    else if (event.t === 'question' || event.t === 'changeset' || event.t === 'internet_request') setPreviewOpen(false);
   }, []);
 
   // ---- Run chat ----

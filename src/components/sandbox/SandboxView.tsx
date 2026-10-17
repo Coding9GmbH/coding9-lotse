@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
-import type { CodeTaskPublic, CommandPhase, SandboxEnvPatch, SandboxEnvView } from '@/lib/protocol';
+import type { CodeTaskPublic, CommandPhase, InternetPolicy, SandboxEnvPatch, SandboxEnvView } from '@/lib/protocol';
 import { isBusy } from '@/lib/sandbox-task';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useShell } from '@/components/shell/ShellProvider';
@@ -17,14 +17,14 @@ const DOCS = { de: 'https://github.com/Coding9GmbH/coding9-lotse/blob/main/docs/
 
 interface VarRow { key: string; secret: boolean; value: string; hasValue: boolean; /** stored as secret with a value: unticking needs a new value */ wasSecret?: boolean }
 interface CmdRow { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec: string }
-interface Form { image: string; defaultRepo: string; defaultBranch: string; vars: VarRow[]; cmds: CmdRow[] }
+interface Form { image: string; defaultRepo: string; defaultBranch: string; internet: InternetPolicy; vars: VarRow[]; cmds: CmdRow[] }
 const formOf = (v: SandboxEnvView): Form => ({
-  image: v.env.image, defaultRepo: v.env.defaultRepo, defaultBranch: v.env.defaultBranch,
+  image: v.env.image, defaultRepo: v.env.defaultRepo, defaultBranch: v.env.defaultBranch, internet: v.env.internet,
   vars: v.env.envVars.map(x => ({ ...x, wasSecret: x.secret && x.hasValue })),
   cmds: v.env.commands.map(c => ({ id: c.id, label: c.label, command: c.command, phase: c.phase, timeoutSec: String(c.timeoutSec) })),
 });
 const patchOf = (f: Form): SandboxEnvPatch => ({
-  image: f.image.trim(), defaultRepo: f.defaultRepo.trim(), defaultBranch: f.defaultBranch.trim(),
+  image: f.image.trim(), defaultRepo: f.defaultRepo.trim(), defaultBranch: f.defaultBranch.trim(), internet: f.internet,
   envVars: f.vars.filter(v => v.key.trim() || v.value).map(v => ({ key: v.key.trim(), secret: v.secret, ...(v.secret && !v.value ? {} : { value: v.value }) })),
   commands: f.cmds.filter(c => c.label.trim() || c.command.trim()).map(c => ({ ...(c.id ? { id: c.id } : {}), label: c.label, command: c.command, phase: c.phase, timeoutSec: Number(c.timeoutSec) || undefined })),
 });
@@ -189,6 +189,14 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
         <input aria-label={t.defaultRepo} placeholder={`${t.defaultRepo} (${t.defaultRepoPlaceholder})`} value={form.defaultRepo} spellCheck={false} onChange={e => set(f => ({ ...f, defaultRepo: e.target.value }))} />
         <input aria-label={t.defaultBranch} placeholder={t.defaultBranch} value={form.defaultBranch} spellCheck={false} onChange={e => set(f => ({ ...f, defaultBranch: e.target.value }))} />
       </div>
+
+      <label className={styles.field}>
+        <span className={styles.label}>{t.internet}</span>
+        <select value={form.internet} onChange={e => set(f => ({ ...f, internet: e.target.value as InternetPolicy }))}>
+          {(['approval', 'never'] as const).map(p => <option key={p} value={p}>{t.internetPolicy[p]}</option>)}
+        </select>
+        <small className={styles.fieldHint}>{t.internetHint}</small>
+      </label>
 
       <h3 className={styles.h3}>{t.vars}</h3>
       <p className={styles.hint}>{t.varsHint}</p>

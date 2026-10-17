@@ -20,9 +20,12 @@ export interface ContainerSpec {
   HostConfig?: Record<string, unknown>;
   NetworkingConfig?: Record<string, unknown>;
 }
-export interface ContainerInfo { id: string; name: string; image: string; state: string; running: boolean; labels: Record<string, string>; /** storefront address on the internal network lotse-sandbox (null = not attached there) */ address: { host: string; port: number } | null }
+export interface ContainerInfo { id: string; name: string; image: string; state: string; running: boolean; labels: Record<string, string>; /** storefront address on the internal network lotse-sandbox (null = not attached there) */ address: { host: string; port: number } | null;
+  /** names of the Docker networks the container is attached to */ networks: string[] }
 export interface NetworkInfo { name: string; internal: boolean; labels: Record<string, string>; /** IPAM subnets (CIDR) */ subnets: string[];
-  /** gateway_mode_ipv4=isolated: the host has no address on the bridge */ isolated: boolean; /** IPAM gateway (the host's address on the bridge) */ gateway?: string }
+  /** gateway_mode_ipv4=isolated: the host has no address on the bridge */ isolated: boolean; /** IPAM gateway (the host's address on the bridge) */ gateway?: string;
+  /** containers on the bridge may talk to each other (Docker's default; enable_icc=false turns it off) */ icc: boolean }
+export interface NetworkOpts { internal: boolean; labels: Record<string, string>; subnet?: string; isolated?: boolean; /** false = enable_icc=false */ icc?: boolean }
 export interface ExecOpts { user: string; workdir?: string; env?: string[]; timeoutMs: number; signal?: AbortSignal; stdin?: Buffer; /** keep at most this many bytes (the end of the output) */ maxOutput?: number }
 export interface ExecResult { exitCode: number; output: string; truncated: boolean }
 export interface PullProgress { text: string; pct?: number }
@@ -46,7 +49,11 @@ export interface SandboxRunner {
   /** managed containers only; extra labels narrow the list */
   list(labels?: Record<string, string>): Promise<ContainerInfo[]>;
   inspectNetwork(name: string): Promise<NetworkInfo | null>;
-  createNetwork(name: string, opts: { internal: boolean; labels: Record<string, string>; subnet?: string; isolated?: boolean }): Promise<void>;
+  /** only lotse-sandbox and lotse-sandbox-egress */
+  createNetwork(name: string, opts: NetworkOpts): Promise<void>;
+  /** Internet for a task: attach a managed container to lotse-sandbox-egress (a Lotse-labelled network), or detach it. Idempotent. */
+  connectEgress(id: string): Promise<void>;
+  disconnectEgress(id: string): Promise<void>;
 }
 
 // ---- Selection ----

@@ -17,7 +17,7 @@ after(S.close);
 
 const task = await S.readyTask();
 const events: ChatEvent[] = [];
-const host = { id: 'chat-tools', taskId: task.id, emit: (ev: ChatEvent) => { events.push(ev); }, askUser: async () => 'Ja', abort: null };
+const host = { id: 'chat-tools', taskId: task.id, emit: (ev: ChatEvent) => { events.push(ev); }, askUser: async () => 'Ja', approvals: new Map(), abort: null };
 const tools = W.sandboxTools(host);
 const call = async (name: string, input: Record<string, unknown> = {}, set = tools) => {
   const r = await set.find(t => t.name === name)!.handler(input as any, {});

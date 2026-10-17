@@ -1,6 +1,6 @@
 // Namensraum "sandbox". `de` legt die Form fest, `en` muss dieselben Schlüssel haben (Texte mit Platzhaltern als Funktionen).
 // Reiter „Sandbox Coding“ (src/components/sandbox): Bereitschaft, Umgebung (Image, Variablen, eigene Befehle), Aufgaben.
-import type { CodeTaskStatus, CommandPhase, SandboxCommandKey, SandboxStepKey, TaskStepState } from '../../protocol';
+import type { CodeTaskStatus, CommandPhase, InternetPolicy, SandboxCommandKey, SandboxStepKey, TaskStepState } from '../../protocol';
 
 const steps: Record<SandboxStepKey, string> = {
   'check-image': 'Image prüfen',
@@ -72,6 +72,9 @@ export const de = {
     defaultBranch: 'Basis-Branch',
     defaultRepoPlaceholder: 'besitzer/name',
     dockerDown: 'Docker ist nicht erreichbar – Docker-Socket bzw. DOCKER_HOST einrichten (siehe Selbst-Hosting-Anleitung).',
+    internet: 'Internet im Container',
+    internetHint: 'Aufgaben-Container sind offline. Mit „nur nach Freigabe“ kann die KI im Chat um Internet bitten (z. B. für composer oder npm) oder du schaltest es in der Statuszeile der Sandbox ein – jedes Mal nur für diese Aufgabe, bis zum Sperren, Pausieren oder Abschließen. Mit Internet erreicht der Container jede öffentliche Adresse, auch die Website deines Live-Shops. Lotse selbst bleibt aus dem Container unerreichbar.',
+    internetPolicy: { approval: 'nur nach Freigabe', never: 'nie' } as Record<InternetPolicy, string>,
     vars: 'Umgebungsvariablen',
     varsHint: 'Stehen in jedem Aufgaben-Container und für eigene Befehle bereit. Änderungen gelten für neue Aufgaben bzw. nach „Umgebung neu aufbauen“. Geheime Werte werden verschlüsselt gespeichert, nie wieder angezeigt und aus Texten an die KI entfernt. Aber: Code, den die KI schreibt, läuft im Container und kann dort jede Variable lesen – trage nur Zugangsdaten ein, die allein für die Sandbox gelten.',
     key: 'Name',
@@ -143,6 +146,11 @@ export const de = {
     noLog: 'Keine Ausgabe.',
     retryFrom: 'Ab hier erneut versuchen',
     actions: { stop: 'Stoppen', pause: 'Pausieren', resume: 'Fortsetzen', retry: 'Einrichtung fortsetzen', finish: 'Aufgabe abschließen', remove: 'Aus der Liste entfernen' },
+    internet: {
+      on: 'Internet: an', off: 'Internet: aus', allow: 'Internet für diese Aufgabe erlauben', revoke: 'Internet sperren',
+      never: 'Internet im Container ist in der Umgebung ausgeschaltet („nie“).',
+      confirm: 'Internet für diese Sandbox erlauben?\n\nDer Container erreicht dann jede öffentliche Adresse – auch die Website deines Live-Shops. Lotse selbst bleibt unerreichbar. Der Zugang endet mit „Internet sperren“, beim Pausieren und beim Abschließen.',
+    },
     finishConfirm: (title: string) => `„${title}“ abschließen?\n\nContainer, Datenbank, Arbeitsordner und Git-Verlauf dieser Aufgabe werden gelöscht. Nicht veröffentlichte Änderungen gehen verloren. Die Aufgabe bleibt als Eintrag in der Liste.`,
     removeConfirm: (title: string) => `„${title}“ aus der Liste entfernen?`,
     hints: {
@@ -245,6 +253,12 @@ export const de = {
       off: 'Sandbox Coding ist ausgeschaltet.',
       attachedLine: (repo: string, branch: string) => `Sandbox angehängt: ${repo} @ ${branch} – ab jetzt arbeitet die KI hier nur in der Sandbox, ohne Zugriff auf den Live-Shop.`,
     },
+    internet: {
+      heading: 'Internetzugang für die Sandbox erlauben?',
+      reason: (r: string) => `Grund: ${r}`,
+      note: 'Mit Internet erreicht der Container jede öffentliche Adresse – auch die Website deines Live-Shops. Lotse bleibt unerreichbar. Der Zugang endet mit „Internet sperren“, beim Pausieren und beim Abschließen.',
+      allow: 'Für diese Aufgabe erlauben', deny: 'Ablehnen', allowed: 'Erlaubt', denied: 'Abgelehnt', open: 'Nicht entschieden',
+    },
     sandbox: { waking: 'Umgebung startet … (der Chat wartet, bis Shopware antwortet)', ready: 'Umgebung bereit', failed: 'Umgebung nicht gestartet' } as Record<'waking' | 'ready' | 'failed', string>,
     publish: {
       heading: 'Vorschlag für den Pull Request', note: 'Noch nicht veröffentlicht.', review: 'Prüfen und veröffentlichen',
@@ -334,6 +348,9 @@ export const en: typeof de = {
     defaultBranch: 'Base branch',
     defaultRepoPlaceholder: 'owner/name',
     dockerDown: 'Docker is not reachable – set up the Docker socket or DOCKER_HOST (see the self-hosting guide).',
+    internet: 'Internet in the container',
+    internetHint: 'Task containers are offline. With "only after approval" the AI can ask for internet in the chat (e.g. for composer or npm), or you switch it on in the sandbox status line – each time for this task only, until you block it, pause or finish. With internet the container reaches any public address, including your live shop\'s website. Lotse itself stays unreachable from the container.',
+    internetPolicy: { approval: 'only after approval', never: 'never' },
     vars: 'Environment variables',
     varsHint: 'Available in every task container and to your own commands. Changes apply to new tasks or after “Rebuild environment”. Secret values are stored encrypted, never shown again and removed from text sent to the AI. But: code the AI writes runs in the container and can read every variable there – only enter credentials meant for the sandbox alone.',
     key: 'Name',
@@ -405,6 +422,11 @@ export const en: typeof de = {
     noLog: 'No output.',
     retryFrom: 'Retry from here',
     actions: { stop: 'Stop', pause: 'Pause', resume: 'Resume', retry: 'Continue setup', finish: 'Finish task', remove: 'Remove from list' },
+    internet: {
+      on: 'Internet: on', off: 'Internet: off', allow: 'Allow internet for this task', revoke: 'Block internet',
+      never: 'Internet in the container is switched off in the environment ("never").',
+      confirm: 'Allow internet for this sandbox?\n\nThe container can then reach any public address – including your live shop\'s website. Lotse itself stays unreachable. Access ends with "Block internet", when pausing and when finishing.',
+    },
     finishConfirm: (title: string) => `Finish “${title}”?\n\nThe container, database, working folder and git history of this task are deleted. Unpublished changes are lost. The task stays in the list as a record.`,
     removeConfirm: (title: string) => `Remove “${title}” from the list?`,
     hints: {
@@ -528,6 +550,12 @@ export const en: typeof de = {
       attached: 'A sandbox is attached to this chat.',
       off: 'Sandbox Coding is switched off.',
       attachedLine: (repo, branch) => `Sandbox attached: ${repo} @ ${branch} – from now on the AI works here only in the sandbox, without access to the live shop.`,
+    },
+    internet: {
+      heading: 'Allow internet access for the sandbox?',
+      reason: (r: string) => `Reason: ${r}`,
+      note: 'With internet the container reaches any public address – including your live shop\'s website. Lotse stays unreachable. Access ends with "Block internet", when pausing and when finishing.',
+      allow: 'Allow for this task', deny: 'Decline', allowed: 'Allowed', denied: 'Declined', open: 'Not decided',
     },
     sandbox: { waking: 'Environment starting… (the chat waits until Shopware answers)', ready: 'Environment ready', failed: 'Environment not started' },
     publish: {

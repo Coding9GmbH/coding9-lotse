@@ -58,6 +58,9 @@ services:
       LOTSE_SANDBOX_NETWORK: network
       # = subnet of lotse-sandbox below: Lotse refuses every request from it (task containers never reach the Lotse API)
       LOTSE_SANDBOX_SUBNET: 10.213.0.0/24
+      # = subnet of lotse-sandbox-egress, the network a task container joins only while a human allowed internet for it
+      # (Lotse creates it on demand, not attached to it itself); refused just the same
+      LOTSE_SANDBOX_EGRESS_SUBNET: 10.214.0.0/24
     networks: [default, docker-api, lotse-sandbox]
     depends_on: [docker-proxy]
 
@@ -78,3 +81,5 @@ networks:
         - subnet: 10.213.0.0/24   # keep in sync with LOTSE_SANDBOX_SUBNET above
     labels:
       lotse.managed: "1"
+  # lotse-sandbox-egress (internet after approval) is NOT declared here: Lotse creates it on demand with LOTSE_SANDBOX_EGRESS_SUBNET,
+  # not internal, enable_icc=false (task containers on it cannot reach each other), and Lotse itself is never attached to it.

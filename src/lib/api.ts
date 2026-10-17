@@ -91,6 +91,8 @@ export const api = {
     /** start | stop | pause | resume | finish; start takes the step to retry from */
     taskAction: (id: string, action: 'start' | 'stop' | 'pause' | 'resume' | 'finish', body: { fromStep?: string; ignoreVersion?: boolean } = {}) =>
       request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/${action}`, json('POST', body)),
+    /** "Internet: an/aus" in the status line (the user's own decision; audited) */
+    internet: (id: string, on: boolean) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/internet`, json('POST', { on })),
     /** "Datenbank ersetzen": import an uploaded dump into the task's sandbox */
     replaceDb: (id: string, dumpId: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/dump`, json('POST', { dumpId })),
     dump: (id: string) => request<{ dump: DumpPublic }>(`/api/sandbox/dumps/${encodeURIComponent(id)}`),
