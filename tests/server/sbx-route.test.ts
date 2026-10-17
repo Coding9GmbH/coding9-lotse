@@ -197,6 +197,40 @@ test('a paused task wakes on preview access ("Umgebung startet …", reloads its
   assert.match((await (await call(`${pre(t)}/`, { headers: { 'accept-language': 'en' } })).text()), /wach/);
 });
 
+const waitReady = async (id: string) => {
+  const end = Date.now() + 10_000;
+  while (T.getTask(id)!.status !== 'ready') { if (Date.now() > end) throw new Error(`still ${T.getTask(id)!.status}: ${T.getTask(id)!.error}`); await new Promise(res => setTimeout(res, 20)); }
+};
+
+test('container stopped outside Lotse (local mode): the preview wakes it, with or without a cached port', async () => {
+  for (const warm of [true, false]) {
+    const t = await readyTask();
+    if (warm) assert.equal((await call(`${pre(t)}/`)).status, 200);
+    await fake.stop(t.containerId!); // docker stop / OOM behind Lotse's back; the task still says ready
+    const r = await call(`${pre(t)}/`, { headers: { 'accept-language': 'de' } });
+    assert.equal(r.status, 503, `warm=${warm}`);
+    assert.match(await r.text(), /Umgebung startet …/);
+    await waitReady(t.id);
+    answer = (_q, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<p>wieder da</p>'); };
+    assert.match(await (await call(`${pre(t)}/`)).text(), /wieder da/, 'new port after the restart');
+  }
+});
+
+test('a request in flight while Lotse pauses the task does not wake it again; errors localized, not doubled', async () => {
+  const t = await readyTask();
+  answer = (req, res) => { const x = T.getTask(t.id)!; x.status = 'paused'; T.saveTask(x, false); res.socket?.destroy(); };
+  const r = await call(`${pre(t)}/`, { headers: { 'accept-language': 'en' } });
+  assert.equal(r.status, 502);
+  assert.equal(await r.text(), 'Sandbox not reachable: ECONNRESET');
+  assert.equal(T.getTask(t.id)!.status, 'paused', 'no wake');
+  const u = await readyTask();
+  answer = (_q, res) => { res.socket?.destroy(); }; // Apache down, container running: nothing to wake
+  const e = await call(`${pre(u)}/`, { headers: { 'accept-language': 'en' } });
+  assert.equal(e.status, 502);
+  assert.equal(await e.text(), 'Sandbox not reachable: ECONNRESET');
+  assert.equal(T.getTask(u.id)!.status, 'ready');
+});
+
 test('Sandbox Coding switched off: 403, nothing contacted', async () => {
   const t = await readyTask();
   E.saveSandbox({ enabled: false });

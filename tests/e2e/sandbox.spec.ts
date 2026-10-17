@@ -92,6 +92,15 @@ test('Sandbox Coding: create a task, setup reaches ready, pause/resume, finish',
   const preview = page.frameLocator('iframe[title="Vorschau der Sandbox-Storefront"]');
   await expect(preview.getByRole('heading', { name: 'Fake-Storefront' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'In neuem Tab öffnen' })).toHaveAttribute('href', /^\/sbx\/t_[a-z0-9]{12}\.[a-f0-9]{20}\/$/);
+  // Mark mode as in the shop preview: click an element, note what should change, collected below
+  await page.getByRole('button', { name: 'Anmerken' }).click();
+  await preview.getByRole('heading', { name: 'Fake-Storefront' }).click();
+  await page.getByLabel('Was soll anders sein?').fill('größer');
+  await page.getByRole('button', { name: 'Merken' }).click();
+  await expect(page.getByRole('region', { name: 'Änderungswünsche' }).getByText('größer')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Wunsch kopieren' })).toBeVisible();
+  await page.getByRole('button', { name: 'Verwerfen' }).click();
+  await page.getByRole('button', { name: 'Markieren beenden' }).click();
 
   // Paused: the preview offers to start it again; loading it wakes the task (no new setup)
   await page.getByRole('button', { name: 'Pausieren' }).click();

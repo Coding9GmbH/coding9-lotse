@@ -5,8 +5,9 @@ import { errMsg } from '@/server/http';
 import { injectAtHeadStart } from '@/server/real-page';
 import { storefrontRewrite } from '@/server/runtime';
 import { sandboxForbidden } from '@/server/sandbox/env';
+import { getTask } from '@/server/sandbox/tasks';
 import { startWake, touchTask } from '@/server/sandbox/jobs';
-import { COOKIE_SYNC_PATH, MAX_REQUEST_BODY, PREVIEW_METHODS, SANDBOX_BASE, fetchUpstream, previewShim, previewState, sandboxLocation, sandboxPrefix, sandboxUpstream, scriptCookies, storeCookies, taskOfSegment, upstreamHeaders } from '@/server/sandbox/preview';
+import { COOKIE_SYNC_PATH, MAX_REQUEST_BODY, PREVIEW_METHODS, SANDBOX_BASE, forgetUpstream, fetchUpstream, previewShim, previewState, sandboxLocation, sandboxPrefix, sandboxUpstream, scriptCookies, storeCookies, taskOfSegment, upstreamHeaders } from '@/server/sandbox/preview';
 import { ensureReconciled } from '@/server/sandbox/reconcile';
 import { NO_BODY, relayResponse, rewriteRootRelative, textResponse } from '@/server/storefront-proxy';
 
@@ -30,7 +31,8 @@ function page(status: number, lang: string, title: string, text: string, refresh
   return new Response(html, { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': PAGE_CSP, ...(refresh ? { 'retry-after': String(refresh) } : {}) } });
 }
 
-const isUnreachable = (e: unknown) => ['ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENOTFOUND', 'EAI_AGAIN'].includes(String((e as { code?: unknown }).code));
+const codeOf = (e: unknown) => String((e as { code?: unknown }).code ?? '');
+const isUnreachable = (e: unknown) => ['ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENOTFOUND', 'EAI_AGAIN', 'ENOTRUNNING'].includes(codeOf(e));
 
 // Preview of a task's sandbox storefront: /sbx/<id>.<key>/… Only the task's own container is ever contacted (preview.ts), the browser
 // never sees its cookies or headers, and every HTML answer runs in an opaque origin (CSP sandbox). A request without the right key is
@@ -49,7 +51,7 @@ async function handle(req: NextRequest, { params }: Ctx): Promise<Response> {
   const starting = () => page(503, lang, L.starting, L.startingText, 3);
   if (st.kind === 'waking') return starting();
   if (st.kind === 'wake') {
-    try { await startWake(id); } catch (e) { return page(409, lang, L.stopped, errMsg(e)); }
+    try { await startWake(id); } catch { return page(409, lang, L.stopped, L.stoppedText); } // conflicts (finishing …): the task view tells why
     return starting();
   }
   touchTask(id);
@@ -84,12 +86,17 @@ async function handle(req: NextRequest, { params }: Ctx): Promise<Response> {
     };
     return await relayResponse(upstream, { rewrite, allText: true, extraCsp: SBX_CSP, headers: corsFor(req) });
   } catch (e) {
-    // The container may have stopped outside Lotse (OOM, docker stop): startWake checks with Docker and wakes it
     if (!req.signal.aborted && isUnreachable(e)) {
-      const t = await startWake(id).catch(() => null);
-      if (t?.status === 'waking') return starting();
+      forgetUpstream(st.task.containerId);
+      // The container may have stopped outside Lotse (OOM, docker stop): startWake checks with Docker and wakes it. Not when Lotse
+      // itself paused it meanwhile (pause, room for another task): the request was in flight while the container stopped.
+      if (getTask(id)?.status === 'ready') {
+        const t = await startWake(id).catch(() => null);
+        if (t?.status === 'waking') return starting();
+      }
     }
-    return textResponse(L.unreachable(errMsg(e)), 502);
+    const code = codeOf(e);
+    return textResponse(L.unreachable(L.upstream[code] ?? (code || errMsg(e))), 502);
   }
 }
 

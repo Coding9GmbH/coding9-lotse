@@ -35,8 +35,17 @@ export function previewState(id: string): PreviewState {
   if (task.status !== 'done' && task.containerId && task.containerRunning) return { kind: 'proxy', task };
   return { kind: 'stopped', task };
 }
-/** Origin of the task's storefront, from the registry only (see tasks.sandboxOrigin). */
-export const sandboxUpstream = (t: CodeTask) => sandboxOrigin(t);
+/** Origin of the task's storefront, from the registry only (see tasks.sandboxOrigin). Cached per container, so the many asset
+ *  requests of one page do not each ask Docker for the port; forgotten when Lotse starts or stops the container or a request fails. */
+const origins = () => singleton<Map<string, string>>('sandboxOrigins', () => new Map());
+export async function sandboxUpstream(t: CodeTask): Promise<string> {
+  const hit = t.containerId ? origins().get(t.containerId) : undefined;
+  if (hit) return hit;
+  const origin = await sandboxOrigin(t);
+  if (t.containerId) origins().set(t.containerId, origin);
+  return origin;
+}
+export const forgetUpstream = (containerId: string | null) => { if (containerId) origins().delete(containerId); };
 
 // ---- Cookie jar per task (memory only: a Lotse restart starts a new storefront session) ----
 interface JarCookie { value: string; httpOnly: boolean }
@@ -103,15 +112,17 @@ export interface UpstreamReq { method: string; path: string; headers: Record<str
 export interface Upstream { status: number; headers: Headers; setCookies: string[]; body: Buffer }
 export type UpstreamFetch = (origin: string, r: UpstreamReq, signal?: AbortSignal) => Promise<Upstream>;
 
+/** Error of fetchUpstream: `code` is the socket error (ECONNREFUSED …) or ETIMEDOUT, ETOOLARGE, EBADPATH; the route localizes it. */
+const upstreamError = (code: string) => Object.assign(new Error(code), { code });
 /** node:http (fetch cannot set Host): no redirects followed, no compression, body capped. */
 export const fetchUpstream: UpstreamFetch = (origin, r, signal) => new Promise((resolve, reject) => {
   const u = new URL(r.path, origin);
-  if (u.origin !== new URL(origin).origin) { reject(new Error('Ungültiger Pfad.')); return; }
+  if (u.origin !== new URL(origin).origin) { reject(upstreamError('EBADPATH')); return; }
   const headers = { ...r.headers, host: SANDBOX_HOST, ...(r.body ? { 'content-length': String(r.body.length) } : {}) };
   const req = http.request(u, { method: r.method, headers, timeout: IDLE_MS, signal }, res => {
     const chunks: Buffer[] = [];
     let size = 0;
-    res.on('data', (c: Buffer) => { size += c.length; if (size > MAX_RESPONSE_BODY) { req.destroy(new Error('Antwort zu groß.')); return; } chunks.push(c); });
+    res.on('data', (c: Buffer) => { size += c.length; if (size > MAX_RESPONSE_BODY) { req.destroy(upstreamError('ETOOLARGE')); return; } chunks.push(c); });
     res.on('end', () => {
       const h = new Headers();
       for (const [k, v] of Object.entries(res.headers)) if (v !== undefined && k !== 'set-cookie') for (const x of [v].flat()) h.append(k, x);
@@ -119,8 +130,8 @@ export const fetchUpstream: UpstreamFetch = (origin, r, signal) => new Promise((
     });
     res.on('error', reject);
   });
-  req.on('timeout', () => req.destroy(new Error('Zeitüberschreitung')));
-  req.on('error', e => reject(Object.assign(new Error(`Sandbox nicht erreichbar: ${(e as NodeJS.ErrnoException).code || e.message}`), { code: (e as NodeJS.ErrnoException).code })));
+  req.on('timeout', () => req.destroy(upstreamError('ETIMEDOUT')));
+  req.on('error', e => reject((e as NodeJS.ErrnoException).code ? e : upstreamError(e.message)));
   req.end(r.body);
 });
 

@@ -140,7 +140,7 @@ export async function sandboxOrigin(t: CodeTask): Promise<string> {
   if (!t.containerId) throw new Error('Kein Container für diese Aufgabe.');
   if (t.mode === 'network') return `http://${sandboxAlias(t.id)}`;
   const info = await getRunner().inspect(t.containerId);
-  if (!info?.running || !info.port) throw new Error('Der Container läuft nicht.');
+  if (!info?.running || !info.port) throw Object.assign(new Error('Der Container läuft nicht.'), { code: 'ENOTRUNNING' });
   return `http://127.0.0.1:${info.port}`;
 }
 

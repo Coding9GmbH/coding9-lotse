@@ -98,6 +98,7 @@ export const de = {
   annotations: {
     headDraft: 'Änderungswünsche zum Entwurf, direkt in der Vorschau markiert. Bitte alle Punkte einarbeiten, sonst nichts verändern, und den Entwurf neu erzeugen:',
     headLive: 'Änderungswünsche zur aktuellen Seite im Shop, direkt in der Vorschau markiert. Bitte alle Punkte als Entwurf umsetzen, sonst nichts verändern:',
+    headSandbox: 'Änderungswünsche an der Sandbox-Storefront, direkt in der Vorschau markiert. Bitte alle Punkte im Code des Plugins bzw. Themes umsetzen, sonst nichts verändern:',
     section: (name: string) => ` (Abschnitt „${name}“)`,
     quoted: (kind: string, text: string) => `${kind} „${text}“`,
     kinds: { button: 'Button', link: 'Link', image: 'Bild', heading: 'Überschrift', text: 'Text', table: 'Tabelle', faq: 'FAQ-Eintrag', section: 'Abschnitt', element: 'Element' },
@@ -331,6 +332,7 @@ export const en: typeof de = {
   annotations: {
     headDraft: 'Change requests for the draft, marked directly in the preview. Please apply every point, change nothing else and regenerate the draft:',
     headLive: 'Change requests for the current shop page, marked directly in the preview. Please implement every point as a draft and change nothing else:',
+    headSandbox: 'Change requests for the sandbox storefront, marked directly in the preview. Please implement every point in the plugin or theme code and change nothing else:',
     section: (name: string) => ` (section “${name}”)`,
     quoted: (kind: string, text: string) => `${kind} “${text}”`,
     kinds: { button: 'Button', link: 'Link', image: 'Image', heading: 'Heading', text: 'Text', table: 'Table', faq: 'FAQ item', section: 'Section', element: 'Element' },
