@@ -49,7 +49,7 @@ Werkzeuge und Fachbereiche (gleiche Namen, wo die Bedeutung passt; ✓ = vorhand
 | `get_brand_signals` (Onboarding, Kern-Werkzeug, Quellen über `brand`) | ✓ (Theme-Konfiguration + Texte) | ✓ (Design-Werte aus `settings_data.json` + Texte) | ✓ (Storefront-CSS + Texte, keine Theme-Schnittstelle) | ✓ (Storefront-CSS + Texte, keine Theme-Schnittstelle) |
 | Lieferanten-Import (`read_supplier_file`, `save_import_mapping`, `preview_import`, `propose_import`) | ✓ | ✓ (eigenes Feature `shopify-import`; vorhandene Varianten per SKU/Barcode, neue Varianten bestehender Produkte nur über `propose_variants`) | ✓ (Abgleich per SKU, keine Varianten/Attribute/Kategorien anlegen) | ✓ (`import-openmage`, wie Magento 2) |
 | Shop-Check (`run_shop_check`) | ✓ | ✓ (`shopify/checks.ts`) | ✓ (`magento/checks.ts`) | ✓ (`openmage/checks.ts`) |
-| Abverkauf (`sales_report`, Schalter „Abverkauf“) | ✓ (Bestellpositionen, Varianten → Hauptprodukt) | ✓ (`read_orders`, ohne `read_all_orders` 60 Tage) | ✓ (`/V1/orders` mit `fields`, ACL Vertrieb → Bestellungen) | ✓ (Modul-Endpunkt `/v1/sales`, ab Modul 1.3.0) |
+| Abverkauf (`sales_report`, Schalter „Abverkauf“) | ✓ (Bestellpositionen, Varianten → Hauptprodukt) | ✓ (`read_orders`, ohne `read_all_orders` 60 Tage) | ✓ (`/V1/orders` mit `fields`, ACL Vertrieb → Bestellungen; Menge aus der Elternzeile, Umsatz aller Zeilen beim Elternprodukt) | ✓ (Modul-Endpunkt `/v1/sales`, ab Modul 1.3.0) |
 | Eigene Prüfungen per Chat, Prüfungen an/aus (`create_check`, `set_check_enabled`) | ✓ (`shopware/scan.ts`) | ✓ (`neutralScan` in `checks.ts`) | ✓ (`neutralScan`) | ✓ (`neutralScan`) |
 | Kern: Seiten, Styleguide, Bilder-KI, Wissensbasis, Search Console | ✓ | ✓ | ✓ | ✓ |
 
