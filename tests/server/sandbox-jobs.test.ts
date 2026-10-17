@@ -413,6 +413,18 @@ test('dump: a different Shopware minor version blocks until "Trotzdem fortfahren
   assert.deepEqual(T.publicTask(cur).dump!.versionMismatch, { dump: '6.6', image: '6.7.15.1' });
   assert.ok(fs.existsSync(D.dumpFile(dump.id)), 'kept for the decision');
   assert.ok(!execs(cur.containerId!).some(a => a[0] === 'bash' && a[1] === '-c'), 'nothing imported');
+  // "Datenbank ersetzen" that cannot start (409 capacity, 400 unknown step) keeps the waiting dump and leaves the new one free
+  const other = newTask('Belegt'); other.status = 'setting_up'; T.saveTask(other, false);
+  process.env.LOTSE_SANDBOX_MAX = '1';
+  const next = await readyDump(7);
+  try { assert.throws(() => J.runSteps(t.id, undefined, { dumpId: next.id }), (e: any) => e.status === 409); } finally { delete process.env.LOTSE_SANDBOX_MAX; db.codeTaskDelete(other.id); }
+  const old = T.getTask(t.id)!; old.steps = old.steps.filter(s => s.id !== 'version-check'); T.saveTask(old, false);
+  assert.throws(() => J.runSteps(t.id, undefined, { dumpId: next.id }), (e: any) => e.status === 400);
+  T.saveTask(cur, false);
+  assert.equal(T.getTask(t.id)!.dump!.id, dump.id);
+  assert.ok(fs.existsSync(D.dumpFile(dump.id)), 'waiting dump kept');
+  assert.equal(db.codeDumpGet(next.id)!.taskId, null, 'new dump not bound');
+  D.deleteDump(next.id);
   // a plain retry blocks again
   J.runSteps(t.id, 'version-check'); await settled(t.id);
   assert.equal(T.getTask(t.id)!.status, 'failed');

@@ -134,6 +134,7 @@ export async function completeDump(id: string, sha256?: string | null): Promise<
   const sum = hash.digest('hex');
   if (sha256 && sha256.toLowerCase() !== sum) { deleteDump(id); throw new DumpError('Prüfsumme stimmt nicht – Dump verworfen, bitte erneut hochladen.', 422); }
   if (!looksLikeSql(await sqlHead(dumpFile(id)))) { deleteDump(id); throw new DumpError('Kein SQL-Dump: erwartet wird eine .sql- oder .sql.gz-Datei aus mysqldump/mariadb-dump.', 415); }
+  if (await dumpSwitchesDatabase(dumpFile(id))) { deleteDump(id); throw new DumpError('Der Dump wählt eine eigene Datenbank (USE bzw. CREATE DATABASE) und würde am Shop vorbei importiert – mit mysqldump ohne --databases/--all-databases erstellen und erneut hochladen.', 422); }
   const done: CodeDumpRow = { ...d, sha256: sum, status: 'ready' };
   codeDumpPut(done);
   return done;
@@ -148,12 +149,16 @@ export function deleteDump(id: string, now = Date.now()): void {
 }
 export const deleteTaskDumps = (taskId: string) => { for (const d of codeDumpsLive(taskId)) deleteDump(d.id); };
 
-/** Binds a complete dump to a task (a dump belongs to at most one task). */
-export function attachDump(id: string, taskId: string): CodeDumpRow {
+/** Checks without changing anything that the dump can be bound to this task. */
+export function assertAttachable(id: string, taskId: string): CodeDumpRow {
   const d = getDump(id);
   if (d.status !== 'ready') throw new DumpError(d.status === 'uploading' ? 'Der Dump ist noch nicht vollständig hochgeladen.' : 'Der Dump ist bereits gelöscht.', 409);
   if (d.taskId && d.taskId !== taskId) throw new DumpError('Der Dump gehört zu einer anderen Aufgabe.', 409);
-  const next = { ...d, taskId };
+  return d;
+}
+/** Binds a complete dump to a task (a dump belongs to at most one task). */
+export function attachDump(id: string, taskId: string): CodeDumpRow {
+  const next = { ...assertAttachable(id, taskId), taskId };
   codeDumpPut(next);
   return next;
 }
@@ -171,28 +176,43 @@ export function dumpPathFor(id: string, taskId: string): string {
   return dumpFile(id);
 }
 
-/** Shopware major.minor from the core migrations recorded in the dump (Shopware\Core\Migration\V6_6\… → "6.6"). null = unknown. */
-export async function dumpShopwareVersion(file: string): Promise<string | null> {
+/** The decompressed (if gzip) lines of a dump, streamed; a very long line (an INSERT) is cut to its start. */
+async function* dumpLines(file: string): AsyncGenerator<string> {
   const fd = fs.openSync(file, 'r');
   const magic = Buffer.alloc(2);
   try { fs.readSync(fd, magic, 0, 2, 0); } finally { fs.closeSync(fd); }
   const src = fs.createReadStream(file);
   const stream: AsyncIterable<Buffer> = isGzip(magic) ? src.pipe(zlib.createGunzip()) : src;
-  const RE = /Core\\+Migration\\+V(\d+)_(\d+)\\+/g;
-  let best: [number, number] | null = null, inMigration = false, rest = '';
+  let rest = '', long = false;
   try {
     for await (const c of stream) {
-      const text = rest + c.toString('latin1');
-      const lines = text.split('\n');
+      const lines = (rest + c.toString('latin1')).split('\n');
       rest = lines.pop() ?? '';
-      if (rest.length > 4 * 1024 * 1024) rest = rest.slice(-1024); // a very long line is never the migration table's
-      for (const l of lines) {
-        if (!l.startsWith('INSERT INTO `migration`')) { if (inMigration && l.startsWith('INSERT INTO')) return fmt(best); continue; }
-        inMigration = true;
-        for (const m of l.matchAll(RE)) { const v: [number, number] = [Number(m[1]), Number(m[2])]; if (!best || v[0] > best[0] || (v[0] === best[0] && v[1] > best[1])) best = v; }
-      }
+      if (long) { if (lines.length) { lines.shift(); long = false; } else rest = ''; } // the remainder of a cut line
+      yield* lines;
+      if (rest.length > 4 * 1024 * 1024) { yield rest.slice(0, 64 * 1024); rest = ''; long = true; }
     }
+    if (rest && !long) yield rest;
   } finally { src.destroy(); }
+}
+
+/** A statement that selects or creates another schema (mysqldump --databases/--all-databases): the import would land beside the
+ *  shop database and leave the demo data in place. mysqldump writes each statement on its own line (newlines in data are escaped). */
+const SWITCHES_DB = /^\s*(?:\/\*!\d*\s*)?(?:USE\s|CREATE\s+(?:DATABASE|SCHEMA)\b)/i;
+export async function dumpSwitchesDatabase(file: string): Promise<boolean> {
+  try { for await (const l of dumpLines(file)) if (SWITCHES_DB.test(l)) return true; } catch { /* broken gzip: the import reports it */ }
+  return false;
+}
+
+/** Shopware major.minor from the core migrations recorded in the dump (Shopware\Core\Migration\V6_6\… → "6.6"). null = unknown. */
+export async function dumpShopwareVersion(file: string): Promise<string | null> {
+  const RE = /Core\\+Migration\\+V(\d+)_(\d+)\\+/g;
+  let best: [number, number] | null = null, inMigration = false;
+  for await (const l of dumpLines(file)) {
+    if (!l.startsWith('INSERT INTO `migration`')) { if (inMigration && l.startsWith('INSERT INTO')) break; continue; }
+    inMigration = true;
+    for (const m of l.matchAll(RE)) { const v: [number, number] = [Number(m[1]), Number(m[2])]; if (!best || v[0] > best[0] || (v[0] === best[0] && v[1] > best[1])) best = v; }
+  }
   return fmt(best);
 }
 const fmt = (v: [number, number] | null) => (v ? `${v[0]}.${v[1]}` : null);
