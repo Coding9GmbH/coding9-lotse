@@ -15,6 +15,7 @@ import { singleton } from '../state';
 import { errMsg } from '../util';
 import { getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
 import { allocateLocalPort, ensureNetwork, networkMode } from './network';
+import { clearJar } from './preview';
 import { getRunner } from './runner';
 import { TASK_LABEL } from './labels';
 import { syncAll } from './sync';
@@ -204,7 +205,7 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
     createContainer: async () => {
       const cfg = getSandboxConfig(), mode = networkMode();
       for (const c of await runner.list({ [TASK_LABEL]: t.id })) { lg(`Alten Container ${c.name} entfernen …`); await runner.remove(c.id); }
-      t.containerId = null; t.containerRunning = false;
+      t.containerId = null; t.containerRunning = false; clearJar(t.id); // a new shop: the old storefront session is meaningless
       if (mode === 'network') await ensureNetwork(runner);
       const port = mode === 'local' ? await allocateLocalPort() : undefined;
       const spec = tpl.buildSpec({ taskId: t.id, image: cfg.image, memoryMb: cfg.memoryMb, cpus: cfg.cpus, env: cfg.env, mode, port });
@@ -313,6 +314,7 @@ export async function finishTask(id: string): Promise<CodeTask> {
       const p = taskPaths(id);
       for (const d of [p.workspace, p.gitDir, p.dumps, p.screenshots]) fs.rmSync(d, { recursive: true, force: true });
       for (const s of fresh.steps) if (s.state === 'running') s.state = 'interrupted';
+      clearJar(id);
       Object.assign(fresh, { status: 'done', containerId: null, containerRunning: false, finishedAt: now(), error: null } satisfies Partial<CodeTask>);
       saveTask(fresh);
     });

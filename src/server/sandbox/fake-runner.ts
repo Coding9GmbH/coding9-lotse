@@ -49,6 +49,8 @@ export class FakeRunner implements SandboxRunner {
   /** next call of this operation fails with the message */
   failNext: { op: string; message: string } | null = null;
   script: ExecScript = () => undefined;
+  /** tests: answer a storefront request of a started container itself (true = handled) */
+  storefront: ((req: http.IncomingMessage, res: http.ServerResponse, containerId: string) => boolean) | null = null;
   /** every uploaded archive, decoded (tests check owner and paths) */
   archives: { id: string; dir: string; entries: TarRecord[] }[] = [];
   private seq = 0;
@@ -87,6 +89,7 @@ export class FakeRunner implements SandboxRunner {
     if (c.running) return;
     c.running = true;
     c.server = http.createServer((req, res) => {
+      if (this.storefront?.(req, res, c.id)) return;
       const p = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
       const file = c.files.get(`${WEBROOT}${p === '/' ? '/index.html' : p}`);
       if (file) { res.writeHead(200, { 'content-type': p.endsWith('.css') ? 'text/css' : p.endsWith('.js') ? 'text/javascript' : 'text/html; charset=utf-8' }); res.end(file); return; }

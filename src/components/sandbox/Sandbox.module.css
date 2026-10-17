@@ -1,5 +1,6 @@
 .page { height: 100%; overflow-y: auto; }
 .wrap { max-width: 880px; margin: 0 auto; padding: 28px 18px 60px; }
+.wrapWide { max-width: 1320px; } /* task view: the storefront preview needs a desktop width (Shopware's desktop layout starts at 992 px) */
 .h1 { font-size: 28px; margin: 0 0 4px; }
 .h3 { font-size: 15px; margin: 18px 0 6px; }
 .lead { color: var(--mute); margin: 0 0 20px; max-width: 680px; }
@@ -92,3 +93,14 @@
 .tlLog { margin-top: 6px; font-size: 13px; }
 .tlLog summary { cursor: pointer; color: var(--mute); }
 .tlLog pre { margin: 6px 0 0; padding: 10px; max-height: 320px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---- Preview of the sandbox storefront ---- */
+.pvBar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.card .pvBar input { flex: 1 1 200px; width: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.pvToggle { min-height: 32px; min-width: 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; }
+.pvAdmin { font-size: 13px; color: var(--mute); }
+.pvView { background: var(--sand); border-radius: 10px; padding: 10px; }
+.pvFrame { display: block; width: 100%; height: min(70vh, 720px); border: 1px solid var(--line); border-radius: 8px; background: #fff; transition: width .2s; }
+.pvMobile .pvFrame { width: 390px; max-width: 100%; margin: 0 auto; }
+.pvEmpty { min-height: 160px; display: grid; place-items: center; align-content: center; gap: 10px; text-align: center; color: var(--mute); font-size: 13px; }
+.pvEmpty p { margin: 0; max-width: 420px; }

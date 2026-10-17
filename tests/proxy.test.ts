@@ -36,3 +36,25 @@ test('API calls from foreign pages (Sec-Fetch-Site: cross-site) are rejected, GE
   assert.equal(await status(req('/api/ping', 'GET', { 'sec-fetch-site': 'cross-site' })), 200, 'health check unchanged');
   assert.equal(await status(req('/', 'GET', { 'sec-fetch-site': 'cross-site' })), 200, 'pages (links from elsewhere) stay reachable');
 });
+
+test('sandbox preview: root paths requested from a /sbx/<id>.<key>/ document go to that sandbox, otherwise to /shop or Lotse', async () => {
+  const seg = 't_abcdefghijk1.0123456789abcdef0123', css = `http://localhost:3333/sbx/${seg}/theme/a.css`;
+  const rewritten = async (r: NextRequest) => (await proxy(r)).headers.get('x-middleware-rewrite');
+  assert.equal(await rewritten(req('/theme/font.woff2', 'GET', { referer: css })), `http://localhost:3333/sbx/${seg}/theme/font.woff2`);
+  assert.equal(await rewritten(req('/api/chats', 'GET', { referer: css, 'sec-fetch-site': 'cross-site' })), `http://localhost:3333/sbx/${seg}/api/chats`, 'never reaches the Lotse API');
+  assert.equal(await rewritten(req('/theme/a.css')), 'http://localhost:3333/shop/theme/a.css', 'without that Referer: live shop');
+  assert.equal(await rewritten(req('/theme/a.css', 'GET', { referer: `http://fremd.test/sbx/${seg}/` })), 'http://localhost:3333/shop/theme/a.css', 'other host');
+  assert.equal(await rewritten(req('/theme/a.css', 'GET', { referer: 'http://localhost:3333/sbx/t_abcdefghijk1/' })), 'http://localhost:3333/shop/theme/a.css', 'without key');
+  assert.equal(await rewritten(req(`/sbx/${seg}/x`, 'GET', { referer: 'http://localhost:3333/sbx/t_other0000000.0123456789abcdef0123/' })), null, 'prefixed paths stay');
+});
+
+test('sandbox preview: the opaque-origin preview may write (the route checks the key); other methods 405; login still required', async () => {
+  const seg = 't_abcdefghijk1.0123456789abcdef0123';
+  assert.equal(await status(req(`/sbx/${seg}/checkout/line-item/add`, 'POST', { origin: 'null', 'sec-fetch-site': 'cross-site' })), 200, 'form of the opaque-origin preview');
+  assert.equal(await status(req(`/sbx/${seg}/x`, 'PROPFIND')), 405);
+  assert.equal(await status(req(`/sbx/${seg}/x`, 'GET', { 'sec-fetch-site': 'cross-site' })), 200, 'assets of the opaque-origin preview are cross-site');
+  assert.equal(await status(req('/api/approve', 'POST', { origin: 'null', referer: `http://localhost:3333/sbx/${seg}/` })), 200, 'from a preview page: rewritten into the sandbox, not Lotse');
+  assert.equal((await proxy(req('/api/approve', 'POST', { origin: 'null', referer: `http://localhost:3333/sbx/${seg}/` }))).headers.get('x-middleware-rewrite'), `http://localhost:3333/sbx/${seg}/api/approve`);
+  process.env.LOTSE_PASSWORD = 'geheim';
+  try { assert.equal(await status(req(`/sbx/${seg}/`)), 401); } finally { delete process.env.LOTSE_PASSWORD; }
+});

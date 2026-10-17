@@ -180,6 +180,8 @@ function warnUnseal(e: unknown) {
   const w = unsealWarned(); if (w.done) return; w.done = true;
   void import('./log').then(({ log }) => log.warn('Gespeicherter geheimer Wert lässt sich nicht entschlüsseln (secret.key ersetzt oder Wert beschädigt); er wird als leer behandelt', { error: e instanceof Error ? e.message : String(e) })).catch(() => {});
 }
+/** Keyed hash with the data folder's secret (e.g. unguessable per-task URLs); `label` separates the purposes. */
+export const macOf = (label: string, msg: string): string => crypto.createHmac('sha256', key()).update(`${label}\0${msg}`).digest('hex');
 export function seal(text: unknown): string | null {
   if (text == null || text === '') return null;
   const iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', key(), iv), ct = Buffer.concat([c.update(String(text), 'utf8'), c.final()]);

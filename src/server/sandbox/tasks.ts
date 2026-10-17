@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
 import type { CodeTaskPublic, CodeTaskStatus, CommandPhase, TaskEvent, TaskLayout, TaskStep } from '@/lib/protocol';
-import { codeTaskGet, codeTaskList, codeTaskPut, dataDir, type CodeTaskRow } from '../db';
+import { codeTaskGet, codeTaskList, codeTaskPut, dataDir, macOf, type CodeTaskRow } from '../db';
 import { assertLotseBranch } from '../git';
 import { singleton } from '../state';
 import { getSandboxConfig } from './env';
@@ -93,6 +93,11 @@ export function listen(id: string, fn: (ev: TaskEvent) => void): () => void {
 export const hasListeners = (id: string) => (live().listeners.get(id)?.size ?? 0) > 0;
 export function emitTask(id: string, ev: TaskEvent) { for (const fn of live().listeners.get(id) ?? []) { try { fn(ev); } catch { /* listener gone */ } } }
 
+/** Preview path /sbx/<id>.<key>: the key (keyed hash of the id) makes the URL unguessable. The preview runs in an opaque origin
+ *  whose requests carry neither cookies nor a Referer, so the key is what ties a request (form post, ajax) to this task. */
+export const previewKey = (id: string) => macOf('sandbox-preview', assertTaskId(id)).slice(0, 20);
+export const previewPath = (id: string) => `/sbx/${id}.${previewKey(id)}`;
+
 /** What the browser sees: no stored commands; without logs for the list. */
 export function publicTask(t: CodeTask, o: { logs?: boolean } = {}): CodeTaskPublic {
   return {
@@ -100,7 +105,7 @@ export function publicTask(t: CodeTask, o: { logs?: boolean } = {}): CodeTaskPub
     status: t.status, layout: t.layout, error: t.error,
     steps: t.steps.map(({ id, key, label, state, startedAt, endedAt, log, error }) => ({ id, key, ...(label ? { label } : {}), state, ...(startedAt ? { startedAt } : {}), ...(endedAt ? { endedAt } : {}), log: o.logs === false ? [] : log, ...(error ? { error } : {}) })),
     container: t.containerId ? { running: t.containerRunning } : null,
-    prUrl: t.prUrl, createdAt: t.createdAt, updatedAt: t.updatedAt, lastActiveAt: t.lastActiveAt, finishedAt: t.finishedAt,
+    preview: previewPath(t.id), prUrl: t.prUrl, createdAt: t.createdAt, updatedAt: t.updatedAt, lastActiveAt: t.lastActiveAt, finishedAt: t.finishedAt,
   };
 }
 

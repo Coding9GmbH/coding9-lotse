@@ -2,6 +2,7 @@
 // and forwarding of storefront paths to the shop proxy.
 import { NextResponse, type NextRequest } from 'next/server';
 import { STOREFRONT_PREFIX_HEADER, storefrontPrefix } from '@/lib/platforms';
+import { SANDBOX_PATH, sandboxReferer } from '@/lib/urls';
 import { LOCAL_HOSTS, PEER_HEADER, extraAllowedHosts, inCidr, normalizeIp, sandboxSubnet } from '@/server/access';
 
 const LOOPBACK_HOPS = new Set(['127.0.0.1', '::1', 'localhost', '[::1]']);
@@ -87,6 +88,8 @@ export async function passwordOk(authorization: string | null, password: string)
   return constantTimeEqual(await sha256(given), await sha256(password));
 }
 
+const SANDBOX_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE']);
+
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const hostHeader = req.headers.get('host') ?? '', forwardedFor = req.headers.get('x-forwarded-for'), peer = req.headers.get(PEER_HEADER);
@@ -96,19 +99,27 @@ export async function proxy(req: NextRequest) {
 
   if (!hostAllowed(hostHeader, forwardedFor, peer)) return new NextResponse('Host nicht erlaubt', { status: 403 });
 
-  // Foreign pages may fire no-cors GETs at localhost (img/script/fetch), and some GETs have side effects (crawl, preview refresh).
-  // The browser marks these as cross-site; only that is rejected. Without the header (curl, MCP agent process, tests) allowed.
-  if (pathname.startsWith('/api/') && req.headers.get('sec-fetch-site')?.trim().toLowerCase() === 'cross-site') return new NextResponse('Aufruf von fremder Seite nicht erlaubt', { status: 403 });
+  // Sandbox preview (/sbx/<id>.<key>/…, and root paths requested from a preview stylesheet, recognized by its Referer): only ever
+  // forwarded to that task's container, never to Lotse's API or pages. The opaque-origin preview sends Origin "null" and no cookies,
+  // so the UI checks below cannot apply; the unguessable key in the path (checked by the route) ties a request to the task instead.
+  const own = pathname.match(SANDBOX_PATH)?.[1] ?? null, fromSbx = own ? null : sandboxReferer(req.headers.get('referer'), hostHeader);
+  if (own || fromSbx) {
+    if (!SANDBOX_METHODS.has(req.method)) return new NextResponse(null, { status: 405 });
+  } else {
+    // Foreign pages may fire no-cors GETs at localhost (img/script/fetch), and some GETs have side effects (crawl, preview refresh).
+    // The browser marks these as cross-site; only that is rejected. Without the header (curl, MCP agent process, tests) allowed.
+    if (pathname.startsWith('/api/') && req.headers.get('sec-fetch-site')?.trim().toLowerCase() === 'cross-site') return new NextResponse('Aufruf von fremder Seite nicht erlaubt', { status: 403 });
 
-  const origin = req.headers.get('origin');
-  const writes = req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS';
-  if (writes && origin) {
-    let ok = false; try { ok = new URL(origin).host === hostHeader; } catch {} // Origin "null" (sandboxed preview) fails here
-    if (!ok) return new NextResponse('Origin nicht erlaubt', { status: 403 });
+    const origin = req.headers.get('origin');
+    const writes = req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS';
+    if (writes && origin) {
+      let ok = false; try { ok = new URL(origin).host === hostHeader; } catch {} // Origin "null" (sandboxed preview) fails here
+      if (!ok) return new NextResponse('Origin nicht erlaubt', { status: 403 });
+    }
+    // Double safeguard: writing calls only with the UI's marker (lib/api.ts); a simple request from an embedded
+    // preview or a foreign page doesn't have it. MCP (Codex) has its own token per chat.
+    if (writes && !pathname.startsWith('/api/mcp/') && req.headers.get('x-lotse') !== '1') return new NextResponse('Kennung der Oberfläche fehlt', { status: 403 });
   }
-  // Double safeguard: writing calls only with the UI's marker (lib/api.ts); a simple request from an embedded
-  // preview or a foreign page doesn't have it. MCP (Codex) has its own token per chat.
-  if (writes && !pathname.startsWith('/api/mcp/') && req.headers.get('x-lotse') !== '1') return new NextResponse('Kennung der Oberfläche fehlt', { status: 403 });
 
   // MCP endpoint for Codex: own token per chat instead of browser login
   const password = process.env.LOTSE_PASSWORD;
@@ -122,6 +133,12 @@ export async function proxy(req: NextRequest) {
     }
     loginOk(key);
   }
+
+  if (fromSbx) {
+    const url = req.nextUrl.clone(); url.pathname = `/sbx/${fromSbx}${pathname}`;
+    return NextResponse.rewrite(url);
+  }
+  if (own) return NextResponse.next();
 
   const prefix = storefrontPrefix(pathname);
   if (prefix) {

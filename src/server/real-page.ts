@@ -95,3 +95,7 @@ export function extractBlocks(html: string, byType: Record<string, string[]>): R
 export function injectIntoHead(html: string, headExtra: string): string {
   return /<\/head\s*>/i.test(html) ? html.replace(/<\/head\s*>/i, () => `${headExtra}</head>`) : headExtra + html; // function: don't evaluate $ patterns in the script
 }
+/** Right after <head …> (before the page's own scripts), otherwise at the start. */
+export function injectAtHeadStart(html: string, extra: string): string {
+  return /<head(\s[^>]*)?>/i.test(html) ? html.replace(/<head(\s[^>]*)?>/i, m => m + extra) : extra + html;
+}

@@ -258,6 +258,7 @@ export interface CodeTaskPublic {
   id: string; title: string; goal: string; repo: string; baseBranch: string; branch: string; template: string;
   status: CodeTaskStatus; steps: TaskStep[]; layout: TaskLayout | null; error: string | null;
   /** a container exists and is running (null = none) */ container: { running: boolean } | null;
+  /** path prefix of the storefront preview (/sbx/<id>.<key>) */ preview: string;
   prUrl: string | null; createdAt: string; updatedAt: string; lastActiveAt: string; finishedAt: string | null;
 }
 /** NDJSON lines of GET /api/sandbox/tasks/[id]/events: full task on transitions, single log lines in between */

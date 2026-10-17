@@ -8,6 +8,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useTaskEvents } from '@/hooks/useTaskEvents';
 import { Button } from '@/components/ui/Button';
 import { SandboxOff } from './SandboxOff';
+import { SandboxPreview } from './SandboxPreview';
 import { StepTimeline } from './StepTimeline';
 import { TaskStatus } from './TaskList';
 import styles from './Sandbox.module.css';
@@ -43,7 +44,7 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
   const s = task.status, hint = t.hints[s];
   return (
     <div className={styles.page}>
-      <main className={styles.wrap}>
+      <main className={`${styles.wrap} ${styles.wrapWide}`}>
         {back}
         <header className={styles.taskHead}>
           <h1 className={styles.h1}>{task.title}</h1>
@@ -67,6 +68,7 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
           {notice && <span className={styles.bad} role="alert">{notice}</span>}
         </div>
 
+        {s !== 'done' && <SandboxPreview task={task} />}
         {task.goal && (
           <section className={styles.card} aria-labelledby="sbx-goal">
             <div className={styles.cardHead}><h2 id="sbx-goal">{t.goal}</h2></div>
