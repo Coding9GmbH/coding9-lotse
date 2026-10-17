@@ -1,6 +1,8 @@
+import crypto from 'node:crypto';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { Readable } from 'node:stream';
 import path from 'node:path';
 import '../isolate-data';
 import { sandboxForTests } from '../support/sandbox-task';
@@ -17,6 +19,8 @@ const P = await import('../../src/server/sandbox/publish');
 const { FAKE_PNG } = await import('../../src/server/sandbox/fake-runner');
 const { assertSafeSpec } = await import('../../src/server/sandbox/guards');
 const { withActor } = await import('../../src/server/actor');
+const D = await import('../../src/server/sandbox/dumps');
+const { getTemplate } = await import('../../src/server/sandbox/templates');
 const route = await import('../../src/app/api/sandbox/tasks/[id]/screenshots/[file]/route');
 after(S.close);
 
@@ -177,10 +181,59 @@ test('before screenshots: kept on a re-run, taken again after a new clone; a fai
   E.saveSandbox({ screenshotPaths: ['/'] });
 });
 
-test('finish removes the screenshots with the task', async () => {
+test('the step time limit (e.g. a slow image pull) only skips the before screenshots; the setup still ends ready', async () => {
+  const def = getTemplate(task.template).steps.find(s => s.id === 'screenshots')!, limit = def.timeoutMs, pull = fake.ensureImage;
+  def.timeoutMs = 50;
+  fake.ensureImage = (_image: string, _progress?: unknown, signal?: AbortSignal) => new Promise<{ pulled: boolean }>((_, no) => signal!.addEventListener('abort', () => no(new Error('Abbruch beim Laden')), { once: true }));
+  try {
+    J.runSteps(task.id, 'screenshots');
+    await S.until(() => !J.setupRunning(task.id));
+  } finally { def.timeoutMs = limit; fake.ensureImage = pull; }
+  const t = T.getTask(task.id)!;
+  assert.equal(t.status, 'ready', t.error ?? '');
+  assert.equal(t.steps.find(s => s.key === 'screenshots')!.state, 'skipped');
+  assert.match(t.shots!.before!.error!, /Abbruch beim Laden/);
+});
+
+test('"Datenbank ersetzen" after edits: no new before screenshots of the changed code (empty set with reason)', async () => {
   J.runSteps(task.id, 'screenshots');
+  await S.until(() => !J.setupRunning(task.id));
+  assert.equal(T.getTask(task.id)!.shots!.before!.items.length, 2, 'unchanged code: taken');
+  write(task.id, "{% block layout_header %}<div>Neu</div>{% endblock %}\n");
+  fake.script = argv => (argv[1] === '--version' ? { output: 'Shopware 6.7.15.1 (env: dev, debug: true)' } : undefined);
+  const data = Buffer.from("-- MySQL dump\nINSERT INTO `migration` VALUES ('Shopware\\\\Core\\\\Migration\\\\V6_7\\\\Migration1700000000Foo',1,NULL,NULL,NULL);\n");
+  const d = D.createDump('shop.sql', data.length);
+  await D.appendChunk(d.id, 0, Readable.from([data]));
+  J.runSteps(task.id, undefined, { dumpId: (await D.completeDump(d.id)).id });
+  await S.until(() => !J.setupRunning(task.id));
+  fake.script = () => undefined;
+  const t = T.getTask(task.id)!;
+  assert.equal(t.status, 'ready', t.error ?? '');
+  assert.equal(t.steps.find(s => s.key === 'import-db')!.state, 'done');
+  assert.equal(t.steps.find(s => s.key === 'screenshots')!.state, 'skipped');
+  assert.deepEqual(t.shots!.before!.items, []);
+  assert.match(t.shots!.before!.error!, /schon geändert/);
+  assert.ok(!fs.existsSync(path.join(T.taskPaths(task.id).screenshots, 'before-1-desktop.png')));
+});
+
+test('a running publish keeps its container: neither the idle sweeper nor another setup stops it', async () => {
+  let release!: () => void;
+  T.markPublishing(task.id, new Promise<void>(r => { release = r; }));
+  try {
+    assert.deepEqual(await J.pauseIdle(Date.now() + 365 * 24 * 3600_000), []);
+    process.env.LOTSE_SANDBOX_MAX = '1';
+    const other = T.createTask({ chatId: crypto.randomUUID(), title: 'Zweite', goal: '', repo: 'acme/shop-theme', baseBranch: 'main' });
+    assert.throws(() => J.runSteps(other.id), (e: any) => e.status === 409);
+    await J.deleteTask(other.id);
+  } finally { delete process.env.LOTSE_SANDBOX_MAX; release(); await T.publishSettled(task.id); }
+  assert.equal(T.getTask(task.id)!.status, 'ready');
+});
+
+test('finish removes the screenshots with the task; the finished task lists none', async () => {
+  J.runSteps(task.id, 'clone');
   await S.until(() => !J.setupRunning(task.id));
   assert.ok(fs.existsSync(path.join(T.taskPaths(task.id).screenshots, 'before-1-desktop.png')));
   await J.finishTask(task.id);
   assert.ok(!fs.existsSync(T.taskPaths(task.id).screenshots));
+  assert.deepEqual(T.publicTask(T.getTask(task.id)!).shots, { before: null, after: null });
 });

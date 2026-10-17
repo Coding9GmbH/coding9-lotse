@@ -23,7 +23,7 @@ export interface StepCtx {
   createContainer: () => Promise<void>;
   /** HTTP status of a storefront path, requested by Lotse with Host: localhost (the domain Dockware knows) */
   httpStatus: (path: string) => Promise<number>;
-  /** before screenshots of the storefront (once per clone/import; a failure only skips the step) */
+  /** before screenshots of the storefront (once per clone/import while the code equals the base branch; a failure only skips the step) */
   screenshots: () => Promise<void | 'skipped'>;
   /** workspace → container (full mirror of the plugin directory) */
   syncAll: () => Promise<void>;
