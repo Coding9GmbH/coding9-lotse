@@ -18,6 +18,7 @@ test('registry holds only dockware; step ids unique; custom command slots around
   assert.ok(ids.indexOf('custom-after-db') > ids.indexOf('import-db') && ids.indexOf('custom-after-db') < ids.indexOf('theme-compile'), 'after-db runs before theme:compile');
   assert.ok(ids.indexOf('custom-final') > ids.indexOf('theme-compile') && ids.indexOf('custom-final') < ids.indexOf('ready'), 'final runs before ready');
   assert.deepEqual(t.steps.filter(s => s.custom).map(s => s.custom), ['after-db', 'final']);
+  assert.ok(ids.indexOf('version-check') < ids.indexOf('import-db') && ids.indexOf('import-db') < ids.indexOf('set-domain') && ids.indexOf('set-domain') < ids.indexOf('install-plugin') && ids.indexOf('install-plugin') < ids.indexOf('custom-after-db'), 'the dump replaces the database before the plugin is installed into it');
   assert.throws(() => getTemplate('constructor'), /Unbekannte Sandbox-Vorlage/);
 });
 

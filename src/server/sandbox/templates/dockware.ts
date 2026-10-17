@@ -54,6 +54,40 @@ export async function waitReady(ctx: Pick<StepCtx, 'run' | 'httpStatus' | 'log' 
 /** Domain stays http://localhost (see top); after a dump import the storefront domain is pointed back to it. Fixed SQL, no input. */
 const SET_DOMAIN_SQL = "UPDATE sales_channel_domain SET url = 'http://localhost' WHERE url NOT LIKE 'default.%' AND url <> 'http://localhost' AND NOT EXISTS (SELECT 1 FROM (SELECT id FROM sales_channel_domain WHERE url = 'http://localhost') AS d) ORDER BY created_at LIMIT 1";
 
+/** Where the dump lands in the container for the import; removed by the import command itself and again afterwards. */
+export const IMPORT_DIR = '/tmp/lotse-import';
+/** Constant argv, no interpolation: decompress if needed, import as root into the shop database, always delete the file. */
+export const IMPORT_ARGV = ['bash', '-c', `set -o pipefail; gunzip -cf ${IMPORT_DIR}/dump | mysql -uroot -proot -h127.0.0.1 shopware; rc=$?; rm -rf ${IMPORT_DIR}; exit $rc`];
+const minor = (v: string) => v.split('.').slice(0, 2).join('.');
+
+/** Dump vs. image: a different major.minor blocks until the user chooses "Trotzdem fortfahren". */
+async function versionCheck(ctx: StepCtx): Promise<void | 'skipped'> {
+  const d = ctx.dump();
+  if (!d) { ctx.log('Kein Datenbank-Dump – nichts zu prüfen.'); return 'skipped'; }
+  const dumpV = await ctx.dumpVersion();
+  const image = /(\d+\.\d+\.\d+(?:\.\d+)?)/.exec((await ctx.run(bin('--version'))).output)?.[1] ?? null;
+  if (!dumpV || !image) { ctx.log(`Shopware-Version ${dumpV ? 'des Images' : 'des Dumps'} nicht erkennbar – keine Prüfung.`); ctx.setVersionMismatch(null); return; }
+  ctx.log(`Dump: Shopware ${dumpV} · Image: Shopware ${image}`);
+  if (minor(dumpV) === minor(image)) { ctx.setVersionMismatch(null); return; }
+  ctx.setVersionMismatch({ dump: dumpV, image });
+  if (d.ignoreVersion) { ctx.log('Abweichende Version – „Trotzdem fortfahren“ gewählt.'); return; }
+  throw new Error(`Dump stammt von ${dumpV}, Image enthält ${image} – passendes Dockware-Image (dockware/shopware:${dumpV}.x) in der Umgebung wählen oder „Trotzdem fortfahren“.`);
+}
+
+/** Import, then the dump is deleted on the host and in the container – also when the import fails. */
+async function importDb(ctx: StepCtx): Promise<void | 'skipped'> {
+  const d = ctx.dump();
+  if (!d) { ctx.log('Kein Datenbank-Dump – es bleiben die Demodaten von Dockware.'); return 'skipped'; }
+  let ok = false;
+  try {
+    ctx.log(`Dump ${d.name} (${(d.size / 1048576).toFixed(1)} MB) in den Container übertragen …`);
+    await ctx.copyDump(IMPORT_DIR);
+    await ctx.run(IMPORT_ARGV);
+    ok = true;
+  } finally { await ctx.discardDump(ok, IMPORT_DIR); }
+  ctx.log('Datenbank importiert. Dump gelöscht ✓');
+}
+
 const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
   'check-image': ctx => ctx.ensureImage(),
   clone: async ctx => { const { head } = await ctx.clone(); ctx.log(`Commit ${head.slice(0, 12)}`); },
@@ -73,7 +107,8 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
     }
     if (l.kind === 'theme') await ctx.run(bin('theme:change', '--all', '--no-compile', '--', l.name));
   },
-  'import-db': async ctx => { ctx.log('Kein Datenbank-Dump – es bleiben die Demodaten von Dockware.'); return 'skipped'; },
+  'version-check': versionCheck,
+  'import-db': importDb,
   'set-domain': async ctx => { await ctx.run([...MYSQL, '-e', SET_DOMAIN_SQL]); ctx.log('Storefront-Domain: http://localhost'); },
   'theme-compile': async ctx => { await ctx.run(bin('theme:compile')); await ctx.run(bin('cache:clear')); },
   ready: async ctx => { const s = await ctx.httpStatus('/'); if (s !== 200) throw new Error(`Die Storefront antwortet mit HTTP ${s}.`); },
@@ -85,9 +120,11 @@ const STEPS: TemplateStep[] = [
   step('detect-layout', 30_000),
   step('start-container', 2 * MIN),
   step('wait-ready', 5 * MIN),
-  step('install-plugin', 5 * MIN),
-  step('import-db', 30 * MIN, { optional: true }),
+  // the dump replaces the whole database (plugin table, domains), so it comes first; the plugin is installed into it afterwards
+  step('version-check', 10 * MIN, { optional: true }),
+  step('import-db', 60 * MIN, { optional: true }),
   step('set-domain', MIN),
+  step('install-plugin', 5 * MIN),
   step('custom-after-db', 0, { custom: 'after-db' }),
   step('theme-compile', 10 * MIN),
   step('custom-final', 0, { custom: 'final' }),

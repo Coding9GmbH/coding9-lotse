@@ -7,6 +7,7 @@ import type { GithubBranch, GithubRepo } from '@/lib/protocol';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
+import { DumpUpload } from './DumpUpload';
 import styles from './Sandbox.module.css';
 
 /** Repository (from GitHub), base branch, title and goal; creating starts the setup and opens the task. */
@@ -17,6 +18,8 @@ export function NewTaskDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [branches, setBranches] = useState<GithubBranch[] | null>(null);
   const [form, setForm] = useState({ repo: '', baseBranch: '', title: '', goal: '' });
   const [busy, setBusy] = useState(false);
+  const [dumpId, setDumpId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,13 +42,13 @@ export function NewTaskDialog({ open, onClose }: { open: boolean; onClose: () =>
     e.preventDefault();
     setBusy(true); setError(null);
     try {
-      const { task } = await api.sandbox.createTask(form);
+      const { task } = await api.sandbox.createTask({ ...form, ...(dumpId ? { dumpId } : {}) });
       onClose();
       router.push(`/sandbox-coding/${task.id}`);
     } catch (err) { setError(t.failed(errorText(err))); }
     finally { setBusy(false); }
   }
-  const ready = form.repo && form.baseBranch && form.title.trim() && !busy;
+  const ready = form.repo && form.baseBranch && form.title.trim() && !busy && !uploading;
 
   return (
     <Dialog open={open} onClose={onClose} title={t.title} wide footer={
@@ -78,6 +81,7 @@ export function NewTaskDialog({ open, onClose }: { open: boolean; onClose: () =>
           <span className={styles.label}>{t.goal}</span>
           <textarea value={form.goal} rows={4} maxLength={4000} placeholder={t.goalPlaceholder} onChange={e => setForm(f => ({ ...f, goal: e.target.value }))} />
         </label>
+        <DumpUpload onChange={d => setDumpId(d?.id ?? null)} onBusy={setUploading} disabled={busy} />
         {repos && !repos.length && !error && <p className={styles.alert}>{t.noGithub}</p>}
         {error && <p className={styles.bad} role="alert">{error}</p>}
       </form>

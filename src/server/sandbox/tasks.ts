@@ -5,10 +5,11 @@ import 'server-only';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
-import type { CodeTaskPublic, CodeTaskStatus, CommandPhase, TaskEvent, TaskLayout, TaskStep } from '@/lib/protocol';
+import type { CodeTaskPublic, CodeTaskStatus, TaskDumpPublic, CommandPhase, TaskEvent, TaskLayout, TaskStep } from '@/lib/protocol';
 import { codeTaskGet, codeTaskList, codeTaskPut, dataDir, macOf, type CodeTaskRow } from '../db';
 import { assertLotseBranch } from '../git';
 import { singleton } from '../state';
+import { attachDump, deleteDump } from './dumps';
 import { getSandboxConfig } from './env';
 import { sandboxAlias } from './labels';
 import type { NetworkMode } from './network';
@@ -21,11 +22,14 @@ const LINE_MAX = 2000;
 
 /** A step as stored: own setup commands carry their command (user-authored environment, never AI input) and time limit. */
 export interface StoredStep extends TaskStep { phase?: CommandPhase; command?: string; timeoutSec?: number }
+/** The task's dump: id of the file in code_dumps while it waits for the import; afterwards only the facts remain. */
+export interface StoredDump { id: string; name: string; size: number; sha256: string | null; imported: boolean; deletedAt: string | null; ignoreVersion: boolean; versionMismatch?: { dump: string; image: string } }
 export interface CodeTask extends CodeTaskRow {
   title: string; goal: string; status: CodeTaskStatus; steps: StoredStep[]; layout: TaskLayout | null; error: string | null;
   /** container state as Lotse last set or saw it */ containerRunning: boolean;
   /** how Lotse reaches the container: alias on lotse-sandbox or a port on 127.0.0.1 */ mode: NetworkMode | null; port: number | null;
   lastActiveAt: string; finishedAt: string | null;
+  /** missing in rows from before dumps existed */ dump?: StoredDump | null;
 }
 
 export const now = () => new Date().toISOString();
@@ -43,7 +47,7 @@ const assertTaskId = (id: string) => { if (!TASK_ID.test(id)) throw new Error('U
 export const taskPaths = (id: string) => {
   const d = dataDir(); assertTaskId(id);
   return { workspace: path.join(d, 'workspaces', id), worktree: path.join(d, 'workspaces', id, 'repo'), gitDir: path.join(d, 'git', id),
-    /** later: uploaded dump and screenshots; removed with the task */ dumps: path.join(d, 'dumps', id), screenshots: path.join(d, 'screenshots', id) };
+    /** later: screenshots; removed with the task (dumps: dumps.ts) */ screenshots: path.join(d, 'screenshots', id) };
 };
 
 // ---- Store + live listeners ----
@@ -107,8 +111,18 @@ export function publicTask(t: CodeTask, o: { logs?: boolean } = {}): CodeTaskPub
     status: t.status, layout: t.layout, error: t.error,
     steps: t.steps.map(({ id, key, label, state, startedAt, endedAt, log, error }) => ({ id, key, ...(label ? { label } : {}), state, ...(startedAt ? { startedAt } : {}), ...(endedAt ? { endedAt } : {}), log: o.logs === false ? [] : log, ...(error ? { error } : {}) })),
     container: t.containerId ? { running: t.containerRunning } : null,
-    preview: previewPath(t.id), prUrl: t.prUrl, createdAt: t.createdAt, updatedAt: t.updatedAt, lastActiveAt: t.lastActiveAt, finishedAt: t.finishedAt,
+    preview: previewPath(t.id), dump: t.dump ? publicTaskDump(t.dump) : null, prUrl: t.prUrl, createdAt: t.createdAt, updatedAt: t.updatedAt, lastActiveAt: t.lastActiveAt, finishedAt: t.finishedAt,
   };
+}
+
+const publicTaskDump = (d: StoredDump): TaskDumpPublic => ({
+  name: d.name, size: d.size, sha256: d.sha256, imported: d.imported, deleted: !!d.deletedAt, ignoreVersion: d.ignoreVersion, ...(d.versionMismatch ? { versionMismatch: d.versionMismatch } : {}),
+});
+/** A complete uploaded dump becomes the task's dump (an older one that was not imported yet is deleted). */
+export function setTaskDump(t: CodeTask, dumpId: string): void {
+  const d = attachDump(dumpId, t.id);
+  if (t.dump && t.dump.id !== d.id && !t.dump.deletedAt) deleteDump(t.dump.id);
+  t.dump = { id: d.id, name: d.name, size: d.size, sha256: d.sha256, imported: false, deletedAt: null, ignoreVersion: false };
 }
 
 /** Steps of a new task: the template's steps; each slot for own commands becomes one step per configured command of that phase. */
@@ -121,7 +135,7 @@ export function planSteps(templateId: string, commands: { id: string; label: str
   return out;
 }
 
-export interface NewTask { title: string; goal: string; repo: string; baseBranch: string }
+export interface NewTask { title: string; goal: string; repo: string; baseBranch: string; dumpId?: string }
 /** Creates the row only (not running yet: runSteps sets setting_up). Own commands are taken from the environment now. */
 export function createTask(p: NewTask): CodeTask {
   const cfg = getSandboxConfig(), id = newTaskId(), ts = now();
@@ -131,8 +145,9 @@ export function createTask(p: NewTask): CodeTask {
     id, chatId: null, template: cfg.templateId, repo: p.repo, baseBranch: p.baseBranch, branch: branchFor(title, id),
     status: 'interrupted', containerId: null, prNumber: null, prUrl: null, pushedSha: null, createdAt: ts, updatedAt: ts,
     title, goal: p.goal.trim().slice(0, 4000), steps: planSteps(cfg.templateId, cfg.commands), layout: null, error: null,
-    containerRunning: false, mode: null, port: null, lastActiveAt: ts, finishedAt: null,
+    containerRunning: false, mode: null, port: null, lastActiveAt: ts, finishedAt: null, dump: null,
   };
+  if (p.dumpId) setTaskDump(t, p.dumpId);
   codeTaskPut(t);
   return t;
 }

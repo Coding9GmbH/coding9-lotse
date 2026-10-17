@@ -7,6 +7,8 @@ import { api, errorText } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useTaskEvents } from '@/hooks/useTaskEvents';
 import { Button } from '@/components/ui/Button';
+import { Dialog } from '@/components/ui/Dialog';
+import { DumpUpload } from './DumpUpload';
 import { SandboxOff } from './SandboxOff';
 import { SandboxPreview } from './SandboxPreview';
 import { StepTimeline } from './StepTimeline';
@@ -24,7 +26,16 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  async function act(action: Action, body: { fromStep?: string } = {}) {
+  const [replacing, setReplacing] = useState(false);
+  const [newDump, setNewDump] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function replaceDb() {
+    if (!newDump) return;
+    setBusy(true); setNotice(null);
+    try { setTask((await api.sandbox.replaceDb(id, newDump)).task); setReplacing(false); setNewDump(null); } catch (e) { setNotice(all.sandbox.task.actionFailed(errorText(e))); } finally { setBusy(false); }
+  }
+  async function act(action: Action, body: { fromStep?: string; ignoreVersion?: boolean } = {}) {
     if (!task) return;
     if (action === 'finish' && !window.confirm(t.finishConfirm(task.title))) return;
     setBusy(true); setNotice(null);
@@ -54,6 +65,7 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
           <b>{task.repo}</b> {t.branchInfo(task.baseBranch, task.branch)} · {all.sandbox.templates[task.template] ?? task.template}
           {' · '}{task.container ? (task.container.running ? t.container.running : t.container.stopped) : t.container.none}
           {task.layout && <> · {task.layout.pluginDir}</>}
+          {task.dump && <> · {all.sandbox.dump.info(task.dump.name, task.dump.size)} ({task.dump.imported ? all.sandbox.dump.imported : task.dump.deleted ? all.sandbox.dump.deleted : all.sandbox.dump.waiting})</>}
         </p>
         <p className={styles.hint} role="status">{typeof hint === 'function' ? hint(idleMinutes) : hint}</p>
         {error && <p className={styles.muted}>{t.connection(error)}</p>}
@@ -63,6 +75,7 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
           {s === 'ready' && <Button onClick={() => void act('pause')} disabled={busy}>{t.actions.pause}</Button>}
           {s === 'paused' && <Button variant="primary" onClick={() => void act('resume')} disabled={busy}>{t.actions.resume}</Button>}
           {(s === 'failed' || s === 'interrupted') && <Button variant="primary" onClick={() => void act('start')} disabled={busy}>{t.actions.retry}</Button>}
+          {['ready', 'paused', 'failed', 'interrupted'].includes(s) && <Button onClick={() => setReplacing(true)} disabled={busy}>{all.sandbox.dump.replace}</Button>}
           {s !== 'done' && <Button variant="danger" onClick={() => void act('finish')} disabled={busy}>{t.actions.finish}</Button>}
           {s === 'done' && <Button variant="danger" onClick={() => void remove()} disabled={busy}>{t.actions.remove}</Button>}
           {notice && <span className={styles.bad} role="alert">{notice}</span>}
@@ -77,8 +90,19 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
         )}
         <section className={styles.card} aria-labelledby="sbx-steps">
           <div className={styles.cardHead}><h2 id="sbx-steps">{t.steps}</h2></div>
-          <StepTimeline task={task} busy={busy} onRetry={stepId => void act('start', { fromStep: stepId })} />
+          <StepTimeline task={task} busy={busy} onRetry={stepId => void act('start', { fromStep: stepId })} onIgnoreVersion={() => void act('start', { fromStep: 'version-check', ignoreVersion: true })} />
         </section>
+        <Dialog open={replacing} onClose={() => { setReplacing(false); setNewDump(null); }} title={all.sandbox.dump.replaceTitle} wide footer={
+          <>
+            <Button variant="ghost" onClick={() => { setReplacing(false); setNewDump(null); }}>{all.sandbox.create.cancel}</Button>
+            <Button variant="primary" onClick={() => void replaceDb()} busy={busy} disabled={!newDump || uploading || busy}>{all.sandbox.dump.replaceSubmit}</Button>
+          </>
+        }>
+          <div className={styles.form}>
+            <p className={styles.hint}>{all.sandbox.dump.replaceLead}</p>
+            <DumpUpload onChange={d => setNewDump(d?.id ?? null)} onBusy={setUploading} disabled={busy} />
+          </div>
+        </Dialog>
       </main>
     </div>
   );

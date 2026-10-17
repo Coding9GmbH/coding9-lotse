@@ -5,7 +5,7 @@ import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget 
 import { createLineSplitter } from './ndjson';
 import type { CodexLoginState, GithubBranch, GithubPublic, GithubRepo, GithubTestResult, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
-  CodeTaskPublic, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
+  CodeTaskPublic, DumpPublic, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
 } from './protocol';
 
 export class ApiError extends Error {
@@ -82,12 +82,16 @@ export const api = {
     /** "Umgebung prüfen": progress lines while the image is pulled, then the result */
     check: (onEvent: (ev: SandboxCheckEvent) => void, signal?: AbortSignal) => checkStream(onEvent, signal),
     tasks: () => request<{ tasks: CodeTaskPublic[] }>('/api/sandbox/tasks'),
-    createTask: (t: { title: string; goal: string; repo: string; baseBranch: string }) => request<{ task: CodeTaskPublic }>('/api/sandbox/tasks', json('POST', t)),
+    createTask: (t: { title: string; goal: string; repo: string; baseBranch: string; dumpId?: string }) => request<{ task: CodeTaskPublic }>('/api/sandbox/tasks', json('POST', t)),
     task: (id: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`),
     deleteTask: (id: string) => request<{ ok: true }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     /** start | stop | pause | resume | finish; start takes the step to retry from */
-    taskAction: (id: string, action: 'start' | 'stop' | 'pause' | 'resume' | 'finish', body: { fromStep?: string } = {}) =>
+    taskAction: (id: string, action: 'start' | 'stop' | 'pause' | 'resume' | 'finish', body: { fromStep?: string; ignoreVersion?: boolean } = {}) =>
       request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/${action}`, json('POST', body)),
+    /** "Datenbank ersetzen": import an uploaded dump into the task's sandbox */
+    replaceDb: (id: string, dumpId: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/dump`, json('POST', { dumpId })),
+    dump: (id: string) => request<{ dump: DumpPublic }>(`/api/sandbox/dumps/${encodeURIComponent(id)}`),
+    deleteDump: (id: string) => request<{ ok: true }>(`/api/sandbox/dumps/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
   seoOverview: (refresh = false) => request<SeoOverview>(`/api/seo${refresh ? '?refresh=1' : ''}`),
   seoStored: () => request<SeoOverview | null>('/api/seo?stored=1'),
@@ -127,6 +131,39 @@ export const listenChat = (chatId: string, signal: AbortSignal) => fetch(`/api/c
 
 /** NDJSON of one code task (snapshot, then live events). */
 export const listenTask = (id: string, signal: AbortSignal) => fetch(`/api/sandbox/tasks/${encodeURIComponent(id)}/events`, { signal });
+
+export const DUMP_CHUNK = 8 * 1024 * 1024;
+const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, '0')).join('');
+/** Uploads a dump in chunks of 8 MB (each with its SHA-256 where the browser offers crypto.subtle), resumable:
+ *  pass the id of an earlier, unfinished upload of the same file to continue after the bytes the server already has. */
+export async function uploadDumpChunked(file: File, o: { resumeId?: string | null; onStart?: (id: string) => void; onProgress?: (received: number, total: number) => void; signal?: AbortSignal } = {}): Promise<DumpPublic> {
+  let dump: DumpPublic | null = null;
+  if (o.resumeId) {
+    dump = await api.sandbox.dump(o.resumeId).then(r => r.dump, () => null);
+    if (dump && (dump.size !== file.size || dump.name !== file.name || dump.status === 'deleted')) dump = null;
+  }
+  dump ??= (await request<{ dump: DumpPublic }>('/api/sandbox/dumps', json('POST', { name: file.name, size: file.size }))).dump;
+  o.onStart?.(dump.id);
+  if (dump.status === 'ready') return dump;
+  let offset = dump.received, stuck = 0;
+  o.onProgress?.(offset, file.size);
+  const subtle = typeof crypto !== 'undefined' ? crypto.subtle : undefined; // missing outside secure contexts
+  while (offset < file.size) {
+    const part = file.slice(offset, Math.min(file.size, offset + DUMP_CHUNK));
+    const sum = subtle ? hex(await subtle.digest('SHA-256', await part.arrayBuffer())) : null;
+    const r = await fetch(`/api/sandbox/dumps/${encodeURIComponent(dump.id)}?offset=${offset}`, withHeader({ method: 'PUT', body: part, signal: o.signal, headers: { 'content-type': 'application/octet-stream', ...(sum ? { 'x-chunk-sha256': sum } : {}) } }));
+    const body = await r.json().catch(() => null) as { received?: number; error?: string } | null;
+    if (r.status === 409 && typeof body?.received === 'number' && (body.received !== offset || ++stuck <= 5)) { // a lost answer or a chunk still being written: continue where the server is
+      if (body.received === offset) await new Promise(res => setTimeout(res, 1000));
+      offset = body.received; continue;
+    }
+    stuck = 0;
+    if (!r.ok || typeof body?.received !== 'number') throw new ApiError(body?.error ?? `HTTP ${r.status}`, r.status);
+    offset = body.received;
+    o.onProgress?.(offset, file.size);
+  }
+  return (await request<{ dump: DumpPublic }>(`/api/sandbox/dumps/${encodeURIComponent(dump.id)}/complete`, { ...json('POST', {}), signal: o.signal })).dump;
+}
 
 export const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 

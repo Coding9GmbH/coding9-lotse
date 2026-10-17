@@ -2,6 +2,7 @@ import 'server-only';
 // The only door to Docker. A closed set of operations, and only on containers labelled lotse.managed=1.
 // Implementations: Docker Engine API (docker-engine.ts) and an in-memory fake for tests and e2e (fake-runner.ts),
 // chosen via LOTSE_SANDBOX_RUNNER=fake. The AI never gets this object; only server code (setup job, executor) uses it.
+import type { Readable } from 'node:stream';
 import { singleton } from '../state';
 import { DockerEngine } from './docker-engine';
 import { FakeRunner } from './fake-runner';
@@ -24,6 +25,8 @@ export interface NetworkInfo { name: string; internal: boolean; labels: Record<s
 export interface ExecOpts { user: string; workdir?: string; env?: string[]; timeoutMs: number; signal?: AbortSignal; stdin?: Buffer; /** keep at most this many bytes (the end of the output) */ maxOutput?: number }
 export interface ExecResult { exitCode: number; output: string; truncated: boolean }
 export interface PullProgress { text: string; pct?: number }
+/** A large archive streamed from disk (dump import): length is the exact byte count. */
+export interface ArchiveStream { stream: Readable; length: number }
 
 export interface SandboxRunner {
   readonly kind: 'docker' | 'fake';
@@ -38,7 +41,7 @@ export interface SandboxRunner {
   remove(id: string): Promise<void>;
   inspect(id: string): Promise<ContainerInfo | null>;
   exec(id: string, argv: readonly string[], opts: ExecOpts): Promise<ExecResult>;
-  putArchive(id: string, dir: string, tar: Buffer): Promise<void>;
+  putArchive(id: string, dir: string, tar: Buffer | ArchiveStream, o?: { timeoutMs?: number; signal?: AbortSignal }): Promise<void>;
   /** managed containers only; extra labels narrow the list */
   list(labels?: Record<string, string>): Promise<ContainerInfo[]>;
   inspectNetwork(name: string): Promise<NetworkInfo | null>;

@@ -1,5 +1,6 @@
 // Minimal tar writer (ustar + PAX path records for long names) for Docker's archive API.
 // Regular files, directories and symlinks; owner, group and mtime are fixed by the caller.
+import { Readable } from 'node:stream';
 
 export interface TarEntry { path: string; type: 'file' | 'dir' | 'symlink'; data?: Buffer; mode?: number; linkTarget?: string }
 export interface TarOwner { uid: number; gid: number; uname: string; gname: string; mtime?: number }
@@ -67,4 +68,20 @@ export function writeTar(entries: TarEntry[], owner: TarOwner): Buffer {
   }
   out.push(Buffer.alloc(BLOCK * 2));
   return Buffer.concat(out);
+}
+
+/** A directory with one large file, streamed (the file is never held in memory): `<dir>/` + `<dir>/<name>`. length = exact archive size. */
+export function streamFileTar(dir: string, name: string, size: number, src: AsyncIterable<Buffer>, owner: TarOwner, mode = 0o600): { stream: Readable; length: number } {
+  const d = `${dir.replace(/\/+$/, '')}/`, f = `${d}${name}`;
+  if (Buffer.byteLength(f) > 100) throw new Error('Pfad im Archiv zu lang.');
+  const head = Buffer.concat([header(d, '', 0, '5', 0o700, owner), header(f, '', size, '0', mode, owner)]);
+  const tail = Buffer.alloc(pad(size) + BLOCK * 2);
+  async function* gen() {
+    yield head;
+    let n = 0;
+    for await (const c of src) { n += c.length; if (n > size) throw new Error('Datei ist größer als angegeben.'); yield c; }
+    if (n !== size) throw new Error('Datei ist kleiner als angegeben.');
+    yield tail;
+  }
+  return { stream: Readable.from(gen(), { objectMode: false }), length: head.length + size + tail.length };
 }

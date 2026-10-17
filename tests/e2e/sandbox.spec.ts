@@ -1,3 +1,4 @@
+import zlib from 'node:zlib';
 import { expect, test } from '@playwright/test';
 import { GITHUB_TOKEN } from './support/github';
 
@@ -83,9 +84,9 @@ test('Sandbox Coding: create a task, setup reaches ready, pause/resume, finish',
   await expect(page.getByRole('button', { name: 'Pausieren' })).toBeVisible();
   await expect(steps.getByText('Theme kompilieren')).toBeVisible();
   await expect(steps.getByText('Demodaten', { exact: true })).toBeVisible(); // own command from the environment = own step
-  await expect(steps.getByText('übersprungen')).toBeVisible(); // no dump yet
+  await expect(steps.getByText('übersprungen')).toHaveCount(2); // no dump: version check and import skipped
   await expect(page.getByText(/acme\/shop-theme.*lotse\/footer-gruen-.*Container läuft.*custom\/plugins\/AcmeShopTheme/)).toBeVisible();
-  await steps.getByText(/^Protokoll/).nth(5).click(); // install-plugin
+  await steps.getByRole('listitem').filter({ hasText: 'Plugin installieren und aktivieren' }).getByText(/^Protokoll/).click();
   await expect(steps.getByText('$ bin/console plugin:install --activate -- AcmeShopTheme')).toBeVisible();
 
   // Preview: the task's storefront through /sbx/<id>/ (fake storefront of the container)
@@ -126,5 +127,39 @@ test('Sandbox Coding: create a task, setup reaches ready, pause/resume, finish',
   await page.getByRole('button', { name: 'Aus der Liste entfernen' }).click();
   await expect(page).toHaveURL(/\/sandbox-coding$/);
   await expect(tasks.getByText('Noch keine Aufgaben')).toBeVisible();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
+});
+
+// Database dump: chunked upload in the wizard, imported during the setup and deleted right afterwards.
+test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async ({ page, request }) => {
+  const lotse = { 'x-lotse': '1' };
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
+  await page.goto('/sandbox-coding');
+  await page.locator('section[aria-labelledby="sbx-tasks"]').getByRole('button', { name: 'Neue Aufgabe' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Neue Aufgabe' });
+  await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
+  await expect(dialog.getByLabel('Basis-Branch')).toHaveValue('main');
+  await dialog.getByLabel('Titel').fill('Mit Datenbank');
+  await expect(dialog.getByText('Nur bereinigte Dumps ohne Kundendaten. Die Datei wird nach dem Import gelöscht.')).toBeVisible();
+  const sql = "-- MySQL dump\nINSERT INTO `migration` VALUES ('Shopware\\\\Core\\\\Migration\\\\V6_7\\\\Migration1700000000Foo',1,NULL,NULL,NULL);\n";
+  const completed = page.waitForResponse(r => /\/api\/sandbox\/dumps\/d_[a-z0-9]{16}\/complete$/.test(r.url()));
+  await dialog.getByLabel('Datenbank-Dump (optional)', { exact: true }).first().setInputFiles({ name: 'shop.sql.gz', mimeType: 'application/gzip', buffer: zlib.gzipSync(Buffer.from(sql)) });
+  const { dump } = await (await completed).json() as { dump: { id: string; status: string } };
+  expect(dump.status).toBe('ready');
+  await expect(dialog.getByText(/shop\.sql\.gz .* ist bereit/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Aufgabe anlegen' }).click();
+
+  await expect(page.getByRole('heading', { level: 1, name: 'Mit Datenbank' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pausieren' })).toBeVisible();
+  const importStep = page.locator('section[aria-labelledby="sbx-steps"]').getByRole('listitem').filter({ hasText: 'Datenbank importieren' });
+  await expect(importStep.getByText('erledigt')).toBeVisible();
+  await expect(importStep.getByText('Dump gelöscht ✓', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Dump: shop\.sql\.gz .*\(importiert\)/)).toBeVisible();
+  const meta = await (await request.get(`/api/sandbox/dumps/${dump.id}`)).json() as { dump: { status: string } };
+  expect(meta.dump.status).toBe('deleted');
+
+  page.once('dialog', d => void d.accept());
+  await page.getByRole('button', { name: 'Aufgabe abschließen' }).click();
+  await expect(page.getByText(/^Abgeschlossen: Container und Dateien/)).toBeVisible();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
 });
