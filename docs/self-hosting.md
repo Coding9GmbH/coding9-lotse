@@ -117,7 +117,7 @@ make sandbox-up
 ```
 
 - Ein Socket-Proxy (`tecnativa/docker-socket-proxy`, per Digest fest) bekommt den Docker-Socket; Lotse spricht ihn über `DOCKER_HOST=tcp://docker-proxy:2375` in einem internen Netz an. Erlaubt sind nur Container (inkl. Start/Stopp), Images, Netzwerke und Exec; Volumes, Build, Swarm, Secrets, System u. a. sind gesperrt.
-- Die Aufgaben-Container hängen am internen Netz `lotse-sandbox` (`internal: true`): kein Internet, kein Live-Shop, keine veröffentlichten Ports. Lotse erreicht sie direkt; die Vorschau läuft über Lotse.
+- Die Aufgaben-Container hängen am internen Netz `lotse-sandbox` (`internal: true`, Subnetz fest `10.213.0.0/24`): kein Internet, kein Live-Shop, keine veröffentlichten Ports. Lotse erreicht sie direkt; die Vorschau läuft über Lotse. Umgekehrt lehnt Lotse jede Anfrage aus diesem Subnetz ab (`LOTSE_SANDBOX_SUBNET`), auch ohne `LOTSE_PASSWORD`. Kollidiert das Subnetz mit deinem Netz, ändere es in der Datei an beiden Stellen.
 - Die normale `docker-compose.yml` bleibt unverändert gehärtet (schreibgeschützt, keine Capabilities, kein Socket).
 
 **Variante 2: Lotse direkt auf dem Host.** Lotse nutzt `DOCKER_HOST` (Standard `unix:///var/run/docker.sock`); der Benutzer, unter dem Lotse läuft, braucht Zugriff auf den Socket. Jeder Aufgaben-Container veröffentlicht Port 80 nur auf `127.0.0.1` (auf einem Port, den Lotse wählt).
@@ -131,6 +131,7 @@ make sandbox-up
 | `LOTSE_SANDBOX_MAX` | Gleichzeitig laufende Container (Standard 2). Ein weiterer pausiert den am längsten unbenutzten. |
 | `LOTSE_SANDBOX_IDLE_MINUTES` | Standard für die Pause nach Inaktivität (30 Minuten); der Wert in den Einstellungen hat Vorrang. Pausiert heißt gestoppt, nicht gelöscht. |
 | `LOTSE_SANDBOX_NETWORK` | `network` (internes Netz) oder `local` (Ports auf 127.0.0.1). Leer = automatisch. |
+| `LOTSE_SANDBOX_SUBNET` | IPv4-Subnetz (CIDR) von `lotse-sandbox`; Anfragen daraus lehnt Lotse ab. Setzt `docker-compose.sandbox.yml`. Fehlt es im Netzwerk-Betrieb, braucht die Sandbox `LOTSE_PASSWORD`. |
 
 Im Reiter **Sandbox Coding** legst du das Image fest (nur `dockware/play:<Version>`, kein `latest`; Standard `dockware/play:6.7.2.2`), dazu Umgebungsvariablen (geheime Werte verschlüsselt, nie wieder angezeigt, nie an die KI) und eigene Einrichtungsbefehle. „Umgebung prüfen“ testet Docker und lädt das Image (einige GB). Beim Ausschalten werden laufende Container gestoppt, nicht gelöscht. `make sandbox-clean` entfernt alle Container mit dem Label `lotse.managed=1`.
 

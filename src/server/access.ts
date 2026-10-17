@@ -12,6 +12,22 @@ export const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
 /** IPv4 in IPv6 (::ffff:127.0.0.1, dual-stack bind on ::) as IPv4; lowercase, without brackets. */
 export const normalizeIp = (ip: string) => ip.trim().toLowerCase().replace(/^\[(.*)]$/, '$1').replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/, '$1');
 
+const ipv4 = (ip: string) => { const m = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/); return m && m.slice(1).every(x => Number(x) <= 255) ? m.slice(1).reduce((n, x) => n * 256 + Number(x), 0) : null; };
+/** ip equals an entry or lies in an IPv4 CIDR entry. */
+export function inCidr(ip: string, entry: string): boolean {
+  const [net, bits] = entry.trim().toLowerCase().split('/');
+  if (bits === undefined) return normalizeIp(net) === ip;
+  const a = ipv4(ip), b = ipv4(net), n = Number(bits);
+  return a !== null && b !== null && /^\d+$/.test(bits) && n >= 0 && n <= 32 && (n === 0 || (a >>> (32 - n)) === (b >>> (32 - n)));
+}
+/** LOTSE_SANDBOX_SUBNET: IPv4 CIDR of the internal network lotse-sandbox (pinned in docker-compose.sandbox.yml).
+ *  Task containers live there; requests from it are never trusted (see proxy.ts). null = unset or invalid. */
+export function sandboxSubnet(env: Record<string, string | undefined> = process.env): string | null {
+  const v = env.LOTSE_SANDBOX_SUBNET?.trim() ?? '';
+  const [net, bits] = v.split('/');
+  return ipv4(net ?? '') !== null && /^\d+$/.test(bits ?? '') && Number(bits) >= 8 && Number(bits) <= 30 ? v : null;
+}
+
 /** Sets the peer header to the socket address (empty if unknown); never take the client's value. */
 export function stampPeer(req: Pick<IncomingMessage, 'headers' | 'socket'>) {
   req.headers[PEER_HEADER] = normalizeIp(req.socket?.remoteAddress ?? '');

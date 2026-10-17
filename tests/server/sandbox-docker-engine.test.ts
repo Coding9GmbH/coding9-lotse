@@ -172,7 +172,28 @@ test('create: only labelled, allowed image, no host access', async () => {
   await assert.rejects(d.create({ ...base, HostConfig: { Binds: ['/:/host'] } }), /Binds/);
   await assert.rejects(d.create({ ...base, HostConfig: { NetworkMode: 'host' } }), /NetworkMode=host/);
   await assert.rejects(d.create({ ...base, name: 'web' }), /Container-Name/);
+  // allow-list: Docker matches keys case-insensitively, so other spellings are refused, as is anything not on the list
+  const bad = (spec: Record<string, unknown>, re: RegExp) => assert.rejects(d.create({ ...base, ...spec } as never), re, JSON.stringify(spec));
+  await bad({ HostConfig: { privileged: true } }, /privileged ist nicht erlaubt/);
+  await bad({ HostConfig: { binds: ['/:/host'] } }, /binds/);
+  await bad({ HostConfig: { capAdd: ['SYS_ADMIN'] } }, /capAdd/);
+  await bad({ image: 'nginx:1' }, /image ist nicht erlaubt/);
+  await bad({ hostConfig: { Privileged: true } }, /hostConfig/);
+  for (const mode of ['container:lotse', 'none', 'lotse_docker-api', 'HOST']) await bad({ HostConfig: { NetworkMode: mode } }, /NetworkMode=/);
+  for (const k of ['PidMode', 'IpcMode', 'SecurityOpt', 'Sysctls', 'CgroupParent', 'Runtime', 'PublishAllPorts', 'Devices', 'Mounts', 'VolumesFrom', 'UsernsMode'])
+    await bad({ HostConfig: { [k]: k === 'PublishAllPorts' ? true : ['x'] } }, new RegExp(`${k} ist nicht erlaubt`));
+  await bad({ HostConfig: { PortBindings: { '80/tcp': [{ HostPort: '8080' }] } } }, /127\.0\.0\.1/);
+  await bad({ HostConfig: { PortBindings: { '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '8080' }] } } }, /127\.0\.0\.1/);
+  await bad({ HostConfig: { LogConfig: { Type: 'syslog', Config: { 'syslog-address': 'tcp://x' } } } }, /Type/);
+  await bad({ NetworkingConfig: { EndpointsConfig: { 'lotse_docker-api': {} } } }, /lotse_docker-api ist nicht erlaubt/);
+  await bad({ NetworkingConfig: { EndpointsConfig: { 'lotse-sandbox': { IPAMConfig: { IPv4Address: '10.0.0.1' } } } } }, /IPAMConfig/);
+  await bad({ Volumes: { '/data': {} } }, /Volumes ist nicht erlaubt/);
   assert.equal(calls.length, before, 'nothing sent');
+  // what the template builds: limits, own network or loopback ports
+  assert.equal(await d.create({ ...base, Env: ['A=1'], Hostname: 'lotse-t1', ExposedPorts: { '80/tcp': {} },
+    HostConfig: { Memory: 4096 * 2 ** 20, NanoCpus: 2e9, PidsLimit: 2048, NetworkMode: 'lotse-sandbox', RestartPolicy: { Name: 'no' }, Tmpfs: { '/tmp': 'size=512m' }, LogConfig: { Type: 'json-file', Config: { 'max-size': '10m' } } },
+    NetworkingConfig: { EndpointsConfig: { 'lotse-sandbox': { Aliases: ['lotse-t1'] } } } }), 'new1');
+  assert.equal(await d.create({ ...base, HostConfig: { NetworkMode: 'bridge', PortBindings: { '80/tcp': [{ HostIp: '127.0.0.1', HostPort: '40123' }] } } }), 'new1');
 });
 
 test('unreachable socket: clear German message', async () => {

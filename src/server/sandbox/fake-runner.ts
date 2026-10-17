@@ -121,9 +121,9 @@ export class FakeRunner implements SandboxRunner {
     for (const f of readTar(tar)) c.files.set(`${assertContainerPath(dir).replace(/\/$/, '')}/${f.path}`, f.data);
   }
   async inspectNetwork(name: string) { this.enter('inspectNetwork', { detail: name }); return this.networks.get(name) ?? null; }
-  async createNetwork(name: string, opts: { internal: boolean; labels: Record<string, string> }) {
+  async createNetwork(name: string, opts: { internal: boolean; labels: Record<string, string>; subnet?: string }) {
     this.enter('createNetwork', { detail: { name, ...opts } });
-    this.networks.set(name, { name, internal: opts.internal, labels: opts.labels });
+    this.networks.set(name, { name, internal: opts.internal, labels: opts.labels, subnets: opts.subnet ? [opts.subnet] : [] });
   }
   /** Tests: stop all fake storefronts. */
   async close() { for (const c of this.containers.values()) await this.closeServer(c); }

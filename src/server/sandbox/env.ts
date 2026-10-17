@@ -5,7 +5,7 @@ import 'server-only';
 // Secret variable values are stored sealed and never returned; the AI never sees them.
 import crypto from 'node:crypto';
 import type { CommandPhase, SandboxCheckEvent, SandboxCommand, SandboxDocker, SandboxEnvPatch, SandboxEnvPublic, SandboxStatus } from '@/lib/protocol';
-import { exposedWithoutPassword } from '../access';
+import { exposedWithoutPassword, sandboxSubnet } from '../access';
 import { kvGet, kvSet, seal, unseal } from '../db';
 import { singleton } from '../state';
 import { errMsg } from '../util';
@@ -44,12 +44,17 @@ const envOff = (env: Record<string, string | undefined>) => /^(0|false|off|no)$/
 export const SANDBOX_OFF = 'Sandbox Coding ist in den Einstellungen ausgeschaltet.';
 const ENV_OFF = 'Sandbox Coding ist per LOTSE_SANDBOX=0 abgeschaltet.';
 const OPEN_BIND = 'Sandbox Coding bleibt gesperrt: Lotse ist ohne LOTSE_PASSWORD aus dem Netzwerk erreichbar. Erst LOTSE_PASSWORD setzen.';
+const OPEN_SUBNET = 'Sandbox Coding bleibt gesperrt: Die Aufgaben-Container könnten Lotse ohne Login erreichen, weil LOTSE_SANDBOX_SUBNET fehlt. docker-compose.sandbox.yml verwenden (make sandbox-up) oder LOTSE_PASSWORD setzen.';
+/** Lotse shares the network lotse-sandbox with the task containers: without the pinned subnet the proxy cannot tell them apart from the local gateway. */
+const openToSandbox = (env: Record<string, string | undefined>) => !env.LOTSE_PASSWORD && networkMode(env) === 'network' && !sandboxSubnet(env);
+const blockedReason = (env: Record<string, string | undefined>) => (exposedWithoutPassword(env) ? OPEN_BIND : openToSandbox(env) ? OPEN_SUBNET : null);
 
-/** Effective state: switch in the settings, LOTSE_SANDBOX=0 and the open-bind rule. */
+/** Effective state: switch in the settings, LOTSE_SANDBOX=0 and the open-bind rule (incl. network mode without pinned subnet). */
 export function sandboxStatus(env: Record<string, string | undefined> = process.env): SandboxStatus {
   if (envOff(env)) return { enabled: false, reason: 'env', message: ENV_OFF };
   if (!stored().enabled) return { enabled: false, reason: 'off', message: SANDBOX_OFF };
-  if (exposedWithoutPassword(env)) return { enabled: false, reason: 'open-bind', message: OPEN_BIND };
+  const blocked = blockedReason(env);
+  if (blocked) return { enabled: false, reason: 'open-bind', message: blocked };
   return { enabled: true };
 }
 export const sandboxEnabled = () => sandboxStatus().enabled;
@@ -79,6 +84,8 @@ function mergeVars(prev: StoredVar[], next: NonNullable<SandboxEnvPatch['envVars
     const value = v.value ?? '';
     if (value.length > LIMITS.envValue || value.includes('\0')) throw new Error(`Wert von ${key} ist zu lang (max. ${LIMITS.envValue} Zeichen).`);
     const old = prev.find(p => p.key === key);
+    // a secret never becomes visible by itself: unticking "geheim" needs a new value, otherwise the stored one would be lost silently
+    if (!v.secret && old?.secret && old.value && !value) throw new Error(`${key}: Neuen Wert eingeben, um die Variable sichtbar zu machen (der geheime Wert wird nicht angezeigt).`);
     if (!v.secret) return { key, secret: false, value };
     if (value) return { key, secret: true, value: seal(value) ?? '' };
     if (old?.secret) return old; // unchanged secret
@@ -112,7 +119,8 @@ export function saveSandbox(p: SandboxEnvPatch, env: Record<string, string | und
   const changed: string[] = [];
   if (p.enabled !== undefined && p.enabled !== !!s.enabled) {
     if (p.enabled && envOff(env)) throw new Error(ENV_OFF);
-    if (p.enabled && exposedWithoutPassword(env)) throw new Error(OPEN_BIND);
+    const blocked = p.enabled ? blockedReason(env) : null;
+    if (blocked) throw new Error(blocked);
     next.enabled = p.enabled; changed.push('enabled');
   }
   const t = getTemplate(s.templateId ?? DEFAULT_TEMPLATE);
@@ -156,20 +164,22 @@ export function getSandboxConfig() {
 export const sandboxSecretValues = (): string[] => (stored().envVars ?? []).filter(v => v.secret).map(v => unseal(v.value)).filter((v): v is string => !!v);
 
 // ---- Docker state (short cache: the health route polls) ----
-const dockerCache = () => singleton<{ at: number; value: SandboxDocker | null }>('sandboxDocker', () => ({ at: 0, value: null }));
-export async function dockerState(force = false): Promise<SandboxDocker> {
-  const c = dockerCache();
-  if (!force && c.value && Date.now() - c.at < 15_000) return c.value;
+const dockerCache = () => singleton<{ at: number; value: SandboxDocker | null; pending: Promise<SandboxDocker> | null }>('sandboxDocker', () => ({ at: 0, value: null, pending: null }));
+async function probeDocker(): Promise<SandboxDocker> {
   const mode = networkMode();
-  let value: SandboxDocker;
   try {
     const r = getRunner();
     await r.ping();
     const v = await r.version();
-    value = { reachable: true, apiVersion: v.apiVersion || null, version: v.version || null, mode };
-  } catch (e) { value = { reachable: false, apiVersion: null, version: null, mode, error: errMsg(e).slice(0, 300) }; }
-  c.at = Date.now(); c.value = value;
-  return value;
+    return { reachable: true, apiVersion: v.apiVersion || null, version: v.version || null, mode };
+  } catch (e) { return { reachable: false, apiVersion: null, version: null, mode, error: errMsg(e).slice(0, 300) }; }
+}
+/** Cached 15 s; concurrent callers (tabs, health after every chat turn) share one probe. */
+export function dockerState(force = false): Promise<SandboxDocker> {
+  const c = dockerCache();
+  if (!force && c.value && Date.now() - c.at < 15_000) return Promise.resolve(c.value);
+  c.pending ??= probeDocker().then(value => { c.at = Date.now(); c.value = value; return value; }).finally(() => { c.pending = null; });
+  return c.pending;
 }
 export const forgetDockerState = () => { dockerCache().value = null; };
 

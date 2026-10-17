@@ -5,7 +5,7 @@ import '../isolate-data';
 
 // Sandbox environment: off by default, LOTSE_SANDBOX=0 and the open-bind rule, image/variable/command validation,
 // secret values sealed and masked, audit with names only, routes (403 while off, check reachable/unreachable) with FakeRunner.
-for (const k of ['LOTSE_SANDBOX', 'LOTSE_PASSWORD', 'ALLOWED_HOSTS', 'HOSTNAME', 'HOST', 'AICB_DOCKER', 'LOTSE_BIND', 'LOTSE_SANDBOX_MAX', 'LOTSE_SANDBOX_IDLE_MINUTES', 'LOTSE_SANDBOX_NETWORK', 'LOTSE_SANDBOX_RUNNER']) delete process.env[k];
+for (const k of ['LOTSE_SANDBOX', 'LOTSE_PASSWORD', 'ALLOWED_HOSTS', 'HOSTNAME', 'HOST', 'AICB_DOCKER', 'LOTSE_BIND', 'LOTSE_SANDBOX_MAX', 'LOTSE_SANDBOX_IDLE_MINUTES', 'LOTSE_SANDBOX_NETWORK', 'LOTSE_SANDBOX_SUBNET', 'LOTSE_SANDBOX_RUNNER']) delete process.env[k];
 
 const E = await import('../../src/server/sandbox/env');
 const { FakeRunner } = await import('../../src/server/sandbox/fake-runner');
@@ -43,7 +43,12 @@ test('off by default; LOTSE_SANDBOX=0 and an open bind without password block it
   assert.equal(E.sandboxStatus({ HOSTNAME: '0.0.0.0', LOTSE_PASSWORD: 'pw' }).enabled, true);
   // stored on, but the environment changed afterwards: still blocked
   assert.equal(E.sandboxStatus({ HOSTNAME: '0.0.0.0' }).reason, 'open-bind');
-  assert.equal(E.sandboxStatus({ AICB_DOCKER: '1', LOTSE_BIND: '127.0.0.1' }).enabled, true);
+  // network mode: the task containers share the network with Lotse; without the pinned subnet they would count as local
+  assert.match(E.sandboxStatus({ AICB_DOCKER: '1', LOTSE_BIND: '127.0.0.1' }).message ?? '', /LOTSE_SANDBOX_SUBNET/);
+  assert.equal(E.sandboxStatus({ AICB_DOCKER: '1', LOTSE_BIND: '127.0.0.1', LOTSE_SANDBOX_SUBNET: 'kaputt' }).reason, 'open-bind');
+  assert.equal(E.sandboxStatus({ AICB_DOCKER: '1', LOTSE_BIND: '127.0.0.1', LOTSE_SANDBOX_SUBNET: '10.213.0.0/24' }).enabled, true);
+  assert.equal(E.sandboxStatus({ AICB_DOCKER: '1', LOTSE_BIND: '127.0.0.1', LOTSE_PASSWORD: 'pw' }).enabled, true);
+  assert.equal(E.sandboxStatus({ AICB_DOCKER: '1', LOTSE_BIND: '127.0.0.1', LOTSE_SANDBOX_NETWORK: 'local' }).enabled, true);
   E.saveSandbox({ enabled: false });
 });
 
@@ -85,6 +90,25 @@ test('variables and commands: validation, secret sealed and masked, kept when le
   E.saveSandbox({ envVars: [{ key: 'API_TOKEN', secret: true }, { key: 'APP_ENV', secret: false, value: 'prod' }], commands: [...pub.commands].reverse() });
   assert.deepEqual(E.getSandboxConfig().env, [`API_TOKEN=${SECRET}`, 'APP_ENV=prod']);
   assert.deepEqual(E.sandboxPublic().commands.map(c => c.id), [...ids].reverse());
+
+  // unticking "geheim" without a new value is refused (the stored secret is never dropped silently), with one it becomes plain
+  assert.throws(() => E.saveSandbox({ envVars: [{ key: 'API_TOKEN', secret: false, value: '' }] }), /API_TOKEN: Neuen Wert eingeben/);
+  assert.throws(() => E.saveSandbox({ envVars: [{ key: 'API_TOKEN', secret: false }] }), /Neuen Wert eingeben/);
+  assert.deepEqual(E.getSandboxConfig().env, [`API_TOKEN=${SECRET}`, 'APP_ENV=prod'], 'unchanged after the refusal');
+  E.saveSandbox({ envVars: [{ key: 'API_TOKEN', secret: false, value: 'visible' }, { key: 'APP_ENV', secret: false, value: 'prod' }] });
+  assert.deepEqual(E.sandboxPublic().envVars[0], { key: 'API_TOKEN', secret: false, value: 'visible', hasValue: true });
+  E.saveSandbox({ envVars: [{ key: 'API_TOKEN', secret: true, value: SECRET }, { key: 'APP_ENV', secret: false, value: 'prod' }] });
+});
+
+test('docker state: concurrent callers share one probe, cached afterwards', async () => {
+  E.forgetDockerState();
+  const before = fake.calls.filter(c => c.op === 'ping').length;
+  const all = await Promise.all([E.dockerState(true), E.dockerState(), E.dockerState(true)]);
+  assert.ok(all.every(s => s === all[0] && s.reachable));
+  assert.equal(fake.calls.filter(c => c.op === 'ping').length - before, 1);
+  assert.equal(await E.dockerState(), all[0], 'cached');
+  E.forgetDockerState();
+  fake.calls.length = 0;
 });
 
 test('routes while off: GET works without touching Docker, check answers 403 in German', async () => {
@@ -146,13 +170,19 @@ test('network: created internal + labelled; a foreign or open network is refused
   assert.equal(networkMode({ AICB_DOCKER: '1' }), 'network');
   assert.equal(networkMode({ AICB_DOCKER: '1', LOTSE_SANDBOX_NETWORK: 'local' }), 'local');
   const r = new FakeRunner();
-  assert.deepEqual(await ensureNetwork(r), { created: true });
-  assert.deepEqual(r.networks.get('lotse-sandbox'), { name: 'lotse-sandbox', internal: true, labels: { 'lotse.managed': '1' } });
-  assert.deepEqual(await ensureNetwork(r), { created: false });
-  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: false, labels: { 'lotse.managed': '1' } });
-  await assert.rejects(ensureNetwork(r), /nicht intern/);
-  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: true, labels: {} });
-  await assert.rejects(ensureNetwork(r), /gehört nicht zu Lotse/);
+  assert.deepEqual(await ensureNetwork(r, null), { created: true });
+  assert.deepEqual(r.networks.get('lotse-sandbox'), { name: 'lotse-sandbox', internal: true, labels: { 'lotse.managed': '1' }, subnets: [] });
+  assert.deepEqual(await ensureNetwork(r, null), { created: false });
+  // pinned subnet (LOTSE_SANDBOX_SUBNET): created with it; an existing network on another subnet is refused
+  await assert.rejects(ensureNetwork(r, '10.213.0.0/24'), /Subnetz 10\.213\.0\.0\/24/);
+  r.networks.clear();
+  assert.deepEqual(await ensureNetwork(r, '10.213.0.0/24'), { created: true });
+  assert.deepEqual(r.networks.get('lotse-sandbox')?.subnets, ['10.213.0.0/24']);
+  assert.deepEqual(await ensureNetwork(r, '10.213.0.0/24'), { created: false });
+  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: false, labels: { 'lotse.managed': '1' }, subnets: [] });
+  await assert.rejects(ensureNetwork(r, null), /nicht intern/);
+  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: true, labels: {}, subnets: [] });
+  await assert.rejects(ensureNetwork(r, null), /gehört nicht zu Lotse/);
 });
 
 test('switching off stops running containers (not removed) and closes the routes again', async () => {

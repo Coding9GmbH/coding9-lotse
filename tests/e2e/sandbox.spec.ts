@@ -44,6 +44,12 @@ test('Sandbox Coding: switch on, configure the environment, check, switch off', 
   await expect(env.getByLabel(/^Wert API_TOKEN/)).toHaveValue('');
   await expect(env.getByLabel(/^Wert API_TOKEN/)).toHaveAttribute('placeholder', /gespeichert/);
   await expect(page.locator('body')).not.toContainText('e2e-geheim-123');
+  // unticking "geheim" without a new value would drop the secret: refused with a hint, nothing saved
+  await env.getByLabel('geheim').uncheck();
+  await expect(env.getByLabel(/^Wert API_TOKEN/)).toHaveAttribute('placeholder', /neuen Wert eingeben/);
+  await env.getByRole('button', { name: 'Umgebung speichern' }).click();
+  await expect(env.getByRole('status').filter({ hasText: 'API_TOKEN: Neuen Wert eingeben' })).toBeVisible();
+  await env.getByLabel('geheim').check();
 
   await page.goto('/settings/sandbox');
   await page.locator('section#sandbox').getByText('Sandbox Coding einschalten').click();

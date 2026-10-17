@@ -117,7 +117,7 @@ make sandbox-up
 ```
 
 - A socket proxy (`tecnativa/docker-socket-proxy`, pinned by digest) gets the Docker socket; Lotse talks to it via `DOCKER_HOST=tcp://docker-proxy:2375` on an internal network. Only containers (incl. start/stop), images, networks and exec are allowed; volumes, build, swarm, secrets, system and others are blocked.
-- Task containers are attached to the internal network `lotse-sandbox` (`internal: true`): no internet, no live shop, no published ports. Lotse reaches them directly; the preview goes through Lotse.
+- Task containers are attached to the internal network `lotse-sandbox` (`internal: true`, pinned subnet `10.213.0.0/24`): no internet, no live shop, no published ports. Lotse reaches them directly; the preview goes through Lotse. The other way round, Lotse refuses every request from that subnet (`LOTSE_SANDBOX_SUBNET`), even without `LOTSE_PASSWORD`. If the subnet clashes with your network, change it in the file in both places.
 - The normal `docker-compose.yml` stays hardened as before (read-only, no capabilities, no socket).
 
 **Option 2: Lotse directly on the host.** Lotse uses `DOCKER_HOST` (default `unix:///var/run/docker.sock`); the user Lotse runs as needs access to the socket. Each task container publishes port 80 on `127.0.0.1` only (on a port Lotse picks).
@@ -131,6 +131,7 @@ make sandbox-up
 | `LOTSE_SANDBOX_MAX` | Containers running at the same time (default 2). Another one pauses the least recently used. |
 | `LOTSE_SANDBOX_IDLE_MINUTES` | Default idle pause (30 minutes); the value in the settings takes precedence. Paused means stopped, not deleted. |
 | `LOTSE_SANDBOX_NETWORK` | `network` (internal network) or `local` (ports on 127.0.0.1). Empty = automatic. |
+| `LOTSE_SANDBOX_SUBNET` | IPv4 subnet (CIDR) of `lotse-sandbox`; Lotse refuses requests from it. Set by `docker-compose.sandbox.yml`. Missing in network mode, the sandbox needs `LOTSE_PASSWORD`. |
 
 In the **Sandbox Coding** tab you set the image (only `dockware/play:<version>`, no `latest`; default `dockware/play:6.7.2.2`), plus environment variables (secret values encrypted, never shown again, never given to the AI) and your own setup commands. “Check environment” tests Docker and pulls the image (several GB). Switching off stops running containers; they are not deleted. `make sandbox-clean` removes all containers labelled `lotse.managed=1`.
 

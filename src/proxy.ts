@@ -2,7 +2,7 @@
 // and forwarding of storefront paths to the shop proxy.
 import { NextResponse, type NextRequest } from 'next/server';
 import { STOREFRONT_PREFIX_HEADER, storefrontPrefix } from '@/lib/platforms';
-import { LOCAL_HOSTS, PEER_HEADER, extraAllowedHosts, normalizeIp } from '@/server/access';
+import { LOCAL_HOSTS, PEER_HEADER, extraAllowedHosts, inCidr, normalizeIp, sandboxSubnet } from '@/server/access';
 
 const LOOPBACK_HOPS = new Set(['127.0.0.1', '::1', 'localhost', '[::1]']);
 /** Docker bridge/VM gateway (Docker Desktop, OrbStack, Linux bridge): private, never public. */
@@ -39,14 +39,14 @@ export function hostAllowed(host: string, forwardedFor: string | null, peer: str
 // ---- Login throttle: after FAIL_MAX wrong passwords within FAIL_WINDOW the address is blocked for BLOCK_MS (429). Bounded memory. ----
 const FAIL_MAX = 10, FAIL_WINDOW = 15 * 60_000, BLOCK_MS = 5 * 60_000, MAX_TRACKED = 5_000;
 const failures = new Map<string, { n: number; since: number; until: number }>();
-const ipv4 = (ip: string) => { const m = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/); return m ? m.slice(1).reduce((n, x) => n * 256 + Number(x), 0) : null; };
 /** LOTSE_TRUSTED_PROXIES: reverse proxy on another machine (IPs or IPv4 CIDR, comma-separated); its X-Forwarded-For counts for the login throttle */
 export function trustedProxy(ip: string, list = process.env.LOTSE_TRUSTED_PROXIES ?? ''): boolean {
-  return list.split(',').map(e => e.trim().toLowerCase()).filter(Boolean).some(e => {
-    const [net, bits] = e.split('/'); if (bits === undefined) return normalizeIp(net) === ip;
-    const a = ipv4(ip), b = ipv4(net), n = Number(bits);
-    return a !== null && b !== null && n >= 0 && n <= 32 && (n === 0 || (a >>> (32 - n)) === (b >>> (32 - n)));
-  });
+  return list.split(',').map(e => e.trim()).filter(Boolean).some(e => inCidr(ip, e));
+}
+/** Sender is a task container (socket address or any hop in LOTSE_SANDBOX_SUBNET): never trusted, whatever the host name or password. */
+export function fromSandbox(peer: string | null, forwardedFor: string | null, env: Record<string, string | undefined> = process.env): boolean {
+  const subnet = sandboxSubnet(env);
+  return !!subnet && [...hopsOf(peer), ...hopsOf(forwardedFor)].some(ip => inCidr(ip, subnet));
 }
 /** Who counts: the socket address; if a local or trusted reverse proxy sits in front, the last X-Forwarded-For entry (appended by the proxy). */
 export function clientKey(peer: string | null, forwardedFor: string | null): string {
@@ -89,9 +89,11 @@ export async function passwordOk(authorization: string | null, password: string)
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const hostHeader = req.headers.get('host') ?? '', forwardedFor = req.headers.get('x-forwarded-for'), peer = req.headers.get(PEER_HEADER);
+  // Task containers share a Docker network with Lotse; code running there must never reach the Lotse API
+  if (fromSandbox(peer, forwardedFor)) return new NextResponse('Zugriff aus einem Sandbox-Container nicht erlaubt', { status: 403 });
   if (pathname === '/api/ping') return NextResponse.next(); // Healthcheck
 
-  const hostHeader = req.headers.get('host') ?? '', forwardedFor = req.headers.get('x-forwarded-for'), peer = req.headers.get(PEER_HEADER);
   if (!hostAllowed(hostHeader, forwardedFor, peer)) return new NextResponse('Host nicht erlaubt', { status: 403 });
 
   // Foreign pages may fire no-cors GETs at localhost (img/script/fetch), and some GETs have side effects (crawl, preview refresh).

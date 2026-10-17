@@ -56,6 +56,8 @@ services:
     environment:
       DOCKER_HOST: tcp://docker-proxy:2375
       LOTSE_SANDBOX_NETWORK: network
+      # = subnet of lotse-sandbox below: Lotse refuses every request from it (task containers never reach the Lotse API)
+      LOTSE_SANDBOX_SUBNET: 10.213.0.0/24
     networks: [default, docker-api, lotse-sandbox]
     depends_on: [docker-proxy]
 
@@ -68,5 +70,8 @@ networks:
   lotse-sandbox:
     name: lotse-sandbox
     internal: true
+    ipam:
+      config:
+        - subnet: 10.213.0.0/24   # keep in sync with LOTSE_SANDBOX_SUBNET above
     labels:
       lotse.managed: "1"
