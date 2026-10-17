@@ -25,10 +25,10 @@ fs.symlinkSync(path.join(wt, 'composer.json'), path.join(wt, 'absolute-inside'))
 fs.chmodSync(path.join(wt, 'composer.json'), 0o755);
 
 const fake = new FakeRunner();
-fake.images.add('dockware/play:6.7.2.2');
+fake.images.add('dockware/shopware:6.7.15.1');
 after(async () => { await fake.close(); fs.rmSync(root, { recursive: true, force: true }); });
 const TARGET = '/var/www/html/custom/plugins/AcmeTheme';
-const cid = await fake.create({ name: 'lotse-sbx-t-sync00000000', Image: 'dockware/play:6.7.2.2', Labels: { 'lotse.managed': '1', 'lotse.task': 't_sync00000000' } });
+const cid = await fake.create({ name: 'lotse-sbx-t-sync00000000', Image: 'dockware/shopware:6.7.15.1', Labels: { 'lotse.managed': '1', 'lotse.task': 't_sync00000000' } });
 await fake.start(cid);
 const target = { runner: fake, containerId: cid, worktree: wt, target: TARGET, user: 'www-data' };
 

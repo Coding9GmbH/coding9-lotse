@@ -1,6 +1,7 @@
-// Template "Dockware Play": a complete Shopware 6 (dockware/play) per task, the repo is a plugin or theme
-// below custom/plugins/<Name>. Steps are declared here; the setup job (jobs.ts) executes them with a restricted context.
-// Measured with dockware/play:6.7.2.2: HTTP 200 about 16–20 s after the start, theme:compile about 7 s.
+// Template "Dockware (Shopware)": a complete Shopware 6 (dockware/shopware, formerly dockware/play) per task, the repo is a plugin
+// or theme below custom/plugins/<Name>. Steps are declared here; the setup job (jobs.ts) executes them with a restricted context.
+// Measured with dockware/shopware:6.7.15.1: first boot until HTTP 200 about 75 s, restart after a stop about 43 s, theme:compile about 7 s
+// (dockware/play:6.7.2.2: about 20 s). Same layout as play: /var/www/html, www-data (uid 33) with sudo, mysql root/root.
 // Dockware keeps APP_URL and the storefront domain at http://localhost; Lotse sends Host: localhost instead of changing them.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,9 +11,10 @@ import { MANAGED, SANDBOX_NET, TASK_LABEL, sandboxAlias } from '../labels';
 import type { CommandArg, CommandSpec, SandboxTemplate, SpecInput, StepCtx, TemplateStep } from './types';
 
 const MIN = 60_000;
-export const DOCKWARE_DEFAULT_IMAGE = 'dockware/play:6.7.2.2';
-/** Only dockware/play from Docker Hub with a fixed version: no :latest, no other repository, no registry host. */
-export const DOCKWARE_IMAGE_PATTERN = /^dockware\/play:\d+(\.\d+){1,3}$/;
+export const DOCKWARE_DEFAULT_IMAGE = 'dockware/shopware:6.7.15.1';
+/** Only dockware/shopware (optionally the -amd64/-arm64 variant) or the discontinued dockware/play from Docker Hub with a fixed version:
+ *  no latest/6.7-latest, no other repository, no registry host. */
+export const DOCKWARE_IMAGE_PATTERN = /^(dockware\/shopware:\d+(\.\d+){2,3}(-(amd64|arm64))?|dockware\/play:\d+(\.\d+){1,3})$/;
 
 /** Path relative to the plugin directory: no absolute path, no "..", no leading "-", no shell characters. */
 const RELATIVE_PATH = /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._/-]{0,199}$/;
@@ -140,15 +142,15 @@ export function buildSpec(o: SpecInput): ContainerSpec {
     Memory: Math.round(o.memoryMb * 1024 * 1024), NanoCpus: Math.round(o.cpus * 1e9), PidsLimit: 2048, CapDrop: DROP_CAPS,
     RestartPolicy: { Name: 'no' }, LogConfig: { Type: 'json-file', Config: { 'max-size': '10m', 'max-file': '2' } },
   };
-  const base = { name: alias, Image: o.image, Hostname: alias, Labels: { ...MANAGED, [TASK_LABEL]: o.taskId, 'lotse.template': 'dockware-play' }, Env: [...o.env] };
+  const base = { name: alias, Image: o.image, Hostname: alias, Labels: { ...MANAGED, [TASK_LABEL]: o.taskId, 'lotse.template': 'dockware' }, Env: [...o.env] };
   if (o.mode === 'network') return { ...base, HostConfig: { ...host, NetworkMode: SANDBOX_NET }, NetworkingConfig: { EndpointsConfig: { [SANDBOX_NET]: { Aliases: [alias] } } } };
   if (!Number.isInteger(o.port) || o.port! < 1024 || o.port! > 65535) throw new Error('Kein freier Port für die Sandbox.');
   return { ...base, ExposedPorts: { '80/tcp': {} }, HostConfig: { ...host, NetworkMode: 'bridge', PortBindings: { '80/tcp': [{ HostIp: '127.0.0.1', HostPort: String(o.port) }] } } };
 }
 
-export const dockwarePlay: SandboxTemplate = {
-  id: 'dockware-play',
-  labelKey: 'dockware-play',
+export const dockware: SandboxTemplate = {
+  id: 'dockware',
+  labelKey: 'dockware',
   platform: 'shopware',
   imagePattern: DOCKWARE_IMAGE_PATTERN,
   defaultImage: DOCKWARE_DEFAULT_IMAGE,

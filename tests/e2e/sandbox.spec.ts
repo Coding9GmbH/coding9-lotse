@@ -20,13 +20,13 @@ test('Sandbox Coding: switch on, configure the environment, check, switch off', 
   await navLink.click();
   await expect(page.getByRole('heading', { level: 1, name: 'Sandbox Coding' })).toBeVisible();
   const env = page.locator('section#sbx-env');
-  await expect(env.getByText('Dockware Play')).toBeVisible();
-  await expect(env.getByLabel('Image')).toHaveValue('dockware/play:6.7.2.2');
+  await expect(env.getByText('Dockware (Shopware)')).toBeVisible();
+  await expect(env.getByLabel('Image')).toHaveValue('dockware/shopware:6.7.15.1');
 
-  await env.getByLabel('Image').fill('dockware/play:latest');
+  await env.getByLabel('Image').fill('dockware/shopware:6.7-latest');
   await env.getByRole('button', { name: 'Umgebung speichern' }).click();
   await expect(env.getByRole('status').filter({ hasText: /latest/ })).toBeVisible();
-  await env.getByLabel('Image').fill('dockware/play:6.7.2.2');
+  await env.getByLabel('Image').fill('dockware/shopware:6.7.15.1');
 
   await env.getByRole('button', { name: 'Variable hinzufügen' }).click();
   await env.getByLabel('Name', { exact: true }).fill('api_token');
@@ -39,7 +39,7 @@ test('Sandbox Coding: switch on, configure the environment, check, switch off', 
   await expect(env.getByRole('status').filter({ hasText: 'Gespeichert.' })).toBeVisible();
 
   await env.getByRole('button', { name: 'Umgebung prüfen' }).click();
-  await expect(env.getByRole('status').filter({ hasText: /✓ Image dockware\/play:6\.7\.2\.2 geladen/ })).toBeVisible();
+  await expect(env.getByRole('status').filter({ hasText: /✓ Image dockware\/shopware:6\.7\.15\.1 geladen/ })).toBeVisible();
 
   await page.reload();
   await expect(env.getByLabel(/^Wert API_TOKEN/)).toHaveValue('');

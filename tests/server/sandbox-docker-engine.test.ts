@@ -10,7 +10,7 @@ import path from 'node:path';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-docker-'));
 process.env.AICB_DATA = dir;
 const sock = path.join(dir, 'docker.sock');
-const IMAGE = 'dockware/play:6.7.2.2';
+const IMAGE = 'dockware/shopware:6.7.15.1';
 
 const calls: string[] = [];
 let imageThere = false, pullError: string | null = null;
@@ -33,10 +33,10 @@ const server = http.createServer(async (req, res) => {
   const r = m[1];
   if (r === `/images/${IMAGE}/json`) return imageThere ? send(res, 200, { Id: 'sha256:x' }) : send(res, 404, { message: 'No such image' });
   if (r === '/images/create') {
-    assert.equal(u.searchParams.get('fromImage'), 'dockware/play');
-    assert.equal(u.searchParams.get('tag'), '6.7.2.2');
+    assert.equal(u.searchParams.get('fromImage'), 'dockware/shopware');
+    assert.equal(u.searchParams.get('tag'), '6.7.15.1');
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.write('{"status":"Pulling from dockware/play","id":"6.7.2.2"}\n{"status":"Downloading","id":"aaa","progressDetail":{"current":50,"total":100}}\n{"status":"Downlo');
+    res.write('{"status":"Pulling from dockware/shopware","id":"6.7.15.1"}\n{"status":"Downloading","id":"aaa","progressDetail":{"current":50,"total":100}}\n{"status":"Downlo');
     res.write('ading","id":"bbb","progressDetail":{"current":0,"total":100}}\n');
     if (pullError) { res.end(`{"errorDetail":{"message":"${pullError}"},"error":"${pullError}"}\n`); return; }
     imageThere = true;
@@ -113,10 +113,10 @@ test('ensureImage: inspect, pull with progress, then present', async () => {
   assert.deepEqual(await d.ensureImage(IMAGE, p => { if (p.pct !== undefined) progress.push(p.pct); }), { pulled: true });
   assert.ok(progress.includes(25) && progress.at(-1) === 100, `progress ${progress}`);
   assert.deepEqual(await d.ensureImage(IMAGE), { pulled: false });
-  imageThere = false; pullError = 'manifest for dockware/play:6.7.2.2 not found';
+  imageThere = false; pullError = 'manifest for dockware/shopware:6.7.15.1 not found';
   await assert.rejects(d.ensureImage(IMAGE), /gibt es nicht/);
   pullError = null;
-  await assert.rejects(d.ensureImage('dockware/play:latest'), /nicht erlaubt/);
+  await assert.rejects(d.ensureImage('dockware/shopware:latest'), /nicht erlaubt/);
   await assert.rejects(d.ensureImage('evil/image:1.0'), /nicht erlaubt/);
 });
 
@@ -167,7 +167,7 @@ test('create: only labelled, allowed image, no host access', async () => {
   assert.equal(await d.create(base), 'new1');
   const before = calls.length;
   await assert.rejects(d.create({ ...base, Labels: {} }), /Lotse-Label/);
-  await assert.rejects(d.create({ ...base, Image: 'dockware/play:latest' }), /nicht erlaubt/);
+  await assert.rejects(d.create({ ...base, Image: 'dockware/shopware:latest' }), /nicht erlaubt/);
   await assert.rejects(d.create({ ...base, HostConfig: { Privileged: true } }), /Privileged/);
   await assert.rejects(d.create({ ...base, HostConfig: { Binds: ['/:/host'] } }), /Binds/);
   await assert.rejects(d.create({ ...base, HostConfig: { NetworkMode: 'host' } }), /NetworkMode=host/);

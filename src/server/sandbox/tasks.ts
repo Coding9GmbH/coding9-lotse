@@ -13,7 +13,7 @@ import { getSandboxConfig } from './env';
 import { sandboxAlias } from './labels';
 import type { NetworkMode } from './network';
 import { getRunner } from './runner';
-import { getTemplate } from './templates';
+import { canonicalTemplateId, getTemplate } from './templates';
 
 export const TASK_ID = /^t_[a-z0-9]{12}$/;
 export const LOG_LINES = 200;
@@ -50,8 +50,10 @@ export const taskPaths = (id: string) => {
 interface Live { listeners: Map<string, Set<(ev: TaskEvent) => void>>; saveTimers: Map<string, NodeJS.Timeout> }
 const live = () => singleton<Live>('sandboxTasksLive', () => ({ listeners: new Map(), saveTimers: new Map() }));
 
-export const getTask = (id: string): CodeTask | null => (TASK_ID.test(id) ? codeTaskGet<CodeTask>(id) : null);
-export const listTasks = (): CodeTask[] => codeTaskList<CodeTask>();
+/** Rows of tasks created before a template rename carry the old id. */
+const loaded = (t: CodeTask) => { t.template = canonicalTemplateId(t.template); return t; };
+export const getTask = (id: string): CodeTask | null => { const t = TASK_ID.test(id) ? codeTaskGet<CodeTask>(id) : null; return t && loaded(t); };
+export const listTasks = (): CodeTask[] => codeTaskList<CodeTask>().map(loaded);
 export function mustTask(id: string): CodeTask {
   const t = getTask(id);
   if (!t) throw Object.assign(new Error('Aufgabe nicht gefunden.'), { status: 404 });

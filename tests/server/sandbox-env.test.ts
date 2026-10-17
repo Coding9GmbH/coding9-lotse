@@ -11,7 +11,7 @@ const E = await import('../../src/server/sandbox/env');
 const { FakeRunner } = await import('../../src/server/sandbox/fake-runner');
 const { setRunner } = await import('../../src/server/sandbox/runner');
 const { ensureNetwork, networkMode } = await import('../../src/server/sandbox/network');
-const { kvGet, auditList } = await import('../../src/server/db');
+const { kvGet, kvSet, auditList } = await import('../../src/server/db');
 const { redact } = await import('../../src/server/settings');
 const envRoute = await import('../../src/app/api/sandbox/env/route');
 const { POST: checkRoute } = await import('../../src/app/api/sandbox/env/check/route');
@@ -28,7 +28,7 @@ const check = () => checkRoute(new Request('http://127.0.0.1/api/sandbox/env/che
 test('off by default; LOTSE_SANDBOX=0 and an open bind without password block it', () => {
   assert.deepEqual(E.sandboxStatus({}), { enabled: false, reason: 'off', message: E.SANDBOX_OFF });
   assert.equal(E.sandboxStatus({ LOTSE_SANDBOX: '0' }).reason, 'env');
-  assert.equal(E.sandboxPublic().image, 'dockware/play:6.7.2.2');
+  assert.equal(E.sandboxPublic().image, 'dockware/shopware:6.7.15.1');
   assert.equal(E.sandboxPublic().maxRunning, 2);
   assert.equal(E.maxRunning({ LOTSE_SANDBOX_MAX: '1' }), 1);
   assert.equal(E.maxRunning({ LOTSE_SANDBOX_MAX: '99' }), 10);
@@ -52,12 +52,24 @@ test('off by default; LOTSE_SANDBOX=0 and an open bind without password block it
   E.saveSandbox({ enabled: false });
 });
 
+test('stored template id of the renamed dockware-play template maps to dockware; a stored dockware/play image stays valid', () => {
+  kvSet('sandbox', { templateId: 'dockware-play', image: 'dockware/play:6.7.2.2' });
+  assert.equal(E.sandboxPublic().templateId, 'dockware');
+  assert.equal(E.sandboxPublic().image, 'dockware/play:6.7.2.2');
+  E.saveSandbox({ memoryMb: 4096 });
+  assert.equal((kvGet('sandbox') as { templateId: string }).templateId, 'dockware');
+  kvSet('sandbox', {});
+});
+
 test('image validation: German messages, no latest, no other repository', () => {
   assert.equal(E.validateImage(' dockware/play:6.6.10.4 '), 'dockware/play:6.6.10.4');
   assert.throws(() => E.validateImage('dockware/play:latest'), /latest/);
   assert.throws(() => E.validateImage('dockware/play'), /feste Version/);
-  assert.throws(() => E.validateImage('nginx:1.25'), /Nur dockware\/play/);
-  assert.throws(() => E.validateImage('registry.example.com/dockware/play:6.7.2.2'), /Nur dockware\/play/);
+  assert.equal(E.validateImage('dockware/shopware:6.7.15.1-arm64'), 'dockware/shopware:6.7.15.1-arm64');
+  assert.throws(() => E.validateImage('dockware/shopware:6.7-latest'), /latest/);
+  assert.throws(() => E.validateImage('dockware/shopware:latest'), /latest/);
+  assert.throws(() => E.validateImage('nginx:1.25'), /Nur dockware\/shopware/);
+  assert.throws(() => E.validateImage('registry.example.com/dockware/play:6.7.2.2'), /Nur dockware\/shopware/);
 });
 
 test('variables and commands: validation, secret sealed and masked, kept when left empty, redacted', () => {
@@ -117,7 +129,7 @@ test('routes while off: GET works without touching Docker, check answers 403 in 
   const body = await v.json() as Record<string, any>;
   assert.equal(body.env.status.enabled, false);
   assert.equal(body.docker, null);
-  assert.deepEqual(body.templates.map((t: { id: string }) => t.id), ['dockware-play']);
+  assert.deepEqual(body.templates.map((t: { id: string }) => t.id), ['dockware']);
   const c = await check();
   assert.equal(c.status, 403);
   assert.equal((await c.json() as { error: string }).error, 'Sandbox Coding ist in den Einstellungen ausgeschaltet.');

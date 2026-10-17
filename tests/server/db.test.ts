@@ -210,7 +210,7 @@ test('secret.key: created with 32 bytes and mode 600, corrupt key fails clearly,
 });
 
 test('code_tasks: round-trip, list newest first, lookup by chat, delete', () => {
-  const row = (id: string, updatedAt: string, chatId: string | null = null) => ({ id, chatId, template: 'dockware-play', repo: 'acme/theme', baseBranch: 'main', branch: `lotse/x-${id.slice(2, 8)}`, status: 'ready', containerId: null, prNumber: null, prUrl: null, pushedSha: null, createdAt: updatedAt, updatedAt, title: id, steps: [{ id: 'clone', state: 'done' }] });
+  const row = (id: string, updatedAt: string, chatId: string | null = null) => ({ id, chatId, template: 'dockware', repo: 'acme/theme', baseBranch: 'main', branch: `lotse/x-${id.slice(2, 8)}`, status: 'ready', containerId: null, prNumber: null, prUrl: null, pushedSha: null, createdAt: updatedAt, updatedAt, title: id, steps: [{ id: 'clone', state: 'done' }] });
   db.codeTaskPut(row('t_aaaaaaaaaaaa', '2026-10-01T00:00:00.000Z'));
   db.codeTaskPut(row('t_bbbbbbbbbbbb', '2026-10-02T00:00:00.000Z', 'chat1'));
   db.codeTaskPut({ ...row('t_aaaaaaaaaaaa', '2026-10-03T00:00:00.000Z'), status: 'paused', containerId: 'abc' });

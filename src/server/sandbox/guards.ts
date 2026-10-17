@@ -11,9 +11,9 @@ export function assertId(id: string): string {
   if (typeof id !== 'string' || !ID.test(id)) throw new Error('Ungültige Container-ID.');
   return id;
 }
-/** Only an image that one of the registered templates allows (pinned dockware/play). */
+/** Only an image that one of the registered templates allows (pinned dockware/shopware or dockware/play). */
 export function assertAllowedImage(image: string): string {
-  if (!Object.values(TEMPLATES).some(t => t.imagePattern.test(image))) throw new Error(`Image „${image}“ ist nicht erlaubt (nur dockware/play mit fester Version).`);
+  if (!Object.values(TEMPLATES).some(t => t.imagePattern.test(image))) throw new Error(`Image „${image}“ ist nicht erlaubt (nur dockware/shopware mit fester Version).`);
   return image;
 }
 export const isManaged = (labels: Record<string, string> | null | undefined) => labels?.[MANAGED_LABEL] === '1';

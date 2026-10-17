@@ -1,11 +1,11 @@
-// Live check of a Sandbox Coding task against the real Docker daemon and dockware/play (no AI, no GitHub):
+// Live check of a Sandbox Coding task against the real Docker daemon and dockware/shopware (no AI, no GitHub):
 // a tiny theme plugin in a local bare repository (file:// remote, allowed for this run only) goes through the whole setup:
 // container start, plugin sync + install, own commands as steps, theme:compile, then pause (docker stop) and wake
 // (docker start + full sync) keep the workspace and the database, a retry of install-plugin is idempotent,
 // and "Aufgabe abschließen" removes container and directories. Prints the measured timings.
 //
 //   LOTSE_DOCKWARE_LIVE=1 npx tsx --conditions=react-server tests/support/dockware-live/verify-task.ts
-//   Optional: LOTSE_DOCKWARE_IMAGE (default dockware/play:6.7.2.2, must be pulled), DOCKER_HOST.
+//   Optional: LOTSE_DOCKWARE_IMAGE (default dockware/shopware:6.7.15.1, must be pulled), DOCKER_HOST.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -25,7 +25,7 @@ const J = await import('../../../src/server/sandbox/jobs');
 const T = await import('../../../src/server/sandbox/tasks');
 const { getRunner } = await import('../../../src/server/sandbox/runner');
 allowFileRemotesForTests(true);
-const image = process.env.LOTSE_DOCKWARE_IMAGE ?? 'dockware/play:6.7.2.2';
+const image = process.env.LOTSE_DOCKWARE_IMAGE ?? 'dockware/shopware:6.7.15.1';
 E.saveSandbox({
   enabled: true, image,
   envVars: [{ key: 'LOTSE_LIVE_VAR', secret: false, value: 'hallo-aus-lotse' }, { key: 'LOTSE_LIVE_SECRET', secret: true, value: 'geheim-live-4711' }],
