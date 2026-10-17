@@ -17,7 +17,7 @@ import { fail, guard, ok, type AnyTool, type ToolResult } from '../tool-kit';
 import type { ApprovalReply, Question } from '../sessions';
 import { taskDiff } from './diff';
 import { sandboxPublic } from './env';
-import { grantInternet, internetBlocked, noteInternetDenied } from './internet';
+import { grantInternet, internetBlocked, noteInternetDenied, noteInternetFailed } from './internet';
 import { ensureAwake, touchTask, withTaskLock } from './jobs';
 import { fetchUpstream, sandboxUpstream } from './preview';
 import { getRunner } from './runner';
@@ -200,7 +200,13 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
         const dec = await new Promise<ApprovalReply>(r => host.approvals.set(approvalId, r));
         host.approvals.delete(approvalId);
         if (!dec.allow) { noteInternetDenied(taskId, why); return fail('Der Nutzer hat den Internetzugang abgelehnt. Ohne Internet weiterarbeiten oder den Nutzer fragen, wie es weitergehen soll.'); }
-        await grantInternet(taskId, { via: 'chat', reason: why });
+        try { await grantInternet(taskId, { via: 'chat', reason: why }); } catch (e) {
+          // the click is already stored as "allowed": the card says what happened instead, and the audit keeps the click
+          const error = e instanceof Error ? e.message : String(e);
+          noteInternetFailed(taskId, why, error);
+          host.emit({ t: 'internet_request', approvalId, reason: why, decision: false, error });
+          return fail(`Internet konnte nicht freigegeben werden: ${error} Ohne Internet weiterarbeiten oder den Nutzer fragen.`);
+        }
         return ok('Internet ist für diesen Container jetzt freigegeben (bis der Nutzer es sperrt oder die Sandbox pausiert). Nur für den genannten Zweck verwenden.');
       })),
 

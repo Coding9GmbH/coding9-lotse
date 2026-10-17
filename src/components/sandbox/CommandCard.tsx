@@ -105,7 +105,7 @@ export function InternetRequestCard({ item, onDecide }: { item: InternetAsk; onD
           <Button size="sm" variant="primary" onClick={() => onDecide(true)}>{t.allow}</Button>
           <Button size="sm" onClick={() => onDecide(false)}>{t.deny}</Button>
         </div>
-      ) : <p className={styles.offerRepo} role="status"><b>{item.decision === true ? t.allowed : item.decision === false ? t.denied : t.open}</b></p>}
+      ) : <p className={styles.offerRepo} role="status"><b>{item.error ? t.failed : item.restart ? t.restart : item.decision === true ? t.allowed : item.decision === false ? t.denied : t.open}</b>{item.error ? ` ${item.error}` : null}</p>}
     </section>
   );
 }
