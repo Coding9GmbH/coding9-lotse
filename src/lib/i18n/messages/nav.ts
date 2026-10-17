@@ -28,6 +28,7 @@ export const de = {
   styleguideCreate: 'anlegen',
   knowledge: 'Wissen',
   seo: 'SEO',
+  sandbox: 'Sandbox Coding',
   history: 'Verlauf',
   showHistory: 'Verlauf anzeigen',
   railTip: (total: number, live: number, done: number) =>
@@ -92,6 +93,7 @@ export const en: typeof de = {
   styleguideCreate: 'create',
   knowledge: 'Knowledge',
   seo: 'SEO',
+  sandbox: 'Sandbox Coding',
   history: 'History',
   showHistory: 'Show history',
   railTip: (total: number, live: number, done: number) =>

@@ -12,8 +12,9 @@ import * as workspace from './workspace';
 import * as lib from './lib';
 import * as server from './server';
 import * as seo from './seo';
+import * as sandbox from './sandbox';
 
-const ns = { common, nav, settings, chat, context, dialogs, knowledge, preview, workspace, lib, server, seo } as const;
+const ns = { common, nav, settings, chat, context, dialogs, knowledge, preview, workspace, lib, server, seo, sandbox } as const;
 
 type Namespaces = typeof ns;
 /** Vollständiges Wörterbuch einer Sprache; die deutsche Fassung legt die Form fest. */

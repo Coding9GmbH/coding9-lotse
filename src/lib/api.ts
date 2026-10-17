@@ -2,9 +2,10 @@
 import type { FileAttachment } from './attachments';
 import type { CheckListItem } from './custom-checks';
 import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget } from './knowledge';
+import { createLineSplitter } from './ndjson';
 import type { CodexLoginState, GithubBranch, GithubPublic, GithubRepo, GithubTestResult, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
-  PublicSettings, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
+  PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
 } from './protocol';
 
 export class ApiError extends Error {
@@ -75,6 +76,12 @@ export const api = {
     repos: () => request<{ repos: GithubRepo[] }>('/api/github/repos'),
     branches: (repo: string) => request<{ branches: GithubBranch[] }>(`/api/github/branches?repo=${encodeURIComponent(repo)}`),
   },
+  sandbox: {
+    env: () => request<SandboxEnvView>('/api/sandbox/env'),
+    save: (patch: SandboxEnvPatch) => request<SandboxEnvView>('/api/sandbox/env', json('PUT', patch)),
+    /** "Umgebung prüfen": progress lines while the image is pulled, then the result */
+    check: (onEvent: (ev: SandboxCheckEvent) => void, signal?: AbortSignal) => checkStream(onEvent, signal),
+  },
   seoOverview: (refresh = false) => request<SeoOverview>(`/api/seo${refresh ? '?refresh=1' : ''}`),
   seoStored: () => request<SeoOverview | null>('/api/seo?stored=1'),
   seoMark: (id: string, state: SeoMark['state'] | null) => request<{ mark: SeoMark | null }>('/api/seo/marks', json('PUT', { id, state })),
@@ -112,3 +119,15 @@ export const postChat = (body: ChatRequest, signal: AbortSignal) => fetch('/api/
 export const listenChat = (chatId: string, signal: AbortSignal) => fetch(`/api/chat?chatId=${encodeURIComponent(chatId)}`, { signal });
 
 export const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+async function checkStream(onEvent: (ev: SandboxCheckEvent) => void, signal?: AbortSignal): Promise<void> {
+  const r = await fetch('/api/sandbox/env/check', withHeader({ method: 'POST', signal }));
+  if (!r.ok || !r.body) {
+    const body = await r.json().catch(() => null) as { error?: unknown } | null;
+    throw new ApiError(body?.error ? String(body.error) : `HTTP ${r.status}`, r.status);
+  }
+  const split = createLineSplitter(line => { try { onEvent(JSON.parse(line) as SandboxCheckEvent); } catch { /* ignore broken line */ } });
+  const reader = r.body.getReader();
+  for (;;) { const { done, value } = await reader.read(); if (done) break; split.push(value); }
+  split.end();
+}

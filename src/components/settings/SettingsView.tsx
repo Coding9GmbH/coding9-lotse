@@ -18,6 +18,7 @@ import { CodexLogin } from './CodexLogin';
 import { GscSettings } from './GscSettings';
 import { GithubSettings } from './GithubSettings';
 import { SistrixSettings } from './SistrixSettings';
+import { SandboxSettings } from './SandboxSettings';
 import { LogsPanel } from './LogsPanel';
 import { SecretField } from './SecretField';
 import { rich as markup } from './Rich';
@@ -30,10 +31,10 @@ const SCOPE_ORDER: ScopeKey[] = ['products', 'manufacturers', 'categories', 'cms
 const INTEGRATION_SCOPES: ScopeKey[] = ['gsc', 'sistrix'];
 
 /** Settings subpages (routes under /settings) */
-export type SettingsSection = 'general' | 'access' | 'integrations' | 'logs';
-const SECTION_PATH: Record<SettingsSection, string> = { general: '/settings', access: '/settings/ki-zugriff', integrations: '/settings/integrationen', logs: '/settings/protokolle' };
+export type SettingsSection = 'general' | 'access' | 'integrations' | 'sandbox' | 'logs';
+const SECTION_PATH: Record<SettingsSection, string> = { general: '/settings', access: '/settings/ki-zugriff', integrations: '/settings/integrationen', sandbox: '/settings/sandbox', logs: '/settings/protokolle' };
 
-/** Settings: subpages General (shop, AI, image AI), AI access, Integrations (Search Console, Sistrix, GitHub), Logs. */
+/** Settings: subpages General (shop, AI, image AI), AI access, Integrations (Search Console, Sistrix, GitHub), Sandbox, Logs. */
 export function SettingsView({ section = 'general' }: { section?: SettingsSection }) {
   const { refreshHealth } = useShell();
   const { t, locale } = useI18n();
@@ -240,6 +241,8 @@ export function SettingsView({ section = 'general' }: { section?: SettingsSectio
             </>
           )}
 
+          {section === 'sandbox' && <SandboxSettings />}
+
           {section === 'logs' && (
             <section id="protokolle" className={styles.card} aria-labelledby="logs-h">
               <div className={styles.cardHead}><h2 id="logs-h">{ts.logs.heading}</h2></div>
@@ -331,13 +334,14 @@ function Field({ label, hint, children }: { label: string; hint?: React.ReactNod
   );
 }
 
-/** Subpages on the left: General, AI access, Integrations, Logs (own routes); General shows whether shop and AI are set up. */
+/** Subpages on the left: General, AI access, Integrations, Sandbox, Logs (own routes); General shows whether shop and AI are set up. */
 function SubNav({ active, general }: { active: SettingsSection; general?: 'ok' | 'todo' }) {
   const t = useI18n().t.settings;
   const items: { key: SettingsSection; label: string; state?: 'ok' | 'todo' }[] = [
     { key: 'general', label: t.sections.general.nav, state: general },
     { key: 'access', label: t.sections.access.nav },
     { key: 'integrations', label: t.sections.integrations.nav },
+    { key: 'sandbox', label: t.sections.sandbox.nav },
     { key: 'logs', label: t.sections.logs.nav },
   ];
   return (

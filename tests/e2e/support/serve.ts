@@ -27,13 +27,14 @@ const next = path.join(process.cwd(), 'node_modules', 'next', 'dist', 'bin', 'ne
 // Do not take over credentials or Claude/Anthropic settings from the developer's environment
 // (otherwise shop/AI would already be "configured" or the Claude Code process would hit the real API)
 const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) =>
-  !/^(SHOPWARE_|SHOPIFY_|MAGENTO_|OPENMAGE_|OPENAI_|ANTHROPIC_|CLAUDE_|CODEX_|AI_PROVIDER$|AI_MODEL$|LOTSE_PASSWORD$|AICB_)/.test(k)));
+  !/^(SHOPWARE_|SHOPIFY_|MAGENTO_|OPENMAGE_|OPENAI_|ANTHROPIC_|CLAUDE_|CODEX_|AI_PROVIDER$|AI_MODEL$|LOTSE_PASSWORD$|AICB_|LOTSE_SANDBOX|DOCKER_HOST$)/.test(k)));
 const env: Record<string, string | undefined> = {
   ...inherited,
   AICB_DATA: E2E.dataDir,
   PORT: String(E2E.port),
   ANTHROPIC_BASE_URL: ai.url,
   LOTSE_GITHUB_API_BASE: gh.base,
+  LOTSE_SANDBOX_RUNNER: 'fake', // Sandbox Coding without Docker: in-memory runner
   ANTHROPIC_API_KEY: 'sk-ant-e2e-fake-key',
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
   DISABLE_AUTOUPDATER: '1',

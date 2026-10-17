@@ -12,7 +12,7 @@ import type { ChatStatus, ChatSummary, Health } from '@/lib/protocol';
 import type { Messages } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { LanguageSwitch } from '@/components/i18n/LanguageSwitch';
-import { IconBook, IconChat, IconClose, IconHistory, IconPalette, IconPanel, IconPlus, IconSearch, IconSettings, IconTarget, IconTrash } from '@/components/ui/icons';
+import { IconBook, IconChat, IconCode, IconClose, IconHistory, IconPalette, IconPanel, IconPlus, IconSearch, IconSettings, IconTarget, IconTrash } from '@/components/ui/icons';
 import { useShell } from './ShellProvider';
 import styles from './SideNav.module.css';
 
@@ -138,6 +138,13 @@ export function SideNav() {
             </button>
           )}
         </li>
+        {s.sandbox && ( // only while Sandbox Coding is switched on (settings → Sandbox); needs no shop connection
+          <li>
+            <Link href="/sandbox-coding" className={styles.item} aria-current={path?.startsWith('/sandbox-coding') ? 'page' : undefined} onClick={close} aria-label={tip(t.sandbox)} data-tip={tip(t.sandbox)}>
+              <IconCode size={18} /><span className={styles.label}>{t.sandbox}</span>
+            </Link>
+          </li>
+        )}
       </ul>
 
       {collapsed ? (

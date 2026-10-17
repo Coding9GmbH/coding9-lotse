@@ -34,4 +34,5 @@ export const IconCheck = (p: P) => <Svg {...p}><path d="m5 12 4.5 4.5L19 7" /></
 export const IconPin = (p: P) => <Svg {...p}><path d="M12 21s-6-5.4-6-10a6 6 0 1 1 12 0c0 4.6-6 10-6 10Z" /><circle cx="12" cy="11" r="2" /></Svg>;
 export const IconBook = (p: P) => <Svg {...p}><path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H20v15.5H5.5A1.5 1.5 0 0 0 4 20v-15.5Z" /><path d="M4 20a1.5 1.5 0 0 0 1.5 1.5H20M8.5 7.5h7M8.5 11h5" /></Svg>;
 export const IconUpload = (p: P) => <Svg {...p}><path d="M12 16V4M7 9l5-5 5 5" /><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></Svg>;
+export const IconCode = (p: P) => <Svg {...p}><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14" /></Svg>;
 export const IconEdit = (p: P) => <Svg {...p}><path d="M4 20h4L19 9l-4-4L4 16v4Z" /><path d="m13.5 6.5 4 4" /></Svg>;

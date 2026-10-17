@@ -1,6 +1,4 @@
-import { extraAllowedHosts, openWithoutPassword } from '@/server/access';
-
-const LOOPBACK_BIND = new Set(['127.0.0.1', 'localhost', '::1']);
+import { bindAddress, extraAllowedHosts, loopbackBind, openWithoutPassword } from '@/server/access';
 
 /** The fields the startup warning reads. A partial object is enough, so the test need not build a full ProcessEnv. */
 export type BindEnv = {
@@ -16,13 +14,13 @@ export type BindEnv = {
 /** Warning, not a startup abort: outside Docker on an open bind without password, in the container if LOTSE_BIND is missing or not loopback. */
 export function bindWarning(env: BindEnv): string | null {
   if (env.AICB_DOCKER === '1') {
-    const bind = (env.LOTSE_BIND ?? '').trim();
-    if (LOOPBACK_BIND.has(bind)) return null;
+    const bind = bindAddress(env);
+    if (loopbackBind(env)) return null;
     const shown = bind === '' ? 'nicht gesetzt' : bind;
     return `WARNUNG: LOTSE_BIND ist ${shown}, nicht Loopback – der Container sieht nicht, worauf der Port veröffentlicht ist. Setze LOTSE_BIND auf 127.0.0.1, localhost oder ::1.`;
   }
-  const host = env.HOSTNAME || env.HOST || 'localhost';
-  if (!['127.0.0.1', 'localhost', '::1'].includes(host) && !env.LOTSE_PASSWORD)
+  const host = bindAddress(env);
+  if (!loopbackBind(env) && !env.LOTSE_PASSWORD)
     return `WARNUNG: Lotse lauscht auf ${host} ohne LOTSE_PASSWORD – jeder im Netzwerk könnte Änderungen am Shop freigeben.`;
   return null;
 }
@@ -42,4 +40,15 @@ export async function register() {
   installPeerStamp(http.Server.prototype, https.Server.prototype);
   for (const warning of [bindWarning(process.env), allowedHostsWarning(process.env)]) if (warning) console.warn(warning);
   console.log(`Lotse ${process.env.LOTSE_VERSION || 'dev'} bereit${process.env.LOTSE_PASSWORD ? ' (Login aktiv)' : ''}`);
+  void sandboxDockerWarning();
+}
+
+/** Sandbox Coding switched on, but Docker unreachable: say so at startup (in the background, never blocks the start). */
+async function sandboxDockerWarning() {
+  try {
+    const { sandboxStatus, dockerState } = await import('@/server/sandbox/env');
+    if (!sandboxStatus().enabled) return;
+    const d = await dockerState(true);
+    if (!d.reachable) console.warn(`WARNUNG: Sandbox Coding ist eingeschaltet, aber: ${d.error ?? 'Docker ist nicht erreichbar.'} Anleitung: docs/self-hosting.md → „Sandbox Coding aktivieren“.`);
+  } catch { /* the settings page shows the state as well */ }
 }

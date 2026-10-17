@@ -155,6 +155,7 @@ Ist unter Einstellungen → KI-Zugriff der Schalter **Abverkauf** an, liest Lots
 | **Protokolle** | **Zugriffe** (jeder Lesezugriff der KI, abgewiesene markiert) und **Änderungen** (freigegeben, abgelehnt, rückgängig, geändert) |
 | **Search Console** (optional) | Zugang für Chancen, Inhaltslücken und Erfolgsmessung |
 | **GitHub** (optional, unter Integrationen) | Fine-grained Token für Code-Änderungen an Plugins und Themes. Auf GitHub unter *Settings → Developer settings → Fine-grained tokens* nur die nötigen Repositorys auswählen und **Contents** sowie **Pull requests** auf *Lesen & Schreiben* setzen. Der Token wird verschlüsselt gespeichert, automatisch getestet (zeigt den GitHub-Login und Repositorys ohne Schreibrecht) und nie wieder angezeigt, auch nicht der KI. Lotse schreibt nur auf eigene Branches `lotse/…`, nie auf `main` |
+| **Sandbox** (optional) | Schaltet **Sandbox Coding** ein (standardmäßig aus): Code-Aufgaben in eigenen Shopware-Containern (Dockware) auf diesem Rechner, dazu Arbeitsspeicher, CPUs und die Pause nach Inaktivität (gestoppt, nicht gelöscht). Braucht Docker-Zugriff, siehe [Selbst hosten](self-hosting.md#sandbox-coding-aktivieren). Image, Umgebungsvariablen und eigene Einrichtungsbefehle legst du im Reiter **Sandbox Coding** fest; geheime Werte werden verschlüsselt und nie angezeigt |
 | **Sprache** | Deutsch oder Englisch für Oberfläche und KI-Antworten (siehe unten) |
 
 Kunden-, Bestell-, Zahlungs- und Zugangsdaten sind fest gesperrt und nicht freischaltbar.

@@ -7,7 +7,7 @@ COMPOSE      := LOTSE_IMAGE=$(IMAGE):local LOTSE_VERSION=$(VERSION) LOTSE_PORT=$
 BACKUP_DIR   ?= backups
 
 .DEFAULT_GOAL := help
-.PHONY: help env build up demo down stop restart logs ps shell open backup restore update clean dev check
+.PHONY: help env build up demo down stop restart logs ps shell open backup restore update clean dev check sandbox-up sandbox-clean
 
 help: ## Diese Hilfe
 	@awk 'BEGIN{FS=":.*##"; printf "\n  \033[1mLotse\033[0m – make <befehl>\n\n"} /^[a-z-]+:.*##/{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST); printf '\n'
@@ -27,6 +27,14 @@ demo: build ## Lotse + Demo-Shop (dockware) starten → Shop auf http://localhos
 	@printf "\n  Lotse:      http://localhost:$(PORT)\n"
 	@echo "  Demo-Shop:  http://localhost:8888  (Admin: /admin · admin / shopware)"
 	@printf "  In Lotse → Einstellungen: Shop-URL http://shopware, öffentliche URL http://localhost:8888\n\n"
+
+sandbox-up: build ## Lotse mit Docker-Zugang für Sandbox Coding starten (Socket-Proxy, internes Netz)
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.sandbox.yml up -d lotse docker-proxy
+	@printf "\n  Lotse läuft: http://localhost:$(PORT) – Sandbox Coding unter Einstellungen → Sandbox einschalten\n\n"
+
+sandbox-clean: ## Alle Sandbox-Container von Lotse entfernen (nur mit Label lotse.managed=1, fragt nach)
+	@printf "Alle Sandbox-Container (Label lotse.managed=1) samt Änderungen darin löschen? [y/N] " && read a && [ "$$a" = y ]
+	@ids=$$(docker ps -aq --filter label=lotse.managed=1); [ -z "$$ids" ] && echo "Keine Sandbox-Container vorhanden" || docker rm -f -v $$ids
 
 down: ## Alles stoppen (Daten bleiben im Volume erhalten)
 	$(COMPOSE) --profile demo down
@@ -49,6 +57,7 @@ open: ## Oberfläche im Browser öffnen
 # Backup: SQLite runs in WAL mode, so simply copying the files can capture a half-written state. If Lotse is running,
 # docker/db-snapshot.mjs writes a consistent snapshot via VACUUM INTO to /data/.backup/aicb.db; the archive contains
 # it as aicb.db (instead of the live file with -wal/-shm) plus all other files (secret.key, knowledge base, Claude sessions …).
+# Sandbox working copies (workspaces/, git/) and database dumps (dumps/) are left out: they can be recreated or must not be kept.
 # If Lotse is stopped, the database is idle and is backed up directly. Archives have the same format as before.
 backup: ## Datenvolume sichern (DB-Schnappschuss, Schlüssel, Verlauf) nach ./backups
 	@mkdir -p $(BACKUP_DIR)
@@ -56,7 +65,7 @@ backup: ## Datenvolume sichern (DB-Schnappschuss, Schlüssel, Verlauf) nach ./ba
 	  else echo "Lotse läuft nicht – Datenbank ist in Ruhe und wird direkt gesichert"; fi
 	docker run --rm -e TS=$$(date +%Y%m%d-%H%M%S) -v lotse_lotse-data:/data -v "$$PWD/$(BACKUP_DIR)":/backup busybox sh -c 'set -e; s=/tmp/lotse; mkdir -p $$s; cp -a /data/. $$s/; \
 	  if [ -f $$s/.backup/aicb.db ]; then rm -f $$s/aicb.db $$s/aicb.db-wal $$s/aicb.db-shm; mv $$s/.backup/aicb.db $$s/aicb.db; fi; \
-	  rm -rf $$s/.backup /data/.backup; tar czf /backup/lotse-$$TS.tgz -C $$s .'
+	  rm -rf $$s/.backup /data/.backup $$s/workspaces $$s/git $$s/dumps; tar czf /backup/lotse-$$TS.tgz -C $$s .'
 	@ls -1t $(BACKUP_DIR) | head -1
 
 restore: ## Sicherung einspielen: make restore FILE=backups/lotse-….tgz

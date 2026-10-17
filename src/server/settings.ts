@@ -173,7 +173,8 @@ export function redact(text: unknown): string {
   const sistrixKey = unseal(kvGet<{ key?: string }>('sistrix')?.key);
   const githubToken = unseal(kvGet<{ token?: string }>('github')?.token); // also as the Basic credential git sends
   const githubBasic = githubToken ? Buffer.from(`x-access-token:${githubToken}`).toString('base64') : null;
-  for (const v of [g.shopware.password, g.shopware.clientSecret, ...shopSecrets, g.ai.apiKey, g.image.openaiKey, sistrixKey, githubToken, githubBasic]) if (v && v.length > 3) t = t.split(v).join('•••');
+  const sandboxSecrets = (kvGet<{ envVars?: { secret?: boolean; value?: string }[] }>('sandbox')?.envVars ?? []).filter(v => v.secret).map(v => unseal(v.value)); // sandbox env vars marked secret
+  for (const v of [g.shopware.password, g.shopware.clientSecret, ...shopSecrets, g.ai.apiKey, g.image.openaiKey, sistrixKey, githubToken, githubBasic, ...sandboxSecrets]) if (v && v.length > 3) t = t.split(v).join('•••');
   return t.replace(/Bearer\s+[A-Za-z0-9._~+/=-]{12,}/g, 'Bearer •••').replace(/(Authorization:\s*Basic\s+)[A-Za-z0-9+/=]{8,}/gi, '$1•••').replace(/sk-[A-Za-z0-9_-]{16,}/g, 'sk-•••')
     .replace(/\b(github_pat_|gh[pousr]_)[A-Za-z0-9_]{16,}/g, '$1•••').replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, '$1•••@');
 }
