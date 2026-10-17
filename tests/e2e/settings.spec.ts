@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { SHOP_TOKEN, shopUrl } from './support/helpers';
+import { GITHUB_TOKEN } from './support/github';
 
 test('Settings: connect Shopify, auto-save and test connections', async ({ page }) => {
   await page.goto('/settings');
@@ -27,4 +28,25 @@ test('Settings: connect Shopify, auto-save and test connections', async ({ page 
   await page.reload();
   await expect(page.locator('section#shop').getByLabel('Shop-Domain')).toHaveValue(shopUrl);
   await expect(page.locator('section#shop').getByLabel('Admin-API-Zugriffstoken')).toHaveValue('');
+});
+
+test('Settings: connect GitHub with a fine-grained token, never shown again, disconnect', async ({ page }) => {
+  await page.goto('/settings/integrationen');
+  const gh = page.locator('section#github');
+  await gh.getByLabel('Fine-grained Token').fill('ghp_kurz');
+  await expect(gh.getByText('Token braucht Contents + Pull requests')).toBeVisible();
+  await gh.getByLabel('Fine-grained Token').fill(GITHUB_TOKEN);
+  await expect(gh.getByRole('status').filter({ hasText: '✓ Verbunden als octo-lotse' })).toBeVisible();
+  await expect(gh.getByText('Ohne Schreibrecht (1): acme/legacy-plugin')).toBeVisible();
+
+  await page.reload();
+  const again = page.locator('section#github');
+  await expect(again.getByText('Verbunden als octo-lotse', { exact: true })).toBeVisible();
+  await expect(again.getByLabel('Fine-grained Token')).toHaveValue('');
+  expect(await page.content()).not.toContain(GITHUB_TOKEN);
+
+  page.once('dialog', d => void d.accept());
+  await again.getByRole('button', { name: 'Entfernen' }).click();
+  await expect(again.getByRole('status').filter({ hasText: 'Verbindung getrennt' })).toBeVisible();
+  await expect(again.getByText('gespeichert', { exact: true })).toHaveCount(0);
 });

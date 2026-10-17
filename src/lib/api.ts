@@ -2,7 +2,7 @@
 import type { FileAttachment } from './attachments';
 import type { CheckListItem } from './custom-checks';
 import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget } from './knowledge';
-import type { CodexLoginState, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
+import type { CodexLoginState, GithubBranch, GithubPublic, GithubRepo, GithubTestResult, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
   PublicSettings, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
 } from './protocol';
@@ -67,6 +67,14 @@ export const api = {
   disconnectSistrix: () => request<SistrixPublic>('/api/sistrix', { method: 'DELETE' }),
   testSistrix: () => request<SistrixTestResult>('/api/sistrix/test', { method: 'POST' }),
   sistrixOverview: () => request<SistrixOverview>('/api/sistrix/overview'),
+  github: {
+    get: () => request<GithubPublic>('/api/github'),
+    save: (token: string) => request<GithubPublic>('/api/github', json('PUT', { token })),
+    disconnect: () => request<GithubPublic>('/api/github', { method: 'DELETE' }),
+    test: () => request<GithubTestResult>('/api/github/test', { method: 'POST' }),
+    repos: () => request<{ repos: GithubRepo[] }>('/api/github/repos'),
+    branches: (repo: string) => request<{ branches: GithubBranch[] }>(`/api/github/branches?repo=${encodeURIComponent(repo)}`),
+  },
   seoOverview: (refresh = false) => request<SeoOverview>(`/api/seo${refresh ? '?refresh=1' : ''}`),
   seoStored: () => request<SeoOverview | null>('/api/seo?stored=1'),
   seoMark: (id: string, state: SeoMark['state'] | null) => request<{ mark: SeoMark | null }>('/api/seo/marks', json('PUT', { id, state })),

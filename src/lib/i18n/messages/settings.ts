@@ -6,7 +6,7 @@ export const de = {
   sections: {
     general: { nav: 'Allgemein', title: 'Allgemein', lead: 'Sprache, Shop und KI verbinden, Bild-KI.' },
     access: { nav: 'KI-Zugriff', title: 'KI-Zugriff', lead: 'Lege fest, was die KI lesen darf: Bereiche deines Shops (inklusive Hersteller) die Daten verbundener Integrationen und ob sie im Internet recherchieren darf. Geschrieben wird nur nach deiner Freigabe.' },
-    integrations: { nav: 'Integrationen', title: 'Integrationen', lead: 'Search Console und Sistrix liefern echte Such- und Marktdaten für SEO-Vorschläge, Shop-Check und die SEO-Übersicht.' },
+    integrations: { nav: 'Integrationen', title: 'Integrationen', lead: 'Search Console und Sistrix liefern echte Such- und Marktdaten für SEO-Vorschläge, Shop-Check und die SEO-Übersicht; GitHub verbindet Repositorys für Code-Änderungen.' },
     logs: { nav: 'Protokolle', title: 'Protokolle', lead: 'Was die KI im Shop gelesen hat und welche Änderungen freigegeben, abgelehnt oder rückgängig gemacht wurden.' },
   },
   lead: 'Änderungen werden automatisch gespeichert. Zugangsdaten werden verschlüsselt lokal gespeichert und nie an die KI weitergegeben. Gespeicherte Schlüssel werden hier nicht angezeigt.',
@@ -103,7 +103,7 @@ export const de = {
     webHint: 'Darf die KI im Internet **suchen** und öffentliche Webseiten **lesen**? Suchbegriffe und Adressen gehen dabei an den Suchdienst des KI-Anbieters. Inhalte aus dem Netz behandelt die KI als Quelle, nicht als Anweisung; geschrieben wird weiterhin nur nach deiner Freigabe.',
   },
   integrations: {
-    hint: 'Externe Dienste, aus denen Lotse echte Such- und Marktdaten bezieht. Beide sind optional und nur lesend. Ob die KI die Daten nutzen darf, steuerst du unter KI-Zugriff.',
+    hint: 'Externe Dienste: Search Console und Sistrix liefern echte Such- und Marktdaten (optional, nur lesend; ob die KI sie nutzen darf, steuerst du unter KI-Zugriff). GitHub verbindet Repositorys für Code-Änderungen.',
   },
   secret: {
     saved: 'gespeichert',
@@ -153,6 +153,20 @@ export const de = {
     countryHint: 'Zweistelliger Ländercode wie `de`, `at`, `ch`. Leer: Land deines Sistrix-Kontos.',
     domainMissing: 'Domain fehlt',
   },
+  github: {
+    intro: 'Verbindet Lotse mit GitHub, damit Code-Änderungen an Plugins und Themes als Branch lotse/… und Pull Request landen. Lotse schreibt nie direkt auf main oder einen anderen bestehenden Branch.',
+    step1: 'Auf GitHub unter **Settings → Developer settings → Fine-grained tokens** einen Token anlegen und **nur die nötigen Repositorys** auswählen.',
+    step2: 'Berechtigungen: **Contents** und **Pull requests** jeweils **Lesen & Schreiben** (Metadata: Lesen wird automatisch gesetzt). Ablaufdatum setzen.',
+    step3: 'Token hier einfügen (wird automatisch gespeichert und getestet).',
+    tokenLabel: 'Fine-grained Token',
+    tokenPlaceholder: 'github_pat_…',
+    tokenHint: 'Wird verschlüsselt gespeichert und nie wieder angezeigt: nicht im Browser, nicht für die KI, nicht in Protokollen oder Befehlszeilen.',
+    permissions: 'Token braucht Contents + Pull requests: Lesen & Schreiben.',
+    connectedAs: (login: string) => `Verbunden als ${login}`,
+    readOnly: (n: number, names: string) => `Ohne Schreibrecht (${n}): ${names}`,
+    disconnected: 'Verbindung getrennt',
+    notTested: 'Token gespeichert, noch nicht getestet',
+  },
   logs: {
     heading: 'Protokolle',
     label: 'Protokoll',
@@ -188,7 +202,7 @@ export const en: typeof de = {
   sections: {
     general: { nav: 'General', title: 'General', lead: 'Language, connect shop and AI, image AI.' },
     access: { nav: 'AI access', title: 'AI access', lead: 'Decide what the AI may read: areas of your shop (including manufacturers) the data of connected integrations and whether it may research the web. Writing only happens after your approval.' },
-    integrations: { nav: 'Integrations', title: 'Integrations', lead: 'Search Console and Sistrix provide real search and market data for SEO suggestions, the shop check and the SEO overview.' },
+    integrations: { nav: 'Integrations', title: 'Integrations', lead: 'Search Console and Sistrix provide real search and market data for SEO suggestions, the shop check and the SEO overview; GitHub connects repositories for code changes.' },
     logs: { nav: 'Logs', title: 'Logs', lead: 'What the AI read in the shop and which changes were approved, rejected or undone.' },
   },
   lead: 'Changes are saved automatically. Credentials are stored encrypted on this machine and never passed to the AI. Saved keys are not shown here.',
@@ -285,7 +299,7 @@ export const en: typeof de = {
     webHint: 'May the AI **search** the web and **read** public web pages? Search terms and addresses are sent to the AI provider\'s search service. The AI treats web content as a source, not as instructions; writing still only happens after your approval.',
   },
   integrations: {
-    hint: 'External services Lotse uses for real search and market data. Both are optional and read-only. Whether the AI may use the data is controlled under AI access.',
+    hint: 'External services: Search Console and Sistrix provide real search and market data (optional, read-only; whether the AI may use it is controlled under AI access). GitHub connects repositories for code changes.',
   },
   secret: {
     saved: 'saved',
@@ -334,6 +348,20 @@ export const en: typeof de = {
     countryPlaceholder: 'de',
     countryHint: 'Two-letter country code such as `de`, `at`, `ch`. Empty: the country of your Sistrix account.',
     domainMissing: 'Domain missing',
+  },
+  github: {
+    intro: 'Connects Lotse to GitHub so code changes to plugins and themes end up as a lotse/… branch and a pull request. Lotse never writes directly to main or any other existing branch.',
+    step1: 'On GitHub under **Settings → Developer settings → Fine-grained tokens**, create a token and select **only the repositories you need**.',
+    step2: 'Permissions: **Contents** and **Pull requests**, each **Read and write** (Metadata: read is set automatically). Set an expiry date.',
+    step3: 'Paste the token here (saved and tested automatically).',
+    tokenLabel: 'Fine-grained token',
+    tokenPlaceholder: 'github_pat_…',
+    tokenHint: 'Stored encrypted and never shown again: not in the browser, not to the AI, not in logs or command lines.',
+    permissions: 'The token needs Contents + Pull requests: read and write.',
+    connectedAs: (login: string) => `Connected as ${login}`,
+    readOnly: (n: number, names: string) => `Without write access (${n}): ${names}`,
+    disconnected: 'Disconnected',
+    notTested: 'Token saved, not tested yet',
   },
   logs: {
     heading: 'Logs',

@@ -128,7 +128,7 @@ export interface ChatDetail { id: string; title: string; target: Target | null; 
 export type AiProvider = 'claude' | 'codex';
 /** shopware = connection to the active shop (legacy name, applies to every platform); platform = which platform is connected */
 /** Optional integrations: only when connected does the UI show matching examples */
-export interface Integrations { gsc: boolean; sistrix: boolean }
+export interface Integrations { gsc: boolean; sistrix: boolean; github: boolean }
 export interface Health { shopware: { url: string; ok: boolean; configured: boolean; error?: string }; ai: { configured: boolean; provider?: AiProvider; /** cost brake (Claude with a monthly budget only): spent/limit in USD this month */ budget?: { spent: number; limit: number; warn: boolean; blocked: boolean } }; platform?: { kind: PlatformKind; label: string; available: boolean }; integrations?: Integrations }
 /** The platform's path templates ({id} is replaced): admin links and storefront paths for category/product */
 export interface PlatformPaths { adminCategory: string; adminProduct: string; adminCms: string; category: string; product: string }
@@ -213,6 +213,11 @@ export interface GscTestResult extends TestResult { sites: string[] }
 // ---- Sistrix (settings): API key only as "present", never in the browser ----
 export interface SistrixPublic { hasKey: boolean; domain: string; country: string; /** Optimizer project (hash), empty = automatic */ project: string; connected: boolean; updatedAt: string | null }
 export interface SistrixTestResult extends TestResult { credits: number | null }
+// ---- GitHub (settings): token only as "present", never in the browser ----
+export interface GithubPublic { hasToken: boolean; /** GitHub user of the token, known after the first successful test */ login: string | null; updatedAt: string | null }
+export interface GithubTestResult extends TestResult { login: string | null; /** repositories the token can see */ repos: number | null; /** visible repositories without write access (max. 20) */ readOnly: string[] }
+export interface GithubRepo { fullName: string; private: boolean; defaultBranch: string; /** may push (from GitHub's permissions) */ push: boolean; pushedAt: string | null }
+export interface GithubBranch { name: string; protected: boolean }
 /** SEO overview: levers from Search Console and Sistrix as ready-made tasks (prompt) for a new chat */
 export interface SeoItem { id: string; source: 'gsc' | 'sistrix' | 'site'; kind: 'meta' | 'gap' | 'striking' | 'cannibal' | 'decline' | 'keyword' | 'onpage' | 'site'; title: string; detail: string; metrics: { label: string; value: string }[]; /** sort value (estimated impact) */ impact: number; prompt: string; /** done/ignored by the user: hidden */ mark?: SeoMark }
 /** Done = hidden until a fetch at least SEO_DONE_RECHECK_DAYS later still reports the lever; ignored = hidden permanently */

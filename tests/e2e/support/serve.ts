@@ -2,6 +2,7 @@
  * Starts everything the E2E tests need in one process (Playwright webServer):
  *  - Shopify fake (seed "Haus Holm") on E2E_SHOP_PORT
  *  - Anthropic fake (scripted model) on E2E_AI_PORT; the real Claude Code process talks to it via ANTHROPIC_BASE_URL
+ *  - GitHub fake (REST API) on a free port, via LOTSE_GITHUB_API_BASE
  *  - Lotse (`next start`, with E2E_DEV=1 `next dev`) on E2E_PORT with a fresh, empty data folder (AICB_DATA)
  * Exits together with Lotse; the fakes run in the same process and end with it.
  */
@@ -10,6 +11,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { startFakeShopify } from '../../support/shopify-fake/server';
 import { startFakeAnthropic } from '../../support/anthropic-fake/server';
+import { startFakeGithub } from '../../support/github-fake';
+import { GITHUB_TOKEN as E2E_GITHUB_TOKEN } from './github';
 import { E2E } from './env';
 
 fs.rmSync(E2E.dataDir, { recursive: true, force: true });
@@ -17,6 +20,7 @@ fs.mkdirSync(E2E.dataDir, { recursive: true });
 
 const shop = await startFakeShopify({ port: E2E.shopPort, log: false });
 const ai = await startFakeAnthropic({ port: E2E.aiPort, quiet: process.env.E2E_VERBOSE !== '1' });
+const gh = await startFakeGithub({ token: E2E_GITHUB_TOKEN, login: 'octo-lotse', repos: [{ fullName: 'acme/shop-theme' }, { fullName: 'acme/legacy-plugin', push: false }] });
 console.log(`[e2e] Shopify-Fake ${shop.url} · Anthropic-Fake ${ai.url} · Daten ${E2E.dataDir}`);
 
 const next = path.join(process.cwd(), 'node_modules', 'next', 'dist', 'bin', 'next');
@@ -29,6 +33,7 @@ const env: Record<string, string | undefined> = {
   AICB_DATA: E2E.dataDir,
   PORT: String(E2E.port),
   ANTHROPIC_BASE_URL: ai.url,
+  LOTSE_GITHUB_API_BASE: gh.base,
   ANTHROPIC_API_KEY: 'sk-ant-e2e-fake-key',
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
   DISABLE_AUTOUPDATER: '1',
@@ -43,11 +48,11 @@ if (!child) {
   if (process.env.E2E_SKIP_BUILD !== '1') {
     const build = run(['build']);
     const code: number = await new Promise(ok => build.on('exit', c => ok(c ?? 1)));
-    if (code !== 0) { await Promise.all([shop.close(), ai.close()]); process.exit(code); }
+    if (code !== 0) { await Promise.all([shop.close(), ai.close(), gh.close()]); process.exit(code); }
   }
   child = run(['start', '-H', '127.0.0.1', '-p', String(E2E.port)]);
 }
 const stop = () => { child?.kill('SIGTERM'); };
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
-child.on('exit', async code => { await Promise.all([shop.close(), ai.close()]); process.exit(code ?? 0); });
+child.on('exit', async code => { await Promise.all([shop.close(), ai.close(), gh.close()]); process.exit(code ?? 0); });

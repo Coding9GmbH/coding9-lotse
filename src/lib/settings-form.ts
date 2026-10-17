@@ -147,6 +147,8 @@ export const platformAvailable = (saved: PublicSettings, kind: PlatformKind): bo
 
 /** Sistrix API key plausible (length/characters)? Only then autosave. */
 export const sistrixKeyComplete = (key: string): boolean => /^[A-Za-z0-9_-]{16,128}$/.test(key.trim());
+/** GitHub token complete (fine-grained github_pat_… or classic ghp_…)? Only then autosave. */
+export const githubTokenComplete = (token: string): boolean => /^(github_pat_[A-Za-z0-9_]{30,255}|ghp_[A-Za-z0-9]{30,255})$/.test(token.trim());
 
 /** Search Console key complete (service account JSON with email and private key)? Only then autosave;
  *  otherwise a half-pasted JSON ends up in storage. */
