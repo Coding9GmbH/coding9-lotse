@@ -147,7 +147,7 @@ If the **Sales** switch under Settings → AI access is on, Lotse reads only **t
 | Section | Contents |
 |---|---|
 | **Connect shop** | Choose platform, enter credentials, test connection. Recommended: a dedicated integration with a restricted role instead of an admin login |
-| **Connect AI** | Provider (Claude via API key or Codex via ChatGPT subscription), model, **monthly budget** (cost brake for Claude: once reached, no new run starts; a running run stops before; from 80 % a notice in the chat; below it the costs of this month and today) |
+| **Connect AI** | Provider (Claude via API key or Codex via ChatGPT subscription), model, **monthly budget** (cost brake for Claude: once reached, no new run starts; each run uses at most half of the free budget, also with parallel chats; from 80 % a notice in the chat; below it the costs of this month and today) |
 | **Image AI** (optional) | OpenAI key and model for generated images; AI images are visibly labeled |
 | **AI access** | Which areas Lotse may read (products, categories, layouts, media, marketing, shop basics). Blocked areas are not read, not even by the shop check. Separate switches (off by default): **Sales** (only totals per product from orders, see below) and **Internet** (web search) |
 | **Logs** | **Access** (every read access by the AI, rejected ones marked) and **Changes** (approved, rejected, undone, changed) |
