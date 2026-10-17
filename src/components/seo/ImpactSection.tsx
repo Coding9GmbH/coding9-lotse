@@ -36,7 +36,7 @@ export function ImpactSection({ data, onChange }: { data: SeoImpactList; onChang
 
   const hiddenCount = data.items.filter(i => i.dismissed).length;
   const list = data.items.filter(i => showHidden || !i.dismissed), cut = !open && list.length > COLLAPSED ? list.slice(0, COLLAPSED) : list;
-  const due = data.items.some(i => !i.dismissed && (i.status === 'preliminary' || (i.status === 'complete' && !i.measuredAt)));
+  const due = data.items.some(i => !i.dismissed && i.status === 'preliminary');
 
   const row = (i: SeoImpact) => {
     const sev = i.verdict && i.status !== 'superseded' ? SEV[i.verdict] : undefined;
