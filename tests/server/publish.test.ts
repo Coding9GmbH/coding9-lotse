@@ -197,3 +197,42 @@ test('German errors: no write access for pull requests, branch changed on GitHub
   write(t3.id, 'README.md', '# noch einmal geändert\n');
   await assert.rejects(publish(t3.id, 'Ohne Recht'), /wurde auf GitHub verändert/);
 });
+
+test('preflight: GitHub actions blocked like workflows; a non-ASCII stored secret is found in a latin1-read file', () => {
+  const M = (p: string) => ({ path: p, status: 'M' });
+  assert.match(P.blockReason([M('.github/actions/setup/action.yml')])!, /Workflows oder -Actions/);
+  assert.match(P.blockReason([M('tools/deploy/action.yaml')])!, /Workflows oder -Actions/);
+  const disk = Buffer.from('<default>Größe-Passwort1</default>\n', 'utf8').toString('latin1');
+  assert.match(P.scanFile('config.xml', disk, new Set(), ['Größe-Passwort1'])!, /in Lotse gespeichertes Geheimnis/);
+});
+
+test('a setup re-run waits for a running publish (the clone step wipes the worktree)', () => {
+  let release!: () => void;
+  T.markPublishing(task.id, new Promise<void>(r => { release = r; }));
+  try { assert.throws(() => S.J.runSteps(task.id, T.getTask(task.id)!.steps.find(s => s.key === 'clone')!.id), (e: Error & { status?: number }) => e.status === 409 && /veröffentlicht/.test(e.message)); }
+  finally { release(); }
+});
+
+test('an untouched credential line already in the base does not block (the base is read unredacted); a new one does', async () => {
+  const seed = path.join(path.dirname(theme.bare), 'seed-creds');
+  execFileSync('git', ['clone', '-q', '--branch', 'main', theme.bare, seed]);
+  fs.writeFileSync(path.join(seed, 'phpunit.xml.dist'), '<phpunit>\n<env name="DATABASE_URL" value="mysql://root:root@127.0.0.1:3306/shopware"/>\n<env name="APP_ENV" value="test"/>\n</phpunit>\n');
+  execFileSync('git', ['-C', seed, 'add', '-A']);
+  execFileSync('git', ['-C', seed, '-c', 'user.name=X', '-c', 'user.email=x@example.com', 'commit', '-qm', 'phpunit']);
+  execFileSync('git', ['-C', seed, 'push', '-q', 'origin', 'HEAD:refs/heads/main']);
+  const t4 = await S.readyTask('PHPUnit Umgebung');
+  write(t4.id, 'phpunit.xml.dist', '<phpunit>\n<env name="DATABASE_URL" value="mysql://root:root@127.0.0.1:3306/shopware"/>\n<env name="APP_ENV" value="ci"/>\n</phpunit>\n');
+  write(t4.id, 'README.md', '# x\n');
+  await P.preflight(T.getTask(t4.id)!);
+  write(t4.id, 'phpunit.xml.dist', '<phpunit>\n<env name="DATABASE_URL" value="mysql://root:root@127.0.0.1:3306/shopware"/>\n<env name="X" value="https://u:geheim1@example.com/x"/>\n</phpunit>\n');
+  await assert.rejects(P.preflight(T.getTask(t4.id)!), /Adresse mit Zugangsdaten/);
+});
+
+test('the lotse branch was deleted on GitHub (after a merge): the next publish creates it anew instead of failing the lease', async () => {
+  assert.ok(T.getTask(task.id)!.pushedSha);
+  bare('update-ref', '-d', `refs/heads/${task.branch}`);
+  write(task.id, 'README.md', '# AcmeTheme\n\nNachtrag nach dem Merge\n');
+  await publish(task.id, 'Nachtrag');
+  const sha = remoteSha(task.branch);
+  assert.ok(sha && sha === T.getTask(task.id)!.pushedSha);
+});

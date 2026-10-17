@@ -3,8 +3,8 @@ import 'server-only';
 // (POST /api/sandbox/tasks/[id]/publish) gets here; the AI can only propose title and description (propose_publish).
 // - branch and base come from the task (fixed at creation), never from the request; only refs/heads/lotse/* is written,
 //   a re-push uses --force-with-lease on exactly the SHA Lotse pushed last (git.ts)
-// - preflight before anything is written: changes exist, paths stay in the repository, no .github/workflows, no secret
-//   files, limits on files and size, a secret scan of the added lines (tokens, private keys, every secret Lotse knows)
+// - preflight before anything is written: changes exist, paths stay in the repository, no .github/workflows or
+//   .github/actions (nor action.yml anywhere), no secret files, limits on files and size, a secret scan of the added lines (tokens, private keys, every secret Lotse knows)
 // - audit "started" before the first write and a result row afterwards, both with the actor; the token never appears
 // - idempotent: a retry after a failure or a restart continues (nothing new to commit, push is a no-op, the open PR is reused)
 import fs from 'node:fs';
@@ -12,14 +12,14 @@ import path from 'node:path';
 import type { PrStatus, PublishStep, TaskPr } from '@/lib/protocol';
 import { currentActor } from '../actor';
 import { auditAdd } from '../db';
-import { commitAll, diffAgainstBase, pushBranch, runGit, type GitIdentity } from '../git';
+import { commitAll, diffAgainstBase, pushBranch, readBaseBlob, runGit, type GitIdentity } from '../git';
 import { checkSummary, createPull, findOpenPull, getPull, githubConnected, updatePull, type Pull } from '../github';
 import { log } from '../log';
 import { knownSecrets, redact } from '../settings';
 import { noteChatEvent } from '../sessions';
 import { singleton } from '../state';
 import { errMsg } from '../util';
-import { TaskConflict } from './jobs';
+import { setupBusy, TaskConflict } from './jobs';
 import { isDenied } from './workspace-fs';
 import { markPublishing, mustTask, now, publishRunning, saveTask, taskPaths, turnRunning, type CodeTask } from './tasks';
 
@@ -47,7 +47,8 @@ const SECRET_PATTERNS: [RegExp, string][] = [
 /** What a text contains that must not be published (kind of secret), or null. */
 export function findSecret(text: string, known: string[] = knownSecrets()): string | null {
   for (const [re, what] of SECRET_PATTERNS) if (re.test(text)) return what;
-  for (const v of known) if (v.length >= 8 && text.includes(v)) return 'ein in Lotse gespeichertes Geheimnis';
+  // files are read as latin1 (byte for byte): a non-ASCII secret appears there as its UTF-8 bytes
+  for (const v of known) if (v.length >= 8 && (text.includes(v) || text.includes(Buffer.from(v, 'utf8').toString('latin1')))) return 'ein in Lotse gespeichertes Geheimnis';
   return null;
 }
 
@@ -66,7 +67,7 @@ export function blockReason(files: Changed[]): string | null {
   if (files.length > PUBLISH_LIMITS.files) return `Zu viele geänderte Dateien (${files.length}, höchstens ${PUBLISH_LIMITS.files}).`;
   for (const { path: p } of files) {
     if (!p || p.startsWith('/') || p.split('/').includes('..') || p.includes('\\') || /[\x00-\x1f]/.test(p)) return `Ungültiger Pfad „${p.slice(0, 120)}“.`;
-    if (/^\.github\/workflows(\/|$)/i.test(p)) return `Änderungen an GitHub-Workflows (${p.slice(0, 120)}) veröffentlicht Lotse nicht – sie liefen mit den Rechten des Repositorys.`;
+    if (/^\.github\/(workflows|actions)(\/|$)/i.test(p) || /(^|\/)action\.ya?ml$/i.test(p)) return `Änderungen an GitHub-Workflows oder -Actions (${p.slice(0, 120)}) veröffentlicht Lotse nicht – sie liefen mit den Rechten des Repositorys.`;
     if (isDenied(p)) return `„${p.slice(0, 120)}“ ist eine geschützte Datei (.git, Geheimnis oder Schlüssel) und wird nicht veröffentlicht.`;
   }
   return null;
@@ -101,8 +102,8 @@ async function checkOnDisk(t: CodeTask, files: Changed[], known: string[]): Prom
     if (st.size > PUBLISH_LIMITS.fileBytes) return `„${f.path.slice(0, 120)}“ ist zu groß (${Math.round(st.size / 1024 / 1024)} MB, höchstens ${PUBLISH_LIMITS.fileBytes / 1024 / 1024} MB je Datei).`;
     total += st.size;
     if (total > PUBLISH_LIMITS.totalBytes) return `Die Änderungen sind zu groß (höchstens ${PUBLISH_LIMITS.totalBytes / 1024 / 1024} MB).`;
-    const base = f.status === 'A' ? '' : await runGit(['show', `refs/remotes/origin/${t.baseBranch}:${f.path}`], { cwd: worktree, gitDir }).then(r => r.stdout, () => '');
-    const why = scanFile(f.path, fs.readFileSync(abs).toString('latin1'), new Set(base ? Buffer.from(base, 'utf8').toString('latin1').split('\n') : []), known);
+    const base = f.status === 'A' ? null : await readBaseBlob(worktree, gitDir, t.baseBranch, f.path); // unredacted: same bytes as on disk
+    const why = scanFile(f.path, fs.readFileSync(abs).toString('latin1'), new Set(base ? base.toString('latin1').split('\n') : []), known);
     if (why) return why;
   }
   return null;
@@ -153,6 +154,7 @@ export function publishTask(id: string, input: { title: string; body: string }):
   const t = mustTask(id);
   if (!githubConnected()) throw fail(400, 'GitHub ist nicht verbunden (Einstellungen → Integrationen).');
   if (publishRunning(id)) throw new TaskConflict('Für diese Aufgabe wird gerade veröffentlicht.');
+  if (setupBusy(id)) throw new TaskConflict('Für diese Aufgabe läuft gerade die Einrichtung oder der Abschluss – bitte warten.');
   if (turnRunning(id)) throw new TaskConflict('Die KI arbeitet gerade in dieser Sandbox – warte, bis die Runde fertig ist (oder stoppe sie).');
   if (t.status === 'done') throw new TaskConflict('Die Aufgabe ist abgeschlossen.');
   if (!t.steps.some(s => s.key === 'clone' && s.state === 'done') || !fs.existsSync(taskPaths(id).worktree)) throw new TaskConflict('Das Repository ist noch nicht geklont – erst die Einrichtung abwarten.');
