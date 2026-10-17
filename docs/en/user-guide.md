@@ -154,6 +154,7 @@ If the **Sales** switch under Settings → AI access is on, Lotse reads only **t
 | **AI access** | Which areas Lotse may read (products, categories, layouts, media, marketing, shop basics). Blocked areas are not read, not even by the shop check. Separate switches (off by default): **Sales** (only totals per product from orders, see below) and **Internet** (web search) |
 | **Logs** | **Access** (every read access by the AI, rejected ones marked) and **Changes** (approved, rejected, undone, changed) |
 | **Search Console** (optional) | Access for opportunities, content gaps and impact measurement |
+| **GitHub** (optional, under Integrations) | Fine-grained token for code changes to plugins and themes. On GitHub under *Settings → Developer settings → Fine-grained tokens*, select only the repositories you need and set **Contents** and **Pull requests** to *Read and write*. The token is stored encrypted, tested automatically (shows the GitHub login and repositories without write access) and never shown again, not even to the AI. Lotse only writes to its own `lotse/…` branches, never to `main` |
 | **Language** | German or English for the interface and AI replies (see below) |
 
 Customer, order, payment and credential data are permanently blocked and cannot be unlocked.

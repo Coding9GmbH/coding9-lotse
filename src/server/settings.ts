@@ -171,6 +171,9 @@ export function redact(text: unknown): string {
   let t = String(text ?? ''); const g = getSettings();
   const shopSecrets = (['shopify', 'magento', 'openmage'] as const).flatMap(k => secretKeys(k).map(f => g[k][f]));
   const sistrixKey = unseal(kvGet<{ key?: string }>('sistrix')?.key);
-  for (const v of [g.shopware.password, g.shopware.clientSecret, ...shopSecrets, g.ai.apiKey, g.image.openaiKey, sistrixKey]) if (v && v.length > 3) t = t.split(v).join('•••');
-  return t.replace(/Bearer\s+[A-Za-z0-9._~+/=-]{12,}/g, 'Bearer •••').replace(/sk-[A-Za-z0-9_-]{16,}/g, 'sk-•••');
+  const githubToken = unseal(kvGet<{ token?: string }>('github')?.token); // also as the Basic credential git sends
+  const githubBasic = githubToken ? Buffer.from(`x-access-token:${githubToken}`).toString('base64') : null;
+  for (const v of [g.shopware.password, g.shopware.clientSecret, ...shopSecrets, g.ai.apiKey, g.image.openaiKey, sistrixKey, githubToken, githubBasic]) if (v && v.length > 3) t = t.split(v).join('•••');
+  return t.replace(/Bearer\s+[A-Za-z0-9._~+/=-]{12,}/g, 'Bearer •••').replace(/(Authorization:\s*Basic\s+)[A-Za-z0-9+/=]{8,}/gi, '$1•••').replace(/sk-[A-Za-z0-9_-]{16,}/g, 'sk-•••')
+    .replace(/\b(github_pat_|gh[pousr]_)[A-Za-z0-9_]{16,}/g, '$1•••').replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, '$1•••@');
 }

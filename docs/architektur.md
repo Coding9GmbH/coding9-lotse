@@ -50,6 +50,7 @@ Stack: Next.js 16 · React 19 · TypeScript (strict) · SQLite (`node:sqlite`) �
 | Freigabe + Audit + Rückgängig | `changes.ts`, `audit.ts` | Alt→Neu, Zeilenauswahl, Protokoll, Undo je Zeile |
 | Shop-Schonung | `changes.ts`, Clients | Drosselung (`LOTSE_WRITE_CONCURRENCY`), max. 300 Einträge je Set (`MAX_ITEMS`), Timeouts, Backoff bei 429/503 |
 | Zugangsdaten | `db.ts` | AES-256-GCM, Schlüssel `secret.key` im Datenvolume, nie an die KI, aus Fehlertexten entfernt |
+| Git und GitHub | `git.ts`, `github.ts` | `git.ts` ist die einzige Stelle, die git startet: ohne Shell, minimale Umgebung, ohne System-/globale Konfiguration, Hooks, fsmonitor und Credential-Helper, nur https. Der GitHub-Token geht nur als `http.<host>/.extraheader` per `GIT_CONFIG_*` in die Umgebung eines einzelnen git-Prozesses, nie in argv, URLs, `.git/config` oder Ausgaben (alles läuft durch `redact()`). Git-Ordner liegt außerhalb des Arbeitsordners; Repository- und Branch-Namen werden geprüft, Push nur nach `refs/heads/lotse/*`, kein Force-Push (nur `--force-with-lease` auf den zuletzt selbst gepushten Stand) |
 | Vorschau-Isolation | `app/shop/**`, `DraftFrame.tsx` | Shop-HTML läuft in opakem Origin, siehe unten |
 
 Details und Meldeweg: [SECURITY.md](../SECURITY.md).
@@ -135,6 +136,7 @@ Andere Plattformen veröffentlichen über ihre eigenen Pfade (Shopify: Theme-Vor
 | `GET /api/categories`, `GET /api/products` | Kontext-Auswahl |
 | `GET /api/audit`, `GET /api/access-log` | Protokolle |
 | `/api/gsc`, `/api/sistrix`, `/api/codex/login` | Search Console, Sistrix, Codex-Anmeldung |
+| `GET/PUT/DELETE /api/github`, `POST /api/github/test`, `GET /api/github/repos`, `GET /api/github/branches?repo=` | GitHub-Token (nur „vorhanden“ + Login), Verbindungstest, Repositorys, Branches |
 | `GET /api/seo`, `PUT /api/seo/marks`, `GET\|POST\|PUT /api/seo/impact` | SEO-Bereich: Hebel, Erledigt/Ignoriert, Wirkung angewendeter Änderungen (gespeichert / jetzt messen / ausblenden) |
 | `/api/mcp/{chat}` | MCP-Endpunkt für Codex (Token je Chat) |
 | `GET /shop/**` | Storefront-Proxy (nur GET) |

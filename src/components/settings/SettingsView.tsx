@@ -16,6 +16,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import type { Locale } from '@/lib/i18n/locales';
 import { CodexLogin } from './CodexLogin';
 import { GscSettings } from './GscSettings';
+import { GithubSettings } from './GithubSettings';
 import { SistrixSettings } from './SistrixSettings';
 import { LogsPanel } from './LogsPanel';
 import { SecretField } from './SecretField';
@@ -32,7 +33,7 @@ const INTEGRATION_SCOPES: ScopeKey[] = ['gsc', 'sistrix'];
 export type SettingsSection = 'general' | 'access' | 'integrations' | 'logs';
 const SECTION_PATH: Record<SettingsSection, string> = { general: '/settings', access: '/settings/ki-zugriff', integrations: '/settings/integrationen', logs: '/settings/protokolle' };
 
-/** Settings: subpages General (shop, AI, image AI), AI access, Integrations (Search Console, Sistrix), Logs. */
+/** Settings: subpages General (shop, AI, image AI), AI access, Integrations (Search Console, Sistrix, GitHub), Logs. */
 export function SettingsView({ section = 'general' }: { section?: SettingsSection }) {
   const { refreshHealth } = useShell();
   const { t, locale } = useI18n();
@@ -235,6 +236,7 @@ export function SettingsView({ section = 'general' }: { section?: SettingsSectio
               <p className={styles.hint}>{ts.integrations.hint}</p>
               <GscSettings />
               <SistrixSettings />
+              <GithubSettings />
             </>
           )}
 

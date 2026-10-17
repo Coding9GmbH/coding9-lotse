@@ -37,7 +37,7 @@ LABEL org.opencontainers.image.title="Lotse" \
 
 # tini: clean signal handling (docker stop) and no zombie process from the Claude subprocess
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tini ca-certificates \
+ && apt-get install -y --no-install-recommends tini ca-certificates git \
  && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production \
