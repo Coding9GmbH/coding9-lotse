@@ -44,7 +44,8 @@ export function saveGithub(p: { token?: string | null }) {
   if (!p.token) return;
   kvSet(KV, { token: seal(normToken(p.token)) ?? undefined, updatedAt: new Date().toISOString() } satisfies StoredGithub);
 }
-const rememberLogin = (login: string) => { const s = stored(); if (s.token) kvSet(KV, { ...s, login }); };
+/** Only if the tested token is still the stored one: a token saved meanwhile must not get the old token's login. */
+const rememberLogin = (sealed: string, login: string) => { const s = stored(); if (s.token && s.token === sealed) kvSet(KV, { ...s, login }); };
 
 // ---- REST calls ----
 const clip = (s: string) => s.replace(/\s+/g, ' ').trim().slice(0, 300);
@@ -61,7 +62,7 @@ export async function ghFetch<T = unknown>(path: string, init: { method?: string
   if (!token) throw new Error('Noch kein GitHub-Token gespeichert.');
   const method = init.method ?? 'GET';
   const send = () => fetch(`${apiBase()}${path}`, {
-    method, redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS),
+    method, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS),
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'Lotse', ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}) },
     ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
   });
@@ -72,6 +73,7 @@ export async function ghFetch<T = unknown>(path: string, init: { method?: string
   try { json = text ? JSON.parse(text) : null; } catch { /* handled below */ }
   if (!r.ok) {
     const msg = json && typeof json === 'object' && typeof (json as { message?: unknown }).message === 'string' ? (json as { message: string }).message : '';
+    if (r.status >= 300 && r.status < 400) throw new Error('GitHub leitet um: Repository wurde umbenannt oder verschoben, bitte neu auswählen.');
     if (r.status === 401) throw new Error('GitHub lehnt den Token ab (ungültig, abgelaufen oder widerrufen).');
     if (r.status === 404) throw new Error('Nicht gefunden oder kein Zugriff: Ist das Repository für den Token freigegeben?');
     if (r.status === 403 || r.status === 429) throw new Error(scrub(r.headers.get('x-ratelimit-remaining') === '0' ? 'GitHub-Anfragelimit erreicht, bitte später erneut versuchen.' : `GitHub verweigert den Zugriff (${r.status})${msg ? `: ${msg}` : ''}. Token-Berechtigungen prüfen.`, token));
@@ -126,9 +128,10 @@ export const PERMISSION_HINT = 'Token braucht Contents + Pull requests: Lesen & 
 
 /** Check the connection: who is the token, how many repositories are released, which ones lack write access. */
 export async function testGithub(): Promise<GithubTestResult> {
-  if (!getGithubToken()) return { ok: false, message: 'Noch kein Token gespeichert.', login: null, repos: null, readOnly: [] };
+  const sealed = stored().token;
+  if (!sealed || !getGithubToken()) return { ok: false, message: 'Noch kein Token gespeichert.', login: null, repos: null, readOnly: [] };
   const { login } = await getUser();
-  rememberLogin(login);
+  rememberLogin(sealed, login);
   const repos = await listRepos();
   const readOnly = repos.filter(r => !r.push).map(r => r.fullName).slice(0, 20);
   if (!repos.length) return { ok: false, login, repos: 0, readOnly, message: `Verbunden als ${login}, aber der Token sieht kein Repository. Repositorys beim Token freigeben. ${PERMISSION_HINT}` };

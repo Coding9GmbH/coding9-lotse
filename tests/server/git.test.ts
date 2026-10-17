@@ -54,6 +54,32 @@ test('clone: shallow single branch, gitfile points to a git dir outside the work
   await assert.rejects(G.cloneRepo('acme/plugin', 'main', path.join(tmp, 'work', 'x'), path.join(tmp, 'work', 'x', 'g')), /getrennt/);
 });
 
+test('aborted clone leaves nothing behind, a retry with the same paths works', async () => {
+  // https remote that accepts the connection and never answers: git has already created both dirs when it is killed
+  const net = await import('node:net');
+  const sockets: import('node:net').Socket[] = [];
+  const hang = net.createServer(s => { sockets.push(s); });
+  await new Promise<void>(r => hang.listen(0, '127.0.0.1', r));
+  const wt = path.join(tmp, 'work', 'abort'), gd = path.join(tmp, 'gitdirs', 'abort');
+  fs.mkdirSync(wt, { recursive: true });
+  process.env.LOTSE_GITHUB_CLONE_BASE = `https://127.0.0.1:${(hang.address() as import('node:net').AddressInfo).port}`;
+  try {
+    const ac = new AbortController();
+    const p = G.cloneRepo('acme/plugin', 'main', wt, gd, { signal: ac.signal });
+    while (!sockets.length) await new Promise(r => setTimeout(r, 20));
+    assert.ok(fs.existsSync(gd), 'git dir created before the network');
+    ac.abort();
+    await assert.rejects(p, /abgebrochen/);
+  } finally {
+    process.env.LOTSE_GITHUB_CLONE_BASE = `file://${REMOTE}`;
+    sockets.forEach(s => s.destroy()); hang.close();
+  }
+  assert.ok(!fs.existsSync(gd), 'git dir removed');
+  assert.deepEqual(fs.readdirSync(wt), [], 'pre-existing worktree emptied, not removed');
+  const { head } = await G.cloneRepo('acme/plugin', 'main', wt, gd);
+  assert.equal(head, remoteSha('refs/heads/main'));
+});
+
 test('validation: repository and branch names never reach argv unchecked', async () => {
   for (const b of ['-x', '--upload-pack=touch', 'a..b', 'a b', 'main@{1}', 'x:y', '']) await assert.rejects(G.assertBaseBranch(b), /Branch-Name/, b);
   assert.equal(await G.assertBaseBranch('feature/new-header'), 'feature/new-header');
