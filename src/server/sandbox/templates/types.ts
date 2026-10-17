@@ -25,6 +25,16 @@ export interface StepCtx {
   httpStatus: (path: string) => Promise<number>;
   /** workspace → container (full mirror of the plugin directory) */
   syncAll: () => Promise<void>;
+  /** the task's uploaded dump waiting for the import (metadata only; the AI never gets this context) */
+  dump: () => { name: string; size: number; ignoreVersion: boolean } | null;
+  /** Shopware major.minor recorded in the dump's core migrations, null = not recognizable */
+  dumpVersion: () => Promise<string | null>;
+  /** dump version differs from the image: shown with "Trotzdem fortfahren" (null clears it) */
+  setVersionMismatch: (v: { dump: string; image: string } | null) => void;
+  /** streams the dump as <dir>/dump (owner www-data, mode 0600) into the container */
+  copyDump: (dir: string) => Promise<void>;
+  /** after the import (success or not): deletes the dump on the host and `containerDir` in the container, records the result */
+  discardDump: (imported: boolean, containerDir: string) => Promise<void>;
   log: (line: string) => void;
   signal: AbortSignal;
 }

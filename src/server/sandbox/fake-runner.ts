@@ -3,7 +3,7 @@ import 'server-only';
 // Exec results are scripted; each started container gets a small node:http "storefront" that serves the synced files.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, PullProgress, SandboxRunner } from './runner';
+import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, PullProgress, SandboxRunner } from './runner';
 import { MANAGED, assertAllowedImage, assertContainerPath, assertId, assertManaged, assertSafeSpec, isManaged } from './guards';
 
 export interface FakeCall { op: string; id?: string; argv?: string[]; user?: string; detail?: unknown }
@@ -32,6 +32,14 @@ export function readTarEntries(tar: Buffer): TarRecord[] {
 }
 /** Regular files only. */
 export const readTar = (tar: Buffer): { path: string; data: Buffer }[] => readTarEntries(tar).filter(e => e.type === 'file').map(({ path, data }) => ({ path, data }));
+
+async function collect(a: ArchiveStream): Promise<Buffer> {
+  const parts: Buffer[] = [];
+  for await (const c of a.stream) parts.push(c as Buffer);
+  const b = Buffer.concat(parts);
+  if (b.length !== a.length) throw new Error(`Archiv-Länge ${b.length} statt ${a.length}.`);
+  return b;
+}
 
 const WEBROOT = '/var/www/html/public';
 /** What a healthy Dockware answers where the setup reads output (plugin installed and active). */
@@ -132,9 +140,10 @@ export class FakeRunner implements SandboxRunner {
     const r = this.script(argv, id) ?? dockwareAnswers(argv) ?? {};
     return { exitCode: r.exitCode ?? 0, output: r.output ?? '', truncated: r.truncated ?? false };
   }
-  async putArchive(id: string, dir: string, tar: Buffer) {
+  async putArchive(id: string, dir: string, archive: Buffer | ArchiveStream) {
     this.enter('putArchive', { id, detail: dir });
     const c = this.managed(id);
+    const tar = Buffer.isBuffer(archive) ? archive : await collect(archive);
     this.archives.push({ id, dir, entries: readTarEntries(tar) });
     for (const f of readTar(tar)) c.files.set(`${assertContainerPath(dir).replace(/\/$/, '')}/${f.path}`, f.data);
   }

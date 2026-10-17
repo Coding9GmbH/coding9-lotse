@@ -6,6 +6,7 @@ import 'server-only';
 // - pause = docker stop (code, database and changes stay), wake = docker start + wait + full sync (no new setup)
 // - finish = container, workspace, git dir, dump and screenshots removed; the task stays as a record (done)
 import fs from 'node:fs';
+import path from 'node:path';
 import type { CodeTaskStatus } from '@/lib/protocol';
 import { codeTaskDelete } from '../db';
 import { cloneRepo } from '../git';
@@ -13,16 +14,18 @@ import { log } from '../log';
 import { redact } from '../settings';
 import { singleton } from '../state';
 import { errMsg } from '../util';
+import { deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
 import { getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
 import { allocateLocalPort, ensureNetwork, networkMode } from './network';
 import { clearJar, forgetUpstream } from './preview';
 import { getRunner } from './runner';
 import { TASK_LABEL } from './labels';
 import { syncAll } from './sync';
+import { streamFileTar } from './tar';
 import { getTemplate, resolveCommand } from './templates';
 import { waitReady } from './templates/dockware';
 import type { StepCtx } from './templates/types';
-import { appendLog, emitTask, getTask, httpStatusOf, listTasks, mustTask, now, sandboxOrigin, saveTask, taskPaths, type CodeTask, type StoredStep } from './tasks';
+import { appendLog, emitTask, getTask, httpStatusOf, listTasks, mustTask, now, sandboxOrigin, saveTask, setTaskDump, taskPaths, type CodeTask, type StoredStep } from './tasks';
 
 export class TaskConflict extends Error { readonly status = 409; }
 /** Statuses in which the task's container is about to run even if it is not started yet. */
@@ -94,11 +97,13 @@ async function stopContainer(t: CodeTask) {
 
 // ---- Setup ----
 /** Starts (or resumes) the setup from `fromStep` (default: the first step not done). Returns at once; the job runs detached. */
-export function runSteps(id: string, fromStep?: string): CodeTask {
+export function runSteps(id: string, fromStep?: string, o: { ignoreVersion?: boolean; dumpId?: string } = {}): CodeTask {
   assertOn();
   const t = mustTask(id);
   if (setupRunning(id) || jobs().wakes.has(id) || jobs().finishing.has(id)) throw new TaskConflict('Für diese Aufgabe läuft bereits ein Vorgang.');
   if (t.status === 'done') throw new TaskConflict('Die Aufgabe ist abgeschlossen.');
+  if (o.dumpId) { setTaskDump(t, o.dumpId); fromStep ??= 'version-check'; } // "Datenbank ersetzen"
+  if (o.ignoreVersion && t.dump && !t.dump.deletedAt) t.dump.ignoreVersion = true;
   const from = fromStep ? t.steps.findIndex(s => s.id === fromStep) : t.steps.findIndex(s => s.state !== 'done' && s.state !== 'skipped');
   if (fromStep && from < 0) throw Object.assign(new Error('Unbekannter Schritt.'), { status: 400 });
   if (from < 0) throw new TaskConflict('Die Einrichtung ist bereits fertig.');
@@ -218,6 +223,25 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
       lg(`Container ${spec.name} gestartet (${mode === 'local' ? `127.0.0.1:${port}` : 'Netzwerk lotse-sandbox'}).`);
     },
     httpStatus: async path => httpStatusOf(await sandboxOrigin(t), path, signal),
+    dump: () => {
+      const d = t.dump;
+      if (!d || d.imported) return null;
+      if (d.deletedAt) throw new Error('Der Dump wurde nach dem fehlgeschlagenen Import gelöscht – bitte erneut hochladen („Datenbank ersetzen“).');
+      return { name: d.name, size: d.size, ignoreVersion: d.ignoreVersion };
+    },
+    dumpVersion: async () => (t.dump ? dumpShopwareVersion(dumpPathFor(t.dump.id, t.id)) : null),
+    setVersionMismatch: v => { if (!t.dump) return; if (v) t.dump.versionMismatch = v; else delete t.dump.versionMismatch; saveTask(t); },
+    copyDump: async dir => {
+      if (!t.dump) throw new Error('Kein Dump.');
+      const file = dumpPathFor(t.dump.id, t.id), size = fs.statSync(file).size;
+      const archive = streamFileTar(path.posix.basename(dir), 'dump', size, fs.createReadStream(file), { uid: 33, gid: 33, uname: 'www-data', gname: 'www-data' });
+      await runner.putArchive(container(), path.posix.dirname(dir), archive, { timeoutMs: limit, signal });
+    },
+    discardDump: async (imported, dir) => {
+      if (t.dump) { deleteDump(t.dump.id); Object.assign(t.dump, { imported, deletedAt: now() }); saveTask(t); }
+      // the import command removes it itself; this also covers a failed or aborted transfer (own time limit: the step's signal may be aborted)
+      await runner.exec(container(), ['rm', '-rf', '--', dir], { user: tpl.execUser, workdir: '/', timeoutMs: 30_000 }).catch(e => lg(`Aufräumen im Container fehlgeschlagen: ${errMsg(e)}`));
+    },
     syncAll: async () => {
       if (!t.layout) throw new Error('Plugin noch nicht erkannt.');
       const r = await syncAll({ runner, containerId: container(), worktree: p.worktree, target: tpl.syncTarget(t.layout), user: tpl.execUser, signal });
@@ -313,7 +337,9 @@ export async function finishTask(id: string): Promise<CodeTask> {
       if (fresh.containerId) await getRunner().remove(fresh.containerId);
       for (const c of await getRunner().list({ [TASK_LABEL]: id }).catch(() => [])) await getRunner().remove(c.id);
       const p = taskPaths(id);
-      for (const d of [p.workspace, p.gitDir, p.dumps, p.screenshots]) fs.rmSync(d, { recursive: true, force: true });
+      for (const d of [p.workspace, p.gitDir, p.screenshots]) fs.rmSync(d, { recursive: true, force: true });
+      deleteTaskDumps(id);
+      if (fresh.dump && !fresh.dump.deletedAt) fresh.dump.deletedAt = now();
       for (const s of fresh.steps) if (s.state === 'running') s.state = 'interrupted';
       clearJar(id);
       Object.assign(fresh, { status: 'done', containerId: null, containerRunning: false, finishedAt: now(), error: null } satisfies Partial<CodeTask>);
@@ -327,7 +353,7 @@ export async function finishTask(id: string): Promise<CodeTask> {
 export async function deleteTask(id: string): Promise<void> {
   const t = mustTask(id);
   if (t.status !== 'done' || t.containerId) await finishTask(id);
-  else for (const d of Object.values(taskPaths(id))) fs.rmSync(d, { recursive: true, force: true });
+  else { for (const d of Object.values(taskPaths(id))) fs.rmSync(d, { recursive: true, force: true }); deleteTaskDumps(id); }
   codeTaskDelete(id);
   emitTask(id, { t: 'deleted' });
 }

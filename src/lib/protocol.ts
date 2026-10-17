@@ -219,7 +219,7 @@ export interface GithubTestResult extends TestResult { login: string | null; /**
 export interface GithubRepo { fullName: string; private: boolean; defaultBranch: string; /** may push (from GitHub's permissions) */ push: boolean; pushedAt: string | null }
 export interface GithubBranch { name: string; protected: boolean }
 // ---- Sandbox Coding: one container per task from a fixed template; secrets of the environment never reach the browser ----
-export type SandboxStepKey = 'check-image' | 'clone' | 'detect-layout' | 'start-container' | 'wait-ready' | 'install-plugin' | 'import-db' | 'set-domain' | 'custom-after-db' | 'theme-compile' | 'custom-final' | 'ready';
+export type SandboxStepKey = 'check-image' | 'clone' | 'detect-layout' | 'start-container' | 'wait-ready' | 'version-check' | 'import-db' | 'set-domain' | 'install-plugin' | 'custom-after-db' | 'theme-compile' | 'custom-final' | 'ready';
 export type SandboxCommandKey = 'theme-compile' | 'cache-clear' | 'plugin-refresh' | 'theme-refresh' | 'lint-twig' | 'php-lint';
 /** When an own setup command runs: after the database (before theme:compile) or at the very end of the setup */
 export type CommandPhase = 'after-db' | 'final';
@@ -259,8 +259,13 @@ export interface CodeTaskPublic {
   status: CodeTaskStatus; steps: TaskStep[]; layout: TaskLayout | null; error: string | null;
   /** a container exists and is running (null = none) */ container: { running: boolean } | null;
   /** path prefix of the storefront preview (/sbx/<id>.<key>) */ preview: string;
+  /** uploaded database dump of the task (metadata only) */ dump: TaskDumpPublic | null;
   prUrl: string | null; createdAt: string; updatedAt: string; lastActiveAt: string; finishedAt: string | null;
 }
+/** Dump of a task: imported once and deleted right after the import (also on failure). versionMismatch blocks until "Trotzdem fortfahren". */
+export interface TaskDumpPublic { name: string; size: number; sha256: string | null; imported: boolean; deleted: boolean; ignoreVersion: boolean; versionMismatch?: { dump: string; image: string } }
+/** An uploaded dump (GET/POST /api/sandbox/dumps…): metadata, never the content */
+export interface DumpPublic { id: string; name: string; size: number; received: number; status: 'uploading' | 'ready' | 'deleted'; sha256: string | null; taskId: string | null; expiresAt: string }
 /** NDJSON lines of GET /api/sandbox/tasks/[id]/events: full task on transitions, single log lines in between */
 export type TaskEvent = { t: 'task'; task: CodeTaskPublic } | { t: 'log'; step: string; line: string } | { t: 'deleted' };
 /** SEO overview: levers from Search Console and Sistrix as ready-made tasks (prompt) for a new chat */

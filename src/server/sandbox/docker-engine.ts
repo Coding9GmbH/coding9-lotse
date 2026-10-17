@@ -2,8 +2,9 @@ import 'server-only';
 // Docker Engine API over node:http (unix socket or tcp://, e.g. the filtering socket proxy). No docker CLI, no shell.
 // Every call that touches a container first checks its lotse.managed label.
 import http from 'node:http';
+import { pipeline } from 'node:stream/promises';
 import type { Socket } from 'node:net';
-import type { ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, PullProgress, SandboxRunner } from './runner';
+import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, PullProgress, SandboxRunner } from './runner';
 import { MANAGED, assertAllowedImage, assertContainerPath, assertId, assertManaged, assertSafeSpec } from './guards';
 
 const PREFERRED_API = '1.41';
@@ -27,7 +28,7 @@ export const pickApiVersion = (server: { ApiVersion?: string; MinAPIVersion?: st
   server.MinAPIVersion && cmpVersion(server.MinAPIVersion, PREFERRED_API) > 0 ? server.MinAPIVersion : PREFERRED_API;
 
 interface Res { status: number; headers: http.IncomingHttpHeaders; body: Buffer }
-interface Req { query?: Record<string, string>; body?: unknown; raw?: Buffer; contentType?: string; timeoutMs?: number; signal?: AbortSignal; onData?: (chunk: Buffer) => void }
+interface Req { query?: Record<string, string>; body?: unknown; raw?: Buffer; stream?: ArchiveStream; contentType?: string; timeoutMs?: number; signal?: AbortSignal; onData?: (chunk: Buffer) => void }
 
 const unreachable = (e: NodeJS.ErrnoException) => new Error(
   e.code === 'ENOENT' || e.code === 'ECONNREFUSED' ? 'Docker ist nicht erreichbar – Docker-Socket bzw. DOCKER_HOST einrichten.'
@@ -96,7 +97,7 @@ export class DockerEngine implements SandboxRunner {
       const payload = o.raw ?? (o.body !== undefined ? Buffer.from(JSON.stringify(o.body)) : undefined);
       const req = http.request({
         ...this.target, method, path: `${path}${qs}`, timeout: o.timeoutMs ?? REQUEST_TIMEOUT_MS,
-        headers: { host: 'docker', ...(payload ? { 'content-type': o.contentType ?? 'application/json', 'content-length': payload.length } : {}) },
+        headers: { host: 'docker', ...(payload || o.stream ? { 'content-type': o.contentType ?? 'application/json', 'content-length': o.stream?.length ?? payload!.length } : {}) },
       }, res => {
         const chunks: Buffer[] = [];
         res.on('data', (c: Buffer) => { if (o.onData && (res.statusCode ?? 500) < 300) o.onData(c); else chunks.push(c); });
@@ -108,7 +109,8 @@ export class DockerEngine implements SandboxRunner {
       req.on('close', () => o.signal?.removeEventListener('abort', onAbort));
       req.on('timeout', () => req.destroy(new Error('Docker antwortet nicht (Timeout).')));
       req.on('error', (e: NodeJS.ErrnoException) => reject(e.code ? unreachable(e) : e));
-      req.end(payload);
+      if (o.stream) pipeline(o.stream.stream, req).catch(e => req.destroy(e as Error));
+      else req.end(payload);
     });
   }
   private async prefix(): Promise<string> {
@@ -190,9 +192,10 @@ export class DockerEngine implements SandboxRunner {
       .filter(c => c.Labels?.[Object.keys(MANAGED)[0]] === '1') // never trust the filter alone
       .map(c => ({ id: c.Id, name: (c.Names?.[0] ?? '').replace(/^\//, ''), image: c.Image ?? '', state: c.State ?? 'unknown', running: c.State === 'running', labels: c.Labels ?? {}, port: c.Ports?.find(p => p.PrivatePort === 80 && p.PublicPort)?.PublicPort ?? null }));
   }
-  async putArchive(id: string, dir: string, tar: Buffer) {
+  async putArchive(id: string, dir: string, tar: Buffer | ArchiveStream, o: { timeoutMs?: number; signal?: AbortSignal } = {}) {
     await this.managed(id);
-    const r = await this.call('PUT', `/containers/${enc(id)}/archive`, { query: { path: assertContainerPath(dir) }, raw: tar, contentType: 'application/x-tar', timeoutMs: 120_000 });
+    const body = Buffer.isBuffer(tar) ? { raw: tar } : { stream: tar };
+    const r = await this.call('PUT', `/containers/${enc(id)}/archive`, { query: { path: assertContainerPath(dir) }, ...body, contentType: 'application/x-tar', timeoutMs: o.timeoutMs ?? 120_000, signal: o.signal });
     if (r.status !== 200) throw apiError(r, 'Dateien übertragen');
   }
 

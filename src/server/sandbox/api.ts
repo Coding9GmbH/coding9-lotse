@@ -18,7 +18,7 @@ export async function taskRoute(req: Request, fn: () => Promise<Response>): Prom
   }
 }
 
-export type TaskAction = 'create' | 'start' | 'stop' | 'pause' | 'resume' | 'finish' | 'delete';
+export type TaskAction = 'create' | 'start' | 'stop' | 'pause' | 'resume' | 'finish' | 'delete' | 'replace-db';
 /** Audit: names and ids only. */
 export const auditTask = (t: Pick<CodeTask, 'id' | 'title' | 'repo' | 'branch'>, action: TaskAction, extra: Record<string, unknown> = {}) =>
   auditAdd({ decision: 'changed', kind: 'sandbox-task', taskId: t.id, action, title: `Sandbox-Aufgabe: ${t.title}`, repo: t.repo, branch: t.branch, ...extra });

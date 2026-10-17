@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import '../isolate-data';
 import { makePluginRepo } from '../support/plugin-repo';
 import { startFakeGithub } from '../support/github-fake';
@@ -31,6 +32,9 @@ const db = await import('../../src/server/db');
 const tasksRoute = await import('../../src/app/api/sandbox/tasks/route');
 const taskRoute = await import('../../src/app/api/sandbox/tasks/[id]/route');
 const startRoute = await import('../../src/app/api/sandbox/tasks/[id]/start/route');
+const dumpTaskRoute = await import('../../src/app/api/sandbox/tasks/[id]/dump/route');
+const D = await import('../../src/server/sandbox/dumps');
+const { IMPORT_ARGV } = await import('../../src/server/sandbox/templates/dockware');
 const eventsRoute = await import('../../src/app/api/sandbox/tasks/[id]/events/route');
 
 allowFileRemotesForTests(true);
@@ -54,12 +58,12 @@ const post = (h: (req: Request, ctx: any) => Promise<Response>, url: string, bod
 const DIR = '/var/www/html/custom/plugins/AcmeTheme';
 const SETUP_ARGV = [
   ['mysqladmin', 'ping', '-h127.0.0.1', '-uroot', '-proot', '--silent'],
+  'SET_DOMAIN',
   ['rm', '-rf', '--', DIR],
   ['bin/console', 'plugin:refresh'],
   ['bin/console', 'plugin:install', '--activate', '--', 'AcmeTheme'],
   'PLUGIN_STATE',
   ['bin/console', 'theme:change', '--all', '--no-compile', '--', 'AcmeTheme'],
-  'SET_DOMAIN',
   ['bash', '-lc', 'bin/console framework:demodata --products=5'],
   ['bin/console', 'theme:compile'],
   ['bin/console', 'cache:clear'],
@@ -75,7 +79,7 @@ test('happy path: all steps in order, plugin synced as www-data without .git/sec
   await settled(t.id);
   const done = T.getTask(t.id)!;
   assert.equal(done.status, 'ready', done.error ?? '');
-  assert.deepEqual(done.steps.map(s => s.state), ['done', 'done', 'done', 'done', 'done', 'done', 'skipped', 'done', 'done', 'done', 'done', 'done']);
+  assert.deepEqual(done.steps.map(s => s.state), ['done', 'done', 'done', 'done', 'done', 'skipped', 'skipped', 'done', 'done', 'done', 'done', 'done', 'done']);
   assert.deepEqual(done.layout, { kind: 'theme', name: 'AcmeTheme', pluginDir: 'custom/plugins/AcmeTheme' });
   assert.equal(done.steps.find(s => s.key === 'custom' && s.phase === 'after-db')?.label, 'Demodaten');
   const argv = execs(done.containerId!).map(a => (a[0] === 'mysql' ? (a.at(-1)!.includes('installed_at') ? 'PLUGIN_STATE' : 'SET_DOMAIN') : a));
@@ -296,13 +300,13 @@ test('finish removes container, workspace and git dir but keeps the record; dele
   const t = newTask('Abschließen');
   J.runSteps(t.id); await settled(t.id);
   const cid = T.getTask(t.id)!.containerId!, p = T.taskPaths(t.id);
-  fs.mkdirSync(p.dumps, { recursive: true });
+  fs.mkdirSync(p.screenshots, { recursive: true });
   await J.finishTask(t.id);
   const done = T.getTask(t.id)!;
   assert.equal(done.status, 'done');
   assert.equal(done.containerId, null);
   assert.ok(!fake.containers.has(cid));
-  for (const d of [p.workspace, p.gitDir, p.dumps]) assert.ok(!fs.existsSync(d), d);
+  for (const d of [p.workspace, p.gitDir, p.screenshots]) assert.ok(!fs.existsSync(d), d);
   assert.throws(() => J.runSteps(t.id), /abgeschlossen/);
   await J.deleteTask(t.id);
   assert.equal(T.getTask(t.id), null);
@@ -330,6 +334,111 @@ test('detect-layout: a full Shopware project stops with a clear German error', a
   assert.match(cur.error!, /Vollständige Shopware-Projekte werden von dieser Vorlage noch nicht unterstützt/);
   assert.equal(cur.containerId, null, 'no container before the layout is known');
   await J.deleteTask(t.id);
+});
+
+// ---- Database dump: version check, import, deletion ----
+const dumpSql = (minor: number) => Buffer.from(`-- MySQL dump\nINSERT INTO \`migration\` VALUES ('Shopware\\\\Core\\\\Migration\\\\V6_${minor}\\\\Migration1700000000Foo',1,NULL,NULL,NULL);\nINSERT INTO \`system_config\` VALUES ('x');\n`);
+async function readyDump(minor = 7) {
+  const data = dumpSql(minor), d = D.createDump('shop.sql', data.length);
+  await D.appendChunk(d.id, 0, Readable.from([data]));
+  return D.completeDump(d.id);
+}
+const IMPORT_DIR = '/tmp/lotse-import';
+const fakeFiles = (cid: string) => [...fake.containers.get(cid)!.files.keys()];
+
+test('dump: streamed into the container as www-data (0600), exact constant import argv, deleted on host and in the container', async () => {
+  fake.script = argv => (argv[1] === '--version' ? { output: 'Shopware 6.7.15.1 (env: dev, debug: true)' } : undefined);
+  const dump = await readyDump(7);
+  const t = T.createTask({ title: 'Mit Dump', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id });
+  J.runSteps(t.id); await settled(t.id);
+  const done = T.getTask(t.id)!;
+  assert.equal(done.status, 'ready', done.error ?? '');
+  const states = Object.fromEntries(done.steps.map(s => [s.id, s.state]));
+  assert.equal(states['version-check'], 'done'); assert.equal(states['import-db'], 'done');
+  const cid = done.containerId!, argv = execs(cid);
+  // order: import before domain, plugin install and the own after-db command; theme:compile afterwards
+  const at = (pred: (a: string[]) => boolean) => argv.findIndex(pred);
+  const imp = at(a => a[0] === 'bash' && a[1] === '-c');
+  assert.deepEqual(argv[imp], IMPORT_ARGV);
+  assert.deepEqual(IMPORT_ARGV, ['bash', '-c', 'set -o pipefail; gunzip -cf /tmp/lotse-import/dump | mysql -uroot -proot -h127.0.0.1 shopware; rc=$?; rm -rf /tmp/lotse-import; exit $rc']);
+  assert.ok(imp < at(a => a[0] === 'mysql' && a.at(-1)!.includes('sales_channel_domain')) && imp < at(a => a[1] === 'plugin:install') && at(a => a[1] === 'plugin:install') < at(a => a[2] === 'bin/console framework:demodata --products=5') && at(a => a[2]?.includes('demodata')) < at(a => a[1] === 'theme:compile'));
+  const arch = fake.archives.find(a => a.id === cid && a.dir === '/tmp')!;
+  assert.deepEqual(arch.entries.map(e => [e.path, e.type, e.uid, e.gid, e.mode]), [['lotse-import', 'dir', 33, 33, 0o700], ['lotse-import/dump', 'file', 33, 33, 0o600]]);
+  assert.deepEqual(arch.entries[1].data, dumpSql(7));
+  assert.ok(!fakeFiles(cid).some(f => f.startsWith(IMPORT_DIR)), 'removed in the container');
+  assert.ok(!fs.existsSync(D.dumpFile(dump.id)), 'removed on the host');
+  assert.equal(db.codeDumpGet(dump.id)!.status, 'deleted');
+  assert.deepEqual(T.publicTask(done).dump, { name: 'shop.sql', size: dumpSql(7).length, sha256: dump.sha256, imported: true, deleted: true, ignoreVersion: false });
+  assert.ok(done.steps.find(s => s.id === 'import-db')!.log.includes('Datenbank importiert. Dump gelöscht ✓'));
+  fake.script = () => undefined;
+  await J.finishTask(t.id);
+});
+
+test('dump: a failed import deletes the dump too; a retry asks for a new upload', async () => {
+  fake.script = argv => (argv[0] === 'bash' && argv[1] === '-c' ? { exitCode: 1, output: 'ERROR 1064 (42000) at line 2: syntax error' } : undefined);
+  const dump = await readyDump(7);
+  const t = T.createTask({ title: 'Kaputter Dump', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id });
+  J.runSteps(t.id); await settled(t.id);
+  let cur = T.getTask(t.id)!;
+  assert.equal(cur.status, 'failed');
+  assert.match(cur.steps.find(s => s.id === 'import-db')!.error!, /ERROR 1064/);
+  assert.ok(!fs.existsSync(D.dumpFile(dump.id)));
+  assert.ok(!fakeFiles(cur.containerId!).some(f => f.startsWith(IMPORT_DIR)));
+  assert.ok(execs(cur.containerId!).some(a => a.join(' ') === `rm -rf -- ${IMPORT_DIR}`), 'cleanup in the container');
+  assert.deepEqual({ imported: cur.dump!.imported, deleted: !!cur.dump!.deletedAt }, { imported: false, deleted: true });
+  fake.script = () => undefined;
+  J.runSteps(t.id, 'import-db'); await settled(t.id);
+  cur = T.getTask(t.id)!;
+  assert.match(cur.steps.find(s => s.id === 'import-db')!.error!, /erneut hochladen/);
+  // "Datenbank ersetzen" with a new dump works
+  const again = await readyDump(7);
+  const res = await post(dumpTaskRoute.POST, `/api/sandbox/tasks/${t.id}/dump`, { dumpId: again.id }, t.id);
+  assert.equal(res.status, 202);
+  await settled(t.id);
+  cur = T.getTask(t.id)!;
+  assert.equal(cur.status, 'ready', cur.error ?? '');
+  assert.equal(cur.dump!.imported, true);
+  await J.finishTask(t.id);
+});
+
+test('dump: a different Shopware minor version blocks until "Trotzdem fortfahren"; the dump waits meanwhile', async () => {
+  fake.script = argv => (argv[1] === '--version' ? { output: 'Shopware 6.7.15.1 (env: dev, debug: true)' } : undefined);
+  const dump = await readyDump(6);
+  const t = T.createTask({ title: 'Alte Version', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id });
+  J.runSteps(t.id); await settled(t.id);
+  let cur = T.getTask(t.id)!;
+  assert.equal(cur.status, 'failed');
+  assert.equal(cur.steps.find(s => s.id === 'version-check')!.state, 'failed');
+  assert.match(cur.error!, /Dump stammt von 6\.6, Image enthält 6\.7\.15\.1/);
+  assert.deepEqual(T.publicTask(cur).dump!.versionMismatch, { dump: '6.6', image: '6.7.15.1' });
+  assert.ok(fs.existsSync(D.dumpFile(dump.id)), 'kept for the decision');
+  assert.ok(!execs(cur.containerId!).some(a => a[0] === 'bash' && a[1] === '-c'), 'nothing imported');
+  // a plain retry blocks again
+  J.runSteps(t.id, 'version-check'); await settled(t.id);
+  assert.equal(T.getTask(t.id)!.status, 'failed');
+  const res = await post(startRoute.POST, `/api/sandbox/tasks/${t.id}/start`, { fromStep: 'version-check', ignoreVersion: true }, t.id);
+  assert.equal(res.status, 202);
+  await settled(t.id);
+  cur = T.getTask(t.id)!;
+  assert.equal(cur.status, 'ready', cur.error ?? '');
+  assert.equal(cur.dump!.imported, true);
+  assert.ok(!fs.existsSync(D.dumpFile(dump.id)));
+  fake.script = () => undefined;
+  await J.finishTask(t.id);
+});
+
+test('dump: finishing a task deletes a dump that was not imported yet; a dump cannot belong to two tasks', async () => {
+  fake.script = argv => (argv[1] === '--version' ? { output: 'Shopware 6.7.15.1' } : undefined);
+  const dump = await readyDump(6);
+  const t = T.createTask({ title: 'Wartender Dump', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id });
+  assert.throws(() => T.createTask({ title: 'Zweite', goal: '', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: dump.id }), /anderen Aufgabe/);
+  J.runSteps(t.id); await settled(t.id);
+  assert.ok(fs.existsSync(D.dumpFile(dump.id)));
+  await J.finishTask(t.id);
+  assert.ok(!fs.existsSync(D.dumpFile(dump.id)));
+  assert.equal(db.codeDumpGet(dump.id)!.status, 'deleted');
+  assert.ok(T.getTask(t.id)!.dump!.deletedAt);
+  fake.script = () => undefined;
 });
 
 test('routes: 403 while off, create checks repository access, start/events, switching off pauses tasks', async () => {

@@ -52,6 +52,9 @@ export const MIGRATIONS: ((d: DatabaseSync) => void)[] = [
   /* 5: Sandbox Coding tasks (one container per task; the full task is the JSON row) */ d => d.exec(`
     CREATE TABLE IF NOT EXISTS code_tasks (id TEXT PRIMARY KEY, chat_id TEXT, template TEXT NOT NULL, repo TEXT NOT NULL, base_branch TEXT NOT NULL, branch TEXT NOT NULL, status TEXT NOT NULL, container_id TEXT, pr_number INTEGER, pr_url TEXT, pushed_sha TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, json TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS code_tasks_updated ON code_tasks(updated_at DESC);`),
+  /* 6: uploaded database dumps (Sandbox Coding): metadata only, the file lives in <data>/dumps/<id>/data until the import */ d => d.exec(`
+    CREATE TABLE IF NOT EXISTS code_dumps (id TEXT PRIMARY KEY, task_id TEXT, name TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, deleted_at TEXT);
+    CREATE INDEX IF NOT EXISTS code_dumps_task ON code_dumps(task_id);`),
 ];
 export const schemaVersion = (d: DatabaseSync) => (d.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
 export function runMigrations(d: DatabaseSync) {
@@ -119,6 +122,19 @@ export const codeTaskGet = <T extends CodeTaskRow = CodeTaskRow>(id: string): T 
 export const codeTaskList = <T extends CodeTaskRow = CodeTaskRow>(limit = 200): T[] => (db().prepare('SELECT json FROM code_tasks ORDER BY updated_at DESC LIMIT ?').all(limit) as unknown as { json: string }[]).map(r => JSON.parse(r.json) as T);
 export const codeTaskByChat = (chatId: string): string[] => (db().prepare('SELECT id FROM code_tasks WHERE chat_id = ?').all(chatId) as unknown as { id: string }[]).map(r => r.id);
 export const codeTaskDelete = (id: string) => { db().prepare('DELETE FROM code_tasks WHERE id = ?').run(id); };
+
+// ---- Uploaded dumps (Sandbox Coding): metadata only ----
+export interface CodeDumpRow { id: string; taskId: string | null; name: string; size: number; sha256: string | null; status: 'uploading' | 'ready' | 'deleted'; createdAt: string; expiresAt: string; deletedAt: string | null }
+interface DumpSql { id: string; task_id: string | null; name: string; size: number; sha256: string | null; status: CodeDumpRow['status']; created_at: string; expires_at: string; deleted_at: string | null }
+const dumpOf = (r: DumpSql): CodeDumpRow => ({ id: r.id, taskId: r.task_id, name: r.name, size: Number(r.size), sha256: r.sha256, status: r.status, createdAt: r.created_at, expiresAt: r.expires_at, deletedAt: r.deleted_at });
+export const codeDumpPut = (x: CodeDumpRow) => {
+  db().prepare(`INSERT INTO code_dumps (id, task_id, name, size, sha256, status, created_at, expires_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET task_id = excluded.task_id, sha256 = excluded.sha256, status = excluded.status, expires_at = excluded.expires_at, deleted_at = excluded.deleted_at`)
+    .run(x.id, x.taskId, x.name, x.size, x.sha256, x.status, x.createdAt, x.expiresAt, x.deletedAt);
+};
+export const codeDumpGet = (id: string): CodeDumpRow | null => { const r = db().prepare('SELECT * FROM code_dumps WHERE id = ?').get(id) as DumpSql | undefined; return r ? dumpOf(r) : null; };
+/** Dumps not deleted yet (optionally of one task). */
+export const codeDumpsLive = (taskId?: string): CodeDumpRow[] => (db().prepare(`SELECT * FROM code_dumps WHERE status <> 'deleted'${taskId ? ' AND task_id = ?' : ''} ORDER BY created_at`).all(...(taskId ? [taskId] : [])) as unknown as DumpSql[]).map(dumpOf);
 
 // ---- Audit (only writes after approval) & access log (what the AI has read) ----
 /** actor: login user name (LOTSE_PASSWORD) or NULL; if omitted, taken from the request context (./actor). */
