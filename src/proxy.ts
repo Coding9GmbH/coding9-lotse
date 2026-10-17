@@ -3,7 +3,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { STOREFRONT_PREFIX_HEADER, storefrontPrefix } from '@/lib/platforms';
 import { SANDBOX_PATH, sandboxReferer } from '@/lib/urls';
-import { LOCAL_HOSTS, PEER_HEADER, extraAllowedHosts, inCidr, normalizeIp, sandboxSubnet } from '@/server/access';
+import { LOCAL_HOSTS, PEER_HEADER, egressSubnet, extraAllowedHosts, inCidr, normalizeIp, sandboxSubnet } from '@/server/access';
 
 const LOOPBACK_HOPS = new Set(['127.0.0.1', '::1', 'localhost', '[::1]']);
 /** Docker bridge/VM gateway (Docker Desktop, OrbStack, Linux bridge): private, never public. */
@@ -44,10 +44,11 @@ const failures = new Map<string, { n: number; since: number; until: number }>();
 export function trustedProxy(ip: string, list = process.env.LOTSE_TRUSTED_PROXIES ?? ''): boolean {
   return list.split(',').map(e => e.trim()).filter(Boolean).some(e => inCidr(ip, e));
 }
-/** Sender is a task container (socket address or any hop in LOTSE_SANDBOX_SUBNET): never trusted, whatever the host name or password. */
+/** Sender is a task container (socket address or any hop in LOTSE_SANDBOX_SUBNET or, with internet allowed, LOTSE_SANDBOX_EGRESS_SUBNET):
+ *  never trusted, whatever the host name or password. */
 export function fromSandbox(peer: string | null, forwardedFor: string | null, env: Record<string, string | undefined> = process.env): boolean {
-  const subnet = sandboxSubnet(env);
-  return !!subnet && [...hopsOf(peer), ...hopsOf(forwardedFor)].some(ip => inCidr(ip, subnet));
+  const subnets = [sandboxSubnet(env), egressSubnet(env)].filter((s): s is string => !!s);
+  return subnets.length > 0 && [...hopsOf(peer), ...hopsOf(forwardedFor)].some(ip => subnets.some(s => inCidr(ip, s)));
 }
 /** Who counts: the socket address; if a local or trusted reverse proxy sits in front, the last X-Forwarded-For entry (appended by the proxy). */
 export function clientKey(peer: string | null, forwardedFor: string | null): string {

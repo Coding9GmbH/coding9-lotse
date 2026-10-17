@@ -1,8 +1,8 @@
 import 'server-only';
 // Guards shared by both runner implementations: labels, ids, paths, image and container spec.
 import { TEMPLATES } from './templates';
-import type { ContainerSpec } from './runner';
-import { MANAGED_LABEL, SANDBOX_NET } from './labels';
+import type { ContainerSpec, NetworkInfo } from './runner';
+import { EGRESS_NET, MANAGED_LABEL, SANDBOX_NET } from './labels';
 
 export { MANAGED, MANAGED_LABEL, TASK_LABEL } from './labels';
 
@@ -69,6 +69,18 @@ export function assertSafeSpec(spec: ContainerSpec): ContainerSpec {
   if ((spec.HostConfig as { NetworkMode?: unknown } | undefined)?.NetworkMode !== SANDBOX_NET) deny(`HostConfig.NetworkMode muss ${SANDBOX_NET} sein (kein Internetzugang).`);
   assertAllowedImage(spec.Image);
   return spec;
+}
+/** Lotse creates only its two networks: the internal one and the egress one for approved internet access. */
+export function assertNetworkName(name: string): string {
+  if (name !== SANDBOX_NET && name !== EGRESS_NET) throw new Error(`Netzwerk „${String(name).slice(0, 60)}“ wird von Lotse nicht angelegt.`);
+  return name;
+}
+/** Before attaching a container for internet access: the egress network exists, belongs to Lotse and is a plain bridge with egress. */
+export function assertEgressNetwork(n: NetworkInfo | null): NetworkInfo {
+  if (!n) throw new Error(`Das Docker-Netzwerk „${EGRESS_NET}“ fehlt.`);
+  if (!isManaged(n.labels)) throw new Error(`Das Docker-Netzwerk „${EGRESS_NET}“ gehört nicht zu Lotse (Label lotse.managed=1 fehlt).`);
+  if (n.internal) throw new Error(`Das Docker-Netzwerk „${EGRESS_NET}“ ist intern – darüber gibt es kein Internet. Netzwerk entfernen (docker network rm ${EGRESS_NET}), Lotse legt es neu an.`);
+  return n;
 }
 /** Absolute container path without "..": target of an archive upload. */
 export function assertContainerPath(dir: string): string {

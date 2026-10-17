@@ -2,7 +2,8 @@ import 'server-only';
 // MCP tools of a chat with an attached sandbox (Sandbox Coding), the same for Claude (in-process) and Codex (over HTTP).
 // Files are read and edited with the agent's own tools (Claude: Read/Edit/Write/Glob/Grep, see native-tools.ts; Codex: its patches),
 // confined to the task's worktree. Here only what those do not cover: sandbox_bash (any shell command INSIDE the task container,
-// never on the host), delete_file, git_diff, the task's own storefront, the environment, questions and the PR proposal.
+// never on the host), delete_file, git_diff, the task's own storefront, the environment, questions, the PR proposal and request_internet
+// (asks the human; only the click attaches the container to the internet, internet.ts).
 // Codex has no file reading of its own without a shell, so it also gets list_files/read_file/search_files.
 // Nothing commits, pushes, calls GitHub or controls Docker beyond the container exec. Cheap to build, no side effects.
 import crypto from 'node:crypto';
@@ -13,9 +14,10 @@ import { accessAdd } from '../db';
 import { decodeEntities } from '../html-sanitize';
 import { redact } from '../settings';
 import { fail, guard, ok, type AnyTool, type ToolResult } from '../tool-kit';
-import type { Question } from '../sessions';
+import type { ApprovalReply, Question } from '../sessions';
 import { taskDiff } from './diff';
 import { sandboxPublic } from './env';
+import { grantInternet, internetBlocked, noteInternetDenied } from './internet';
 import { ensureAwake, touchTask, withTaskLock } from './jobs';
 import { fetchUpstream, sandboxUpstream } from './preview';
 import { getRunner } from './runner';
@@ -25,7 +27,7 @@ import { mustTask, taskPaths, type CodeTask } from './tasks';
 import { deleteText, listFiles, readText, searchFiles, type Change } from './workspace-fs';
 
 /** MCP tools of every sandbox chat */
-export const SANDBOX_TOOL_NAMES = ['sandbox_bash', 'delete_file', 'git_diff', 'read_sandbox_page', 'get_environment', 'ask_user', 'propose_publish'] as const;
+export const SANDBOX_TOOL_NAMES = ['sandbox_bash', 'delete_file', 'git_diff', 'read_sandbox_page', 'get_environment', 'ask_user', 'request_internet', 'propose_publish'] as const;
 /** Codex only: reading the worktree (Claude reads with its own Read/Glob/Grep) */
 export const CODEX_READ_TOOL_NAMES = ['list_files', 'read_file', 'search_files'] as const;
 export const sandboxToolNames = (provider: 'claude' | 'codex'): string[] => (provider === 'codex' ? [...CODEX_READ_TOOL_NAMES, ...SANDBOX_TOOL_NAMES] : [...SANDBOX_TOOL_NAMES]);
@@ -42,6 +44,8 @@ export interface SandboxToolHost {
   taskId: string | null;
   emit: (ev: ChatEvent) => void;
   askUser: (q: Question) => Promise<string>;
+  /** open decisions of the chat (request_internet waits here for the click on its card, like a change set) */
+  approvals: Map<string, (r: ApprovalReply) => void>;
   abort: AbortController | null;
 }
 
@@ -112,7 +116,7 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
 
   return [
     ...reads,
-    tool('sandbox_bash', `Führt einen Shell-Befehl IM Container der Aufgabe aus (bash -lc, als www-data in /var/www/html; der Container ist ein Wegwerf-Shopware ohne Internet und ohne Zugriff auf den Live-Shop). Vorher wird das Repository in den Container übertragen. Für bin/console (z. B. theme:compile, cache:clear, plugin:refresh), Logs (var/log), mysql -uroot -proot -h127.0.0.1 shopware, curl -H 'Host: localhost' http://127.0.0.1/…, php -l usw. Nach theme:compile/cache:clear lädt die Vorschau neu. Dateien des Repositorys änderst du NICHT hier (Änderungen im Container gehen beim nächsten Übertragen verloren), sondern mit den Datei-Werkzeugen. Zeitlimit Standard ${BASH_TIMEOUT.def} s, höchstens ${BASH_TIMEOUT.max} s; die Ausgabe wird gekürzt (Ende) und geschwärzt.`,
+    tool('sandbox_bash', `Führt einen Shell-Befehl IM Container der Aufgabe aus (bash -lc, als www-data in /var/www/html; der Container ist ein Wegwerf-Shopware, normalerweise ohne Internet; braucht ein Befehl Internet, erst request_internet). Vorher wird das Repository in den Container übertragen. Für bin/console (z. B. theme:compile, cache:clear, plugin:refresh), Logs (var/log), mysql -uroot -proot -h127.0.0.1 shopware, curl -H 'Host: localhost' http://127.0.0.1/…, php -l usw. Nach theme:compile/cache:clear lädt die Vorschau neu. Dateien des Repositorys änderst du NICHT hier (Änderungen im Container gehen beim nächsten Übertragen verloren), sondern mit den Datei-Werkzeugen. Zeitlimit Standard ${BASH_TIMEOUT.def} s, höchstens ${BASH_TIMEOUT.max} s; die Ausgabe wird gekürzt (Ende) und geschwärzt.`,
       { command: z.string().min(1).max(10_000).describe('Befehlszeile für bash -lc'), timeout_sec: z.number().int().min(1).max(BASH_TIMEOUT.max).optional().describe(`Zeitlimit in Sekunden (Standard ${BASH_TIMEOUT.def})`) },
       act('sandbox_bash', async ({ command, timeout_sec }) => {
         if (command.includes('\0')) return fail('Ungültiger Befehl.');
@@ -182,6 +186,23 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
     tool('ask_user', 'RÜCKFRAGE an den Nutzer mit anklickbaren Antworten (der Nutzer kann stattdessen frei tippen). Wartet auf die Antwort. Nur bei echten Unklarheiten (Ziel, Geschmack, mehrere sinnvolle Wege), pro Aufruf genau EINE Frage mit 2–4 Optionen.',
       { question: z.string().min(1), options: z.array(z.object({ label: z.string(), description: z.string().optional() })).min(1).max(5) },
       act('ask_user', async a => ok({ answer: await host.askUser(a) }))),
+
+    tool('request_internet', 'Bittet den Nutzer um Internet für den Container dieser Aufgabe – nur wenn ein Befehl es wirklich braucht (z. B. composer require, npm install, ein Download). Zeigt eine Karte mit deinem Grund und WARTET auf die Entscheidung; erst der Klick des Nutzers verbindet den Container mit dem Internet. Mit Internet erreicht der Container jede öffentliche Adresse, auch die Website des Live-Shops: rufe dort nichts ab und ändere nichts. Der Zugang endet, wenn der Nutzer ihn sperrt oder die Sandbox pausiert bzw. abgeschlossen wird.',
+      { reason: z.string().min(1).max(300).describe('Ein Satz: wofür Internet gebraucht wird (z. B. „composer require für die Bibliothek X“)') },
+      act('request_internet', async ({ reason }) => {
+        if (task().internet) return ok('Internet ist für diese Aufgabe bereits freigegeben.');
+        const blocked = internetBlocked();
+        if (blocked) return fail(`${blocked} Ohne Internet weiterarbeiten oder den Nutzer fragen.`);
+        await ensureAwake(taskId);
+        const why = redact(reason).replace(/\s+/g, ' ').trim();
+        const approvalId = `inet_${crypto.randomBytes(6).toString('hex')}`;
+        host.emit({ t: 'internet_request', approvalId, reason: why });
+        const dec = await new Promise<ApprovalReply>(r => host.approvals.set(approvalId, r));
+        host.approvals.delete(approvalId);
+        if (!dec.allow) { noteInternetDenied(taskId, why); return fail('Der Nutzer hat den Internetzugang abgelehnt. Ohne Internet weiterarbeiten oder den Nutzer fragen, wie es weitergehen soll.'); }
+        await grantInternet(taskId, { via: 'chat', reason: why });
+        return ok('Internet ist für diesen Container jetzt freigegeben (bis der Nutzer es sperrt oder die Sandbox pausiert). Nur für den genannten Zweck verwenden.');
+      })),
 
     tool('propose_publish', 'Schlägt vor, die Änderungen als Pull Request zu veröffentlichen: zeigt dem Nutzer eine Karte mit Titel und Beschreibung. Veröffentlicht NICHTS selbst – das entscheidet der Nutzer. Erst aufrufen, wenn die Änderung in der Vorschau geprüft ist.',
       { title: z.string().min(1).max(120).describe('Titel des Pull Requests (kurz, Deutsch)'), body: z.string().max(5000).describe('Beschreibung: was, warum, wie geprüft (Markdown)') },

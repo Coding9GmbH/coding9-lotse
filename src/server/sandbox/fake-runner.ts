@@ -3,11 +3,12 @@ import 'server-only';
 // Exec results are scripted; each started container gets a small node:http "storefront" that serves the synced files.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, PullProgress, SandboxRunner } from './runner';
-import { MANAGED, assertAllowedImage, assertContainerPath, assertId, assertManaged, assertSafeSpec, isManaged } from './guards';
+import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, NetworkOpts, PullProgress, SandboxRunner } from './runner';
+import { MANAGED, assertAllowedImage, assertContainerPath, assertEgressNetwork, assertId, assertManaged, assertNetworkName, assertSafeSpec, isManaged } from './guards';
+import { EGRESS_NET, SANDBOX_NET } from './labels';
 
 export interface FakeCall { op: string; id?: string; argv?: string[]; user?: string; detail?: unknown }
-interface FakeContainer { id: string; spec: ContainerSpec; running: boolean; files: Map<string, Buffer>; server: http.Server | null; port: number | null; /** storefront templates as of the last theme:compile */ compiled: string[] }
+interface FakeContainer { id: string; spec: ContainerSpec; running: boolean; networks: string[]; files: Map<string, Buffer>; server: http.Server | null; port: number | null; /** storefront templates as of the last theme:compile */ compiled: string[] }
 type ExecScript = (argv: readonly string[], id: string) => Partial<ExecResult> | undefined;
 
 export interface TarRecord { path: string; type: 'file' | 'dir' | 'symlink' | 'other'; data: Buffer; uid: number; gid: number; mode: number; linkTarget: string }
@@ -73,7 +74,7 @@ export class FakeRunner implements SandboxRunner {
   }
   private managed(id: string): FakeContainer { const c = this.containers.get(assertId(id)); assertManaged(this.info(c)); return c!; }
   private info(c: FakeContainer | undefined): ContainerInfo | null {
-    return c ? { id: c.id, name: c.spec.name, image: c.spec.Image, state: c.running ? 'running' : 'exited', running: c.running, labels: c.spec.Labels, address: c.port ? { host: '127.0.0.1', port: c.port } : null } : null;
+    return c ? { id: c.id, name: c.spec.name, image: c.spec.Image, state: c.running ? 'running' : 'exited', running: c.running, labels: c.spec.Labels, address: c.port ? { host: '127.0.0.1', port: c.port } : null, networks: [...c.networks] } : null;
   }
 
   async ping() { this.enter('ping'); }
@@ -91,7 +92,7 @@ export class FakeRunner implements SandboxRunner {
     this.enter('create', { detail: spec });
     assertSafeSpec(spec);
     const id = `fake${(++this.seq).toString().padStart(8, '0')}`;
-    this.containers.set(id, { id, spec, running: false, files: new Map(), server: null, port: null, compiled: [] });
+    this.containers.set(id, { id, spec, running: false, networks: [SANDBOX_NET], files: new Map(), server: null, port: null, compiled: [] });
     return id;
   }
   async start(id: string) {
@@ -155,9 +156,22 @@ export class FakeRunner implements SandboxRunner {
     for (const f of readTar(tar)) c.files.set(`${assertContainerPath(dir).replace(/\/$/, '')}/${f.path}`, f.data);
   }
   async inspectNetwork(name: string) { this.enter('inspectNetwork', { detail: name }); return this.networks.get(name) ?? null; }
-  async createNetwork(name: string, opts: { internal: boolean; labels: Record<string, string>; subnet?: string; isolated?: boolean }) {
+  async createNetwork(name: string, opts: NetworkOpts) {
     this.enter('createNetwork', { detail: { name, ...opts } });
-    this.networks.set(name, { name, internal: opts.internal, labels: opts.labels, subnets: opts.subnet ? [opts.subnet] : [], isolated: !!opts.isolated });
+    this.networks.set(assertNetworkName(name), { name, internal: opts.internal, labels: opts.labels, subnets: opts.subnet ? [opts.subnet] : [], isolated: !!opts.isolated, icc: opts.icc !== false });
+  }
+  async connectEgress(id: string) {
+    this.enter('connectEgress', { id });
+    const c = this.managed(id);
+    assertEgressNetwork(this.networks.get(EGRESS_NET) ?? null);
+    if (!c.networks.includes(EGRESS_NET)) c.networks.push(EGRESS_NET);
+  }
+  async disconnectEgress(id: string) {
+    this.enter('disconnectEgress', { id });
+    const c = this.containers.get(assertId(id));
+    if (!c) return;
+    this.managed(id);
+    c.networks = c.networks.filter(n => n !== EGRESS_NET);
   }
   /** Tests: stop all fake storefronts. */
   async close() { for (const c of this.containers.values()) await this.closeServer(c); }

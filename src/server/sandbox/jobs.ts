@@ -5,6 +5,7 @@ import 'server-only';
 // - LOTSE_SANDBOX_MAX running containers: one more stops a failed task's container or pauses the least recently used ready task, otherwise 409
 // - pause = docker stop (code, database and changes stay), wake = docker start + wait + full sync (no new setup)
 // - finish = container, workspace, git dir, dump and screenshots removed; the task stays as a record (done)
+// - internet (internet.ts) ends with every stop, a new setup and finish; a woken container starts offline
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CodeTaskStatus } from '@/lib/protocol';
@@ -16,6 +17,7 @@ import { singleton } from '../state';
 import { errMsg } from '../util';
 import { assertAttachable, deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
 import { getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
+import { revokeInternet, type RevokeReason } from './internet';
 import { SANDBOX_NETWORK, ensureNetwork, networkMode, openHostPorts, probeRoute } from './network';
 import { clearJar, forgetUpstream } from './preview';
 import { getRunner } from './runner';
@@ -91,8 +93,10 @@ function makeRoom(self: string): CodeTask[] {
 }
 const stopVictims = (victims: CodeTask[]) => Promise.all(victims.map(v => withTaskLock(v.id, () => stopContainer(v)).catch(e => log.warn('Sandbox pausieren fehlgeschlagen', { task: v.id, error: e }))));
 
-async function stopContainer(t: CodeTask) {
+async function stopContainer(t: CodeTask, why: RevokeReason = 'pause') {
   if (!t.containerId) return;
+  // internet ends with the stop; a failed detach does not keep the container running (waking detaches again before the start)
+  await revokeInternet(t.id, why).catch(e => log.warn('Internetzugang nicht gesperrt', { task: t.id, error: e }));
   await getRunner().stop(t.containerId);
   forgetUpstream(t.containerId);
   const fresh = getTask(t.id);
@@ -139,6 +143,7 @@ export async function stopSetup(id: string): Promise<CodeTask> {
 }
 
 async function execute(id: string, from: number, signal: AbortSignal) {
+  await revokeInternet(id, 'setup').catch(e => log.warn('Internetzugang nicht gesperrt', { task: id, error: e })); // the setup runs offline
   const t = mustTask(id);
   if (t.status !== 'setting_up') return; // finished (or otherwise taken over) while queued on the lock
   const tpl = getTemplate(t.template);
@@ -320,6 +325,8 @@ async function wake(id: string, abort: AbortSignal) {
     if (t.status !== 'waking') return; // finished while queued on the lock
     if (abort.aborted) throw new Error('Abgebrochen.');
     if (!t.containerId || !t.layout) throw new Error('Kein Container – Einrichtung erneut versuchen.');
+    // a woken container starts offline (also one stopped outside Lotse while internet was allowed); not detachable = not started
+    await revokeInternet(id, 'wake'); t.internet = null;
     const ctx = stepCtx(t, step, signal, 5 * 60_000);
     await getRunner().start(t.containerId); forgetUpstream(t.containerId);
     t.containerRunning = true; saveTask(t);
@@ -348,6 +355,7 @@ export async function finishTask(id: string): Promise<CodeTask> {
     await abortAndWait(J.setup.get(id));
     await abortAndWait(J.wakes.get(id));
     await withTaskLock(id, async () => {
+      await revokeInternet(id, 'finish'); // Docker unreachable: nothing is removed (as below)
       const fresh = mustTask(id);
       if (fresh.containerId) await getRunner().remove(fresh.containerId);
       for (const c of await getRunner().list({ [TASK_LABEL]: id }).catch(() => [])) await getRunner().remove(c.id);
@@ -357,7 +365,7 @@ export async function finishTask(id: string): Promise<CodeTask> {
       if (fresh.dump && !fresh.dump.deletedAt) fresh.dump.deletedAt = now();
       for (const s of fresh.steps) if (s.state === 'running') s.state = 'interrupted';
       clearJar(id);
-      Object.assign(fresh, { status: 'done', containerId: null, containerRunning: false, finishedAt: now(), error: null } satisfies Partial<CodeTask>);
+      Object.assign(fresh, { status: 'done', containerId: null, containerRunning: false, finishedAt: now(), error: null, internet: null } satisfies Partial<CodeTask>);
       saveTask(fresh);
     });
   } finally { J.finishing.delete(id); }

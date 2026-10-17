@@ -185,7 +185,7 @@ test('network: created internal + labelled; a foreign or open network is refused
   assert.equal(networkMode({ AICB_DOCKER: '1', LOTSE_SANDBOX_NETWORK: 'local' }), 'local');
   const r = new FakeRunner();
   assert.deepEqual(await ensureNetwork(r, null, 'local'), { created: true });
-  assert.deepEqual(r.networks.get('lotse-sandbox'), { name: 'lotse-sandbox', internal: true, labels: { 'lotse.managed': '1' }, subnets: [], isolated: false });
+  assert.deepEqual(r.networks.get('lotse-sandbox'), { name: 'lotse-sandbox', internal: true, labels: { 'lotse.managed': '1' }, subnets: [], isolated: false, icc: true });
   assert.deepEqual(await ensureNetwork(r, null, 'local'), { created: false });
   // pinned subnet (LOTSE_SANDBOX_SUBNET): created with it; an existing network on another subnet is refused
   await assert.rejects(ensureNetwork(r, '10.213.0.0/24', 'local'), /Subnetz 10\.213\.0\.0\/24/);
@@ -193,16 +193,16 @@ test('network: created internal + labelled; a foreign or open network is refused
   assert.deepEqual(await ensureNetwork(r, '10.213.0.0/24', 'local'), { created: true });
   assert.deepEqual(r.networks.get('lotse-sandbox')?.subnets, ['10.213.0.0/24']);
   assert.deepEqual(await ensureNetwork(r, '10.213.0.0/24', 'local'), { created: false });
-  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: false, labels: { 'lotse.managed': '1' }, subnets: [], isolated: false });
+  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: false, labels: { 'lotse.managed': '1' }, subnets: [], isolated: false, icc: true });
   await assert.rejects(ensureNetwork(r, null, 'local'), /nicht intern/);
-  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: true, labels: {}, subnets: [], isolated: false });
+  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: true, labels: {}, subnets: [], isolated: false, icc: true });
   await assert.rejects(ensureNetwork(r, null, 'local'), /gehört nicht zu Lotse/);
   // network mode (Lotse in Docker): the bridge is isolated from the host – created that way, an existing open one is refused
   r.networks.clear();
   assert.deepEqual(await ensureNetwork(r, null, 'network'), { created: true });
   assert.equal(r.networks.get('lotse-sandbox')?.isolated, true);
   await assert.rejects(ensureNetwork(r, null, 'local'), /vom Host getrennt/, 'local mode cannot reach containers on an isolated bridge');
-  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: true, labels: { 'lotse.managed': '1' }, subnets: [], isolated: false });
+  r.networks.set('lotse-sandbox', { name: 'lotse-sandbox', internal: true, labels: { 'lotse.managed': '1' }, subnets: [], isolated: false, icc: true });
   await assert.rejects(ensureNetwork(r, null, 'network'), /nicht vom Host getrennt/);
   const old = Object.assign(new FakeRunner(), { version: async () => ({ apiVersion: '1.47', version: '27.5.1' }) });
   await assert.rejects(ensureNetwork(old, null, 'network'), /Docker Engine 28/);

@@ -25,7 +25,7 @@ const CODEX_WEB_NOTE = ' Zusätzlich darfst du die Websuche verwenden (Internetr
 // Chats with an attached sandbox: Codex edits the task's worktree with its own patches (only there: permission profile + check below),
 // reads it and runs commands only through the MCP tools; its own shell would run on the Lotse host and stays disabled.
 export const CODE_NOTE = `\n\n## Laufzeit
-Du läufst in Lotse als Coding-Assistent in der Sandbox dieses Chats. Dein Arbeitsverzeichnis ist das Repository; Dateien änderst du mit deinen eigenen Patches (apply_patch) – nur innerhalb des Repositorys, ohne .git und geheime Dateien. Lesen und suchen mit list_files/read_file/search_files, Befehle NUR mit sandbox_bash (läuft im Container der Sandbox, ohne Internet). Eine eigene Shell gibt es hier nicht: Befehle außerhalb von sandbox_bash und Patches außerhalb des Repositorys brechen die Runde ab.`;
+Du läufst in Lotse als Coding-Assistent in der Sandbox dieses Chats. Dein Arbeitsverzeichnis ist das Repository; Dateien änderst du mit deinen eigenen Patches (apply_patch) – nur innerhalb des Repositorys, ohne .git und geheime Dateien. Lesen und suchen mit list_files/read_file/search_files, Befehle NUR mit sandbox_bash (läuft im Container der Sandbox, ohne Internet – Internet nur nach Freigabe des Nutzers über request_internet). Eine eigene Shell gibt es hier nicht: Befehle außerhalb von sandbox_bash und Patches außerhalb des Repositorys brechen die Runde ab.`;
 
 /** Internal address at which the Codex process reaches Lotse (same machine/container). */
 const internalUrl = () => (process.env.LOTSE_INTERNAL_URL || `http://127.0.0.1:${process.env.PORT || 3333}`).replace(/\/$/, '');

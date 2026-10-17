@@ -10,7 +10,7 @@ import { ImageCard, PublishedCard, StyleguideCard } from './Cards';
 import { AiMessage, ErrorMessage, UserMessage } from './Message';
 import { QuestionCard } from './QuestionCard';
 import { Steps } from './Steps';
-import { CommandCard, PublishProposalCard, SandboxAttachedLine, SandboxOfferCard, SandboxStatusLine, type SandboxOfferActions } from '@/components/sandbox/CommandCard';
+import { CommandCard, InternetRequestCard, PublishProposalCard, SandboxAttachedLine, SandboxOfferCard, SandboxStatusLine, type SandboxOfferActions } from '@/components/sandbox/CommandCard';
 import { FileChangeCard } from '@/components/sandbox/FileChangeCard';
 import { PrCard } from '@/components/sandbox/PrCard';
 import type { PrProposal } from '@/components/sandbox/PublishCard';
@@ -45,7 +45,7 @@ function AnswerStatus({ busy, hasAnswer }: { busy: boolean; hasAnswer: boolean }
 
 const NEAR_END = 140;
 /** These entries always scroll the log to the end (own message, decision needed). */
-const FORCE_FOLLOW = new Set<LogItem['kind']>(['user', 'question', 'changeset', 'publish', 'pr', 'sandbox_offer']);
+const FORCE_FOLLOW = new Set<LogItem['kind']>(['user', 'question', 'changeset', 'publish', 'pr', 'sandbox_offer', 'internet']);
 
 /** Chat log. Stays "stuck" to the end as long as the user has not scrolled up. */
 export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStyleguide, busy = false, className, children, sandbox, onReviewPublish }: Props) {
@@ -92,6 +92,7 @@ export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStylegui
           case 'pr': return <PrCard key={item.key} taskId={item.taskId} pr={item} done={{ action: item.action, files: item.files }} />;
           case 'sandbox_offer': return <SandboxOfferCard key={item.key} offer={item} actions={sandbox} />;
           case 'sandbox_attached': return <SandboxAttachedLine key={item.key} repo={item.repo} baseBranch={item.baseBranch} />;
+          case 'internet': return <InternetRequestCard key={item.key} item={item} onDecide={allow => onDecide(item.approvalId, allow)} />;
         }
       })}
     </div>

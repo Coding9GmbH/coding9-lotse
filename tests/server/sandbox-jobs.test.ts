@@ -180,7 +180,7 @@ test('LOTSE_SANDBOX_MAX: a new task pauses the least recently used ready one; wi
     const woke = T.getTask(a.id)!;
     assert.equal(woke.status, 'ready');
     const ops = fake.calls.slice(n).filter(c => c.id === woke.containerId).map(c => c.op);
-    assert.deepEqual(ops.filter(o => o !== 'inspect'), ['start', 'exec', 'exec', 'putArchive'], 'start, wait (mysqladmin), rm -rf + archive');
+    assert.deepEqual(ops.filter(o => o !== 'inspect'), ['disconnectEgress', 'start', 'exec', 'exec', 'putArchive'], 'offline first, start, wait (mysqladmin), rm -rf + archive');
     assert.ok(!fake.calls.slice(n).some(c => c.op === 'create' || c.argv?.includes('plugin:install')));
     for (const t of [a, b, c]) await J.finishTask(t.id);
   } finally { delete process.env.LOTSE_SANDBOX_MAX; }

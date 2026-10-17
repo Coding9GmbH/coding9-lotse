@@ -109,11 +109,22 @@ test('Sandbox Coding: attach a sandbox to a chat, setup reaches ready, preview, 
   await page.getByRole('button', { name: 'Verwerfen' }).click();
   await panel.getByRole('button', { name: 'Markieren beenden' }).click();
 
+  // Internet only after the user's own click (with a warning); "an" blocks it again, pausing ends it
+  page.once('dialog', d => { expect(d.message()).toContain('Live-Shops'); void d.accept(); });
+  await panel.getByRole('button', { name: 'Internet: aus' }).click();
+  await expect(panel.getByRole('button', { name: 'Internet: an' })).toHaveAttribute('aria-pressed', 'true');
+  await panel.getByRole('button', { name: 'Internet: an' }).click();
+  await expect(panel.getByRole('button', { name: 'Internet: aus' })).toHaveAttribute('aria-pressed', 'false');
+  page.once('dialog', d => void d.accept());
+  await panel.getByRole('button', { name: 'Internet: aus' }).click();
+  await expect(panel.getByRole('button', { name: 'Internet: an' })).toBeVisible();
+
   // Paused: the preview offers to start it again; loading it wakes the task (no new setup)
   await panel.getByRole('button', { name: 'Pausieren' }).click();
   await expect(panel.getByRole('button', { name: 'Fortsetzen' })).toBeVisible();
   await panel.getByRole('button', { name: 'Vorschau laden' }).click();
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByRole('button', { name: 'Internet: aus' })).toBeVisible(); // woken offline
   await expect(preview.getByRole('heading', { name: 'Fake-Storefront' })).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'Pausieren' }).click();
   await panel.getByRole('button', { name: 'Fortsetzen' }).click();

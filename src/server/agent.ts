@@ -23,7 +23,7 @@ import { errMsg } from './util';
 import { budgetGate, recordTurn, releaseBudget, turnCost } from './usage';
 
 // Save immediately (approvals, questions, drafts); all other history events batched (persistSoon), live-only events not at all
-const PERSIST_ON = new Set(['draft', 'styleguide', 'approval', 'changeset', 'changeset_result', 'question', 'sandbox_status', 'publish_proposal', 'pr', 'sandbox_offer']);
+const PERSIST_ON = new Set(['draft', 'styleguide', 'approval', 'changeset', 'changeset_result', 'question', 'sandbox_status', 'publish_proposal', 'pr', 'sandbox_offer', 'internet_request']);
 const LIVE_ONLY = new Set(['draft_partial', 'start', 'changeset_progress', 'preview_reload']);
 /** Chats with a sandbox: more steps per turn (explore, edit, compile, check, fix) than a shop turn */
 export const CODE_MAX_TURNS = 120;

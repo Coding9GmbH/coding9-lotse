@@ -125,6 +125,8 @@ export type ChatEvent =
   | { t: 'pr'; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
   /** The AI proposes to attach a sandbox to this chat (start_sandbox): a card; only the user's click creates the task */
   | { t: 'sandbox_offer'; id: string; repo: string; baseBranch: string; reason: string }
+  /** The AI asks for internet in the task container (request_internet): a card; only the user's click allows it (decision: the answer) */
+  | { t: 'internet_request'; approvalId: string; reason: string; decision?: boolean }
   /** A sandbox was attached to this chat (by the user) */
   | { t: 'sandbox_attached'; taskId: string; repo: string; baseBranch: string }
   /** First line when reconnecting to a chat: history so far + whether it's still running */
@@ -253,14 +255,16 @@ export interface SandboxEnvPublic {
   templateId: string; image: string; memoryMb: number; cpus: number; idleMinutes: number; /** LOTSE_SANDBOX_MAX: containers running at the same time */ maxRunning: number;
   envVars: SandboxEnvVar[]; commands: SandboxCommand[]; updatedAt: string | null;
   /** preselected in "Sandbox starten" (empty = none) */ defaultRepo: string; defaultBranch: string;
+  /** "Internet im Container": only after a human allowed it per task (default) or never */ internet: InternetPolicy;
 }
+export type InternetPolicy = 'approval' | 'never';
 /** Both modes: task containers only on the internal network lotse-sandbox. network = Lotse runs in Docker on that network; local = Lotse on the host reaches the container IPs */
 export interface SandboxDocker { reachable: boolean; apiVersion: string | null; version: string | null; mode: 'network' | 'local'; error?: string }
 /** GET /api/sandbox/env */
 export interface SandboxEnvView { env: SandboxEnvPublic; docker: SandboxDocker | null; imagePresent: boolean | null; templates: TemplateDescriptor[] }
 /** PUT /api/sandbox/env: secret value empty/undefined = unchanged; a command without id is new */
 export interface SandboxEnvPatch {
-  enabled?: boolean; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number; defaultRepo?: string; defaultBranch?: string;
+  enabled?: boolean; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number; defaultRepo?: string; defaultBranch?: string; internet?: InternetPolicy;
   envVars?: { key: string; secret: boolean; value?: string }[];
   commands?: { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec?: number }[];
 }
@@ -283,6 +287,7 @@ export interface CodeTaskPublic {
   /** the chat the sandbox is attached to (one sandbox per chat) */ chatId: string | null;
   /** the task's pull request (null = not published yet) */ pr: TaskPr | null;
   /** publishing right now, or the last attempt failed / was cut off by a restart (a retry continues idempotently) */ publish: TaskPublish | null;
+  /** internet access a human allowed for this task (container attached to lotse-sandbox-egress); null = offline */ internet: { since: string } | null;
 }
 export interface TaskPr { number: number; url: string; title: string }
 export type PublishStep = 'check' | 'commit' | 'push' | 'pr';

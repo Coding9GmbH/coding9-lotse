@@ -37,7 +37,9 @@ export type LogItem =
   | { kind: 'publish'; key: string; title: string; body: string }
   | { kind: 'pr'; key: string; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
   | { kind: 'sandbox_offer'; key: string; id: string; repo: string; baseBranch: string; reason: string }
-  | { kind: 'sandbox_attached'; key: string; repo: string; baseBranch: string };
+  | { kind: 'sandbox_attached'; key: string; repo: string; baseBranch: string }
+  /** request_internet: the AI asks for internet in the task container; decision = the user's click (sent: clicked, answer pending) */
+  | { kind: 'internet'; key: string; approvalId: string; reason: string; decision?: boolean; interactive: boolean };
 
 export type LogItemKind = LogItem['kind'];
 
@@ -105,7 +107,7 @@ function liveStatus(ev: ChatEvent, locale: Locale): string | null {
     case 'text_start': return t.writing;
     case 'draft_partial': return t.building;
     case 'question': return t.waitingAnswer;
-    case 'changeset': return t.waitingApproval;
+    case 'changeset': case 'internet_request': return t.waitingApproval;
     case 'tool': return t.tool(toolLabel(ev.name, locale));
     case 'changeset_progress': return t.applyProgress(n(ev.done), n(ev.total));
     case 'changeset_result': case 'tool_result': case 'image': case 'file_change': return t.thinking;
@@ -250,6 +252,7 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
     case 'pr': return push(s, { kind: 'pr', taskId: ev.taskId, number: ev.number, url: ev.url, title: ev.title, action: ev.action, files: ev.files })[0];
     case 'sandbox_offer': return push(s, { kind: 'sandbox_offer', id: ev.id, repo: ev.repo, baseBranch: ev.baseBranch, reason: ev.reason })[0];
     case 'sandbox_attached': return push(s, { kind: 'sandbox_attached', repo: ev.repo, baseBranch: ev.baseBranch })[0];
+    case 'internet_request': return push(s, { kind: 'internet', approvalId: ev.approvalId, reason: ev.reason, decision: ev.decision, interactive: live && ev.decision === undefined })[0];
     case 'done': {
       const settled = settleSteps(s, ev.error ? 'bad' : 'done');
       return ev.error ? push(settled, { kind: 'error', text: ev.error })[0] : settled;
@@ -285,7 +288,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case 'resume': {
       // Turn still running: make open questions/approvals usable again (the server is waiting for them)
       const items = state.items.map(i =>
-        (i.kind === 'question' && i.answer === undefined) || (i.kind === 'changeset' && i.decision === undefined && !i.result) ? { ...i, interactive: true } : i);
+        (i.kind === 'question' && i.answer === undefined) || (i.kind === 'changeset' && i.decision === undefined && !i.result) || (i.kind === 'internet' && i.decision === undefined) ? { ...i, interactive: true } : i);
       // steps assumed finished keep running if the turn is still running
       const reopened = items.map(i => (i.kind === 'steps' && i.steps.some(x => x.stale)
         ? { ...i, steps: i.steps.map(x => (x.stale ? { ...x, state: 'run' as const, stale: undefined } : x)) } : i));
@@ -300,7 +303,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
     case 'decide':
       return {
-        ...update(state, 'changeset', i => i.approvalId === action.approvalId, i => ({ ...i, interactive: false, decision: action.allow, sent: { allow: action.allow, selected: action.selected } })),
+        ...update(update(state, 'changeset', i => i.approvalId === action.approvalId, i => ({ ...i, interactive: false, decision: action.allow, sent: { allow: action.allow, selected: action.selected } })),
+          'internet', i => i.approvalId === action.approvalId, i => ({ ...i, interactive: false, decision: action.allow })),
         status: state.busy ? (action.allow ? texts(state).applying : thinking(state)) : state.status,
       };
     case 'undo': return update(state, 'changeset', i => i.cs.id === action.csId, i => ({ ...i, undo: action.phase, result: action.undoResults && i.result ? { ...i.result, undoResults: action.undoResults, undone: action.phase === 'done' } : i.result }));

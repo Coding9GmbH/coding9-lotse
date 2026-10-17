@@ -9,13 +9,16 @@ import 'server-only';
 //          unless a firewall rule drops traffic from the subnet (docs); the setup probes common ports and warns. Where the host has
 //          no route into Docker's networks (Docker Desktop on macOS/Windows), the setup stops with a clear message instead of
 //          falling back to a network with internet access.
+// Internet only after a human allowed it for one task (internet.ts): the container is then additionally attached to the second bridge
+// "lotse-sandbox-egress" (not internal, no traffic between its containers) and detached again on revoke, pause and finish.
 import net from 'node:net';
-import { sandboxSubnet } from '../access';
+import { egressSubnet, sandboxSubnet } from '../access';
 import { MANAGED } from './guards';
-import { ISOLATED_GATEWAY } from './labels';
+import { EGRESS_NET, ISOLATED_GATEWAY } from './labels';
 import { getRunner, type SandboxRunner } from './runner';
 
 export const SANDBOX_NETWORK = 'lotse-sandbox';
+export const EGRESS_NETWORK = EGRESS_NET;
 export type NetworkMode = 'network' | 'local';
 
 /** LOTSE_SANDBOX_NETWORK=network|local overrides; default: network inside the Lotse container, local on bare metal. */
@@ -41,6 +44,21 @@ export async function ensureNetwork(r: SandboxRunner = getRunner(), subnet = san
   if (n.labels['lotse.managed'] !== '1') throw new Error(`Das Docker-Netzwerk „${SANDBOX_NETWORK}“ gehört nicht zu Lotse (Label lotse.managed=1 fehlt).`);
   if (isolated && !n.isolated) throw new Error(`Das Docker-Netzwerk „${SANDBOX_NETWORK}“ ist nicht vom Host getrennt (${ISOLATED_GATEWAY}=isolated fehlt) – Sandboxes erreichten Dienste auf dem Host. Lotse stoppen, Netzwerk entfernen (docker network rm ${SANDBOX_NETWORK}) und mit der aktuellen docker-compose.sandbox.yml neu starten.`);
   if (!isolated && n.isolated) throw new Error(`Das Docker-Netzwerk „${SANDBOX_NETWORK}“ ist vom Host getrennt (für Lotse in Docker angelegt) – Lotse auf dem Host erreicht die Container darin nicht. Netzwerk entfernen oder LOTSE_SANDBOX_NETWORK=network verwenden.`);
+  return { created: false };
+}
+
+/** Creates the egress network or accepts an existing one only if it is labelled by Lotse, not internal, without traffic between
+ *  its containers and (if set) on LOTSE_SANDBOX_EGRESS_SUBNET, the second subnet proxy.ts refuses requests from. */
+export async function ensureEgressNetwork(r: SandboxRunner = getRunner(), subnet = egressSubnet()): Promise<{ created: boolean }> {
+  const internal = sandboxSubnet();
+  if (subnet && internal && subnet === internal) throw new Error('LOTSE_SANDBOX_EGRESS_SUBNET muss sich von LOTSE_SANDBOX_SUBNET unterscheiden.');
+  const n = await r.inspectNetwork(EGRESS_NETWORK);
+  if (!n) { await r.createNetwork(EGRESS_NETWORK, { internal: false, icc: false, labels: { ...MANAGED }, ...(subnet ? { subnet } : {}) }); return { created: true }; }
+  const fix = `Netzwerk entfernen (docker network rm ${EGRESS_NETWORK}), Lotse legt es beim nächsten Freigeben neu an.`;
+  if (n.labels['lotse.managed'] !== '1') throw new Error(`Das Docker-Netzwerk „${EGRESS_NETWORK}“ gehört nicht zu Lotse (Label lotse.managed=1 fehlt).`);
+  if (n.internal) throw new Error(`Das Docker-Netzwerk „${EGRESS_NETWORK}“ ist intern – darüber gibt es kein Internet. ${fix}`);
+  if (subnet && !n.subnets.includes(subnet)) throw new Error(`Das Docker-Netzwerk „${EGRESS_NETWORK}“ hat nicht das Subnetz ${subnet} (LOTSE_SANDBOX_EGRESS_SUBNET), sondern ${n.subnets.join(', ') || 'keines'}. ${fix}`);
+  if (n.icc) throw new Error(`Im Docker-Netzwerk „${EGRESS_NETWORK}“ können sich die Container gegenseitig erreichen (enable_icc=false fehlt). ${fix}`);
   return { created: false };
 }
 

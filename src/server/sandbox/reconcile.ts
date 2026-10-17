@@ -1,6 +1,7 @@
 import 'server-only';
 // After a Lotse restart: steps (and a publish) that were running become "interrupted"; labelled containers without a task (or of a finished task)
-// are removed; the containers of the other tasks keep their state (a running one stays ready, a stopped one is paused).
+// are removed; the containers of the other tasks keep their state (a running one stays ready, a stopped one is paused) and their
+// internet access only if it was allowed and the container still runs.
 // Also starts the idle sweeper (one interval per process, unref: never keeps the process alive), which also deletes stale dumps.
 // Dumps are swept at startup whether Sandbox Coding is on or not: a leftover file must never outlive its 24 h.
 import { log } from '../log';
@@ -8,6 +9,7 @@ import { singleton } from '../state';
 import { errMsg } from '../util';
 import { sweepDumps } from './dumps';
 import { sandboxEnabled } from './env';
+import { reconcileInternet } from './internet';
 import { pauseIdle } from './jobs';
 import { TASK_LABEL } from './labels';
 import { getRunner } from './runner';
@@ -45,7 +47,7 @@ export async function reconcileContainers(): Promise<{ removed: string[] }> {
     if (!t.containerId || t.status === 'done') continue;
     const info = await r.inspect(t.containerId);
     if (!info) {
-      t.containerId = null; t.containerRunning = false;
+      t.containerId = null; t.containerRunning = false; t.internet = null;
       if (t.status === 'ready' || t.status === 'paused') { t.status = 'failed'; t.error = 'Der Container fehlt – ab „Container starten“ erneut versuchen.'; }
     } else {
       t.containerRunning = info.running;
@@ -53,6 +55,8 @@ export async function reconcileContainers(): Promise<{ removed: string[] }> {
       else if (t.status === 'paused' && info.running) t.status = 'ready';
     }
     saveTask(t, false);
+    // internet only while the stored approval and Docker agree (and the container runs)
+    if (info) await reconcileInternet(t, info).catch(e => log.warn('Internetzugang nicht abgeglichen', { task: t.id, error: e }));
   }
   return { removed };
 }

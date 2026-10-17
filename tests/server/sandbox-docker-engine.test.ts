@@ -14,7 +14,7 @@ const IMAGE = 'dockware/shopware:6.7.15.1';
 
 const calls: string[] = [];
 let imageThere = false, pullError: string | null = null;
-const containers: Record<string, { labels: Record<string, string>; state: string }> = {
+const containers: Record<string, { labels: Record<string, string>; state: string; egress?: boolean }> = {
   mine: { labels: { 'lotse.managed': '1', 'lotse.task': 't1' }, state: 'running' },
   foreign: { labels: { 'com.example': 'x' }, state: 'running' },
 };
@@ -22,6 +22,8 @@ const frame = (stream: number, text: string) => { const b = Buffer.from(text); c
 const send = (res: http.ServerResponse, status: number, body?: unknown) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(body === undefined ? '' : JSON.stringify(body)); };
 const read = (req: http.IncomingMessage) => new Promise<string>(ok => { let b = ''; req.on('data', c => (b += c)); req.on('end', () => ok(b)); });
 let lastExecBody: Record<string, unknown> | null = null, stdinSeen = '';
+let egressNet: Record<string, unknown> | null = null;
+const netBodies: Record<string, unknown>[] = [];
 
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url ?? '/', 'http://docker'), p = decodeURIComponent(u.pathname), body = await read(req);
@@ -51,13 +53,17 @@ const server = http.createServer(async (req, res) => {
   if (c) {
     const box = containers[c[1]];
     if (!box) return send(res, 404, { message: 'No such container' });
-    if (c[2] === 'json') return send(res, 200, { Id: c[1], Name: `/${c[1]}`, Config: { Image: IMAGE, Labels: box.labels }, State: { Status: box.state, Running: box.state === 'running' }, NetworkSettings: { Networks: { bridge: { IPAddress: '172.17.0.9' }, 'lotse-sandbox': { IPAddress: '172.30.0.5' } } } });
+    if (c[2] === 'json') return send(res, 200, { Id: c[1], Name: `/${c[1]}`, Config: { Image: IMAGE, Labels: box.labels }, State: { Status: box.state, Running: box.state === 'running' }, NetworkSettings: { Networks: { bridge: { IPAddress: '172.17.0.9' }, 'lotse-sandbox': { IPAddress: '172.30.0.5' }, ...(box.egress ? { 'lotse-sandbox-egress': { IPAddress: '10.214.0.2' } } : {}) } } });
     if (c[2] === 'stop') { box.state = 'exited'; return send(res, 204); }
     if (c[2] === 'exec') { lastExecBody = JSON.parse(body); return send(res, 201, { Id: 'exec1' }); }
     if (c[2] === '' && req.method === 'DELETE') { delete containers[c[1]]; return send(res, 204); }
   }
   if (r === '/exec/exec1/json') return send(res, 200, { ExitCode: 2 });
   if (r === '/networks/lotse-sandbox') return send(res, 404, { message: 'network not found' });
+  if (r === '/networks/lotse-sandbox-egress' && req.method === 'GET') return egressNet ? send(res, 200, egressNet) : send(res, 404, { message: 'network not found' });
+  if (r === '/networks/create') { netBodies.push(JSON.parse(body)); return send(res, 201, { Id: 'n1' }); }
+  const n = /^\/networks\/lotse-sandbox-egress\/(connect|disconnect)$/.exec(r);
+  if (n) { const b = JSON.parse(body) as { Container: string }; netBodies.push({ op: n[1], ...b }); containers[b.Container].egress = n[1] === 'connect'; return send(res, 200); }
   send(res, 404, { message: `unknown ${r}` });
 });
 // exec start: hijacked connection (101), multiplexed frames, split across writes on purpose
@@ -201,4 +207,33 @@ test('create: only labelled, allowed image, no host access', async () => {
 test('unreachable socket: clear German message', async () => {
   const gone = new DockerEngine({ socketPath: path.join(dir, 'missing.sock') });
   await assert.rejects(gone.ping(), /Docker ist nicht erreichbar/);
+});
+
+test('internet: only the Lotse egress network, created without traffic between its containers; connect/disconnect only managed containers, idempotent', async () => {
+  containers.net = { labels: { 'lotse.managed': '1', 'lotse.task': 't2' }, state: 'running' };
+  await assert.rejects(d.createNetwork('bridge', { internal: false, labels: {} }), /nicht angelegt/);
+  await d.createNetwork('lotse-sandbox-egress', { internal: false, icc: false, labels: { 'lotse.managed': '1' }, subnet: '10.214.0.0/24' });
+  assert.deepEqual(netBodies.at(-1), { Name: 'lotse-sandbox-egress', Driver: 'bridge', Internal: false, Labels: { 'lotse.managed': '1' }, CheckDuplicate: true,
+    Options: { 'com.docker.network.bridge.enable_icc': 'false' }, IPAM: { Config: [{ Subnet: '10.214.0.0/24' }] } });
+  await assert.rejects(d.connectEgress('net'), /fehlt/, 'no network, no connect');
+  egressNet = { Name: 'lotse-sandbox-egress', Internal: false, Labels: {}, Options: { 'com.docker.network.bridge.enable_icc': 'false' } };
+  await assert.rejects(d.connectEgress('net'), /gehört nicht zu Lotse/);
+  egressNet = { ...egressNet, Labels: { 'lotse.managed': '1' }, Internal: true };
+  await assert.rejects(d.connectEgress('net'), /intern/);
+  egressNet = { ...egressNet, Internal: false };
+  const n = await d.inspectNetwork('lotse-sandbox-egress');
+  assert.equal(n?.icc, false);
+  const before = netBodies.length;
+  await assert.rejects(d.connectEgress('foreign'), /nicht von Lotse verwaltet/);
+  assert.equal(netBodies.length, before, 'a foreign container is never attached');
+  await d.connectEgress('net');
+  assert.deepEqual(netBodies.at(-1), { op: 'connect', Container: 'net' });
+  assert.deepEqual((await d.inspect('net'))?.networks.sort(), ['bridge', 'lotse-sandbox', 'lotse-sandbox-egress']);
+  await d.connectEgress('net');
+  assert.equal(netBodies.length, before + 1, 'already attached: nothing sent');
+  await d.disconnectEgress('net');
+  assert.deepEqual(netBodies.at(-1), { op: 'disconnect', Container: 'net', Force: true });
+  await d.disconnectEgress('net');
+  await d.disconnectEgress('gone');
+  assert.equal(netBodies.length, before + 2, 'not attached or missing: nothing sent');
 });
