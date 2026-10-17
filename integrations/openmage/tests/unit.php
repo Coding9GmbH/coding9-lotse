@@ -82,6 +82,12 @@ check('resolveLocation relativ mit ../ (unaufgelöst, aber unter Origin)', Lotse
 check('resolveLocation ohne Pfad', Lotse_Connector_Model_Util::resolveLocation('https://a.test', 'z.png') === 'https://a.test/z.png');
 check('httpMethod HEAD → GET', Lotse_Connector_Model_Util::httpMethod('head') === 'GET');
 check('httpMethod Override nur bei POST', Lotse_Connector_Model_Util::httpMethod('POST', 'patch') === 'PATCH' && Lotse_Connector_Model_Util::httpMethod('GET', 'DELETE') === 'GET');
+check('salesRange ok', Lotse_Connector_Model_Util::salesRange('2026-09-01', '2026-09-30') === ['from' => '2026-09-01 00:00:00', 'to' => '2026-09-30 23:59:59']);
+check('salesRange ein Tag', Lotse_Connector_Model_Util::salesRange('2026-09-01', '2026-09-01') === ['from' => '2026-09-01 00:00:00', 'to' => '2026-09-01 23:59:59']);
+check('salesRange fehlt', is_string(Lotse_Connector_Model_Util::salesRange(null, '2026-09-30')) && is_string(Lotse_Connector_Model_Util::salesRange('2026-09-01', '')));
+check('salesRange kein Datum / SQL', is_string(Lotse_Connector_Model_Util::salesRange("2026-09-01' OR 1=1", '2026-09-30')) && is_string(Lotse_Connector_Model_Util::salesRange('2026-02-30', '2026-03-01')) && is_string(Lotse_Connector_Model_Util::salesRange('2026-9-1', '2026-09-30')));
+check('salesRange from nach to', is_string(Lotse_Connector_Model_Util::salesRange('2026-09-30', '2026-09-01')));
+check('salesRange höchstens 366 Tage', !is_string(Lotse_Connector_Model_Util::salesRange('2025-10-01', '2026-10-01')) && is_string(Lotse_Connector_Model_Util::salesRange('2025-01-01', '2026-10-01')));
 check('httpMethod ohne Override', Lotse_Connector_Model_Util::httpMethod('POST', '') === 'POST' && Lotse_Connector_Model_Util::httpMethod('POST', null) === 'POST' && Lotse_Connector_Model_Util::httpMethod('put', false) === 'PUT');
 
 // --- Route ---
@@ -101,6 +107,9 @@ check('unbekannt', Lotse_Connector_Model_Route::match('GET', 'v1/customers') ===
 check('unbekannt tief', Lotse_Connector_Model_Route::match('GET', 'v1/products/X/orders') === null);
 check('kein v2', Lotse_Connector_Model_Route::match('GET', 'v2/products') === null);
 check('leer', Lotse_Connector_Model_Route::match('GET', '') === null);
+$m = Lotse_Connector_Model_Route::match('GET', 'v1/sales');
+check('sales nur lesend', $m['model'] === 'sales' && $m['method'] === 'productTotals' && Lotse_Connector_Model_Route::match('POST', 'v1/sales') === ['method_not_allowed' => ['GET']]);
+check('keine Einzelbestellungen unter sales', Lotse_Connector_Model_Route::match('GET', 'v1/sales/1') === null);
 check('Methode case-insensitiv', Lotse_Connector_Model_Route::match('get', 'v1/info')['method'] === 'info');
 
 // Privacy: no route may contain forbidden areas

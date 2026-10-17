@@ -16,6 +16,7 @@ import { createMagentoGuard, MagentoReader } from './reader';
 import { magentoLookup } from './lookup';
 import { MAGENTO_CAPABILITIES, magentoPages } from './pages';
 import { magentoImport } from './importer';
+import { magentoSales } from './sales';
 import { MAGENTO_TOOL_NAMES, magentoReader, magentoTools } from './tools';
 import { reg, resetMainStore, undoMagento } from './write';
 import './catalog'; import './images'; import './promo'; import './variants'; import './bulk'; // register their executors
@@ -71,6 +72,8 @@ export const magento: PlatformAdapter = {
   features: [magentoImport],
   loadChecks: async () => { await import('./checks'); },
   scanProducts: async r => (await import('./checks')).neutralScan(r as MagentoReader),
+  // fixed query via the privileged client: the AI's read client has no access to orders (features/sales.ts)
+  sales: range => magentoSales(magentoClient(), range),
 
   apply: async (cs, payload, selected, ctx) => reg.apply(magentoClient(), cs, payload, selected, ctx),
   undo: ops => undoMagento(magentoClient(), ops),

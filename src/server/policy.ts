@@ -14,13 +14,16 @@ export const SCOPES: Record<ScopeKey, { label: string; hint: string; entities: s
   // Integrations: not shop entities, but whether the AI may read the data (tools, shop checks, SEO overview)
   gsc:        { label: 'Search Console', hint: 'Klicks, Impressionen, Klickrate und Position deiner Seiten (Google Search Console)', entities: [] },
   sistrix:    { label: 'Sistrix', hint: 'Sichtbarkeitsindex, Wettbewerber, Keyword-Potenzial und OnPage-Crawl (Sistrix)', entities: [] },
+  // Sales: only sums per product (quantity, revenue, orders) via the adapter's fixed query (features/sales.ts), never order or customer records; off by default
+  sales:      { label: 'Abverkauf', hint: 'Stückzahl, Umsatz und Anzahl Bestellungen je Produkt, nur als Summe (keine Kunden, Adressen oder einzelnen Bestellungen)', entities: [] },
   // Web research: web search and fetching public web pages by the AI (Claude: WebSearch/WebFetch, Codex: web_search); off by default
   web:        { label: 'Internetrecherche', hint: 'Websuche und Abruf öffentlicher Webseiten, z. B. Herstellerangaben, Datenblätter, Normen', entities: [] },
 };
 export type Scopes = Record<ScopeKey, boolean>;
 export const SCOPE_KEYS = Object.keys(SCOPES) as ScopeKey[];
-/** Everything on except web research: content from the web is third-party text the operator should allow deliberately */
-export const DEFAULT_SCOPES = Object.fromEntries(SCOPE_KEYS.map(k => [k, k !== 'web'])) as Scopes;
+/** Everything on except web research (third-party text) and sales (comes from orders): the operator allows both deliberately */
+export const OPT_IN_SCOPES: ScopeKey[] = ['web', 'sales'];
+export const DEFAULT_SCOPES = Object.fromEntries(SCOPE_KEYS.map(k => [k, !OPT_IN_SCOPES.includes(k)])) as Scopes;
 const ENTITY_SCOPE: Record<string, ScopeKey> = Object.fromEntries(SCOPE_KEYS.flatMap(k => SCOPES[k].entities.map(e => [e, k])));
 // Allowed associations per entity (name → target entity). Everything else (e.g. reviews, orderLineItems, customer …) is rejected.
 const ASSOC: Record<string, Record<string, string>> = {

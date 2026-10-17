@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Lotse Connector API für OpenMage (Magento 1)
-  version: 1.2.0
+  version: 1.3.0
   description: |
     Token-gesicherte JSON-API des OpenMage-Moduls `Lotse_Connector` unter `/lotse-api/v1`.
     Zustandslos (keine Session, keine Cookies). Store-Scope über `?store=<code>` oder Header `X-Lotse-Store`
@@ -675,6 +675,44 @@ paths:
                 properties:
                   data: { type: array, items: { $ref: '#/components/schemas/Coupon' } }
                   meta: { $ref: '#/components/schemas/ListMeta' }
+
+  /v1/sales:
+    get:
+      tags: [sales]
+      summary: Abverkauf je Produkt ohne Personenbezug (ab 1.3.0)
+      description: >-
+        Nur Summen je Produkt aus Bestellungen des Zeitraums, ohne stornierte. Keine einzelnen Bestellungen, Bestellnummern oder Kundendaten.
+        Kind-Positionen (Configurable/Bundle) zählen zum Elternprodukt: Menge aus der Elternposition, Umsatz aus allen Positionen.
+        Tage in UTC (wie created_at), höchstens 366 Tage, immer der ganze Shop (Store-Scope wird ignoriert).
+      parameters:
+        - { name: from, in: query, required: true, description: Erster Tag JJJJ-MM-TT (inklusive), schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, description: Letzter Tag JJJJ-MM-TT (inklusive), schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      from: { type: string, format: date }
+                      to: { type: string, format: date }
+                      currency: { type: string, nullable: true, description: Basiswährung; null bei mehreren }
+                      orders: { type: integer, description: Bestellungen im Zeitraum ohne stornierte }
+                      capped: { type: boolean, description: mehr als 20.000 Produkte; rows sind die umsatzstärksten }
+                      rows:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            product_id: { type: integer }
+                            qty: { type: number, description: bestellt minus storniert }
+                            revenue: { type: number, description: Zeilensumme inkl. Steuer in Basiswährung }
+                            orders: { type: integer }
+        '400': { description: from/to fehlen, kein Datum, from nach to oder mehr als 366 Tage }
 
   /v1/urlrewrites:
     get:

@@ -36,6 +36,27 @@ class Lotse_Connector_Model_Util
         return (string) $value;
     }
 
+    /**
+     * Sales period from ?from=YYYY-MM-DD&to=YYYY-MM-DD (UTC days, inclusive, like created_at in sales_flat_order).
+     * @return array{from:string,to:string}|string bounds as "Y-m-d H:i:s" or an error message
+     */
+    public static function salesRange($from, $to, $maxDays = 366)
+    {
+        foreach (['from' => $from, 'to' => $to] as $name => $day) {
+            if (!is_string($day) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $day) || !checkdate((int) substr($day, 5, 2), (int) substr($day, 8, 2), (int) substr($day, 0, 4))) {
+                return $name . ' fehlt oder ist kein Datum (JJJJ-MM-TT).';
+            }
+        }
+        $days = (int) ((strtotime($to . ' 00:00:00 UTC') - strtotime($from . ' 00:00:00 UTC')) / 86400) + 1;
+        if ($days < 1) {
+            return 'from liegt nach to.';
+        }
+        if ($days > $maxDays) {
+            return 'Zeitraum höchstens ' . $maxDays . ' Tage.';
+        }
+        return ['from' => $from . ' 00:00:00', 'to' => $to . ' 23:59:59'];
+    }
+
     /** Resolve an absolute, protocol-relative, root-relative or relative location against the previous URL. */
     public static function resolveLocation($base, $location)
     {

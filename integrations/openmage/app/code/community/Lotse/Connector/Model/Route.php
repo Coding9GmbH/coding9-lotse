@@ -10,6 +10,7 @@ class Lotse_Connector_Model_Route
      * Route table: [method, pattern, model alias, model method]. Order matters
      * (fixed segments like "products/attributes" come before placeholders).
      * Deliberately NOT included: customers, orders, quotes, invoices, users, api users, payments, newsletter.
+     * v1/sales only returns sums per product (no single orders, no customer data).
      */
     public static function table()
     {
@@ -53,6 +54,7 @@ class Lotse_Connector_Model_Route
             ['PUT',    'v1/salesrules/{id}',                   'salesrule',  'updateRule'],
             ['DELETE', 'v1/salesrules/{id}',                   'salesrule',  'deleteRule'],
             ['GET',    'v1/salesrules/{id}/coupons',           'salesrule',  'listCoupons'],
+            ['GET',    'v1/sales',                             'sales',      'productTotals'],
             ['GET',    'v1/urlrewrites',                       'urlrewrite', 'listRewrites'],
             ['POST',   'v1/urlrewrites',                       'urlrewrite', 'createRewrite'],
             ['GET',    'v1/urlrewrites/{id}',                  'urlrewrite', 'getRewrite'],

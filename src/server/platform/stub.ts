@@ -37,6 +37,7 @@ export function stubAdapter(kind: Exclude<PlatformKind, 'shopware'>, o: { capabi
     tools: () => STUB_TOOLS.map(n => tool(n, `${label}: noch nicht verfügbar. Liefert nur einen Hinweis.`, { term: z.string().optional() }, guard(async () => fail(msg)))) as AnyTool[],
     loadChecks: async () => {},
     scanProducts: async () => ({ rows: [], total: 0, capped: false }),
+    sales: async () => { throw na(); },
     apply: async () => { throw na(); },
     undo: async ops => ops.map(() => ({ ok: false, error: msg })),
     pages: {

@@ -8,7 +8,7 @@ Stand: **alle vier Plattformen sind angebunden** (`available: true`). Shopware 6
 
 Unverhandelbar auf jeder Plattform:
 
-1. **Die KI liest nur** über einen geschützten Lese-Client mit expliziter Freigabeliste. Kunden, Bestellungen, Warenkörbe, Benutzer/Mitarbeiter, Zahlungsdaten und Zugangsdaten sind nie lesbar, egal was im Prompt steht.
+1. **Die KI liest nur** über einen geschützten Lese-Client mit expliziter Freigabeliste. Kunden, Bestellungen, Warenkörbe, Benutzer/Mitarbeiter, Zahlungsdaten und Zugangsdaten sind nie lesbar, egal was im Prompt steht. Einzige Ausnahme, mit eigenem Schalter (standardmäßig aus): `sales(range)` liefert Summen je Produkt aus einer festen Abfrage des Adapters, nie einzelne Bestellungen.
 2. **Die KI schreibt nie.** Sie baut ein Änderungsset; der Mensch gibt frei; erst dann schreibt der Server mit dem privilegierten Client. Jede Schreibaktion liefert **exakte** Rückgängig-Schritte, die tatsächlich funktionieren (getestet).
 3. **Keine erfundenen Fakten.** Werkzeuge liefern echte Shop-Daten, Preise rechnet der Server, fehlende Angaben werden erfragt.
 
@@ -49,6 +49,7 @@ Werkzeuge und Fachbereiche (gleiche Namen, wo die Bedeutung passt; ✓ = vorhand
 | `get_brand_signals` (Onboarding aus dem Theme) | ✓ | – | – | – |
 | Lieferanten-Import (`read_supplier_file`, `save_import_mapping`, `preview_import`, `propose_import`) | ✓ | ✓ (eigenes Feature `shopify-import`; vorhandene Varianten per SKU/Barcode, neue Varianten bestehender Produkte nur über `propose_variants`) | ✓ (Abgleich per SKU, keine Varianten/Attribute/Kategorien anlegen) | ✓ (`import-openmage`, wie Magento 2) |
 | Shop-Check (`run_shop_check`) | ✓ | ✓ (`shopify/checks.ts`) | ✓ (`magento/checks.ts`) | ✓ (`openmage/checks.ts`) |
+| Abverkauf (`sales_report`, Schalter „Abverkauf“) | ✓ (Bestellpositionen, Varianten → Hauptprodukt) | ✓ (`read_orders`, ohne `read_all_orders` 60 Tage) | ✓ (`/V1/orders` mit `fields`, ACL Vertrieb → Bestellungen) | ✓ (Modul-Endpunkt `/v1/sales`) |
 | Eigene Prüfungen per Chat, Prüfungen an/aus (`create_check`, `set_check_enabled`) | ✓ (`shopware/scan.ts`) | ✓ (`neutralScan` in `checks.ts`) | ✓ (`neutralScan`) | ✓ (`neutralScan`) |
 | Kern: Seiten, Styleguide, Bilder-KI, Wissensbasis, Search Console | ✓ | ✓ | ✓ | ✓ |
 
@@ -117,6 +118,7 @@ Code-Stil wie im Repo: strenges TypeScript, kompakt, deutsche Kommentare, `impor
 | `toolNames`, `tools(session)` | ja | Werkzeuge der Plattform (Abschnitt 4); `toolNames` muss exakt zu `tools()` passen |
 | `features?` | nein | zusätzliche Feature-Module (wie `src/server/features`), z. B. Bilder, Promotionen |
 | `loadChecks()` | ja | importiert die Module, die Shop-Prüfungen registrieren (darf leer sein) |
+| `sales(range)` | ja | Abverkauf ohne Personenbezug (`features/sales.ts`): Summen je Produkt (`productId` wie in `scanProducts`, Varianten beim Hauptprodukt, `quantity`, `revenue`, `orders`) für `from`–`to` (UTC-Tage), ohne stornierte Bestellungen. Feste Abfrage über den privilegierten Client, nie Kriterien der KI, nie Kunden-, Adress- oder Bestellnummernfelder; Deckel → `capped`. Fehlt die Berechtigung im Shop, verständlicher Fehler |
 | `scanProducts(reader)` | ja | aktive Produkte als `NeutralProduct` (Name, Beschreibung, Metas, Preis, Streichpreis, Bestand, Bild) für eigene Prüfungen; liest über den geschützten Lese-Client des Durchlaufs, je Durchlauf einmal (Deckel wie die eingebauten Prüfungen). `null` = auf der Plattform nicht lesbar |
 | `apply(cs, payload, selected, ctx)` | ja | freigegebenes Änderungsset schreiben (Abschnitt 5). `ctx.progress(done, total, partial)` nach jedem Element/Häppchen aufrufen, `partial = { results, undo }` mit dem bisherigen Stand: die Session sichert ihn gebündelt in `changeset_runs` (SQLite), damit ein Absturz mittendrin kein Rückgängig verliert. Helfer in `changes.ts`: `applyEach` (tickt selbst), `partialTicker(ctx, total, { results, undo })` für eigene Schleifen, `trackedUndo(ctx, total, results?)` für Executor mit mehreren Schreibschritten je Datensatz (Promotion, Veröffentlichung: jeder `push` meldet sofort). Beim nächsten Laden des Chats wird ein unterbrochener Lauf zum Ergebnis `partial`/`failed` mit den gesicherten Rückgängig-Schritten; ohne gesicherten Zwischenstand sagt das Ergebnis ehrlich „unbekannt, im Shop prüfen“ (nie „nichts geschrieben“). Offene Freigaben gelten dann als abgelehnt („Neustart, bitte erneut vorschlagen“) |
 | `undo(ops)` | ja | Rückgängig-Schritte dieser Plattform in **umgekehrter** Reihenfolge ausführen, je Schritt `{ ok, error? }` (in Ausführungsreihenfolge, also rückwärts zu `ops`). Die Session merkt sich den Ausgang je Schritt (`undoResults`); ein weiterer Klick wiederholt nur die fehlgeschlagenen Schritte |

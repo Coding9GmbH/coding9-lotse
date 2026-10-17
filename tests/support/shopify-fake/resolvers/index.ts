@@ -3,6 +3,7 @@ import { accessDenied, type Ctx } from '../context';
 import { collectionMutations, collectionQueries, collectionTypes } from './collections';
 import { discountMutations, discountQueries, discountTypes } from './discounts';
 import { metafieldMutations } from './metafields';
+import { orderQueries, orderTypes } from './orders';
 import { pageMutations, pageQueries, pageTypes } from './pages';
 import { productMutations, productQueries, productTypes } from './products';
 import { systemMutations, systemQueries, systemTypes } from './system';
@@ -43,6 +44,7 @@ export function buildResolvers(schema: Schema): Resolvers {
     ...productQueries,
     ...collectionQueries,
     ...pageQueries,
+    ...orderQueries,
     ...translationQueries,
     ...discountQueries,
     ...themeQueries,
@@ -84,6 +86,7 @@ export function buildResolvers(schema: Schema): Resolvers {
     ...productTypes,
     ...collectionTypes,
     ...pageTypes,
+    ...orderTypes,
     ...translationTypes,
     ...discountTypes,
     ...themeTypes,

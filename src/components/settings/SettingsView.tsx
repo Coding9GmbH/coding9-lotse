@@ -209,6 +209,15 @@ export function SettingsView({ section = 'general' }: { section?: SettingsSectio
                 </ul>
               </section>
 
+              <section id="scopes-sales" className={styles.card} aria-labelledby="scopes-sales-h">
+                <div className={styles.cardHead}><h2 id="scopes-sales-h">{ts.scopes.salesHeading}</h2></div>
+                <p className={styles.hint}>{markup(ts.scopes.salesHint)}</p>
+                {form.platform === 'shopify' && <p className={styles.hint}>{markup(ts.scopes.salesShopify)}</p>}
+                <ul className={styles.scopes}>
+                  {'sales' in form.scopes && <ScopeSwitch k="sales" form={form} saved={saved} set={set} locale={locale} />}
+                </ul>
+              </section>
+
               <section id="scopes-web" className={styles.card} aria-labelledby="scopes-web-h">
                 <div className={styles.cardHead}><h2 id="scopes-web-h">{ts.scopes.webHeading}</h2></div>
                 <p className={styles.hint}>{markup(ts.scopes.webHint)}</p>

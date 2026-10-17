@@ -139,6 +139,9 @@ Conditions can be combined with **and** (all) or **or** (at least one); comparis
 ### Impact of changes (Search Console)
 If Search Console is connected, Lotse remembers the search data of the previous 28 days when you apply a change: for meta title and description, name, description, short description and FAQ, and for new layouts or page content of existing categories and products (at most 50 pages per change set, only pages Google already knows). Under **SEO → Impact of your changes** you see the state of each change: *Waiting for data* (with the date from which it can be measured), *Preliminary* (from 14 days) or *Measured* (after 28 days), with clicks per day, click-through rate and position compared, and a verdict (*Improved*, *Got worse*, *No clear effect*, *Too little data*). **Measure now** asks Search Console about all open changes without writing anything. If a change did harm, **Open chat** takes you to the change set, where you can undo it; the shop check reports such changes too. Measurements can be hidden.
 
+### Sales: top sellers and slow movers
+If the **Sales** switch under Settings → AI access is on, Lotse reads only **totals per product** from the orders of a period: quantity, revenue (line totals) and number of orders, without cancelled orders. Neither Lotse nor the AI sees customers, addresses or single orders. You can then ask: “What are my top sellers of the last 30 days?”, “Which products don't sell?” or “Which top sellers have weak content?”. In the **Abverkauf** (sales) area the shop check reports top sellers with a thin description, missing metas or no image, and slow movers (stock but no sale in 90 days). Shop requirements: Shopware integration with read access to orders; Shopify app with `read_orders` (without `read_all_orders` only 60 days); Magento integration with access to Sales → Orders; OpenMage with an up-to-date `Lotse_Connector` module.
+
 ## 9. Settings
 
 | Section | Contents |
@@ -146,7 +149,7 @@ If Search Console is connected, Lotse remembers the search data of the previous 
 | **Connect shop** | Choose platform, enter credentials, test connection. Recommended: a dedicated integration with a restricted role instead of an admin login |
 | **Connect AI** | Provider (Claude via API key or Codex via ChatGPT subscription), model |
 | **Image AI** (optional) | OpenAI key and model for generated images; AI images are visibly labeled |
-| **AI access** | Which areas Lotse may read (products, categories, layouts, media, marketing, shop basics). Blocked areas are not read, not even by the shop check |
+| **AI access** | Which areas Lotse may read (products, categories, layouts, media, marketing, shop basics). Blocked areas are not read, not even by the shop check. Separate switches (off by default): **Sales** (only totals per product from orders, see below) and **Internet** (web search) |
 | **Logs** | **Access** (every read access by the AI, rejected ones marked) and **Changes** (approved, rejected, undone, changed) |
 | **Search Console** (optional) | Access for opportunities, content gaps and impact measurement |
 | **Language** | German or English for the interface and AI replies (see below) |

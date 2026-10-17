@@ -26,10 +26,14 @@ test('manufacturers are a separate area, no longer under products; integrations 
   assert.ok(['manufacturers', 'gsc', 'sistrix'].every(k => DEFAULT_SCOPES[k as keyof typeof DEFAULT_SCOPES] === true && SCOPE_KEYS.includes(k as never)));
 });
 
-test('web research is a separate switch without shop entities and off by default; enabling it is persisted', () => {
-  assert.deepEqual(SCOPES.web.entities, []);
-  assert.equal(DEFAULT_SCOPES.web, false);
-  assert.ok(SCOPE_KEYS.filter(k => k !== 'web').every(k => DEFAULT_SCOPES[k]), 'all other areas stay on');
+test('web research and sales are separate switches without shop entities and off by default; enabling is persisted', () => {
+  assert.deepEqual([SCOPES.web.entities, SCOPES.sales.entities], [[], []]);
+  assert.deepEqual([DEFAULT_SCOPES.web, DEFAULT_SCOPES.sales], [false, false]);
+  assert.ok(SCOPE_KEYS.filter(k => k !== 'web' && k !== 'sales').every(k => DEFAULT_SCOPES[k]), 'all other areas stay on');
+  assert.equal(getSettings().scopes.sales, false);
+  updateSettings({ scopes: { sales: true } });
+  assert.equal(getSettings().scopes.sales, true);
+  updateSettings({ scopes: { sales: false } });
   assert.equal(getSettings().scopes.web, false);
   updateSettings({ scopes: { web: true } });
   assert.equal(getSettings().scopes.web, true);

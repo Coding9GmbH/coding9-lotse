@@ -111,6 +111,16 @@ export interface CollectionRec {
   updatedAt: string;
 }
 
+/** Order with only the fields Lotse's sales read uses (no customer, address or name: the fake doesn't model them) */
+export interface OrderRec {
+  id: number;
+  createdAt: string;
+  cancelledAt: string | null;
+  test: boolean;
+  currencyCode: string;
+  lineItems: { id: number; quantity: number; productId: number | null; discountedTotal: string }[];
+}
+
 export interface PageRec {
   id: number;
   title: string;
@@ -326,6 +336,8 @@ export class FakeShopifyState {
   stagedUploads = new Map<string, StagedUploadRec>();
   jobs = new Map<string, { id: string; createdInRequest: number }>();
   locations: { id: number; name: string; isActive: boolean }[] = [];
+  /** empty unless a test seeds it (orders are only readable with read_orders) */
+  orders: OrderRec[] = [];
   requestLog: RequestLogEntry[] = [];
   /** incremented once per GraphQL request; drives simulated async processing */
   requestSeq = 0;
@@ -359,6 +371,7 @@ export class FakeShopifyState {
     this.stagedUploads.clear();
     this.jobs.clear();
     this.requestLog = [];
+    this.orders = [];
     this.requestSeq = 0;
     const t = '2026-01-15T09:00:00Z';
     this.shop = {

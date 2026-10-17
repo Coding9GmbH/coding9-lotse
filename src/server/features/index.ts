@@ -17,6 +17,7 @@ import { gsc } from './gsc';
 import { sistrix } from './sistrix';
 import { siteCheck } from './site-audit';
 import { knowledgeBase } from './knowledge-base';
+import { sales } from './sales';
 
 export const FEATURES: Feature[] = [
   productImages,
@@ -33,5 +34,6 @@ export const FEATURES: Feature[] = [
   gsc,
   sistrix,
   siteCheck,
+  sales,
   knowledgeBase,
 ];

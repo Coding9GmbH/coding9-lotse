@@ -12,8 +12,8 @@ const saved: PublicSettings = {
   },
   ai: { provider: 'claude', hasApiKey: true, model: '', viaEnv: false, docker: false, codexModel: '', codexLoggedIn: false },
   image: { hasKey: false, model: '' },
-  scopes: { products: true, manufacturers: true, categories: true, cms: true, media: true, marketing: true, shop: true, gsc: true, sistrix: true, web: false },
-  scopeInfo: { manufacturers: { label: '', hint: '' }, gsc: { label: '', hint: '' }, sistrix: { label: '', hint: '' }, web: { label: '', hint: '' }, products: { label: '', hint: '' }, categories: { label: '', hint: '' }, cms: { label: '', hint: '' }, media: { label: '', hint: '' }, marketing: { label: '', hint: '' }, shop: { label: '', hint: '' } },
+  scopes: { products: true, manufacturers: true, categories: true, cms: true, media: true, marketing: true, shop: true, gsc: true, sistrix: true, sales: false, web: false },
+  scopeInfo: { manufacturers: { label: '', hint: '' }, gsc: { label: '', hint: '' }, sistrix: { label: '', hint: '' }, web: { label: '', hint: '' }, sales: { label: '', hint: '' }, products: { label: '', hint: '' }, categories: { label: '', hint: '' }, cms: { label: '', hint: '' }, media: { label: '', hint: '' }, marketing: { label: '', hint: '' }, shop: { label: '', hint: '' } },
 };
 
 test('Platform form: Shopware via fixed fields, Shopify/Magento generic, access method from stored values', () => {

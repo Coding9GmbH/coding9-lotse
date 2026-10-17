@@ -91,7 +91,7 @@ test('Client: paths with store query, only /v1 paths, invalid store codes reject
 // ================= privacy =================
 test('Guard: customers, orders, carts, users blocked; allowlist only; areas toggleable; query parameters checked; log', async () => {
   const events: { op: string; entity: string; denied?: string }[] = [];
-  let scopes = { products: true, manufacturers: true, categories: true, cms: true, media: true, marketing: true, shop: true, gsc: true, sistrix: true, web: false };
+  let scopes = { products: true, manufacturers: true, categories: true, cms: true, media: true, marketing: true, shop: true, gsc: true, sistrix: true, sales: false, web: false };
   const g = createOmGuard({ getScopes: () => scopes, onAccess: a => events.push(a) });
   for (const p of ['/v1/customers', '/v1/customers/1', '/v1/orders', '/v1/orders/1', '/v1/invoices', '/v1/carts', '/v1/quote/1', '/v1/users', '/v1/api_users', '/v1/payments', '/v1/newsletter', '/v1/config', '/v1/admin/token'])
     assert.throws(() => g.check(p), /ZUGRIFF VERWEIGERT/, p);

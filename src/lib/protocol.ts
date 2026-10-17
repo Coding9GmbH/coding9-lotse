@@ -137,8 +137,8 @@ export interface AppConfig { admin: string; storefront: string; imageGen: boolea
 export interface CategoryRow { id: string; name: string; parentId: string | null; active: boolean; type: string; cmsPage: string | null }
 export interface ProductRow { id: string; name: string; number: string; img?: string; cmsPage: string | null }
 
-/** The AI's access scopes: shop data (entities), integrations (gsc, sistrix: data only, no shop entities) and web research (web) */
-export type ScopeKey = 'products' | 'manufacturers' | 'categories' | 'cms' | 'media' | 'shop' | 'marketing' | 'gsc' | 'sistrix' | 'web';
+/** The AI's access scopes: shop data (entities), integrations (gsc, sistrix: data only, no shop entities), sales sums (sales) and web research (web) */
+export type ScopeKey = 'products' | 'manufacturers' | 'categories' | 'cms' | 'media' | 'shop' | 'marketing' | 'gsc' | 'sistrix' | 'sales' | 'web';
 export interface ScopeInfo { label: string; hint: string }
 
 /** Settings as the UI sees them: secrets only as "present yes/no". */

@@ -8,7 +8,7 @@ Status: **all four platforms are connected** (`available: true`). Shopware 6 is 
 
 Non-negotiable on every platform:
 
-1. **The AI only reads** via a guarded read client with an explicit allowlist. Customers, orders, carts, users/staff, payment data and credentials are never readable, no matter what the prompt says.
+1. **The AI only reads** via a guarded read client with an explicit allowlist. Customers, orders, carts, users/staff, payment data and credentials are never readable, no matter what the prompt says. The only exception, with its own switch (off by default): `sales(range)` returns totals per product from a fixed adapter query, never single orders.
 2. **The AI never writes.** It builds a change set; the human approves; only then does the server write with the privileged client. Every write action yields **exact** undo steps that actually work (tested).
 3. **No invented facts.** Tools return real shop data, prices are calculated by the server, missing information is asked for.
 
@@ -49,6 +49,7 @@ Tools and domains (same names where the meaning matches; ✓ = available, – = 
 | `get_brand_signals` (onboarding from the theme) | ✓ | – | – | – |
 | Supplier import (`read_supplier_file`, `save_import_mapping`, `preview_import`, `propose_import`) | ✓ | ✓ (own feature `shopify-import`; existing variants by SKU/barcode, new variants of existing products only via `propose_variants`) | ✓ (matching by SKU, no creation of variants/attributes/categories) | ✓ (`import-openmage`, as Magento 2) |
 | Shop check (`run_shop_check`) | ✓ | ✓ (`shopify/checks.ts`) | ✓ (`magento/checks.ts`) | ✓ (`openmage/checks.ts`) |
+| Sales (`sales_report`, switch “Sales”) | ✓ (order line items, variants → parent) | ✓ (`read_orders`, 60 days without `read_all_orders`) | ✓ (`/V1/orders` with `fields`, ACL Sales → Orders) | ✓ (module endpoint `/v1/sales`) |
 | Custom checks via chat, checks on/off (`create_check`, `set_check_enabled`) | ✓ (`shopware/scan.ts`) | ✓ (`neutralScan` in `checks.ts`) | ✓ (`neutralScan`) | ✓ (`neutralScan`) |
 | Core: pages, style guide, image AI, knowledge base, Search Console | ✓ | ✓ | ✓ | ✓ |
 
@@ -117,6 +118,7 @@ Code style as in the repo: strict TypeScript, compact, German comments, `import 
 | `toolNames`, `tools(session)` | yes | The platform's tools (section 4); `toolNames` must match `tools()` exactly |
 | `features?` | no | additional feature modules (like `src/server/features`), e.g. images, promotions |
 | `loadChecks()` | yes | imports the modules that register shop checks (may be empty) |
+| `sales(range)` | yes | Sales without personal data (`features/sales.ts`): totals per product (`productId` as in `scanProducts`, variants under their parent, `quantity`, `revenue`, `orders`) for `from`–`to` (UTC days), without cancelled orders. Fixed query via the privileged client, never criteria from the AI, never customer, address or order number fields; cap → `capped`. If the shop lacks the permission, an understandable error |
 | `scanProducts(reader)` | yes | active products as `NeutralProduct` (name, description, metas, price, list price, stock, image) for custom checks; reads via the run's guarded read client, once per run (cap like the built-in checks). `null` = not readable on the platform |
 | `apply(cs, payload, selected, ctx)` | yes | write an approved change set (section 5). Call `ctx.progress(done, total, partial)` after each item/chunk, `partial = { results, undo }` with the state so far: the session saves it in batches in `changeset_runs` (SQLite) so that a crash midway does not lose any undo. Helpers in `changes.ts`: `applyEach` (ticks by itself), `partialTicker(ctx, total, { results, undo })` for custom loops, `trackedUndo(ctx, total, results?)` for executors with several write steps per record (promotion, publishing: every `push` reports immediately). The next time the chat is loaded, an interrupted run becomes the result `partial`/`failed` with the saved undo steps; without a saved intermediate state the result honestly says “unknown, check in the shop” (never “nothing written”). Pending approvals are then treated as rejected (“restart, please propose again”) |
 | `undo(ops)` | yes | execute this platform's undo steps in **reverse** order, `{ ok, error? }` per step (in execution order, i.e. backwards relative to `ops`). The session remembers the outcome per step (`undoResults`); another click only retries the failed steps |
