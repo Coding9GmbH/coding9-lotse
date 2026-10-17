@@ -1,5 +1,7 @@
 import 'server-only';
 // Codex runtime (ChatGPT subscription): same shop tools as with Claude, but via a Lotse MCP endpoint (/api/mcp/<chatId>).
+import fs from 'node:fs';
+import path from 'node:path';
 import { Codex, type ThreadItem, type ThreadOptions } from '@openai/codex-sdk';
 import type { ChatEvent } from '@/lib/protocol';
 import { bindRoundToken, codexConfig, codexEnv, codexLoggedIn, mcpTokenFor } from './codex';
@@ -10,6 +12,7 @@ import type { Locale } from '@/lib/i18n/locales';
 import type { RunEnd, RunUsage } from './agent';
 import { getSettings, redact } from './settings';
 import { errMsg } from './util';
+import { runGit } from './git';
 import { relOf } from './sandbox/native-tools';
 import { taskPaths } from './sandbox/tasks';
 import { resolveInWorkspace } from './sandbox/workspace-fs';
@@ -53,6 +56,25 @@ export function patchPaths(root: string, changes: { path: string }[]): string[] 
   return changes.map(c => resolveInWorkspace(root, relOf(root, c.path), { forWrite: true }).rel);
 }
 
+/** Undoes the refused paths of a patch Codex has already applied (it reports file changes only afterwards): a path in HEAD is
+ *  restored from there, anything else (created by the patch) deleted. Only entries whose real parent lies inside the worktree,
+ *  never .git; returns the reverted relative paths. */
+export async function revertPaths(worktree: string, gitDir: string, paths: string[]): Promise<string[]> {
+  const realRoot = fs.realpathSync(worktree), done: string[] = [];
+  for (const p of paths) {
+    let rel: string;
+    try { rel = path.posix.normalize(relOf(worktree, p)); } catch { continue; }
+    if (!rel || rel === '.' || rel === '..' || rel.startsWith('../') || rel.split('/').some(seg => seg.toLowerCase() === '.git')) continue;
+    let parent: string;
+    try { parent = fs.realpathSync(path.dirname(path.join(realRoot, rel))); } catch { continue; }
+    if (parent !== realRoot && !parent.startsWith(realRoot + path.sep)) continue;
+    const restored = await runGit(['--literal-pathspecs', 'checkout', 'HEAD', '--', rel], { cwd: worktree, gitDir }).then(() => true, () => false);
+    if (!restored) try { fs.rmSync(path.join(parent, path.basename(rel)), { force: true }); } catch { continue; }
+    done.push(rel);
+  }
+  return done;
+}
+
 const resultText = (item: Extract<ThreadItem, { type: 'mcp_tool_call' }>) =>
   item.error?.message ?? (item.result?.content ?? []).map(c => ('text' in c ? c.text : '')).join('');
 
@@ -65,7 +87,7 @@ export function onCodexItem(
   state: { texts: Map<string, number>; tools: Set<string>; web?: boolean; /** worktree of the attached sandbox (patches allowed there) */ sandbox?: string },
   emit: (ev: ChatEvent) => void,
   locale?: Locale,
-): { abort?: string; /** patched paths (relative): mirror them into the container */ files?: string[] } {
+): { abort?: string; /** patched paths (relative): mirror them into the container */ files?: string[]; /** refused paths of an applied patch: revert them */ revert?: string[] } {
   switch (item.type) {
     case 'agent_message': {
       const sent = state.texts.get(item.id);
@@ -88,10 +110,14 @@ export function onCodexItem(
     case 'file_change': {
       if (!state.sandbox) return { abort: messages(locale).server.codexBlockedTool };
       if (evType !== 'item.completed' || item.status !== 'completed') return {};
-      let files: string[];
-      try { files = patchPaths(state.sandbox, item.changes); } catch { return { abort: messages(locale).server.codexOutsideWorkspace }; }
-      item.changes.forEach((c, i) => emit({ t: 'file_change', path: files[i], kind: KIND[c.kind], added: 0, removed: 0 }));
-      return { files };
+      const files: string[] = [], revert: string[] = [];
+      for (const c of item.changes) {
+        let rel: string;
+        try { [rel] = patchPaths(state.sandbox, [c]); } catch { revert.push(c.path); continue; }
+        files.push(rel);
+        emit({ t: 'file_change', path: rel, kind: KIND[c.kind], added: 0, removed: 0 });
+      }
+      return revert.length ? { abort: messages(locale).server.codexOutsideWorkspace, files, revert } : { files };
     }
     case 'command_execution':
       return { abort: messages(locale).server.codexBlockedTool };
@@ -128,6 +154,7 @@ export async function runCodex(s: Session, prompt: string, signal: AbortSignal, 
         if (ev.type !== 'item.started' && ev.type !== 'item.updated' && ev.type !== 'item.completed') continue;
         const stop = onCodexItem(ev.item, ev.type, { texts, tools, web, sandbox: workspace }, emit, s.locale);
         if (stop.abort) { failed = stop.abort; ac.abort(); }
+        if (stop.revert?.length && s.taskId && workspace) await revertPaths(workspace, taskPaths(s.taskId).gitDir, stop.revert).catch(() => []);
         if (stop.files?.length && s.taskId) await syncChanged(s.taskId, stop.files);
       }
       persist(s);

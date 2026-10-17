@@ -103,3 +103,31 @@ test('Codex with web research: web search live, web search event appears as a wo
   assert.deepEqual(events, [{ t: 'tool', id: 'w', name: 'web_search', input: { query: '3M Datenblatt' } }]);
   assert.match(onCodexItem({ id: 'c', type: 'command_execution', command: 'curl x', aggregated_output: '', status: 'completed' }, 'item.completed', state, () => {}).abort ?? '', /abgebrochen/);
 });
+
+test('a refused Codex patch is undone: tracked files restored from HEAD, new ones deleted, nothing outside touched', async () => {
+  const { onCodexItem, revertPaths } = await import('../../src/server/agent-codex');
+  const { execFileSync } = await import('node:child_process');
+  const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-revert-'));
+  const git = (...a: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: wt });
+  const w = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(wt, rel)), { recursive: true }); fs.writeFileSync(path.join(wt, rel), text); };
+  w('vendor/a/x.php', 'orig'); w('src/ok.php', 'ok');
+  git('init', '-q'); git('add', '-A'); git('commit', '-qm', 'init');
+  const outside = path.join(os.tmpdir(), `lotse-outside-${process.pid}`);
+  fs.writeFileSync(outside, 'keep');
+  // Codex already applied: vendor edited, vendor file added, .env created, a legit edit
+  w('vendor/a/x.php', 'changed'); w('vendor/b/new.php', 'new'); w('.env', 'SECRET=1'); w('src/ok.php', 'edited');
+  const changes = [{ path: path.join(wt, 'vendor/a/x.php'), kind: 'update' }, { path: 'vendor/b/new.php', kind: 'add' }, { path: path.join(wt, '.env'), kind: 'add' }, { path: path.join(wt, 'src/ok.php'), kind: 'update' }, { path: outside, kind: 'update' }] as const;
+  const events: ChatEvent[] = [];
+  const r = onCodexItem({ id: 'p', type: 'file_change', status: 'completed', changes: changes.map(c => ({ ...c })) }, 'item.completed', { texts: new Map(), tools: new Set(), sandbox: wt }, ev => events.push(ev));
+  assert.match(r.abort ?? '', /zurückgenommen/);
+  assert.deepEqual(r.files, ['src/ok.php']);
+  assert.deepEqual(events.map(e => e.t === 'file_change' && e.path), ['src/ok.php']);
+  assert.deepEqual(await revertPaths(wt, path.join(wt, '.git'), r.revert ?? []), ['vendor/a/x.php', 'vendor/b/new.php', '.env']);
+  assert.equal(fs.readFileSync(path.join(wt, 'vendor/a/x.php'), 'utf8'), 'orig');
+  assert.equal(fs.existsSync(path.join(wt, 'vendor/b/new.php')), false);
+  assert.equal(fs.existsSync(path.join(wt, '.env')), false);
+  assert.equal(fs.readFileSync(path.join(wt, 'src/ok.php'), 'utf8'), 'edited', 'accepted changes stay');
+  assert.equal(fs.readFileSync(outside, 'utf8'), 'keep', 'never touches anything outside');
+  assert.deepEqual(await revertPaths(wt, path.join(wt, '.git'), [path.join(wt, '.git/config'), '../x', '~/.bashrc']), []);
+  fs.rmSync(outside, { force: true });
+});

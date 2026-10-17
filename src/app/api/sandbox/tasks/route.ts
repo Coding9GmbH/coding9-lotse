@@ -6,7 +6,7 @@ import { chatIdSchema, jsonError, parseJson } from '@/server/http';
 import { auditTask, taskRoute } from '@/server/sandbox/api';
 import { releaseDump } from '@/server/sandbox/dumps';
 import { runSteps } from '@/server/sandbox/jobs';
-import { attachedTask, createTask, listTasks, publicTask } from '@/server/sandbox/tasks';
+import { ATTACHED_MSG, attachedTask, createTask, listTasks, publicTask } from '@/server/sandbox/tasks';
 import { noteSandboxAttached } from '@/server/sessions';
 import { errMsg } from '@/server/util';
 
@@ -32,7 +32,7 @@ export function POST(req: Request) {
     const body = await parseJson(req, schema);
     if (!body.ok) return body.res;
     const { chatId, title, goal, repo, baseBranch, dumpId } = body.data;
-    if (attachedTask(chatId)) return jsonError(409, 'An diesem Chat hängt schon eine Sandbox. Erst „Aufgabe abschließen“, dann eine neue starten.');
+    if (attachedTask(chatId)) return jsonError(409, ATTACHED_MSG);
     if (!githubConnected()) return jsonError(400, 'GitHub ist nicht verbunden (Einstellungen → Integrationen).');
     try { assertRepoName(repo); await assertBaseBranch(baseBranch); await checkRepoAccess(repo); } catch (e) { return jsonError(400, errMsg(e)); }
     let created;

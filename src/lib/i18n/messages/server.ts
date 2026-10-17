@@ -22,7 +22,7 @@ export const de = {
   codeTaskDone: 'Die Sandbox ist abgeschlossen; ihr Container und Arbeitsordner sind gelöscht.',
   codeNotReady: 'Die Umgebung ist noch nicht bereit – erst die Einrichtung abschließen (oder ab dem fehlgeschlagenen Schritt erneut versuchen).',
   codeWakeFailed: (why: string) => `Die Umgebung konnte nicht gestartet werden: ${why}`,
-  codexOutsideWorkspace: 'Codex wollte eine Datei außerhalb des Repositorys (oder .git/eine geheime Datei) ändern. Die Runde wurde abgebrochen.',
+  codexOutsideWorkspace: 'Codex wollte eine Datei außerhalb des Repositorys (oder .git, eine geheime Datei, vendor/) ändern. Die Änderung wurde zurückgenommen und die Runde abgebrochen.',
 };
 
 export const en: typeof de = {
@@ -46,5 +46,5 @@ export const en: typeof de = {
   codeTaskDone: 'The sandbox is finished; its container and working folder are deleted.',
   codeNotReady: 'The environment is not ready yet – finish the setup first (or retry from the failed step).',
   codeWakeFailed: why => `The environment could not be started: ${why}`,
-  codexOutsideWorkspace: 'Codex tried to change a file outside the repository (or .git/a secret file). The run was stopped.',
+  codexOutsideWorkspace: 'Codex tried to change a file outside the repository (or .git, a secret file, vendor/). The change was undone and the run was stopped.',
 };

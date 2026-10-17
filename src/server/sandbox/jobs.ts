@@ -16,7 +16,7 @@ import { singleton } from '../state';
 import { errMsg } from '../util';
 import { assertAttachable, deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
 import { getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
-import { ensureNetwork, networkMode, probeRoute } from './network';
+import { SANDBOX_NETWORK, ensureNetwork, networkMode, openHostPorts, probeRoute } from './network';
 import { clearJar, forgetUpstream } from './preview';
 import { getRunner } from './runner';
 import { TASK_LABEL } from './labels';
@@ -225,7 +225,12 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
       t.containerRunning = true; saveTask(t);
       const addr = (await runner.inspect(t.containerId))?.address;
       if (!addr) throw new Error('Der Container hat keine Adresse im Netzwerk lotse-sandbox.');
-      if (mode === 'local') await probeRoute(addr.host, addr.port, { signal });
+      if (mode === 'local') {
+        await probeRoute(addr.host, addr.port, { signal });
+        const gw = (await runner.inspectNetwork(SANDBOX_NETWORK))?.gateway;
+        const open = gw ? await openHostPorts(runner, container(), gw, tpl.execUser).catch(() => []) : [];
+        if (open.length) lg(`Warnung: Aus dem Container sind auf dem Host (${gw}) die Ports ${open.join(', ')} erreichbar. Dienste auf diesem Rechner, die nicht nur auf 127.0.0.1 lauschen (z. B. ein Live-Shop oder seine Datenbank), kann Code in der Sandbox ansprechen – Firewall-Regel aus der Anleitung „Sandbox Coding“ einrichten oder Lotse in Docker betreiben.`);
+      }
       lg(`Container ${spec.name} gestartet (internes Netzwerk lotse-sandbox, ${addr.host}, ohne Internetzugang).`);
     },
     httpStatus: async path => httpStatusOf(await sandboxOrigin(t), path, signal),
