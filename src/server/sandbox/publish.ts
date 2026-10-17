@@ -6,6 +6,7 @@ import 'server-only';
 // - preflight before anything is written: changes exist, paths stay in the repository, no .github/workflows or
 //   .github/actions (nor action.yml anywhere), no secret files, limits on files and size, a secret scan of the added lines (tokens, private keys, every secret Lotse knows)
 // - audit "started" before the first write and a result row afterwards, both with the actor; the token never appears
+// - after screenshots of the sandbox before the commit (screenshots.ts); a failure never blocks, the body only mentions them
 // - idempotent: a retry after a failure or a restart continues (nothing new to commit, push is a no-op, the open PR is reused)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,6 +21,7 @@ import { noteChatEvent } from '../sessions';
 import { singleton } from '../state';
 import { errMsg } from '../util';
 import { setupBusy, TaskConflict } from './jobs';
+import { captureAfter, shotNote } from './screenshots';
 import { isDenied } from './workspace-fs';
 import { markPublishing, mustTask, now, publishRunning, saveTask, taskPaths, turnRunning, type CodeTask } from './tasks';
 
@@ -178,6 +180,8 @@ async function run(id: string, title: string, body: string, actor: string | null
     const files = await preflight(t);
     auditAdd({ ...base, decision: 'approved', status: 'started', files: files.length }, actor); // before the first write
     started = true;
+    at('screenshots');
+    await captureAfter(id);
     at('commit');
     await commitAll(p.worktree, p.gitDir, `${title}\n\n${body}`.slice(0, 4000), LOTSE_AUTHOR, coAuthor(actor));
     at('push');
@@ -189,7 +193,7 @@ async function run(id: string, title: string, body: string, actor: string | null
       update(id, x => { x.pushedSha = sha; }); // at once: a retry after a later failure pushes with a lease on this state
     }
     at('pr');
-    const text = `${body}${FOOTER}`;
+    const text = `${body}${shotNote(mustTask(id))}${FOOTER}`;
     let pr: Pull | null = await findOpenPull(t.repo, t.branch), action: 'created' | 'updated' = 'updated';
     if (pr) pr = await updatePull(t.repo, pr.number, { title, body: text });
     else {

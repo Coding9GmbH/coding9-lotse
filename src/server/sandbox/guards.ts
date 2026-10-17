@@ -2,7 +2,8 @@ import 'server-only';
 // Guards shared by both runner implementations: labels, ids, paths, image and container spec.
 import { TEMPLATES } from './templates';
 import type { ContainerSpec, NetworkInfo } from './runner';
-import { EGRESS_NET, MANAGED_LABEL, SANDBOX_NET } from './labels';
+import { EGRESS_NET, MANAGED_LABEL, ROLE_LABEL, SANDBOX_NET, SHOT_ROLE } from './labels';
+import { SCREENSHOT_IMAGE, SHOT_CMD, SHOT_USER } from './screenshot-spec';
 
 export { MANAGED, MANAGED_LABEL, TASK_LABEL } from './labels';
 
@@ -11,9 +12,10 @@ export function assertId(id: string): string {
   if (typeof id !== 'string' || !ID.test(id)) throw new Error('Ungültige Container-ID.');
   return id;
 }
-/** Only an image that one of the registered templates allows (pinned dockware/shopware or dockware/play). */
+const templateImage = (image: string) => Object.values(TEMPLATES).some(t => t.imagePattern.test(image));
+/** Only an image that one of the registered templates allows (pinned dockware/shopware or dockware/play), or the pinned screenshot image. */
 export function assertAllowedImage(image: string): string {
-  if (!Object.values(TEMPLATES).some(t => t.imagePattern.test(image))) throw new Error(`Image „${image}“ ist nicht erlaubt (nur dockware/shopware mit fester Version).`);
+  if (image !== SCREENSHOT_IMAGE && !templateImage(image)) throw new Error(`Image „${image}“ ist nicht erlaubt (nur dockware/shopware mit fester Version).`);
   return image;
 }
 export const isManaged = (labels: Record<string, string> | null | undefined) => labels?.[MANAGED_LABEL] === '1';
@@ -45,6 +47,8 @@ const HOST: Record<string, Check> = {
   Memory: posNum, NanoCpus: posNum, PidsLimit: posNum,
   // dropping capabilities only makes it narrower; CapAdd/Privileged/SecurityOpt stay outside the list
   CapDrop: (v, k) => { strings(v, k); if ((v as string[]).some(c => !/^[A-Z_]{2,30}$/.test(c))) deny(`${k} hat einen unzulässigen Wert.`); },
+  // only ever narrower: no-new-privileges (screenshot containers; Dockware needs sudo)
+  SecurityOpt: (v, k) => { strings(v, k); if ((v as string[]).some(o => o !== 'no-new-privileges:true')) deny(`${k} hat einen unzulässigen Wert.`); },
   // the internal sandbox network only: never host, none, bridge (egress), container:<id> or another network (docker-api!)
   NetworkMode: (v, k) => { if (v !== SANDBOX_NET) deny(`${k}=${String(v).slice(0, 60)} ist nicht erlaubt.`); },
   RestartPolicy: (v, k) => only(obj(v, k), { Name: str(/^(no|on-failure|unless-stopped)?$/), MaximumRetryCount: (n, kk) => { if (!Number.isInteger(n) || (n as number) < 0) deny(`${kk} hat einen unzulässigen Wert.`); } }, k),
@@ -55,6 +59,8 @@ const HOST: Record<string, Check> = {
 const TOP: Record<string, Check> = {
   name: () => {}, Image: () => {}, Labels: record(/^[A-Za-z0-9._-]{1,100}$/, anyStr), Env: strings,
   Hostname: str(/^[a-z0-9][a-z0-9-]{0,62}$/),
+  // screenshot containers only (checked below): the fixed script, a fixed user
+  Cmd: strings, User: str(/^[a-z][a-z0-9_-]{0,31}$/),
   HostConfig: (v, k) => only(obj(v, k), HOST, k),
   // at most the internal sandbox network as endpoint
   NetworkingConfig: (v, k) => only(obj(v, k), { EndpointsConfig: (e, kk) => only(obj(e, kk), { [SANDBOX_NET]: (ep, kkk) => only(obj(ep, kkk), { Aliases: strings }, kkk) }, `${k}.${kk}`) }, k),
@@ -67,8 +73,17 @@ export function assertSafeSpec(spec: ContainerSpec): ContainerSpec {
   if (!isManaged(spec.Labels)) throw new Error('Container ohne Lotse-Label werden nicht angelegt.');
   // a missing NetworkMode means Docker's default bridge, i.e. internet access: the internal network is mandatory
   if ((spec.HostConfig as { NetworkMode?: unknown } | undefined)?.NetworkMode !== SANDBOX_NET) deny(`HostConfig.NetworkMode muss ${SANDBOX_NET} sein (kein Internetzugang).`);
-  assertAllowedImage(spec.Image);
+  if (spec.Image === SCREENSHOT_IMAGE) assertShotSpec(spec);
+  else if (spec.Cmd !== undefined || spec.User !== undefined || !templateImage(spec.Image)) deny('Image, Befehl oder Benutzer nicht erlaubt (Aufgaben-Container laufen mit dem Start-Befehl des Images).');
   return spec;
+}
+/** The screenshot container: exactly the fixed script as the fixed non-root user, every capability dropped, no-new-privileges. */
+function assertShotSpec(spec: ContainerSpec) {
+  const h = (spec.HostConfig ?? {}) as { CapDrop?: string[]; SecurityOpt?: string[] };
+  if (!/^lotse-shot-[a-z0-9-]{1,50}$/.test(spec.name) || spec.Labels[ROLE_LABEL] !== SHOT_ROLE) deny('Name oder Label des Screenshot-Containers.');
+  if (JSON.stringify(spec.Cmd) !== JSON.stringify(SHOT_CMD) || spec.User !== SHOT_USER) deny('Befehl oder Benutzer des Screenshot-Containers.');
+  if (!h.CapDrop?.includes('ALL') || !h.SecurityOpt?.includes('no-new-privileges:true')) deny('Screenshot-Container ohne CapDrop ALL und no-new-privileges.');
+  if (spec.Env?.length || spec.NetworkingConfig) deny('Screenshot-Container ohne Umgebung und ohne Alias.');
 }
 /** Lotse creates only its two networks: the internal one and the egress one for approved internet access. */
 export function assertNetworkName(name: string): string {

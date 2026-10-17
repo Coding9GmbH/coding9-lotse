@@ -3,7 +3,9 @@
 // server with a self-signed certificate; pushing requires the token as Basic credential), the pull request API is the GitHub fake,
 // the AI is the scripted model (anthropic-fake). The AI edits the header and proposes a pull request; in the browser (Playwright)
 // "Prüfen und veröffentlichen" opens the "Pull Request" tab, the click there commits, pushes lotse/… and opens the PR, and the
-// PR card in the chat shows the fake PR. Finally the task is finished (container removed).
+// PR card in the chat shows the fake PR. Before/after screenshots (plan PR 8): the setup captures the storefront with the real
+// screenshot image (mcr.microsoft.com/playwright, desktop + mobile), publishing captures it again with the change; the "Pull Request"
+// tab shows both, the PR body only mentions them. Finally the task is finished (container and screenshots removed).
 //
 //   LOTSE_DOCKWARE_LIVE=1 npx tsx tests/support/dockware-live/verify-publish.ts
 //   Optional: LOTSE_DOCKWARE_IMAGE (default dockware/shopware:6.7.15.1, must be pulled), LOTSE_LIVE_PORT (default 3492), VERBOSE=1,
@@ -103,6 +105,15 @@ try {
   assert.equal(cur.status, 'ready', cur.error ?? '');
   console.log(`Einrichtung fertig nach ${((Date.now() - t0) / 1000).toFixed(0)} s (geklont über ${cloneBase})`);
   assert.ok(gitLog.some(l => l.url.includes('git-upload-pack') && l.authed), 'the clone sent the token as Basic credential');
+  // before screenshots: real PNGs from the browser container, served by Lotse; the container is gone again
+  const png = async (url: string) => { const r = await fetch(base + url); assert.equal(r.status, 200); assert.equal(r.headers.get('content-type'), 'image/png'); const b = Buffer.from(await r.arrayBuffer()); assert.ok(b.subarray(1, 4).toString() === 'PNG' && b.length > 10_000, `real PNG (${b.length} bytes)`); return b; };
+  assert.equal(cur.steps.find(s => s.key === 'screenshots')?.state, 'done', JSON.stringify(cur.steps.find(s => s.key === 'screenshots')));
+  assert.deepEqual(cur.shots.before?.shots.map(x => `${x.path} ${x.device}`), ['/ desktop', '/ mobile']);
+  const shotDir = process.env.LOTSE_LIVE_SHOTS ?? path.join(os.tmpdir(), 'lotse-live-shots');
+  fs.mkdirSync(shotDir, { recursive: true });
+  for (const x of cur.shots.before!.shots) fs.writeFileSync(path.join(shotDir, `before-${x.device}.png`), await png(x.url));
+  assert.equal(execFileSync('docker', ['ps', '-aq', '--filter', 'label=lotse.role=screenshot'], { encoding: 'utf8' }).trim(), '', 'no screenshot container left');
+  console.log(`Vorher-Screenshots (Desktop + Mobil) aus dem Browser-Container gespeichert (${shotDir}) ✓`);
 
   // the AI edits the header and proposes the pull request (scripted model, real Claude Code process)
   const r = await fetch(`${base}/api/chat`, { method: 'POST', headers: H, body: JSON.stringify({ chatId, message: `Bitte umsetzen. [e2e:replace ${HEADER_TEMPLATE} Lotse Live-Header|${TEXT}] [e2e:pr Header: ${TEXT}|Geprüft in der Sandbox-Vorschau.]` }) });
@@ -155,13 +166,31 @@ try {
   assert.deepEqual({ head: (post[0].body as { head: string }).head, base: (post[0].body as { base: string }).base }, { head: branch, base: 'main' });
   console.log(`Bare-Repository: ${branch} = ${bare('rev-parse', '--short', branch)} (main unverändert), Pull Request #1 beim GitHub-Fake ✓`);
   const fresh = (await api<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${taskId}`)).task;
+  // after screenshots: taken at publishing, different from before (the header changed), mentioned in the body without a link
+  assert.deepEqual(fresh.shots.after?.shots.map(x => `${x.path} ${x.device}`), ['/ desktop', '/ mobile'], fresh.shots.after?.error ?? '');
+  for (const x of fresh.shots.after!.shots) {
+    const b = await png(x.url);
+    fs.writeFileSync(path.join(shotDir, `after-${x.device}.png`), b);
+    assert.ok(!b.equals(fs.readFileSync(path.join(shotDir, `before-${x.device}.png`))), `after differs from before (${x.device})`);
+  }
+  const prBody = String((post[0].body as { body: string }).body);
+  assert.match(prBody, /\*\*Screenshots:\*\* Vorher-\/Nachher-Screenshots der Sandbox-Storefront \(Desktop und Mobil; `\/`\)/);
+  assert.ok(!/\/api\/sandbox|!\[/.test(prBody), 'no link or image in the PR body');
+  const shots = panel.getByRole('region', { name: 'Vorher / Nachher' });
+  await shots.getByRole('img', { name: 'Nachher, Desktop: /' }).waitFor();
+  await shots.getByRole('img', { name: 'Vorher, Desktop: /' }).waitFor();
+  await shots.scrollIntoViewIfNeeded();
+  const tabShot = path.join(shotDir, 'pr-tab.png');
+  await panel.screenshot({ path: tabShot });
+  console.log(`Nachher-Screenshots beim Veröffentlichen, im Reiter „Pull Request“ neben den Vorher-Bildern (${tabShot}), im PR-Text nur erwähnt ✓`);
   assert.deepEqual(fresh.pr, { number: 1, url: 'https://github.com/acme/pub-theme/pull/1', title: `Header: ${TEXT}` });
   const gitConfig = fs.readFileSync(path.join(tmp, 'data', 'git', taskId, 'config'), 'utf8');
   assert.ok(!gitConfig.includes(TOKEN) && !gitConfig.includes(expected.slice(6)), 'no token in .git/config');
 
   await api(`/api/sandbox/tasks/${taskId}/finish`, { method: 'POST', body: '{}' });
+  assert.ok(!fs.existsSync(path.join(tmp, 'data', 'screenshots', taskId)), 'screenshots removed with the task');
   taskId = '';
-  console.log('Aufgabe abgeschlossen: Container entfernt ✓');
+  console.log('Aufgabe abgeschlossen: Container und Screenshots entfernt ✓');
   console.log('OK');
 } catch (e) {
   await failShot();

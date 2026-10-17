@@ -21,6 +21,7 @@ import { revokeInternet, type RevokeReason } from './internet';
 import { SANDBOX_NETWORK, ensureNetwork, networkMode, openHostPorts, probeRoute } from './network';
 import { clearJar, forgetUpstream } from './preview';
 import { getRunner } from './runner';
+import { captureShots, removeShotFiles } from './screenshots';
 import { TASK_LABEL } from './labels';
 import { syncAll } from './sync';
 import { streamFileTar } from './tar';
@@ -216,6 +217,7 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
       lg(pulled ? 'Image geladen.' : 'Image ist vorhanden.');
     },
     clone: async () => {
+      removeShotFiles(t.id); t.shots = {}; // a fresh base: earlier screenshots no longer show it
       fs.rmSync(p.workspace, { recursive: true, force: true });
       fs.rmSync(p.gitDir, { recursive: true, force: true });
       return cloneRepo(t.repo, t.baseBranch, p.worktree, p.gitDir, { signal });
@@ -258,8 +260,25 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
     },
     discardDump: async (imported, dir) => {
       if (t.dump) { deleteDump(t.dump.id); Object.assign(t.dump, { imported, deletedAt: now() }); saveTask(t); }
+      if (imported) { removeShotFiles(t.id); t.shots = {}; saveTask(t); } // another shop: the screenshots are taken again
       // the import command removes it itself; this also covers a failed or aborted transfer (own time limit: the step's signal may be aborted)
       await runner.exec(container(), ['rm', '-rf', '--', dir], { user: tpl.execUser, workdir: '/', timeoutMs: 30_000 }).catch(e => lg(`Aufräumen im Container fehlgeschlagen: ${errMsg(e)}`));
+    },
+    screenshots: async () => {
+      if (!getSandboxConfig().screenshotPaths.length) { lg('Keine Seiten für Screenshots eingestellt.'); return 'skipped'; }
+      if (t.shots?.before?.items.length) { lg('Vorher-Screenshots sind schon vorhanden.'); return; }
+      try {
+        const set = await captureShots(t, 'before', { signal, log: lg, pull: true });
+        if (!set) return 'skipped';
+        t.shots = { ...t.shots, before: set }; saveTask(t);
+        lg(`${set.items.length} Vorher-Screenshots gespeichert.${set.error ? ` ${set.error}` : ''}`);
+      } catch (e) {
+        if (signal.aborted) throw e;
+        const error = redact(errMsg(e)).slice(0, 400);
+        t.shots = { ...t.shots, before: { at: now(), items: [], error } }; saveTask(t);
+        lg(`Keine Vorher-Screenshots (die Einrichtung läuft weiter): ${error}`);
+        return 'skipped';
+      }
     },
     syncAll: async () => {
       if (!t.layout) throw new Error('Plugin noch nicht erkannt.');

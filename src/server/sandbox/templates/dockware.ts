@@ -111,6 +111,7 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
   'import-db': importDb,
   'set-domain': async ctx => { await ctx.run([...MYSQL, '-e', SET_DOMAIN_SQL]); ctx.log('Storefront-Domain: http://localhost'); },
   'theme-compile': async ctx => { await ctx.run(bin('theme:compile')); await ctx.run(bin('cache:clear')); },
+  screenshots: ctx => ctx.screenshots(),
   ready: async ctx => { const s = await ctx.httpStatus('/'); if (s !== 200) throw new Error(`Die Storefront antwortet mit HTTP ${s}.`); },
 };
 const step = (id: TemplateStep['id'], timeoutMs: number, extra: Partial<TemplateStep> = {}): TemplateStep => ({ id, labelKey: id, timeoutMs, run: RUNS[id], ...extra });
@@ -128,6 +129,8 @@ const STEPS: TemplateStep[] = [
   step('custom-after-db', 0, { custom: 'after-db' }),
   step('theme-compile', 10 * MIN),
   step('custom-final', 0, { custom: 'final' }),
+  // before the first agent turn: how the storefront looks without the change (desktop and mobile; optional, never fails the setup)
+  step('screenshots', 15 * MIN, { optional: true }),
   step('ready', 30_000),
 ];
 

@@ -29,7 +29,7 @@ export const pickApiVersion = (server: { ApiVersion?: string; MinAPIVersion?: st
   server.MinAPIVersion && cmpVersion(server.MinAPIVersion, PREFERRED_API) > 0 ? server.MinAPIVersion : PREFERRED_API;
 
 interface Res { status: number; headers: http.IncomingHttpHeaders; body: Buffer }
-interface Req { query?: Record<string, string>; body?: unknown; raw?: Buffer; stream?: ArchiveStream; contentType?: string; timeoutMs?: number; signal?: AbortSignal; onData?: (chunk: Buffer) => void }
+interface Req { query?: Record<string, string>; body?: unknown; raw?: Buffer; stream?: ArchiveStream; contentType?: string; timeoutMs?: number; signal?: AbortSignal; onData?: (chunk: Buffer) => void; /** body larger than this = error */ maxBytes?: number }
 
 const unreachable = (e: NodeJS.ErrnoException) => new Error(
   e.code === 'ENOENT' || e.code === 'ECONNREFUSED' ? 'Docker ist nicht erreichbar – Docker-Socket bzw. DOCKER_HOST einrichten.'
@@ -110,7 +110,13 @@ export class DockerEngine implements SandboxRunner {
         headers: { host: 'docker', ...(payload || o.stream ? { 'content-type': o.contentType ?? 'application/json', 'content-length': o.stream?.length ?? payload!.length } : {}) },
       }, res => {
         const chunks: Buffer[] = [];
-        res.on('data', (c: Buffer) => { if (o.onData && (res.statusCode ?? 500) < 300) o.onData(c); else chunks.push(c); });
+        let size = 0;
+        res.on('data', (c: Buffer) => {
+          if (o.onData && (res.statusCode ?? 500) < 300) { o.onData(c); return; }
+          size += c.length;
+          if (o.maxBytes !== undefined && size > o.maxBytes) { req.destroy(new Error(`Antwort von Docker ist zu groß (mehr als ${Math.round(o.maxBytes / 1048576)} MB).`)); return; }
+          chunks.push(c);
+        });
         res.on('end', () => resolve({ status: res.statusCode ?? 500, headers: res.headers, body: Buffer.concat(chunks) }));
         res.on('error', reject);
       });
@@ -206,6 +212,20 @@ export class DockerEngine implements SandboxRunner {
     const body = Buffer.isBuffer(tar) ? { raw: tar } : { stream: tar };
     const r = await this.call('PUT', `/containers/${enc(id)}/archive`, { query: { path: assertContainerPath(dir) }, ...body, contentType: 'application/x-tar', timeoutMs: o.timeoutMs ?? 120_000, signal: o.signal });
     if (r.status !== 200) throw apiError(r, 'Dateien übertragen');
+  }
+
+  async getArchive(id: string, path: string, o: { maxBytes: number; timeoutMs?: number }) {
+    await this.managed(id);
+    const r = await this.call('GET', `/containers/${enc(id)}/archive`, { query: { path: assertContainerPath(path) }, maxBytes: o.maxBytes, timeoutMs: o.timeoutMs ?? 60_000 });
+    if (r.status !== 200) throw apiError(r, 'Dateien abholen');
+    return r.body;
+  }
+  async wait(id: string, o: { timeoutMs: number; signal?: AbortSignal }) {
+    await this.managed(id);
+    const r = await this.call('POST', `/containers/${enc(id)}/wait`, { query: { condition: 'not-running' }, timeoutMs: o.timeoutMs, signal: o.signal });
+    if (r.status !== 200) throw apiError(r, 'Auf Container warten');
+    const code = this.json<{ StatusCode?: number }>(r).StatusCode;
+    return typeof code === 'number' ? code : -1;
   }
 
   async exec(id: string, argv: readonly string[], o: ExecOpts): Promise<ExecResult> {

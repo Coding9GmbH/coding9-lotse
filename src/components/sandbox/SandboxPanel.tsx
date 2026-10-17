@@ -16,6 +16,7 @@ import { PrCard } from './PrCard';
 import { PublishCard, type PrProposal } from './PublishCard';
 import { SandboxOff } from './SandboxOff';
 import { SandboxPreview } from './SandboxPreview';
+import { ShotCompare } from './ShotCompare';
 import { StepTimeline } from './StepTimeline';
 import { TaskStatus } from './TaskList';
 import styles from './Sandbox.module.css';
@@ -30,7 +31,7 @@ const SETUP = new Set(['setting_up', 'failed', 'interrupted']);
  * "Internet: an/aus" (the user's own switch; request_internet in the chat asks for the same), and
  * the tabs Vorschau (the task's storefront), Einrichtung (step timeline) and Änderungen (diff). During the setup it shows
  * "Einrichtung" and switches to "Vorschau" once the sandbox is ready. `files`: file cards so far (refreshes the diff).
- * "Pull Request": the publish form (the AI's latest `proposal` prefilled) and the task's PR; `openPr` changing opens that tab.
+ * "Pull Request": the task's PR, before/after screenshots and the publish form (the AI's latest `proposal` prefilled); `openPr` changing opens that tab.
  */
 export function SandboxPanel({ taskId, className, reload, files, busy, proposal, openPr = 0, onPublished, onSendNotes, onClose, onTask }: {
   taskId: string; className?: string; reload: number; files: number; busy: boolean;
@@ -49,10 +50,11 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
   const [uploading, setUploading] = useState(false);
   const [idle, setIdle] = useState(30);
   const [policy, setPolicy] = useState<InternetPolicy>('approval');
+  const [shotPages, setShotPages] = useState(true);
   const [prSeen, setPrSeen] = useState(openPr);
   const [prTick, setPrTick] = useState(0);
   if (openPr !== prSeen) { setPrSeen(openPr); setTab('pr'); }
-  useEffect(() => { api.sandbox.env().then(v => { setIdle(v.env.idleMinutes); setPolicy(v.env.internet); }, () => {}); }, []);
+  useEffect(() => { api.sandbox.env().then(v => { setIdle(v.env.idleMinutes); setPolicy(v.env.internet); setShotPages(v.env.screenshotPaths.length > 0); }, () => {}); }, []);
 
   // setup → ready switches to the preview (also when the setup tab was picked by hand meanwhile)
   const status = task?.status ?? null;
@@ -139,6 +141,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
         </section>
         <section role="tabpanel" id="sbx-panel-pr" aria-labelledby="sbx-tab-pr" hidden={shown !== 'pr'} className={styles.card}>
           {task.pr && <div className={styles.prBox}><PrCard taskId={task.id} pr={task.pr} refresh={prTick} /></div>}
+          {shown === 'pr' && <ShotCompare task={task} enabled={shotPages} />}
           {shown === 'pr' && s !== 'done' && <PublishCard task={task} proposal={proposal ?? null} onPublished={r => { setTask(r.task); setPrTick(n => n + 1); onPublished?.(r); }} />}
         </section>
       </div>

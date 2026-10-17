@@ -49,13 +49,15 @@ const server = http.createServer(async (req, res) => {
     { Id: 'foreign', Names: ['/other'], Image: 'nginx', State: 'running', Labels: containers.foreign.labels }, // a proxy that ignores filters
   ]);
   if (r === '/containers/create') return send(res, 201, { Id: 'new1' });
-  const c = /^\/containers\/([^/]+)\/(json|stop|start|exec|archive)$/.exec(r) ?? /^\/containers\/([^/]+)()$/.exec(r);
+  const c = /^\/containers\/([^/]+)\/(json|stop|start|exec|archive|wait)$/.exec(r) ?? /^\/containers\/([^/]+)()$/.exec(r);
   if (c) {
     const box = containers[c[1]];
     if (!box) return send(res, 404, { message: 'No such container' });
     if (c[2] === 'json') return send(res, 200, { Id: c[1], Name: `/${c[1]}`, Config: { Image: IMAGE, Labels: box.labels }, State: { Status: box.state, Running: box.state === 'running' }, NetworkSettings: { Networks: { bridge: { IPAddress: '172.17.0.9' }, 'lotse-sandbox': { IPAddress: '172.30.0.5' }, ...(box.egress ? { 'lotse-sandbox-egress': { IPAddress: '10.214.0.2' } } : {}) } } });
     if (c[2] === 'stop') { box.state = 'exited'; return send(res, 204); }
     if (c[2] === 'exec') { lastExecBody = JSON.parse(body); return send(res, 201, { Id: 'exec1' }); }
+    if (c[2] === 'wait') { assert.equal(u.searchParams.get('condition'), 'not-running'); return send(res, 200, { StatusCode: 3 }); }
+    if (c[2] === 'archive' && req.method === 'GET') { res.writeHead(200, { 'content-type': 'application/x-tar' }); return res.end(Buffer.alloc(Number(u.searchParams.get('path') === '/big' ? 300_000 : 2048), 7)); }
     if (c[2] === '' && req.method === 'DELETE') { delete containers[c[1]]; return send(res, 204); }
   }
   if (r === '/exec/exec1/json') return send(res, 200, { ExitCode: 2 });
@@ -189,7 +191,7 @@ test('create: only labelled, allowed image, no host access', async () => {
   await bad({ image: 'nginx:1' }, /image ist nicht erlaubt/);
   await bad({ hostConfig: { Privileged: true } }, /hostConfig/);
   for (const mode of ['container:lotse', 'none', 'lotse_docker-api', 'HOST']) await bad({ HostConfig: { NetworkMode: mode } }, /NetworkMode=/);
-  for (const k of ['PidMode', 'IpcMode', 'SecurityOpt', 'Sysctls', 'CgroupParent', 'Runtime', 'PublishAllPorts', 'Devices', 'Mounts', 'VolumesFrom', 'UsernsMode'])
+  for (const k of ['PidMode', 'IpcMode', 'Sysctls', 'CgroupParent', 'Runtime', 'PublishAllPorts', 'Devices', 'Mounts', 'VolumesFrom', 'UsernsMode'])
     await bad({ HostConfig: { [k]: k === 'PublishAllPorts' ? true : ['x'] } }, new RegExp(`${k} ist nicht erlaubt`));
   await bad({ HostConfig: { NetworkMode: 'lotse-sandbox', PortBindings: { '80/tcp': [{ HostIp: '127.0.0.1', HostPort: '8080' }] } } }, /PortBindings ist nicht erlaubt/);
   await bad({ ExposedPorts: { '80/tcp': {} } }, /ExposedPorts ist nicht erlaubt/);
@@ -197,11 +199,38 @@ test('create: only labelled, allowed image, no host access', async () => {
   await bad({ NetworkingConfig: { EndpointsConfig: { 'lotse_docker-api': {} } } }, /lotse_docker-api ist nicht erlaubt/);
   await bad({ NetworkingConfig: { EndpointsConfig: { 'lotse-sandbox': { IPAMConfig: { IPv4Address: '10.0.0.1' } } } } }, /IPAMConfig/);
   await bad({ Volumes: { '/data': {} } }, /Volumes ist nicht erlaubt/);
+  await bad({ HostConfig: { NetworkMode: 'lotse-sandbox', SecurityOpt: ['seccomp=unconfined'] } }, /SecurityOpt hat einen unzulässigen Wert/);
+  // a task container runs the image's own start command: no Cmd, no User
+  await bad({ Cmd: ['bash', '-c', 'curl evil'] }, /Befehl oder Benutzer nicht erlaubt/);
+  await bad({ User: 'root' }, /Befehl oder Benutzer nicht erlaubt/);
   assert.equal(calls.length, before, 'nothing sent');
   // what the template builds: limits, the internal network only
   assert.equal(await d.create({ ...base, Env: ['A=1'], Hostname: 'lotse-t1',
     HostConfig: { Memory: 4096 * 2 ** 20, NanoCpus: 2e9, PidsLimit: 2048, NetworkMode: 'lotse-sandbox', RestartPolicy: { Name: 'no' }, Tmpfs: { '/tmp': 'size=512m' }, LogConfig: { Type: 'json-file', Config: { 'max-size': '10m' } } },
     NetworkingConfig: { EndpointsConfig: { 'lotse-sandbox': { Aliases: ['lotse-t1'] } } } }), 'new1');
+});
+
+test('screenshots: the fixed screenshot spec is accepted; wait and getArchive only on managed containers, archive size capped', async () => {
+  const { buildShotSpec } = await import('../../src/server/sandbox/screenshot-spec');
+  const spec = buildShotSpec('t_abcdefghijkl');
+  assert.equal(await d.create(spec), 'new1');
+  const bad = (o: Record<string, unknown>, re: RegExp) => assert.rejects(d.create({ ...spec, ...o } as never), re);
+  await bad({ Cmd: ['bash', '-c', 'id'] }, /Befehl oder Benutzer des Screenshot-Containers/);
+  await bad({ User: 'root' }, /Befehl oder Benutzer des Screenshot-Containers/);
+  await bad({ HostConfig: { ...spec.HostConfig, CapDrop: ['NET_RAW'] } }, /CapDrop ALL/);
+  await bad({ HostConfig: { ...spec.HostConfig, SecurityOpt: [] } }, /no-new-privileges/);
+  await bad({ Labels: { 'lotse.managed': '1' } }, /Label des Screenshot-Containers/);
+  await bad({ name: 'lotse-t-abcdefghijkl' }, /Name oder Label/);
+  await bad({ Env: ['A=1'] }, /ohne Umgebung/);
+  await bad({ HostConfig: { ...spec.HostConfig, NetworkMode: 'bridge' } }, /NetworkMode=bridge/);
+  assert.equal(await d.wait('mine', { timeoutMs: 5000 }), 3);
+  assert.equal((await d.getArchive('mine', '/lotse/out', { maxBytes: 4096 })).length, 2048);
+  await assert.rejects(d.getArchive('mine', '/big', { maxBytes: 100_000 }), /zu groß/);
+  await assert.rejects(d.getArchive('mine', '/lotse/../etc', { maxBytes: 4096 }), /Zielpfad/);
+  const n = calls.length;
+  await assert.rejects(d.wait('foreign', { timeoutMs: 5000 }), /nicht von Lotse verwaltet/);
+  await assert.rejects(d.getArchive('foreign', '/lotse/out', { maxBytes: 4096 }), /nicht von Lotse verwaltet/);
+  assert.ok(!calls.slice(n).some(c => /foreign\/(wait|archive)/.test(c)), 'nothing asked of the foreign container');
 });
 
 test('unreachable socket: clear German message', async () => {

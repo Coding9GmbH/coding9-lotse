@@ -16,6 +16,9 @@ export interface ContainerSpec {
   Labels: Record<string, string>;
   Env?: string[];
   Hostname?: string;
+  /** screenshot containers only: the fixed script and its user (guards.ts) */
+  Cmd?: string[];
+  User?: string;
   ExposedPorts?: Record<string, object>;
   HostConfig?: Record<string, unknown>;
   NetworkingConfig?: Record<string, unknown>;
@@ -46,6 +49,10 @@ export interface SandboxRunner {
   inspect(id: string): Promise<ContainerInfo | null>;
   exec(id: string, argv: readonly string[], opts: ExecOpts): Promise<ExecResult>;
   putArchive(id: string, dir: string, tar: Buffer | ArchiveStream, o?: { timeoutMs?: number; signal?: AbortSignal }): Promise<void>;
+  /** tar of a path in the container (screenshots); more than maxBytes = error */
+  getArchive(id: string, path: string, o: { maxBytes: number; timeoutMs?: number }): Promise<Buffer>;
+  /** until the container has stopped; its exit code. Timeout or abort = error (the container keeps running) */
+  wait(id: string, o: { timeoutMs: number; signal?: AbortSignal }): Promise<number>;
   /** managed containers only; extra labels narrow the list */
   list(labels?: Record<string, string>): Promise<ContainerInfo[]>;
   inspectNetwork(name: string): Promise<NetworkInfo | null>;

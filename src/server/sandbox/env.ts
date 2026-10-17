@@ -12,6 +12,7 @@ import { singleton } from '../state';
 import { errMsg } from '../util';
 import { ensureNetwork, networkMode } from './network';
 import { getRunner } from './runner';
+import { DEFAULT_SHOT_PATHS, SCREENSHOT_IMAGE, validShotPaths } from './screenshot-spec';
 import { DEFAULT_TEMPLATE, canonicalTemplateId, getTemplate } from './templates';
 import type { SandboxTemplate } from './templates/types';
 
@@ -19,6 +20,7 @@ interface StoredVar { key: string; secret: boolean; /** sealed when secret */ va
 interface StoredSandbox {
   enabled?: boolean; templateId?: string; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number;
   envVars?: StoredVar[]; commands?: SandboxCommand[]; updatedAt?: string; defaultRepo?: string; defaultBranch?: string; internet?: InternetPolicy;
+  screenshotPaths?: string[];
 }
 const KV = 'sandbox';
 const stored = (): StoredSandbox => {
@@ -144,6 +146,10 @@ export function saveSandbox(p: SandboxEnvPatch, env: Record<string, string | und
     if (p.internet !== 'approval' && p.internet !== 'never') throw new Error('Internet im Container: erlaubt sind „nur nach Freigabe“ oder „nie“.');
     if (p.internet !== (s.internet ?? 'approval')) { next.internet = p.internet; changed.push('internet'); }
   }
+  if (p.screenshotPaths !== undefined) {
+    next.screenshotPaths = validShotPaths(p.screenshotPaths);
+    if (JSON.stringify(next.screenshotPaths) !== JSON.stringify(s.screenshotPaths ?? DEFAULT_SHOT_PATHS)) changed.push('screenshotPaths');
+  }
   if (p.envVars !== undefined) {
     next.envVars = mergeVars(s.envVars ?? [], p.envVars);
     const before = new Map((s.envVars ?? []).map(v => [v.key, v]));
@@ -166,6 +172,7 @@ export function sandboxPublic(env: Record<string, string | undefined> = process.
     memoryMb: s.memoryMb ?? LIMITS.memoryMb.def, cpus: s.cpus ?? LIMITS.cpus.def, idleMinutes: s.idleMinutes ?? defaultIdle(env), maxRunning: maxRunning(env),
     envVars: (s.envVars ?? []).map(v => ({ key: v.key, secret: v.secret, value: v.secret ? '' : v.value, hasValue: !!v.value })),
     commands: s.commands ?? [], updatedAt: s.updatedAt ?? null, defaultRepo: s.defaultRepo ?? '', defaultBranch: s.defaultBranch ?? '', internet: s.internet ?? 'approval',
+    screenshotPaths: s.screenshotPaths ?? DEFAULT_SHOT_PATHS,
   };
 }
 
@@ -213,6 +220,16 @@ export function sandboxForbidden(): Response | null {
   return s.enabled ? null : Response.json({ error: s.message ?? SANDBOX_OFF, reason: s.reason }, { status: 403 });
 }
 
+/** The screenshot image (only while screenshot pages are set). Not loadable = a note, never a failed check: screenshots are optional. */
+async function checkShotImage(onProgress: (text: string, pct?: number) => void, signal?: AbortSignal): Promise<string> {
+  if (!sandboxPublic().screenshotPaths.length) return '';
+  try {
+    onProgress(`Image ${SCREENSHOT_IMAGE} (Screenshots) prüfen …`);
+    const { pulled } = await getRunner().ensureImage(SCREENSHOT_IMAGE, p => onProgress(p.text, p.pct), signal);
+    return pulled ? ` Screenshot-Image ${SCREENSHOT_IMAGE} geladen.` : '';
+  } catch (e) { return ` Screenshot-Image ${SCREENSHOT_IMAGE} nicht geladen (${errMsg(e).slice(0, 200)}) – Screenshots werden übersprungen.`; }
+}
+
 /** "Umgebung prüfen": Docker reachable, internal network (network mode), image present or pulled now. One at a time. */
 export async function checkEnvironment(onProgress: (text: string, pct?: number) => void, signal?: AbortSignal): Promise<Extract<SandboxCheckEvent, { t: 'result' }>> {
   const lock = singleton('sandboxCheck', () => ({ busy: false }));
@@ -226,7 +243,8 @@ export async function checkEnvironment(onProgress: (text: string, pct?: number) 
     if (docker.mode === 'network') { onProgress('Netzwerk lotse-sandbox prüfen …'); await ensureNetwork(r); }
     onProgress(`Image ${image} prüfen …`);
     const { pulled } = await r.ensureImage(validateImage(image), p => onProgress(p.text, p.pct), signal);
-    return { t: 'result', ok: true, docker, imagePresent: true, pulled, message: pulled ? `Image ${image} geladen. Umgebung bereit.` : `Image ${image} ist vorhanden. Umgebung bereit.` };
+    const shots = await checkShotImage(onProgress, signal);
+    return { t: 'result', ok: true, docker, imagePresent: true, pulled, message: `${pulled ? `Image ${image} geladen. Umgebung bereit.` : `Image ${image} ist vorhanden. Umgebung bereit.`}${shots}` };
   } catch (e) {
     return { t: 'result', ok: false, docker, imagePresent: await getRunner().imagePresent(image).catch(() => false), message: errMsg(e).slice(0, 300) };
   } finally { lock.busy = false; }
