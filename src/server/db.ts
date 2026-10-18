@@ -52,9 +52,14 @@ export const MIGRATIONS: ((d: DatabaseSync) => void)[] = [
   /* 5: Sandbox Coding tasks (one container per task; the full task is the JSON row) */ d => d.exec(`
     CREATE TABLE IF NOT EXISTS code_tasks (id TEXT PRIMARY KEY, chat_id TEXT, template TEXT NOT NULL, repo TEXT NOT NULL, base_branch TEXT NOT NULL, branch TEXT NOT NULL, status TEXT NOT NULL, container_id TEXT, pr_number INTEGER, pr_url TEXT, pushed_sha TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, json TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS code_tasks_updated ON code_tasks(updated_at DESC);`),
-  /* 6: uploaded database dumps (Sandbox Coding): metadata only, the file lives in <data>/dumps/<id>/data until the import */ d => d.exec(`
+  /* 6: uploaded database dumps (Sandbox Coding): metadata only, the file lives in <data>/dumps/<id>/data until the import (stored databases: step 7) */ d => d.exec(`
     CREATE TABLE IF NOT EXISTS code_dumps (id TEXT PRIMARY KEY, task_id TEXT, name TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, deleted_at TEXT);
     CREATE INDEX IF NOT EXISTS code_dumps_task ON code_dumps(task_id);`),
+  /* 7: stored databases ("Gespeicherte Datenbanken"): kept for further sandboxes until deleted, plus their MySQL snapshots per image */ d => {
+    for (const [col, type] of [['library', 'INTEGER NOT NULL DEFAULT 0'], ['uploaded_by', 'TEXT'], ['shopware_version', 'TEXT'], ['last_used_at', 'TEXT'], ['snapshots', 'TEXT']]) {
+      if (!hasColumn(d, 'code_dumps', col)) d.exec(`ALTER TABLE code_dumps ADD COLUMN ${col} ${type}`);
+    }
+  },
 ];
 export const schemaVersion = (d: DatabaseSync) => (d.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
 export function runMigrations(d: DatabaseSync) {
@@ -128,17 +133,32 @@ export const codeTaskByChat = (chatId: string): string[] => (db().prepare('SELEC
 export const codeTaskDelete = (id: string) => { db().prepare('DELETE FROM code_tasks WHERE id = ?').run(id); };
 
 // ---- Uploaded dumps (Sandbox Coding): metadata only ----
-export interface CodeDumpRow { id: string; taskId: string | null; name: string; size: number; sha256: string | null; status: 'uploading' | 'ready' | 'deleted'; createdAt: string; expiresAt: string; deletedAt: string | null }
-interface DumpSql { id: string; task_id: string | null; name: string; size: number; sha256: string | null; status: CodeDumpRow['status']; created_at: string; expires_at: string; deleted_at: string | null }
-const dumpOf = (r: DumpSql): CodeDumpRow => ({ id: r.id, taskId: r.task_id, name: r.name, size: Number(r.size), sha256: r.sha256, status: r.status, createdAt: r.created_at, expiresAt: r.expires_at, deletedAt: r.deleted_at });
+/** A MySQL data snapshot of a stored database for one image (label-managed Docker volume, db-snapshots.ts) */
+export interface DumpSnapshot { image: string; volume: string; createdAt: string }
+export interface CodeDumpRow {
+  id: string; taskId: string | null; name: string; size: number; sha256: string | null; status: 'uploading' | 'ready' | 'deleted'; createdAt: string; expiresAt: string; deletedAt: string | null;
+  /** stored database: kept for further sandboxes until the user deletes it (never bound to one task, no 24 h expiry once ready) */ library: boolean;
+  uploadedBy: string | null; /** Shopware major.minor recorded in the dump (stored databases) */ shopwareVersion: string | null; lastUsedAt: string | null;
+  snapshots: DumpSnapshot[];
+}
+interface DumpSql { id: string; task_id: string | null; name: string; size: number; sha256: string | null; status: CodeDumpRow['status']; created_at: string; expires_at: string; deleted_at: string | null;
+  library: number | null; uploaded_by: string | null; shopware_version: string | null; last_used_at: string | null; snapshots: string | null }
+const snapshotsOf = (raw: string | null): DumpSnapshot[] => { try { const v = JSON.parse(raw ?? '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
+const dumpOf = (r: DumpSql): CodeDumpRow => ({ id: r.id, taskId: r.task_id, name: r.name, size: Number(r.size), sha256: r.sha256, status: r.status, createdAt: r.created_at, expiresAt: r.expires_at, deletedAt: r.deleted_at,
+  library: !!r.library, uploadedBy: r.uploaded_by ?? null, shopwareVersion: r.shopware_version ?? null, lastUsedAt: r.last_used_at ?? null, snapshots: snapshotsOf(r.snapshots) });
 export const codeDumpPut = (x: CodeDumpRow) => {
-  db().prepare(`INSERT INTO code_dumps (id, task_id, name, size, sha256, status, created_at, expires_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET task_id = excluded.task_id, sha256 = excluded.sha256, status = excluded.status, expires_at = excluded.expires_at, deleted_at = excluded.deleted_at`)
-    .run(x.id, x.taskId, x.name, x.size, x.sha256, x.status, x.createdAt, x.expiresAt, x.deletedAt);
+  db().prepare(`INSERT INTO code_dumps (id, task_id, name, size, sha256, status, created_at, expires_at, deleted_at, library, uploaded_by, shopware_version, last_used_at, snapshots) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET task_id = excluded.task_id, sha256 = excluded.sha256, status = excluded.status, expires_at = excluded.expires_at, deleted_at = excluded.deleted_at,
+      shopware_version = excluded.shopware_version, last_used_at = excluded.last_used_at, snapshots = excluded.snapshots`)
+    .run(x.id, x.taskId, x.name, x.size, x.sha256, x.status, x.createdAt, x.expiresAt, x.deletedAt, x.library ? 1 : 0, x.uploadedBy, x.shopwareVersion, x.lastUsedAt, JSON.stringify(x.snapshots ?? []));
 };
 export const codeDumpGet = (id: string): CodeDumpRow | null => { const r = db().prepare('SELECT * FROM code_dumps WHERE id = ?').get(id) as DumpSql | undefined; return r ? dumpOf(r) : null; };
 /** Dumps not deleted yet (optionally of one task). */
 export const codeDumpsLive = (taskId?: string): CodeDumpRow[] => (db().prepare(`SELECT * FROM code_dumps WHERE status <> 'deleted'${taskId ? ' AND task_id = ?' : ''} ORDER BY created_at`).all(...(taskId ? [taskId] : [])) as unknown as DumpSql[]).map(dumpOf);
+/** Stored databases were used at all (also deleted ones): only then can Docker hold volumes of them. */
+export const codeDumpsLibraryEver = (): boolean => !!db().prepare('SELECT 1 FROM code_dumps WHERE library = 1 LIMIT 1').get();
+/** Stored databases that are complete, newest first. */
+export const codeDumpsLibrary = (): CodeDumpRow[] => (db().prepare("SELECT * FROM code_dumps WHERE library = 1 AND status = 'ready' ORDER BY created_at DESC").all() as unknown as DumpSql[]).map(dumpOf);
 
 // ---- Audit (only writes after approval) & access log (what the AI has read) ----
 /** actor: login user name (LOTSE_PASSWORD) or NULL; if omitted, taken from the request context (./actor). */

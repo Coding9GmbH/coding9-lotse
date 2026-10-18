@@ -4,8 +4,9 @@ import 'server-only';
 import http from 'node:http';
 import { pipeline } from 'node:stream/promises';
 import type { Socket } from 'node:net';
-import { assertTtySize, ttyEmitter, type ArchiveStream, type ContainerInfo, type ContainerSpec, type ExecOpts, type ExecResult, type NetworkInfo, type NetworkOpts, type PullProgress, type SandboxRunner, type TtyOpts, type TtySession } from './runner';
-import { MANAGED, assertAllowedImage, assertContainerPath, assertEgressNetwork, assertId, assertManaged, assertNetworkName, assertSafeSpec } from './guards';
+import { assertTtySize, ttyEmitter, type ArchiveStream, type ContainerInfo, type ContainerSpec, type ExecOpts, type ExecResult, type NetworkInfo, type NetworkOpts, type PullProgress, type SandboxRunner, type TtyOpts, type TtySession, type VolumeInfo } from './runner';
+import { MANAGED, assertAllowedImage, assertContainerPath, assertEgressNetwork, assertId, assertManaged, assertNetworkName, assertSafeSpec, isManaged } from './guards';
+import { assertVolumeName } from './db-snapshot-spec';
 import { EGRESS_NET, ICC_OPTION, ISOLATED_GATEWAY, SANDBOX_NET } from './labels';
 
 const PREFERRED_API = '1.41';
@@ -35,6 +36,10 @@ const unreachable = (e: NodeJS.ErrnoException) => new Error(
   e.code === 'ENOENT' || e.code === 'ECONNREFUSED' ? 'Docker ist nicht erreichbar – Docker-Socket bzw. DOCKER_HOST einrichten.'
     : e.code === 'EACCES' ? 'Kein Zugriff auf den Docker-Socket (Berechtigung fehlt).' : `Docker ist nicht erreichbar: ${e.code ?? e.message}`);
 
+/** The socket proxy of docker-compose.sandbox.yml before stored databases refused volume calls with 403. */
+const volumeError = (r: Res, what: string) => (r.status === 403
+  ? new Error(`${what}: Der Docker-Zugang lässt keine Volumes zu (HTTP 403) – für gespeicherte Datenbanken im Socket-Proxy VOLUMES: 1 setzen (aktuelle docker-compose.sandbox.yml, make sandbox-up).`)
+  : apiError(r, what));
 /** Docker error body {message} → short German-prefixed text. */
 const apiError = (r: Res, what: string) => {
   let msg = '';
@@ -177,6 +182,10 @@ export class DockerEngine implements SandboxRunner {
 
   async create(spec: ContainerSpec) {
     const { name, ...body } = assertSafeSpec(spec);
+    // a mounted volume must exist and be Lotse's: Docker would otherwise create an unlabelled one, or mount a foreign one of that name
+    for (const m of (body.HostConfig as { Mounts?: { Source: string }[] } | undefined)?.Mounts ?? []) {
+      if (!(await this.inspectVolume(m.Source))) throw new Error(`Volume ${m.Source} fehlt.`);
+    }
     const r = await this.call('POST', '/containers/create', { query: { name }, body });
     if (r.status !== 201) throw apiError(r, 'Container anlegen');
     return assertId(this.json<{ Id: string }>(r).Id);
@@ -351,6 +360,35 @@ export class DockerEngine implements SandboxRunner {
     const r = await this.call('POST', '/networks/create', { body: { Name: assertNetworkName(name), Driver: 'bridge', Internal: opts.internal, Labels: opts.labels, CheckDuplicate: true,
       ...(Object.keys(options).length ? { Options: options } : {}), ...(opts.subnet ? { IPAM: { Config: [{ Subnet: opts.subnet }] } } : {}) } });
     if (r.status !== 201) throw apiError(r, 'Netzwerk anlegen');
+  }
+  async createVolume(name: string, labels: Record<string, string>) {
+    if (!isManaged(labels)) throw new Error('Volumes ohne Lotse-Label werden nicht angelegt.');
+    const r = await this.call('POST', '/volumes/create', { body: { Name: assertVolumeName(name), Driver: 'local', Labels: labels } });
+    if (r.status !== 201 && r.status !== 200) throw volumeError(r, 'Volume anlegen');
+    // Docker answers an existing name with that volume: it must be ours
+    if (!isManaged(this.json<{ Labels?: Record<string, string> | null }>(r).Labels)) throw new Error(`Volume ${name} gehört nicht zu Lotse (Label lotse.managed=1 fehlt).`);
+  }
+  async inspectVolume(name: string): Promise<VolumeInfo | null> {
+    const r = await this.call('GET', `/volumes/${enc(assertVolumeName(name))}`);
+    if (r.status === 404) return null;
+    if (r.status !== 200) throw volumeError(r, 'Volume prüfen');
+    const v = this.json<{ Name: string; Labels?: Record<string, string> | null; CreatedAt?: string }>(r);
+    if (!isManaged(v.Labels)) throw new Error(`Volume ${name} gehört nicht zu Lotse (Label lotse.managed=1 fehlt).`);
+    return { name: v.Name, labels: v.Labels ?? {}, ...(v.CreatedAt ? { createdAt: v.CreatedAt } : {}) };
+  }
+  async removeVolume(name: string) {
+    if (!(await this.inspectVolume(name))) return;
+    const r = await this.call('DELETE', `/volumes/${enc(name)}`, { timeoutMs: 120_000 });
+    if (r.status === 409) throw new Error(`Volume ${name} wird noch von einem Container benutzt.`);
+    if (r.status !== 204 && r.status !== 404) throw volumeError(r, 'Volume löschen');
+  }
+  async listVolumes(labels: Record<string, string> = {}) {
+    const filters = JSON.stringify({ label: Object.entries({ ...labels, ...MANAGED }).map(([k, v]) => `${k}=${v}`) });
+    const r = await this.call('GET', '/volumes', { query: { filters } });
+    if (r.status !== 200) throw volumeError(r, 'Volumes auflisten');
+    return (this.json<{ Volumes?: { Name: string; Labels?: Record<string, string> | null; CreatedAt?: string }[] | null }>(r).Volumes ?? [])
+      .filter(v => isManaged(v.Labels) && Object.entries(labels).every(([k, x]) => v.Labels?.[k] === x)) // never trust the filter alone
+      .flatMap(v => { try { return [{ name: assertVolumeName(v.Name), labels: v.Labels ?? {}, ...(v.CreatedAt ? { createdAt: v.CreatedAt } : {}) }]; } catch { return []; } });
   }
   async connectEgress(id: string) {
     const c = await this.managed(id);

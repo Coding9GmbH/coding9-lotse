@@ -3,27 +3,28 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
-import type { CodeTaskPublic, CommandPhase, InternetPolicy, SandboxEnvPatch, SandboxEnvView } from '@/lib/protocol';
+import type { CodeTaskPublic, CommandPhase, InternetPolicy, LibraryDumpPublic, SandboxEnvPatch, SandboxEnvView } from '@/lib/protocol';
 import { SANDBOX_DOCS, isBusy } from '@/lib/sandbox-task';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useShell } from '@/components/shell/ShellProvider';
 import { Button } from '@/components/ui/Button';
 import { IconArrowUp, IconClose, IconPlus } from '@/components/ui/icons';
 import { SandboxOff } from './SandboxOff';
+import { StoredDbs } from './StoredDbs';
 import { TaskList } from './TaskList';
 import styles from './Sandbox.module.css';
 
 
 interface VarRow { key: string; secret: boolean; value: string; hasValue: boolean; /** stored as secret with a value: unticking needs a new value */ wasSecret?: boolean }
 interface CmdRow { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec: string }
-interface Form { image: string; defaultRepo: string; defaultBranch: string; internet: InternetPolicy; shotsOn: boolean; shots: string; vars: VarRow[]; cmds: CmdRow[] }
+interface Form { image: string; defaultRepo: string; defaultBranch: string; defaultDump: string; internet: InternetPolicy; shotsOn: boolean; shots: string; vars: VarRow[]; cmds: CmdRow[] }
 const formOf = (v: SandboxEnvView): Form => ({
-  image: v.env.image, defaultRepo: v.env.defaultRepo, defaultBranch: v.env.defaultBranch, internet: v.env.internet, shotsOn: v.env.screenshots, shots: v.env.screenshotPaths.join('\n'),
+  image: v.env.image, defaultRepo: v.env.defaultRepo, defaultBranch: v.env.defaultBranch, defaultDump: v.env.defaultDumpId, internet: v.env.internet, shotsOn: v.env.screenshots, shots: v.env.screenshotPaths.join('\n'),
   vars: v.env.envVars.map(x => ({ ...x, wasSecret: x.secret && x.hasValue })),
   cmds: v.env.commands.map(c => ({ id: c.id, label: c.label, command: c.command, phase: c.phase, timeoutSec: String(c.timeoutSec) })),
 });
 const patchOf = (f: Form): SandboxEnvPatch => ({
-  image: f.image.trim(), defaultRepo: f.defaultRepo.trim(), defaultBranch: f.defaultBranch.trim(), internet: f.internet,
+  image: f.image.trim(), defaultRepo: f.defaultRepo.trim(), defaultBranch: f.defaultBranch.trim(), defaultDumpId: f.defaultDump, internet: f.internet,
   screenshots: f.shotsOn, screenshotPaths: f.shots.split('\n').map(x => x.trim()).filter(Boolean),
   envVars: f.vars.filter(v => v.key.trim() || v.value).map(v => ({ key: v.key.trim(), secret: v.secret, ...(v.secret && !v.value ? {} : { value: v.value }) })),
   commands: f.cmds.filter(c => c.label.trim() || c.command.trim()).map(c => ({ ...(c.id ? { id: c.id } : {}), label: c.label, command: c.command, phase: c.phase, timeoutSec: Number(c.timeoutSec) || undefined })),
@@ -41,8 +42,12 @@ export function SandboxView() {
 
   const reload = useCallback(() => api.sandbox.env().then(v => { setView(v); setLoadError(null); return v; }).catch(e => { setLoadError(errorText(e)); return null; }), []);
   useEffect(() => { void reload(); }, [reload]);
-
+  // stored databases: the list card and the default in the environment (only while Sandbox Coding is on: the route answers 403 otherwise)
+  const [dbs, setDbs] = useState<{ list: LibraryDumpPublic[] | null; error: string | null }>({ list: null, error: null });
   const on = view?.env.status.enabled;
+  const reloadDbs = useCallback(() => { void api.sandbox.storedDbs().then(r => setDbs({ list: r.dumps, error: null }), e => setDbs(d => ({ ...d, error: errorText(e) }))); }, []);
+  useEffect(() => { if (on) reloadDbs(); }, [on, reloadDbs]);
+
   // "#sbx-env" (a link from a failed setup command, the readiness list) opens the collapsed environment
   const openEnv = () => { const d = document.getElementById('sbx-env'); if (d instanceof HTMLDetailsElement) d.open = true; };
   useEffect(() => { if (view && window.location.hash === '#sbx-env') { openEnv(); document.getElementById('sbx-env')?.scrollIntoView(); } }, [view]);
@@ -69,7 +74,9 @@ export function SandboxView() {
 
             <Tasks />
 
-            <Environment view={view} onSaved={setView} onChecked={() => { void reload(); refreshHealth(); }} />
+            <StoredDbs dumps={dbs.list} error={dbs.error} onChanged={() => { reloadDbs(); void reload(); }} />
+
+            <Environment view={view} dbs={dbs.list} onSaved={v => { setView(v); reloadDbs(); }} onChecked={() => { void reload(); refreshHealth(); }} />
           </>
         )}
       </main>
@@ -148,7 +155,7 @@ function Hint({ text, more, small = false }: { text: string; more?: string; smal
 }
 
 /** Template (fixed), image, environment variables, own setup commands; "Umgebung prüfen" pulls the image if needed. */
-function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSaved: (v: SandboxEnvView) => void; onChecked: () => void }) {
+function Environment({ view, dbs, onSaved, onChecked }: { view: SandboxEnvView; dbs: LibraryDumpPublic[] | null; onSaved: (v: SandboxEnvView) => void; onChecked: () => void }) {
   const { t: all } = useI18n();
   const t = all.sandbox.env, ts = all.sandbox;
   const [saved, setSaved] = useState<Form>(() => formOf(view));
@@ -160,6 +167,12 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
   const abort = useRef<AbortController | null>(null);
   useEffect(() => () => abort.current?.abort(), []);
 
+  // a deleted stored database is no default any more (the server already forgot it)
+  const gone = (id: string) => !!id && !!dbs && !dbs.some(d => d.id === id);
+  if (gone(saved.defaultDump) || gone(form.defaultDump)) {
+    setSaved(f => (gone(f.defaultDump) ? { ...f, defaultDump: '' } : f));
+    setForm(f => (gone(f.defaultDump) ? { ...f, defaultDump: '' } : f));
+  }
   const dirty = !same(form, saved);
   const template = view.templates.find(x => x.id === view.env.templateId);
   const set = (fn: (f: Form) => Form) => { setForm(fn); setNotice(null); };
@@ -226,6 +239,12 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
         <label className={styles.fieldTight}><span className={styles.label}>{t.defaultBranch}</span>
           <input placeholder="main" value={form.defaultBranch} spellCheck={false} onChange={e => set(f => ({ ...f, defaultBranch: e.target.value }))} /></label>
       </div>
+      <label className={styles.field}><span className={styles.label}>{t.defaultDump}</span>
+        <select value={form.defaultDump} aria-label={t.defaultDump} onChange={e => set(f => ({ ...f, defaultDump: e.target.value }))}>
+          <option value="">{t.defaultDumpNone}</option>
+          {!dbs && form.defaultDump && <option value={form.defaultDump}>…</option>}
+          {dbs?.map(d => <option key={d.id} value={d.id}>{ts.dump.pickOption(d.name, d.shopwareVersion, d.size, d.snapshot)}</option>)}
+        </select></label>
 
       <label className={styles.field}>
         <span className={styles.label}>{t.internet}</span>

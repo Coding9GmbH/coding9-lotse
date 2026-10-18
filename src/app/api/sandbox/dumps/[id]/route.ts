@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { auditDump, dumpRoute } from '@/server/sandbox/dump-route';
+import { deleteStoredDb } from '@/server/sandbox/db-snapshots';
 import { DumpError, appendChunk, deleteDump, getDump, publicDump } from '@/server/sandbox/dumps';
 
 export const dynamic = 'force-dynamic';
@@ -23,10 +24,16 @@ export function PUT(req: NextRequest, { params }: Ctx) {
   });
 }
 
-/** Discard an upload that no task uses yet. */
+/** Discard an upload that no task uses yet, or delete a stored database: its file and its snapshot volumes (tasks that already
+ *  imported it keep their own copy). */
 export function DELETE(req: NextRequest, { params }: Ctx) {
   return dumpRoute(req, async () => {
     const d = getDump((await params).id);
+    if (d.library && d.status !== 'deleted') {
+      const { volumesLeft } = await deleteStoredDb(d.id);
+      auditDump(d, 'delete');
+      return Response.json({ ok: true, ...(volumesLeft ? { volumesLeft } : {}) });
+    }
     if (d.taskId && d.status !== 'deleted') throw new DumpError('Der Dump gehört zu einer Aufgabe und wird dort nach dem Import gelöscht.', 409);
     deleteDump(d.id);
     auditDump(d, 'delete');

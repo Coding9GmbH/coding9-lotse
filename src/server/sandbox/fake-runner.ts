@@ -3,13 +3,18 @@ import 'server-only';
 // Exec results are scripted; each started container gets a small node:http "storefront" that serves the synced files.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { assertTtySize, ttyEmitter, type ArchiveStream, type ContainerInfo, type ContainerSpec, type ExecOpts, type ExecResult, type NetworkInfo, type NetworkOpts, type PullProgress, type SandboxRunner, type TtyOpts, type TtySession } from './runner';
+import { assertTtySize, ttyEmitter, type ArchiveStream, type ContainerInfo, type ContainerSpec, type ExecOpts, type ExecResult, type NetworkInfo, type NetworkOpts, type PullProgress, type SandboxRunner, type TtyOpts, type TtySession, type VolumeInfo } from './runner';
 import { MANAGED, assertAllowedImage, assertContainerPath, assertEgressNetwork, assertId, assertManaged, assertNetworkName, assertSafeSpec, isManaged } from './guards';
-import { EGRESS_NET, ROLE_LABEL, SANDBOX_NET, SHOT_ROLE } from './labels';
+import { DB_COPY_ROLE, EGRESS_NET, ROLE_LABEL, SANDBOX_NET, SHOT_ROLE } from './labels';
+import { COPY_FROM, COPY_TO, assertVolumeName } from './db-snapshot-spec';
 import { SHOT_DIR, SHOT_OUT, type ShotJob } from './screenshot-spec';
 import { readTar, readTarEntries, writeTar, type TarRecord } from './tar';
 
 export interface FakeCall { op: string; id?: string; argv?: string[]; user?: string; detail?: unknown }
+/** A volume in the fake: `data` stands for MySQL's data directory (what was imported into it; [] = empty, as Docker creates it) */
+export interface FakeVolume { name: string; labels: Record<string, string>; data: string[] }
+type Mount = { Source: string; Target: string; ReadOnly?: boolean };
+const mountsOf = (spec: ContainerSpec) => ((spec.HostConfig as { Mounts?: Mount[] } | undefined)?.Mounts ?? []);
 interface FakeContainer { id: string; spec: ContainerSpec; running: boolean; exitCode?: number; oomKilled?: boolean; /** container output (docker logs) */ log: string[]; networks: string[]; files: Map<string, Buffer>; server: http.Server | null; port: number | null; /** storefront templates as of the last theme:compile */ compiled: string[] }
 type ExecScript = (argv: readonly string[], id: string) => Partial<ExecResult> | undefined;
 
@@ -85,6 +90,11 @@ export class FakeRunner implements SandboxRunner {
   archives: { id: string; dir: string; entries: TarRecord[] }[] = [];
   /** every console opened (tests: argv, user, size, whether it is still open) */
   ttys: FakeTty[] = [];
+  volumes = new Map<string, FakeVolume>();
+  /** what a fresh task database volume holds once a container started on it (Docker copies the image's data directory in) */
+  imageDb: string[] = ['demo'];
+  /** database copy containers exit with this code (tests: a failing copy) */
+  copyExit = 0;
   private seq = 0;
 
   private enter(op: string, call: Omit<FakeCall, 'op'> = {}) {
@@ -112,6 +122,7 @@ export class FakeRunner implements SandboxRunner {
   async create(spec: ContainerSpec) {
     this.enter('create', { detail: spec });
     assertSafeSpec(spec);
+    for (const m of mountsOf(spec)) if (!this.volumes.has(m.Source)) throw new Error(`Volume ${m.Source} fehlt.`);
     const id = `fake${(++this.seq).toString().padStart(8, '0')}`;
     this.containers.set(id, { id, spec, running: false, log: [], networks: [SANDBOX_NET], files: new Map(), server: null, port: null, compiled: [] });
     return id;
@@ -121,6 +132,9 @@ export class FakeRunner implements SandboxRunner {
     const c = this.managed(id);
     if (c.running) return;
     if (c.spec.Labels[ROLE_LABEL] === SHOT_ROLE) { this.shoot(c); return; }
+    if (c.spec.Labels[ROLE_LABEL] === DB_COPY_ROLE) { this.copy(c); return; }
+    // an empty volume at the data directory gets the image's data on the first start (Docker's copy-up)
+    for (const m of mountsOf(c.spec)) { const v = this.volumes.get(m.Source); if (v && !v.data.length) v.data = [...this.imageDb]; }
     c.running = true; delete c.exitCode; delete c.oomKilled;
     c.server = http.createServer((req, res) => {
       if (this.storefront?.(req, res, c.id)) return;
@@ -143,6 +157,14 @@ export class FakeRunner implements SandboxRunner {
       c.files.set(`${SHOT_OUT}/result.json`, Buffer.from(JSON.stringify(result)));
       c.exitCode = 0;
     } catch { c.exitCode = 1; }
+  }
+  /** The copy container's fixed command, simulated: source not empty, target empty, then the data is copied (exit 3/4 otherwise). */
+  private copy(c: FakeContainer) {
+    const m = mountsOf(c.spec), from = this.volumes.get(m.find(x => x.Target === COPY_FROM)?.Source ?? ''), to = this.volumes.get(m.find(x => x.Target === COPY_TO)?.Source ?? '');
+    if (!from?.data.length) { c.exitCode = 4; c.log.push('Quelle ist leer'); return; }
+    if (!to || to.data.length) { c.exitCode = 3; c.log.push('Ziel ist nicht leer'); return; }
+    if (this.copyExit) { c.exitCode = this.copyExit; c.log.push('cp: write error: No space left on device'); return; }
+    to.data = [...from.data]; c.exitCode = 0;
   }
   async wait(id: string) {
     this.enter('wait', { id });
@@ -211,6 +233,11 @@ export class FakeRunner implements SandboxRunner {
     let ended = 0;
     for (const t of this.ttys) if (t.alive && t.containerId === id && (all || argv.some(a => /^[a-f0-9]{24}$/.test(a) && t.argv.includes(a)))) { t.end(); ended++; }
     if (all) return { exitCode: 0, output: `${ended}\n`, truncated: false };
+    // the dump import (IMPORT_ARGV) replaces the database in the container's data volume; the content stands for the dump
+    if (argv[0] === 'bash' && /gunzip -cf .*\| mysql /.test(argv.at(-1) ?? '')) {
+      const dump = [...c.files].find(([k]) => k.endsWith('/lotse-import/dump'))?.[1];
+      for (const m of mountsOf(c.spec)) { const v = this.volumes.get(m.Source); if (v) v.data = [`import:${dump?.length ?? 0}`]; }
+    }
     if (argv[0] === 'rm' && argv[argv.length - 2] === '--') { const target = argv[argv.length - 1]; for (const k of [...c.files.keys()]) if (k === target || k.startsWith(`${target}/`)) c.files.delete(k); }
     const r = this.script(argv, id) ?? dockwareAnswers(argv) ?? {};
     return { exitCode: r.exitCode ?? 0, output: r.output ?? '', truncated: r.truncated ?? false };
@@ -274,6 +301,30 @@ export class FakeRunner implements SandboxRunner {
     if (!c) return;
     this.managed(id);
     c.networks = c.networks.filter(n => n !== EGRESS_NET);
+  }
+  async createVolume(name: string, labels: Record<string, string>) {
+    this.enter('createVolume', { detail: { name, labels } });
+    if (!isManaged(labels)) throw new Error('Volumes ohne Lotse-Label werden nicht angelegt.');
+    if (!this.volumes.has(assertVolumeName(name))) this.volumes.set(name, { name, labels: { ...labels }, data: [] });
+  }
+  async inspectVolume(name: string): Promise<VolumeInfo | null> {
+    this.enter('inspectVolume', { detail: name });
+    const v = this.volumes.get(assertVolumeName(name));
+    if (v && !isManaged(v.labels)) throw new Error(`Volume ${name} gehört nicht zu Lotse (Label lotse.managed=1 fehlt).`);
+    return v ? { name: v.name, labels: { ...v.labels } } : null;
+  }
+  async removeVolume(name: string) {
+    this.enter('removeVolume', { detail: name });
+    const v = this.volumes.get(assertVolumeName(name));
+    if (!v) return;
+    if (!isManaged(v.labels)) throw new Error(`Volume ${name} gehört nicht zu Lotse (Label lotse.managed=1 fehlt).`);
+    if ([...this.containers.values()].some(c => mountsOf(c.spec).some(m => m.Source === name))) throw new Error(`Volume ${name} wird noch von einem Container benutzt.`);
+    this.volumes.delete(name);
+  }
+  async listVolumes(labels: Record<string, string> = {}) {
+    this.enter('listVolumes', { detail: labels });
+    const want = { ...labels, ...MANAGED };
+    return [...this.volumes.values()].filter(v => Object.entries(want).every(([k, x]) => v.labels[k] === x)).map(v => ({ name: v.name, labels: { ...v.labels } }));
   }
   /** Tests: stop all fake storefronts. */
   async close() { for (const c of this.containers.values()) await this.closeServer(c); }

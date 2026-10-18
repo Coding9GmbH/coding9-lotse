@@ -23,8 +23,10 @@ const LINE_MAX = 2000;
 
 /** A step as stored: own setup commands carry their command (user-authored environment, never AI input) and time limit. */
 export interface StoredStep extends TaskStep { phase?: CommandPhase; command?: string; timeoutSec?: number }
-/** The task's dump: id of the file in code_dumps while it waits for the import; afterwards only the facts remain. */
-export interface StoredDump { id: string; name: string; size: number; sha256: string | null; imported: boolean; deletedAt: string | null; ignoreVersion: boolean; versionMismatch?: { dump: string; image: string } }
+/** The task's dump: id of the file in code_dumps while it waits for the import; afterwards only the facts remain (a stored database,
+ *  library, stays in code_dumps). restored: the task's data volume was filled from the snapshot of this database for that image. */
+export interface StoredDump { id: string; name: string; size: number; sha256: string | null; imported: boolean; deletedAt: string | null; ignoreVersion: boolean; versionMismatch?: { dump: string; image: string };
+  library?: boolean; restored?: { image: string; at: string } | null }
 export interface CodeTask extends CodeTaskRow {
   title: string; goal: string; status: CodeTaskStatus; steps: StoredStep[]; layout: TaskLayout | null; error: string | null;
   /** container state as Lotse last set or saw it */ containerRunning: boolean;
@@ -32,6 +34,7 @@ export interface CodeTask extends CodeTaskRow {
   lastActiveAt: string; finishedAt: string | null;
   /** missing in rows from before dumps existed */ dump?: StoredDump | null;
   /** technical name for a new plugin, used when the cloned repository is empty (validated PLUGIN_NAME) */ pluginName?: string | null;
+  /** the container keeps MySQL's data in the task's own volume (stored databases, db-snapshots.ts) */ dbVolume?: boolean;
   /** title of the pull request (number, URL and pushed SHA are columns) */ prTitle?: string | null;
   /** publishing (running, failed or interrupted by a restart); null after success */ publish?: TaskPublish | null;
   /** internet a human allowed (container attached to lotse-sandbox-egress, internet.ts); null/missing = offline */ internet?: { since: string; via: 'chat' | 'panel' } | null;
@@ -161,12 +164,14 @@ const publicShots = (id: string, s: StoredShotSet): TaskShotSet => ({
 
 const publicTaskDump = (d: StoredDump): TaskDumpPublic => ({
   name: d.name, size: d.size, sha256: d.sha256, imported: d.imported, deleted: !!d.deletedAt, ignoreVersion: d.ignoreVersion, ...(d.versionMismatch ? { versionMismatch: d.versionMismatch } : {}),
+  ...(d.library ? { library: true } : {}), ...(d.restored ? { restored: true } : {}),
 });
-/** A complete uploaded dump becomes the task's dump (an older one that was not imported yet is deleted). */
+/** A complete uploaded dump or a stored database becomes the task's dump (an older one-off dump that was not imported yet is deleted;
+ *  a stored database stays). */
 export function setTaskDump(t: CodeTask, dumpId: string): void {
   const d = attachDump(dumpId, t.id);
-  if (t.dump && t.dump.id !== d.id && !t.dump.deletedAt) deleteDump(t.dump.id);
-  t.dump = { id: d.id, name: d.name, size: d.size, sha256: d.sha256, imported: false, deletedAt: null, ignoreVersion: false };
+  if (t.dump && t.dump.id !== d.id && !t.dump.deletedAt && !t.dump.library) deleteDump(t.dump.id);
+  t.dump = { id: d.id, name: d.name, size: d.size, sha256: d.sha256, imported: false, deletedAt: null, ignoreVersion: false, ...(d.library ? { library: true } : {}) };
 }
 
 /** Steps of a new task: the template's steps; each slot for own commands becomes one step per configured command of that phase. */

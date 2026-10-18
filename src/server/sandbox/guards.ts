@@ -2,7 +2,8 @@ import 'server-only';
 // Guards shared by both runner implementations: labels, ids, paths, image and container spec.
 import { TEMPLATES } from './templates';
 import type { ContainerSpec, NetworkInfo } from './runner';
-import { EGRESS_NET, MANAGED_LABEL, ROLE_LABEL, SANDBOX_NET, SHOT_ROLE } from './labels';
+import { DB_COPY_ROLE, EGRESS_NET, MANAGED_LABEL, ROLE_LABEL, SANDBOX_NET, SHOT_ROLE, TASK_LABEL, taskDbVolume } from './labels';
+import { COPY_CAP_DROP, COPY_ENTRYPOINT, COPY_FROM, COPY_TO, COPY_USER, assertVolumeName, copyContainerName, volumeTask } from './db-snapshot-spec';
 import { SCREENSHOT_IMAGE, SHOT_CMD, SHOT_USER } from './screenshot-spec';
 
 export { MANAGED, MANAGED_LABEL, TASK_LABEL } from './labels';
@@ -49,8 +50,20 @@ const HOST: Record<string, Check> = {
   CapDrop: (v, k) => { strings(v, k); if ((v as string[]).some(c => !/^[A-Z_]{2,30}$/.test(c))) deny(`${k} hat einen unzulässigen Wert.`); },
   // only ever narrower: no-new-privileges (screenshot containers; Dockware needs sudo)
   SecurityOpt: (v, k) => { strings(v, k); if ((v as string[]).some(o => o !== 'no-new-privileges:true')) deny(`${k} hat einen unzulässigen Wert.`); },
-  // the internal sandbox network only: never host, none, bridge (egress), container:<id> or another network (docker-api!)
-  NetworkMode: (v, k) => { if (v !== SANDBOX_NET) deny(`${k}=${String(v).slice(0, 60)} ist nicht erlaubt.`); },
+  // the internal sandbox network only: never host, bridge (egress), container:<id> or another network (docker-api!); "none" only for
+  // the database copy container (checked below)
+  NetworkMode: (v, k) => { if (v !== SANDBOX_NET && v !== 'none') deny(`${k}=${String(v).slice(0, 60)} ist nicht erlaubt.`); },
+  // named volumes Lotse created itself (stored databases), never a bind of a host path, a tmpfs or volume options (driver, device);
+  // which volume at which path is checked per container kind below
+  Mounts: (v, k) => {
+    if (!Array.isArray(v) || v.length > 2) deny(`${k} muss eine Liste mit höchstens zwei Einträgen sein.`);
+    (v as unknown[]).forEach((m, i) => only(obj(m, `${k}[${i}]`), {
+      Type: (x, kk) => { if (x !== 'volume') deny(`${kk} muss „volume“ sein (keine Host-Pfade).`); },
+      Source: (x, kk) => { try { assertVolumeName(x as string); } catch { deny(`${kk} ist kein von Lotse verwaltetes Volume.`); } },
+      Target: str(/^\/[a-z][a-z0-9/_-]{0,60}$/),
+      ReadOnly: (x, kk) => { if (typeof x !== 'boolean') deny(`${kk} muss true oder false sein.`); },
+    }, `${k}[${i}]`));
+  },
   RestartPolicy: (v, k) => only(obj(v, k), { Name: str(/^(no|on-failure|unless-stopped)?$/), MaximumRetryCount: (n, kk) => { if (!Number.isInteger(n) || (n as number) < 0) deny(`${kk} hat einen unzulässigen Wert.`); } }, k),
   Tmpfs: record(/^\/[A-Za-z0-9._/-]{1,200}$/, str(/^[A-Za-z0-9=,]{0,200}$/)),
   // logs stay with Docker: no driver that ships them over the network
@@ -59,8 +72,8 @@ const HOST: Record<string, Check> = {
 const TOP: Record<string, Check> = {
   name: () => {}, Image: () => {}, Labels: record(/^[A-Za-z0-9._-]{1,100}$/, anyStr), Env: strings,
   Hostname: str(/^[a-z0-9][a-z0-9-]{0,62}$/),
-  // screenshot containers only (checked below): the fixed script, a fixed user
-  Cmd: strings, User: str(/^[a-z][a-z0-9_-]{0,31}$/),
+  // screenshot and database copy containers only (checked below): the fixed command, a fixed user
+  Cmd: strings, Entrypoint: strings, User: str(/^[a-z][a-z0-9_-]{0,31}$/),
   HostConfig: (v, k) => only(obj(v, k), HOST, k),
   // at most the internal sandbox network as endpoint
   NetworkingConfig: (v, k) => only(obj(v, k), { EndpointsConfig: (e, kk) => only(obj(e, kk), { [SANDBOX_NET]: (ep, kkk) => only(obj(ep, kkk), { Aliases: strings }, kkk) }, `${k}.${kk}`) }, k),
@@ -71,11 +84,40 @@ export function assertSafeSpec(spec: ContainerSpec): ContainerSpec {
   only(spec as unknown as Record<string, unknown>, TOP, '');
   if (typeof spec.name !== 'string' || !/^lotse-[a-z0-9-]{1,60}$/.test(spec.name)) throw new Error('Ungültiger Container-Name.');
   if (!isManaged(spec.Labels)) throw new Error('Container ohne Lotse-Label werden nicht angelegt.');
+  const host = (spec.HostConfig ?? {}) as { NetworkMode?: unknown; Mounts?: { Type: string; Source: string; Target: string; ReadOnly?: boolean }[] };
+  if (spec.Labels[ROLE_LABEL] === DB_COPY_ROLE) { assertCopySpec(spec, host); return spec; }
   // a missing NetworkMode means Docker's default bridge, i.e. internet access: the internal network is mandatory
-  if ((spec.HostConfig as { NetworkMode?: unknown } | undefined)?.NetworkMode !== SANDBOX_NET) deny(`HostConfig.NetworkMode muss ${SANDBOX_NET} sein (kein Internetzugang).`);
-  if (spec.Image === SCREENSHOT_IMAGE) assertShotSpec(spec);
+  if (host.NetworkMode !== SANDBOX_NET) deny(`HostConfig.NetworkMode muss ${SANDBOX_NET} sein (kein Internetzugang).`);
+  if (spec.Entrypoint !== undefined) deny('Ein eigener Start-Befehl ist nur für den Datenbank-Kopier-Container erlaubt.');
+  if (spec.Image === SCREENSHOT_IMAGE) { if (host.Mounts !== undefined) deny('Screenshot-Container ohne Volumes.'); assertShotSpec(spec); }
   else if (spec.Cmd !== undefined || spec.User !== undefined || !templateImage(spec.Image)) deny('Image, Befehl oder Benutzer nicht erlaubt (Aufgaben-Container laufen mit dem Start-Befehl des Images).');
+  else if (host.Mounts !== undefined) assertTaskMounts(spec, host.Mounts);
   return spec;
+}
+/** A task container mounts at most its own database volume, at the data directory of a template (MySQL's /var/lib/mysql). */
+function assertTaskMounts(spec: ContainerSpec, mounts: { Type: string; Source: string; Target: string; ReadOnly?: boolean }[]) {
+  const task = spec.Labels[TASK_LABEL] ?? '', dirs = Object.values(TEMPLATES).flatMap(t => (t.database ? [t.database.dataDir] : []));
+  if (mounts.length > 1) deny('Aufgaben-Container mit höchstens einem Volume.');
+  for (const m of mounts) {
+    if (!/^t_[a-z0-9]{12}$/.test(task) || m.Source !== taskDbVolume(task)) deny('Ein Aufgaben-Container bindet nur sein eigenes Datenbank-Volume ein.');
+    if (!dirs.includes(m.Target) || m.ReadOnly) deny(`Datenbank-Volume nur am Datenverzeichnis der Vorlage (${dirs.join(', ')}).`);
+  }
+}
+/** The database copy container: the fixed command as root in the task image, no network, only the capabilities cp -a needs,
+ *  no-new-privileges, exactly a snapshot and the task's own database volume (one of them read-only as the source). */
+function assertCopySpec(spec: ContainerSpec, host: { NetworkMode?: unknown; Mounts?: { Type: string; Source: string; Target: string; ReadOnly?: boolean }[] }) {
+  const h = (spec.HostConfig ?? {}) as { CapDrop?: string[]; SecurityOpt?: string[] };
+  const task = spec.Labels[TASK_LABEL] ?? '';
+  if (!/^t_[a-z0-9]{12}$/.test(task) || spec.name !== copyContainerName(task)) deny('Name oder Label des Kopier-Containers.');
+  if (!templateImage(spec.Image)) deny('Image des Kopier-Containers.');
+  if (JSON.stringify(spec.Entrypoint) !== JSON.stringify(COPY_ENTRYPOINT) || spec.Cmd !== undefined || spec.User !== COPY_USER) deny('Befehl oder Benutzer des Kopier-Containers.');
+  if (host.NetworkMode !== 'none') deny('Kopier-Container ohne Netzwerk (NetworkMode none).');
+  if (COPY_CAP_DROP.some(c => !h.CapDrop?.includes(c)) || !h.SecurityOpt?.includes('no-new-privileges:true')) deny('Kopier-Container ohne die vorgeschriebenen CapDrop und no-new-privileges.');
+  if (spec.Env?.length || spec.NetworkingConfig || spec.Hostname) deny('Kopier-Container ohne Umgebung, Alias und Hostnamen.');
+  const m = host.Mounts ?? [], from = m.find(x => x.Target === COPY_FROM), to = m.find(x => x.Target === COPY_TO);
+  if (m.length !== 2 || !from || !to || from.ReadOnly !== true || to.ReadOnly) deny(`Kopier-Container mit genau zwei Volumes: ${COPY_FROM} (nur lesend) und ${COPY_TO}.`);
+  const own = [from!, to!].filter(x => volumeTask(x.Source) !== null);
+  if (own.length !== 1 || volumeTask(own[0].Source) !== task) deny('Kopier-Container: genau ein Snapshot und das Datenbank-Volume der eigenen Aufgabe.');
 }
 /** The screenshot container: exactly the fixed script as the fixed non-root user, every capability dropped, no-new-privileges. */
 function assertShotSpec(spec: ContainerSpec) {

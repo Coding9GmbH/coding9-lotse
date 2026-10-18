@@ -24,6 +24,11 @@ const read = (req: http.IncomingMessage) => new Promise<string>(ok => { let b = 
 let lastExecBody: Record<string, unknown> | null = null, stdinSeen = '';
 let egressNet: Record<string, unknown> | null = null;
 const netBodies: Record<string, unknown>[] = [];
+const volumes: Record<string, { labels: Record<string, string> | null; inUse?: boolean }> = {
+  'lotse-taskdb-t_foreignforei': { labels: null }, // same naming pattern, not Lotse's
+  'lotse-db-d_aaaaaaaaaaaaaaaa-0123456789ab': { labels: { 'lotse.managed': '1', 'lotse.role': 'db-snapshot', 'lotse.dump': 'd_aaaaaaaaaaaaaaaa' }, inUse: true },
+};
+const volBodies: Record<string, unknown>[] = [];
 
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url ?? '/', 'http://docker'), p = decodeURIComponent(u.pathname), body = await read(req);
@@ -67,6 +72,17 @@ const server = http.createServer(async (req, res) => {
   if (r === '/exec/exec1/json') return send(res, 200, { ExitCode: 2 });
   if (r === '/exec/plain1/json' || r === '/exec/hang1/json') return send(res, 200, { ExitCode: 0 });
   if (r === '/exec/tty1/resize') { resizes.push(`${u.searchParams.get('w')}x${u.searchParams.get('h')}`); return send(res, 201); }
+  // volumes (stored databases): one of Lotse, one foreign of a matching name, one in use
+  if (r === '/volumes/create') { const b = JSON.parse(body) as { Name: string; Labels: Record<string, string> }; volBodies.push(b); const v = volumes[b.Name] ??= { labels: b.Labels }; return send(res, 201, { Name: b.Name, Labels: v.labels }); }
+  if (r === '/volumes') return send(res, 200, { Volumes: Object.entries(volumes).map(([Name, v]) => ({ Name, Labels: v.labels })), Warnings: null }); // ignores the filter
+  const vm = /^\/volumes\/([^/]+)$/.exec(r);
+  if (vm) {
+    if (vm[1] === 'lotse-taskdb-t_forbiddenxxx') return send(res, 403, { message: 'forbidden' }); // a socket proxy with VOLUMES: 0
+    const v = volumes[vm[1]];
+    if (!v) return send(res, 404, { message: 'get: no such volume' });
+    if (req.method === 'GET') return send(res, 200, { Name: vm[1], Labels: v.labels, CreatedAt: '2026-10-18T10:00:00Z' });
+    if (req.method === 'DELETE') { if (v.inUse) return send(res, 409, { message: 'volume is in use' }); delete volumes[vm[1]]; return send(res, 204); }
+  }
   if (r === '/networks/lotse-sandbox') return send(res, 404, { message: 'network not found' });
   if (r === '/networks/lotse-sandbox-egress' && req.method === 'GET') return egressNet ? send(res, 200, egressNet) : send(res, 404, { message: 'network not found' });
   if (r === '/networks/create') { netBodies.push(JSON.parse(body)); return send(res, 201, { Id: 'n1' }); }
@@ -285,9 +301,13 @@ test('create: only labelled, allowed image, no host access', async () => {
   await bad({ HostConfig: { capAdd: ['SYS_ADMIN'] } }, /capAdd/);
   await bad({ image: 'nginx:1' }, /image ist nicht erlaubt/);
   await bad({ hostConfig: { Privileged: true } }, /hostConfig/);
-  for (const mode of ['container:lotse', 'none', 'lotse_docker-api', 'HOST']) await bad({ HostConfig: { NetworkMode: mode } }, /NetworkMode=/);
-  for (const k of ['PidMode', 'IpcMode', 'Sysctls', 'CgroupParent', 'Runtime', 'PublishAllPorts', 'Devices', 'Mounts', 'VolumesFrom', 'UsernsMode'])
+  for (const mode of ['container:lotse', 'lotse_docker-api', 'HOST']) await bad({ HostConfig: { NetworkMode: mode } }, /NetworkMode=/);
+  await bad({ HostConfig: { NetworkMode: 'none' } }, /NetworkMode muss lotse-sandbox sein/); // "none" only for the database copy container
+  for (const k of ['PidMode', 'IpcMode', 'Sysctls', 'CgroupParent', 'Runtime', 'PublishAllPorts', 'Devices', 'VolumesFrom', 'UsernsMode'])
     await bad({ HostConfig: { [k]: k === 'PublishAllPorts' ? true : ['x'] } }, new RegExp(`${k} ist nicht erlaubt`));
+  // Mounts: only Lotse's named volumes (stored databases, see sandbox-db-snapshots.test.ts), never a host path
+  await bad({ HostConfig: { NetworkMode: 'lotse-sandbox', Mounts: [{ Type: 'bind', Source: '/', Target: '/host' }] } }, /muss „volume“ sein/);
+  await bad({ HostConfig: { NetworkMode: 'lotse-sandbox', Mounts: [{ Type: 'volume', Source: 'mysql-data', Target: '/var/lib/mysql' }] } }, /kein von Lotse verwaltetes Volume/);
   await bad({ HostConfig: { NetworkMode: 'lotse-sandbox', PortBindings: { '80/tcp': [{ HostIp: '127.0.0.1', HostPort: '8080' }] } } }, /PortBindings ist nicht erlaubt/);
   await bad({ ExposedPorts: { '80/tcp': {} } }, /ExposedPorts ist nicht erlaubt/);
   await bad({ HostConfig: { LogConfig: { Type: 'syslog', Config: { 'syslog-address': 'tcp://x' } } } }, /Type/);
@@ -360,4 +380,33 @@ test('internet: only the Lotse egress network, created without traffic between i
   await d.disconnectEgress('net');
   await d.disconnectEgress('gone');
   assert.equal(netBodies.length, before + 2, 'not attached or missing: nothing sent');
+});
+
+test('volumes: only Lotse names, always labelled; a foreign volume of a matching name is never used or removed; in use = clear error', async () => {
+  const mine = 'lotse-taskdb-t_abcdefghijkl', snap = 'lotse-db-d_aaaaaaaaaaaaaaaa-0123456789ab', foreign = 'lotse-taskdb-t_foreignforei';
+  await assert.rejects(d.createVolume('mysql-data', { 'lotse.managed': '1' }), /nicht verwaltet/);
+  await assert.rejects(d.createVolume(mine, {}), /Lotse-Label/);
+  await d.createVolume(mine, { 'lotse.managed': '1', 'lotse.role': 'task-db', 'lotse.task': 't_abcdefghijkl' });
+  assert.deepEqual(volBodies.at(-1), { Name: mine, Driver: 'local', Labels: { 'lotse.managed': '1', 'lotse.role': 'task-db', 'lotse.task': 't_abcdefghijkl' } });
+  await assert.rejects(d.createVolume(foreign, { 'lotse.managed': '1' }), /gehört nicht zu Lotse/, 'Docker answers an existing name with that volume');
+  assert.equal((await d.inspectVolume(mine))?.name, mine);
+  assert.equal(await d.inspectVolume('lotse-taskdb-t_missingmissi'), null);
+  await assert.rejects(d.inspectVolume(foreign), /gehört nicht zu Lotse/);
+  // the filter is not trusted: the foreign volume is dropped from the list
+  assert.deepEqual((await d.listVolumes()).map(v => v.name).sort(), [snap, mine].sort());
+  assert.deepEqual((await d.listVolumes({ 'lotse.role': 'db-snapshot' })).map(v => v.name), [snap]);
+  const n = calls.length;
+  await assert.rejects(d.removeVolume(foreign), /gehört nicht zu Lotse/);
+  assert.ok(!calls.slice(n).some(c => c.startsWith('DELETE')), 'never a DELETE for a foreign volume');
+  await assert.rejects(d.removeVolume(snap), /noch von einem Container benutzt/);
+  await d.removeVolume('lotse-taskdb-t_missingmissi'); // missing: nothing to do
+  // create: a mounted volume must exist and be Lotse's (Docker would create an unlabelled one otherwise)
+  const { buildSpec } = await import('../../src/server/sandbox/templates/dockware');
+  const spec = (task: string) => buildSpec({ taskId: task, image: IMAGE, memoryMb: 4096, cpus: 2, env: [], dbVolume: `lotse-taskdb-${task}` });
+  await assert.rejects(d.create(spec('t_missingmissi')), /fehlt/);
+  await assert.rejects(d.create(spec('t_foreignforei')), /gehört nicht zu Lotse/);
+  assert.equal(await d.create(spec('t_abcdefghijkl')), 'new1');
+  await d.removeVolume(mine);
+  assert.equal(await d.inspectVolume(mine), null);
+  await assert.rejects(d.inspectVolume('lotse-taskdb-t_forbiddenxxx'), /VOLUMES: 1/, 'an older socket proxy: says what to change');
 });

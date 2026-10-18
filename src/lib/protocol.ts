@@ -245,7 +245,7 @@ export interface GithubTestResult extends TestResult { login: string | null; /**
 export interface GithubRepo { fullName: string; private: boolean; defaultBranch: string; /** may push (from GitHub's permissions) */ push: boolean; pushedAt: string | null }
 export interface GithubBranch { name: string; protected: boolean }
 // ---- Sandbox Coding: one container per task from a fixed template; secrets of the environment never reach the browser ----
-export type SandboxStepKey = 'check-image' | 'clone' | 'detect-layout' | 'start-container' | 'wait-ready' | 'version-check' | 'import-db' | 'set-domain' | 'preview-tidy' | 'install-plugin' | 'custom-after-db' | 'theme-compile' | 'custom-final' | 'ready';
+export type SandboxStepKey = 'check-image' | 'clone' | 'detect-layout' | 'start-container' | 'wait-ready' | 'version-check' | 'import-db' | 'set-domain' | 'db-snapshot' | 'preview-tidy' | 'install-plugin' | 'custom-after-db' | 'theme-compile' | 'custom-final' | 'ready';
 export type SandboxCommandKey = 'theme-compile' | 'cache-clear' | 'plugin-refresh' | 'theme-refresh' | 'lint-twig' | 'php-lint';
 /** When an own setup command runs: after the database (before theme:compile) or at the very end of the setup */
 export type CommandPhase = 'after-db' | 'final';
@@ -264,6 +264,7 @@ export interface SandboxEnvPublic {
   /** "Internet im Container": only after a human allowed it per task (default) or never */ internet: InternetPolicy;
   /** "Screenshot" button in the preview (off by default): captures screenshotPaths on desktop and mobile, only on the user's click */ screenshots: boolean;
   /** storefront paths the "Screenshot" button captures */ screenshotPaths: string[];
+  /** stored database preselected in "Sandbox starten" ('' = none, or the one stored was deleted) */ defaultDumpId: string;
 }
 export type InternetPolicy = 'approval' | 'never';
 /** Both modes: task containers only on the internal network lotse-sandbox. network = Lotse runs in Docker on that network; local = Lotse on the host reaches the container IPs */
@@ -273,6 +274,7 @@ export interface SandboxEnvView { env: SandboxEnvPublic; docker: SandboxDocker |
 /** PUT /api/sandbox/env: secret value empty/undefined = unchanged; a command without id is new */
 export interface SandboxEnvPatch {
   enabled?: boolean; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number; defaultRepo?: string; defaultBranch?: string; internet?: InternetPolicy; screenshots?: boolean; screenshotPaths?: string[];
+  /** '' = no stored database preselected */ defaultDumpId?: string;
   envVars?: { key: string; secret: boolean; value?: string }[];
   commands?: { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec?: number }[];
 }
@@ -344,10 +346,13 @@ export interface PluginZipCheck {
 }
 /** A local commit of the task's worktree; published = contained in the last push */
 export interface TaskCommit { sha: string; at: string; subject: string; published: boolean }
-/** Dump of a task: imported once and deleted right after the import (also on failure). versionMismatch blocks until "Trotzdem fortfahren". */
-export interface TaskDumpPublic { name: string; size: number; sha256: string | null; imported: boolean; deleted: boolean; ignoreVersion: boolean; versionMismatch?: { dump: string; image: string } }
-/** An uploaded dump (GET/POST /api/sandbox/dumps…): metadata, never the content */
-export interface DumpPublic { id: string; name: string; size: number; received: number; status: 'uploading' | 'ready' | 'deleted'; sha256: string | null; taskId: string | null; expiresAt: string }
+/** Dump of a task: imported once and deleted right after the import (also on failure); a stored database (library) stays.
+ *  restored = its data came from the snapshot of an earlier import (no import). versionMismatch blocks until "Trotzdem fortfahren". */
+export interface TaskDumpPublic { name: string; size: number; sha256: string | null; imported: boolean; deleted: boolean; ignoreVersion: boolean; versionMismatch?: { dump: string; image: string }; library?: boolean; restored?: boolean }
+/** An uploaded dump (GET/POST /api/sandbox/dumps/<id>…): metadata, never the content. expiresAt null = a complete stored database (kept until deleted) */
+export interface DumpPublic { id: string; name: string; size: number; received: number; status: 'uploading' | 'ready' | 'deleted'; sha256: string | null; taskId: string | null; expiresAt: string | null; library: boolean }
+/** "Gespeicherte Datenbanken" (GET /api/sandbox/dumps): complete stored databases. snapshot = a quick-start snapshot exists for the configured image */
+export interface LibraryDumpPublic { id: string; name: string; size: number; shopwareVersion: string | null; createdAt: string; uploadedBy: string | null; lastUsedAt: string | null; snapshot: boolean }
 /** NDJSON lines of GET /api/sandbox/tasks/[id]/events: full task on transitions, single log lines in between */
 export type TaskEvent = { t: 'task'; task: CodeTaskPublic } | { t: 'log'; step: string; line: string } | { t: 'deleted' }
   /** an event the server added to the task's chat between turns (PR feedback): the open workspace shows it without reloading */

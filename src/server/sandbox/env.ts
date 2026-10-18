@@ -6,7 +6,7 @@ import 'server-only';
 import crypto from 'node:crypto';
 import type { CommandPhase, InternetPolicy, SandboxCheckEvent, SandboxCommand, SandboxDocker, SandboxEnvPatch, SandboxEnvPublic, SandboxStatus } from '@/lib/protocol';
 import { exposedWithoutPassword, sandboxSubnet } from '../access';
-import { kvGet, kvSet, seal, unseal } from '../db';
+import { codeDumpGet, kvGet, kvSet, seal, unseal } from '../db';
 import { assertRepoName } from '../github';
 import { singleton } from '../state';
 import { errMsg, pool } from '../util';
@@ -21,6 +21,7 @@ interface StoredSandbox {
   enabled?: boolean; templateId?: string; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number;
   envVars?: StoredVar[]; commands?: SandboxCommand[]; updatedAt?: string; defaultRepo?: string; defaultBranch?: string; internet?: InternetPolicy;
   /** the manual "Screenshot" button of the preview; off by default */ screenshots?: boolean; screenshotPaths?: string[];
+  /** stored database preselected in "Sandbox starten" */ defaultDumpId?: string;
 }
 const KV = 'sandbox';
 const stored = (): StoredSandbox => {
@@ -119,6 +120,9 @@ function checkCommands(next: NonNullable<SandboxEnvPatch['commands']>): SandboxC
   });
 }
 
+/** The preselected stored database while it still exists ('' otherwise). */
+const storedDb = (id: string | undefined) => { const d = id ? codeDumpGet(id) : null; return d?.library && d.status === 'ready' ? d.id : ''; };
+
 /** Base branch preset: the same character rules as git check-ref-format (checked again with git when a task is created). */
 const branchName = (b: string) => {
   if (b.length > 200 || b.startsWith('-') || b.includes('@{') || b.includes('..') || /[\s\x00-\x1f\x7f~^:?*[\\]/.test(b)) throw new Error('Ungültiger Branch-Name.');
@@ -145,6 +149,11 @@ export function saveSandbox(p: SandboxEnvPatch, env: Record<string, string | und
   if (p.internet !== undefined) {
     if (p.internet !== 'approval' && p.internet !== 'never') throw new Error('Internet im Container: erlaubt sind „nur nach Freigabe“ oder „nie“.');
     if (p.internet !== (s.internet ?? 'approval')) { next.internet = p.internet; changed.push('internet'); }
+  }
+  if (p.defaultDumpId !== undefined) {
+    const id = p.defaultDumpId.trim();
+    if (id && storedDb(id) !== id) throw new Error('Die gewählte Datenbank ist nicht (mehr) gespeichert.');
+    if (id !== storedDb(s.defaultDumpId)) { next.defaultDumpId = id; changed.push('defaultDumpId'); }
   }
   if (p.screenshots !== undefined && p.screenshots !== !!s.screenshots) { next.screenshots = p.screenshots; changed.push('screenshots'); }
   if (p.screenshotPaths !== undefined) {
@@ -173,7 +182,7 @@ export function sandboxPublic(env: Record<string, string | undefined> = process.
     memoryMb: s.memoryMb ?? LIMITS.memoryMb.def, cpus: s.cpus ?? LIMITS.cpus.def, idleMinutes: s.idleMinutes ?? defaultIdle(env), maxRunning: maxRunning(env),
     envVars: (s.envVars ?? []).map(v => ({ key: v.key, secret: v.secret, value: v.secret ? '' : v.value, hasValue: !!v.value })),
     commands: s.commands ?? [], updatedAt: s.updatedAt ?? null, defaultRepo: s.defaultRepo ?? '', defaultBranch: s.defaultBranch ?? '', internet: s.internet ?? 'approval',
-    screenshots: !!s.screenshots, screenshotPaths: s.screenshotPaths ?? DEFAULT_SHOT_PATHS,
+    screenshots: !!s.screenshots, screenshotPaths: s.screenshotPaths ?? DEFAULT_SHOT_PATHS, defaultDumpId: storedDb(s.defaultDumpId),
   };
 }
 

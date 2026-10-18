@@ -5,7 +5,7 @@ import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget 
 import { createLineSplitter } from './ndjson';
 import type { CodexLoginState, GithubBranch, GithubPublic, GithubRepo, GithubTestResult, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
-  CodeTaskPublic, ConsoleSessionPublic, DumpPublic, PluginZipCheck, RepoOwner, RepoProbe, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
+  CodeTaskPublic, ConsoleSessionPublic, DumpPublic, LibraryDumpPublic, PluginZipCheck, RepoOwner, RepoProbe, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
   PrStatus, PublishRequest, PublishResult } from './protocol';
 
 export class ApiError extends Error {
@@ -116,6 +116,8 @@ export const api = {
     replaceDb: (id: string, dumpId: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/dump`, json('POST', { dumpId })),
     dump: (id: string) => request<{ dump: DumpPublic }>(`/api/sandbox/dumps/${encodeURIComponent(id)}`),
     deleteDump: (id: string) => request<{ ok: true }>(`/api/sandbox/dumps/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    /** "Gespeicherte Datenbanken": complete stored databases (metadata only) */
+    storedDbs: () => request<{ dumps: LibraryDumpPublic[] }>('/api/sandbox/dumps'),
     /** "Pull Request erstellen/aktualisieren": title and description only, the server fixes branch and base */
     publish: (id: string, p: PublishRequest) => request<PublishResult>(`/api/sandbox/tasks/${encodeURIComponent(id)}/publish`, json('POST', p)),
     prStatus: (id: string) => request<{ pr: PrStatus | null }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/pr`),
@@ -172,13 +174,13 @@ export const DUMP_CHUNK = 8 * 1024 * 1024;
 const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, '0')).join('');
 /** Uploads a dump in chunks of 8 MB (each with its SHA-256 where the browser offers crypto.subtle), resumable:
  *  pass the id of an earlier, unfinished upload of the same file to continue after the bytes the server already has. */
-export async function uploadDumpChunked(file: File, o: { resumeId?: string | null; onStart?: (id: string) => void; onProgress?: (received: number, total: number) => void; signal?: AbortSignal } = {}): Promise<DumpPublic> {
+export async function uploadDumpChunked(file: File, o: { resumeId?: string | null; keep?: boolean; onStart?: (id: string) => void; onProgress?: (received: number, total: number) => void; signal?: AbortSignal } = {}): Promise<DumpPublic> {
   let dump: DumpPublic | null = null;
   if (o.resumeId) {
     dump = await api.sandbox.dump(o.resumeId).then(r => r.dump, () => null);
-    if (dump && (dump.size !== file.size || dump.name !== file.name || dump.status === 'deleted')) dump = null;
+    if (dump && (dump.size !== file.size || dump.name !== file.name || dump.status === 'deleted' || dump.library !== !!o.keep)) dump = null;
   }
-  dump ??= (await request<{ dump: DumpPublic }>('/api/sandbox/dumps', json('POST', { name: file.name, size: file.size }))).dump;
+  dump ??= (await request<{ dump: DumpPublic }>('/api/sandbox/dumps', json('POST', { name: file.name, size: file.size, ...(o.keep ? { keep: true } : {}) }))).dump;
   o.onStart?.(dump.id);
   if (dump.status === 'ready') return dump;
   let offset = dump.received, stuck = 0;

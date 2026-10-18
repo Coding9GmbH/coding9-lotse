@@ -10,9 +10,13 @@ import styles from './Sandbox.module.css';
 type Phase = 'idle' | 'uploading' | 'paused' | 'ready' | 'error';
 const ACCEPT = /\.sql(\.gz)?$/i;
 
-/** Optional database dump: drag & drop or file picker, chunked upload with progress, cancel and resume. onChange gets the complete dump. */
-export function DumpUpload({ onChange, onBusy, disabled }: { onChange: (dump: DumpPublic | null) => void; onBusy?: (busy: boolean) => void; disabled?: boolean }) {
+/** Optional database dump: drag & drop or file picker, chunked upload with progress, cancel and resume. onChange gets the complete dump.
+ *  "Für weitere Sandboxes speichern" (on by default) keeps it as a stored database; `storeOnly` (the list of stored databases) always does.
+ *  Removing a finished stored database here only deselects it (it is deleted in the list); an unfinished or one-off upload is discarded. */
+export function DumpUpload({ onChange, onBusy, disabled, storeOnly = false }: { onChange: (dump: DumpPublic | null) => void; onBusy?: (busy: boolean) => void; disabled?: boolean; storeOnly?: boolean }) {
   const t = useI18n().t.sandbox.dump;
+  const [keepChoice, setKeep] = useState(true);
+  const keep = storeOnly || keepChoice;
   const [file, setFile] = useState<File | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState({ received: 0, total: 0 });
@@ -29,12 +33,13 @@ export function DumpUpload({ onChange, onBusy, disabled }: { onChange: (dump: Du
     setPhase('uploading'); setError(null);
     try {
       const dump = await uploadDumpChunked(f, {
-        resumeId: idRef.current, signal: ac.signal,
+        resumeId: idRef.current, keep, signal: ac.signal,
         onStart: id => { idRef.current = id; },
         onProgress: (received, total) => setProgress({ received, total }),
       });
       if (acRef.current !== ac) return; // replaced or removed meanwhile
       setPhase('ready');
+      if (dump.library) idRef.current = null; // stored: "Entfernen" only deselects it
       onChange(dump);
     } catch (e) {
       if (acRef.current !== ac) return;
@@ -63,7 +68,13 @@ export function DumpUpload({ onChange, onBusy, disabled }: { onChange: (dump: Du
   return (
     <div className={styles.field}>
       <span className={styles.label}>{t.heading}</span>
-      <span className={styles.fieldHint}>{t.hint}</span>
+      <span className={styles.fieldHint}>{t.hint} {keep ? t.hintKeep : t.hintOnce}</span>
+      {!storeOnly && (
+        <label className={styles.toggle}>
+          <input type="checkbox" checked={keepChoice} disabled={disabled || phase === 'uploading' || phase === 'paused' || phase === 'ready'} onChange={e => setKeep(e.target.checked)} /> {t.keep}
+        </label>
+      )}
+      {keep && <span className={styles.fieldHint}>{t.keepHint}</span>}
       {phase === 'idle' || (phase === 'error' && !file) ? (
         <div className={styles.drop} data-over={over || undefined}
           onDragOver={e => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
@@ -75,7 +86,7 @@ export function DumpUpload({ onChange, onBusy, disabled }: { onChange: (dump: Du
         </div>
       ) : (
         <div className={styles.dumpBox}>
-          {phase === 'ready' ? <p className={styles.ok} role="status">✓ {t.ready(file?.name ?? '', file?.size ?? 0)}</p> : (
+          {phase === 'ready' ? <p className={styles.ok} role="status">✓ {(keep ? t.readyKept : t.ready)(file?.name ?? '', file?.size ?? 0)}</p> : (
             <>
               <progress max={100} value={pct} aria-label={t.heading} />
               <p className={styles.muted} role="status">{phase === 'paused' ? t.paused : t.uploading(pct, progress.received, progress.total)}</p>

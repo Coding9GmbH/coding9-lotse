@@ -81,7 +81,7 @@ test('happy path: all steps in order, plugin synced as www-data without .git/sec
   await settled(t.id);
   const done = T.getTask(t.id)!;
   assert.equal(done.status, 'ready', done.error ?? '');
-  assert.deepEqual(done.steps.map(s => s.state), ['done', 'done', 'done', 'done', 'done', 'skipped', 'skipped', 'done', 'done', 'done', 'done', 'done', 'done', 'done']);
+  assert.deepEqual(done.steps.map(s => s.state), ['done', 'done', 'done', 'done', 'done', 'skipped', 'skipped', 'done', 'skipped', 'done', 'done', 'done', 'done', 'done', 'done']); // no stored database: no snapshot
   assert.deepEqual(done.layout, { kind: 'theme', name: 'AcmeTheme', pluginDir: 'custom/plugins/AcmeTheme' });
   assert.equal(done.steps.find(s => s.key === 'custom' && s.phase === 'after-db')?.label, 'Demodaten');
   const argv = execs(done.containerId!).map(a => (a[0] === 'mysql' ? (a.at(-1)!.includes('installed_at') ? 'PLUGIN_STATE' : 'SET_DOMAIN') : a));

@@ -102,7 +102,7 @@ test('Sandbox Coding: attach a sandbox to a chat, setup reaches ready, preview, 
   await expect(steps.getByText('Theme kompilieren')).toBeVisible();
   await expect(steps.getByText('Vorschau aufräumen (Debug-Leiste, Cookie-Hinweis)')).toBeVisible();
   await expect(steps.getByText('Demodaten', { exact: true })).toBeVisible(); // own command from the environment = own step
-  await expect(steps.getByText('übersprungen')).toHaveCount(2); // no dump: version check and import skipped
+  await expect(steps.getByText('übersprungen')).toHaveCount(3); // no dump: version check, import and the database snapshot skipped
   await expect(steps.getByText(/lotse\/footer-gruen-.*Container läuft.*custom\/plugins\/AcmeShopTheme/)).toBeVisible();
   await steps.getByRole('listitem').filter({ hasText: 'Plugin installieren und aktivieren' }).getByText(/^Protokoll/).click();
   await expect(steps.getByText('$ bin/console plugin:install --activate -- AcmeShopTheme')).toBeVisible();
@@ -247,7 +247,7 @@ test('Sandbox Coding: console in the container – type, quick commands, reattac
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
 });
 
-// Database dump: chunked upload in the "Sandbox starten" dialog, imported during the setup and deleted right afterwards.
+// Database dump: chunked upload in the "Sandbox starten" dialog, not stored (unticked), imported during the setup and deleted right afterwards.
 test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async ({ page, request }) => {
   test.setTimeout(120_000);
   const lotse = { 'x-lotse': '1' };
@@ -259,7 +259,10 @@ test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async (
   await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
   await expect(dialog.getByLabel('Basis-Branch')).toHaveValue('main');
   await dialog.getByLabel('Titel (optional)').fill('Mit Datenbank');
-  await dialog.getByText('Datenbank-Dump hinzufügen (optional)').click(); // optional: behind a disclosure
+  await dialog.getByText('Datenbank (optional)').click(); // optional: behind a disclosure
+  const keep = dialog.getByLabel('Für weitere Sandboxes speichern');
+  await expect(keep).toBeChecked(); // stored by default
+  await keep.uncheck();
   await expect(dialog.getByText('Nur bereinigte Dumps ohne Kundendaten. Die Datei wird nach dem Import gelöscht.')).toBeVisible();
   const sql = "-- MySQL dump\nINSERT INTO `migration` VALUES ('Shopware\\\\Core\\\\Migration\\\\V6_7\\\\Migration1700000000Foo',1,NULL,NULL,NULL);\n";
   const completed = page.waitForResponse(r => /\/api\/sandbox\/dumps\/d_[a-z0-9]{16}\/complete$/.test(r.url()));
@@ -284,6 +287,80 @@ test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async (
   await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
   await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
   await expect(panel).toHaveCount(0);
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
+});
+
+// Stored database: uploaded once in the start dialog (stored by default), listed under "Gespeicherte Datenbanken", the first sandbox
+// imports it and saves the quick-start snapshot, the next one (preselected as the environment's default) takes the snapshot over without
+// an import; deleting it removes it from the list.
+test('Sandbox Coding: a stored database is reused – snapshot after the first import, quick start for the next sandbox, delete', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const lotse = { 'x-lotse': '1' };
+  expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  let dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
+  await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
+  await expect(dialog.getByLabel('Basis-Branch')).toHaveValue('main');
+  await dialog.getByLabel('Titel (optional)').fill('Gespeicherte Datenbank 1');
+  await dialog.getByText('Datenbank (optional)').click();
+  await expect(dialog.getByLabel('Für weitere Sandboxes speichern')).toBeChecked();
+  await expect(dialog.getByText('Nur bereinigte Dumps ohne Kunden- und Bestelldaten speichern.')).toBeVisible();
+  const sql = "-- MySQL dump\nINSERT INTO `migration` VALUES ('Shopware\\\\Core\\\\Migration\\\\V6_7\\\\Migration1700000000Foo',1,NULL,NULL,NULL);\n";
+  const completed = page.waitForResponse(r => /\/api\/sandbox\/dumps\/d_[a-z0-9]{16}\/complete$/.test(r.url()));
+  await dialog.getByLabel('Datenbank-Dump (optional)', { exact: true }).first().setInputFiles({ name: 'stored.sql', mimeType: 'application/sql', buffer: Buffer.from(sql) });
+  const { dump } = await (await completed).json() as { dump: { id: string; library: boolean; expiresAt: string | null } };
+  expect([dump.library, dump.expiresAt]).toEqual([true, null]);
+  await expect(dialog.getByText(/stored\.sql .* ist gespeichert/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
+  let panel = page.getByRole('region', { name: 'Sandbox' });
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+  await panel.getByRole('tab', { name: 'Einrichtung' }).click();
+  await expect(panel.getByText(/Gespeicherte Datenbank: stored\.sql .*\(importiert\)/)).toBeVisible();
+  await panel.getByRole('button', { name: 'Details anzeigen' }).click();
+  await expect(panel.getByRole('listitem').filter({ hasText: 'Datenbank für den Schnellstart sichern' }).getByText('erledigt')).toBeVisible();
+  page.once('dialog', d => void d.accept());
+  await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
+  await expect(panel).toHaveCount(0);
+
+  // the list: version, size, quick start ready; preselected as the default of "Sandbox starten"
+  await page.goto('/sandbox-coding');
+  const card = page.getByRole('region', { name: 'Gespeicherte Datenbanken' });
+  const row = card.getByRole('listitem').filter({ hasText: 'stored.sql' });
+  await expect(row.getByText(/Shopware 6\.7 · .* MB · hochgeladen .* · zuletzt verwendet/)).toBeVisible();
+  await expect(row.getByText('Schnellstart bereit')).toBeVisible();
+  const env = page.locator('#sbx-env');
+  if ((await env.getAttribute('open')) === null) await env.locator('> summary').click();
+  await env.getByLabel('Datenbank', { exact: true }).selectOption(dump.id);
+  await env.getByRole('button', { name: 'Umgebung speichern' }).click();
+  await expect(env.getByRole('status').filter({ hasText: 'Gespeichert.' })).toBeVisible();
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
+  await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
+  await dialog.getByLabel('Titel (optional)').fill('Gespeicherte Datenbank 2');
+  await expect(dialog.getByLabel('Datenbank', { exact: true })).toHaveValue(dump.id); // the default, the disclosure open
+  await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
+  panel = page.getByRole('region', { name: 'Sandbox' });
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+  await panel.getByRole('tab', { name: 'Einrichtung' }).click();
+  await expect(panel.getByText(/Gespeicherte Datenbank: stored\.sql .*\(aus dem Snapshot übernommen\)/)).toBeVisible();
+  await panel.getByRole('button', { name: 'Details anzeigen' }).click();
+  await expect(panel.getByRole('listitem').filter({ hasText: 'Datenbank für den Schnellstart sichern' }).getByText('übersprungen')).toBeVisible();
+  page.once('dialog', d => void d.accept());
+  await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
+  await expect(panel).toHaveCount(0);
+
+  // delete (with confirmation): gone from the list
+  await page.goto('/sandbox-coding');
+  page.once('dialog', d => void d.accept());
+  await card.getByRole('button', { name: 'stored.sql löschen' }).click();
+  await expect(card.getByText('Noch keine gespeicherte Datenbank.')).toBeVisible();
+  expect((await (await request.get(`/api/sandbox/dumps/${dump.id}`)).json() as { dump: { status: string } }).dump.status).toBe('deleted');
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
 });
 

@@ -27,8 +27,9 @@ export interface StepCtx {
   httpStatus: (path: string) => Promise<number>;
   /** workspace → container (full mirror of the plugin directory) */
   syncAll: () => Promise<void>;
-  /** the task's uploaded dump waiting for the import (metadata only; the AI never gets this context) */
-  dump: () => { name: string; size: number; ignoreVersion: boolean } | null;
+  /** the task's uploaded dump waiting for the import (metadata only; the AI never gets this context). library = a stored database
+   *  (kept after the import); restored = its MySQL data came from a snapshot before the container started (nothing to import) */
+  dump: () => { name: string; size: number; ignoreVersion: boolean; library: boolean; restored: boolean } | null;
   /** the task has a dump at all (waiting or already imported): its themes need compiling even when nothing else does */
   hasDump: () => boolean;
   /** Shopware major.minor recorded in the dump's core migrations, null = not recognizable */
@@ -37,8 +38,13 @@ export interface StepCtx {
   setVersionMismatch: (v: { dump: string; image: string } | null) => void;
   /** streams the dump as <dir>/dump (owner www-data, mode 0600) into the container */
   copyDump: (dir: string) => Promise<void>;
-  /** after the import (success or not): deletes the dump on the host and `containerDir` in the container, records the result */
-  discardDump: (imported: boolean, containerDir: string) => Promise<void>;
+  /** after the import (success or not): deletes a one-off dump on the host (a stored database stays) and `containerDir` in the
+   *  container (null = nothing was copied), records the result */
+  discardDump: (imported: boolean, containerDir: string | null) => Promise<void>;
+  /** after the import of a stored database: MySQL stopped cleanly, its data directory copied into the snapshot volume for this image,
+   *  MySQL started again. 'skipped' (with the reason in the log) when there is nothing to save or snapshots are off; a failed copy
+   *  only costs the snapshot, never the setup */
+  saveDbSnapshot: () => Promise<void | 'skipped'>;
   /** while waiting for the container: throws a clear German error (exit code, end of the container log) once it is no longer running */
   checkAlive: () => Promise<void>;
   log: (line: string) => void;
@@ -47,6 +53,9 @@ export interface StepCtx {
 
 /** A file written into the (possibly stopped) container before every start, e.g. a boot hook of the image. Constant content. */
 export interface BootFile { dir: string; name: string; content: string; mode: number }
+/** The template's database: its data directory (a volume of the task when it uses a stored database) and how to stop and start it
+ *  cleanly (as root) around a snapshot. */
+export interface DatabaseSpec { dataDir: string; stop: { argv: string[]; user: string }; start: { argv: string[]; user: string } }
 /** Shutting the container's services down cleanly before `docker stop` (whose signal the image may ignore). */
 export interface GracefulStop { argv: string[]; user: string; timeoutMs: number; /** docker stop's grace period afterwards */ stopTimeoutSec: number }
 
@@ -68,6 +77,8 @@ export interface ConsoleSpec {
 /** Input of the pure container spec builder: only server-side values (validated task id, configured image, limits). */
 export interface SpecInput {
   taskId: string; image: string; memoryMb: number; cpus: number; env: string[];
+  /** the task's database volume (stored databases), mounted at the template's database.dataDir */
+  dbVolume?: string;
 }
 
 export interface TemplateStep {
@@ -131,6 +142,8 @@ export interface SandboxTemplate {
   workdir: string;
   bootFile?: BootFile;
   gracefulStop?: GracefulStop;
+  /** missing = no snapshots of stored databases (they are imported every time) */
+  database?: DatabaseSpec;
   /** missing = no console tab */
   console?: ConsoleSpec;
 }
