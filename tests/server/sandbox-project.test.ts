@@ -417,6 +417,10 @@ test('the boot check takes out the file Shopware names, defines missing env vars
   assert.match(log, /Shopware startet nicht \(Unrecognized option "lock" under "framework"[^\n]*\) – config\/packages\/framework\.yaml wird in der Sandbox nicht geladen/);
   assert.match(log, /Umgebungsvariable FROM_PHP fehlt – in der Sandbox leer gesetzt/);
   assert.match(log, /Shopware startet nach 2 Anpassung\(en\) ✓/);
+  // the plan is logged once, as it booted: nothing switched for the file that was taken out (framework.yaml set Redis cache and session)
+  assert.equal(log.match(/Sandbox-Anpassungen/g)?.length, 1);
+  assert.doesNotMatch(log, /framework\.session\.handler_id|framework\.cache\.app: cache\.adapter\.redis/);
+  assert.match(log, /Nicht geladen: config\/packages\/framework\.yaml – Shopware startet damit nicht: unbekannte Option „framework\.lock“/);
   assert.deepEqual(cur.layout!.project!.held, [{ file: 'config/packages/framework.yaml', code: 'option', detail: 'framework.lock' }]);
   assert.match(files(cur.containerId!).get(`${ROOT}/config/services_dev.yml`)!.toString(), /'env\(FROM_PHP\)': ''/);
   assert.ok(!files(cur.containerId!).has(`${ROOT}/config/packages/framework.yaml`));

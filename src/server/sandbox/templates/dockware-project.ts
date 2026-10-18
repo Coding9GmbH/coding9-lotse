@@ -71,7 +71,8 @@ async function readRuntime(ctx: StepCtx, p: ProjectInfo): Promise<ProjectInfo> {
   return { ...p, appEnv, extensions, envNames };
 }
 
-/** What the sync's config plan did, for the setup log */
+/** What the sync's config plan did, for the setup log: written once the boot check settled (an override taken from a file the boot
+ *  check took out afterwards would otherwise be listed although it never applied) */
 function logPlan(ctx: StepCtx, plan: ConfigPlan | null, appEnv: string) {
   if (!plan) return;
   for (const [f, q] of plan.quarantine) ctx.log(`Nicht geladen: ${f} – ${reasonText(q)}`);
@@ -112,12 +113,13 @@ async function composerParts(ctx: StepCtx, p: ProjectInfo, skip: Set<string>) {
   } finally { await ctx.run(['php', '-r', COMPOSER_EDIT_PHP, '--', 'restore'], { quiet: true }).catch(() => {}); }
 }
 
-/** Step 4: Shopware boots with the project's config (bin/console about); a file the error points at is taken out and synced again */
-async function bootCheck(ctx: StepCtx, l: TaskLayout, p: ProjectInfo, plan: ConfigPlan | null): Promise<ProjectInfo> {
+/** Step 4: Shopware boots with the project's config (bin/console about); a file the error points at is taken out and synced again.
+ *  Returns the project and the plan it booted with; a failure logs the plan of the last round before it throws. */
+async function bootCheck(ctx: StepCtx, l: TaskLayout, p: ProjectInfo, plan: ConfigPlan | null): Promise<{ p: ProjectInfo; plan: ConfigPlan | null }> {
   for (let round = 1; ; round++) {
     await ctx.run(CLEAR_CACHE, { quiet: true });
     const r = await ctx.run(bin('about'), { ...ANY, quiet: true, timeoutMs: 3 * MIN });
-    if (r.exitCode === 0) { ctx.log(round === 1 ? 'Shopware startet mit der Konfiguration des Projekts ✓' : `Shopware startet nach ${round - 1} Anpassung(en) ✓`); return p; }
+    if (r.exitCode === 0) { ctx.log(round === 1 ? 'Shopware startet mit der Konfiguration des Projekts ✓' : `Shopware startet nach ${round - 1} Anpassung(en) ✓`); return { p, plan }; }
     const why = bootError(r.output), found = round <= BOOT_ROUNDS ? bootFinding(r.output, plan?.files ?? [], p.appEnv ?? 'dev') : null;
     if (found && 'env' in found && !(p.extraEnv ?? []).includes(found.env)) {
       ctx.log(`Umgebungsvariable ${found.env} fehlt – in der Sandbox leer gesetzt.`);
@@ -128,12 +130,12 @@ async function bootCheck(ctx: StepCtx, l: TaskLayout, p: ProjectInfo, plan: Conf
     } else {
       const quoted = [...why.matchAll(/"([^"]{3,80})"/g)].map(m => m[1]);
       const likely = (plan?.files ?? []).find(f => quoted.some(q => f.raw.includes(q)))?.rel;
+      logPlan(ctx, plan, p.appEnv ?? 'dev');
       throw new Error(`Shopware startet mit der Konfiguration des Projekts nicht: ${why || `Exit-Code ${r.exitCode}`}${likely ? `\nWahrscheinliche Ursache: ${likely}` : found && 'file' in found ? `\nWahrscheinliche Ursache: ${found.file}` : '\nDie Ursache ließ sich keiner Konfigurationsdatei zuordnen – Log (var/log) in der Konsole prüfen.'}`);
     }
     save(ctx, l, p);
     plan = await ctx.syncAll();
     p = project(ctx).p; // the sync keeps what it quarantined on the layout
-    logPlan(ctx, plan, p.appEnv ?? 'dev');
   }
 }
 
@@ -167,9 +169,9 @@ export async function installProject(ctx: StepCtx): Promise<void> {
 
   let plan = await ctx.syncAll();
   p = project(ctx).p;
-  logPlan(ctx, plan, p.appEnv ?? 'dev');
   await composerParts(ctx, p, skip);
-  p = await bootCheck(ctx, l, p, plan);
+  ({ p, plan } = await bootCheck(ctx, l, p, plan));
+  logPlan(ctx, plan, p.appEnv ?? 'dev');
   save(ctx, l, p);
 
   // plugins: with a dump its plugin table decides (only plugins it does not know are installed); without one every project plugin
@@ -211,7 +213,12 @@ export async function installProject(ctx: StepCtx): Promise<void> {
     plan = await ctx.syncAll();
     p = project(ctx).p;
     const loaded = [...before].filter(f => !plan?.quarantine.has(f));
-    if (loaded.length) { ctx.log(`Mit den Erweiterungen der Plugins jetzt geladen: ${loaded.join(', ')}`); p = await bootCheck(ctx, l, p, plan); save(ctx, l, p); }
+    if (loaded.length) {
+      ctx.log(`Mit den Erweiterungen der Plugins jetzt geladen: ${loaded.join(', ')}`);
+      ({ p, plan } = await bootCheck(ctx, l, p, plan));
+      logPlan(ctx, plan, p.appEnv ?? 'dev');
+      save(ctx, l, p);
+    }
   }
 }
 
