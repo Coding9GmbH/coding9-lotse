@@ -35,7 +35,7 @@ const taskRoute = await import('../../src/app/api/sandbox/tasks/[id]/route');
 const startRoute = await import('../../src/app/api/sandbox/tasks/[id]/start/route');
 const dumpTaskRoute = await import('../../src/app/api/sandbox/tasks/[id]/dump/route');
 const D = await import('../../src/server/sandbox/dumps');
-const { IMPORT_ARGV, TIDY_ARGV } = await import('../../src/server/sandbox/templates/dockware');
+const { BOOT_SCRIPT, IMPORT_ARGV, MYSQL_STOP_ARGV, TIDY_ARGV } = await import('../../src/server/sandbox/templates/dockware');
 const eventsRoute = await import('../../src/app/api/sandbox/tasks/[id]/events/route');
 
 allowFileRemotesForTests(true);
@@ -95,7 +95,14 @@ test('happy path: all steps in order, plugin synced as www-data without .git/sec
   assert.equal(fake.networks.get('lotse-sandbox')?.internal, true, 'the internal network was created');
   assert.ok(!('Privileged' in spec.HostConfig) && !('Binds' in spec.HostConfig));
   // archive: only plugin files, owned by uid/gid 33
-  const arch = fake.archives.find(a => a.id === done.containerId)!;
+  // before the first start: the boot hook that clears MySQL socket locks a killed container left behind (dockware.ts)
+  const boot = fake.archives.find(a => a.id === done.containerId)!;
+  assert.equal(boot.dir, '/var/www');
+  assert.deepEqual(boot.entries.map(e => [e.path, e.uid, e.mode]), [['boot_start.sh', 33, 0o755]]);
+  assert.equal(boot.entries[0].data?.toString('utf8'), BOOT_SCRIPT);
+  const bootAt = fake.calls.findIndex(c => c.op === 'putArchive' && c.id === done.containerId && c.detail === '/var/www');
+  assert.ok(bootAt >= 0 && bootAt < fake.calls.findIndex(c => c.op === 'start' && c.id === done.containerId), 'boot file before the start');
+  const arch = fake.archives.find(a => a.id === done.containerId && a.dir !== '/var/www')!;
   assert.equal(arch.dir, '/var/www/html/custom/plugins');
   const paths = arch.entries.map(e => e.path);
   assert.ok(paths.includes('AcmeTheme/composer.json') && paths.includes('AcmeTheme/src/Resources/theme.json') && paths.includes('AcmeTheme/inside-link'));
@@ -181,7 +188,7 @@ test('LOTSE_SANDBOX_MAX: a new task pauses the least recently used ready one; wi
     const woke = T.getTask(a.id)!;
     assert.equal(woke.status, 'ready');
     const ops = fake.calls.slice(n).filter(c => c.id === woke.containerId).map(c => c.op);
-    assert.deepEqual(ops.filter(o => o !== 'inspect'), ['disconnectEgress', 'start', 'exec', 'exec', 'putArchive'], 'offline first, start, wait (mysqladmin), rm -rf + archive');
+    assert.deepEqual(ops.filter(o => o !== 'inspect'), ['disconnectEgress', 'putArchive', 'start', 'exec', 'exec', 'putArchive'], 'offline first, boot file, start, wait (mysqladmin), rm -rf + archive');
     assert.ok(!fake.calls.slice(n).some(c => c.op === 'create' || c.argv?.includes('plugin:install')));
     for (const t of [a, b, c]) await J.finishTask(t.id);
   } finally { delete process.env.LOTSE_SANDBOX_MAX; }
@@ -255,6 +262,93 @@ test('switching off during a wake-up aborts it: paused with a stopped container,
   } finally { fake.exec = orig; }
   await J.ensureAwake(t.id);
   assert.equal(T.getTask(t.id)!.status, 'ready');
+  await J.finishTask(t.id);
+});
+
+/** The container's main process ends at the first readiness probe, like Dockware when `service mysql start` fails (set -e). */
+const DOCKWARE_FAIL_LOG = ['DOCKWARE: starting MySQL....', ' * Starting MySQL database server mysqld', `   ...fail!`];
+function exitOnProbe(o: { log?: string[]; oomKilled?: boolean } = {}) {
+  const orig = fake.exec.bind(fake);
+  let fired = false;
+  fake.exec = async (id, argv, opts) => {
+    if (argv[0] === 'mysqladmin' && !fired) { fired = true; await fake.exit(id, { exitCode: 1, log: [...Array.from({ length: 30 }, (_, i) => `boot line ${i}`), `export TOKEN=${TOKEN}`, ...(o.log ?? DOCKWARE_FAIL_LOG)], oomKilled: o.oomKilled }); }
+    return orig(id, argv, opts);
+  };
+  return () => { fake.exec = orig; };
+}
+
+test('setup: a container that exits while starting fails wait-ready at once with its exit code and the end of its log (redacted); retry starts it again', async () => {
+  const t = newTask('MySQL startet nicht');
+  const restore = exitOnProbe();
+  const t0 = Date.now();
+  try { J.runSteps(t.id); await settled(t.id); } finally { restore(); }
+  assert.ok(Date.now() - t0 < 5_000, 'no wait for the 5-minute limit');
+  let cur = T.getTask(t.id)!;
+  const step = cur.steps.find(s => s.id === 'wait-ready')!;
+  assert.equal(cur.status, 'failed');
+  assert.equal(step.state, 'failed');
+  assert.match(step.error!, /^Der Container hat sich beim Starten beendet \(Exit-Code 1\) – „\* Starting MySQL database server mysqld \.\.\.fail!“\.\n/);
+  assert.match(step.error!, /Letzte Zeilen aus dem Container-Log:\n/);
+  const logLines = step.error!.split('Container-Log:\n')[1].split('\n');
+  assert.equal(logLines.length, 20, 'the last 20 lines');
+  assert.equal(logLines.at(-1), '   ...fail!');
+  assert.ok(!step.error!.includes(TOKEN), 'redacted');
+  assert.equal(cur.containerRunning, false, 'an exited container no longer counts against LOTSE_SANDBOX_MAX');
+  assert.ok(fake.calls.some(c => c.op === 'logs' && c.id === cur.containerId && c.detail === 20));
+  // retry from the failed step: the container starts again (boot file first), Shopware answers, setup goes on
+  J.runSteps(t.id, 'wait-ready'); await settled(t.id);
+  cur = T.getTask(t.id)!;
+  assert.equal(cur.status, 'ready', cur.error ?? '');
+  assert.equal(fake.containers.get(cur.containerId!)!.running, true);
+  await J.finishTask(t.id);
+});
+
+test('wake: a container that exits while waking fails at once: paused with the reason and its log, not running; "Fortsetzen" again works', async () => {
+  const t = newTask('Aufwachen scheitert');
+  J.runSteps(t.id); await settled(t.id);
+  await J.pauseTask(t.id);
+  const restore = exitOnProbe();
+  const t0 = Date.now();
+  try { await assert.rejects(J.ensureAwake(t.id), /beim Starten beendet/); } finally { restore(); }
+  assert.ok(Date.now() - t0 < 5_000, 'no wait for the 5-minute limit');
+  let cur = T.getTask(t.id)!;
+  assert.equal(cur.status, 'paused');
+  assert.equal(cur.containerRunning, false);
+  assert.match(cur.error!, /^Fortsetzen fehlgeschlagen: Der Container hat sich beim Starten beendet \(Exit-Code 1\) – „\* Starting MySQL database server mysqld \.\.\.fail!“\./);
+  assert.match(cur.error!, /\.\.\.fail!$/, 'the log survives the length limit');
+  assert.ok(!cur.error!.includes(TOKEN));
+  await J.ensureAwake(t.id);
+  cur = T.getTask(t.id)!;
+  assert.equal(cur.status, 'ready');
+  assert.equal(cur.error, null);
+  await J.finishTask(t.id);
+});
+
+test('wake: killed for the memory limit says so', async () => {
+  const t = newTask('Zu wenig Speicher');
+  J.runSteps(t.id); await settled(t.id);
+  await J.pauseTask(t.id);
+  const restore = exitOnProbe({ oomKilled: true, log: ['Killed'] });
+  try { await assert.rejects(J.ensureAwake(t.id)); } finally { restore(); }
+  assert.match(T.getTask(t.id)!.error!, /Arbeitsspeicher-Limit der Umgebung reichte nicht – „Killed“\.\n.*Arbeitsspeicher in der Umgebung erhöhen/);
+  await J.finishTask(t.id);
+});
+
+test('pause shuts MySQL down cleanly before docker stop with a short grace period; a failing shutdown still stops the container', async () => {
+  const t = newTask('Sauber stoppen');
+  J.runSteps(t.id); await settled(t.id);
+  const cid = T.getTask(t.id)!.containerId!;
+  let n = fake.calls.length;
+  await J.pauseTask(t.id);
+  const ops = (from: number) => fake.calls.slice(from).filter(c => c.id === cid && (c.op === 'exec' || c.op === 'stop')).map(c => (c.op === 'exec' ? [c.user, ...c.argv!] : ['stop', c.detail]));
+  assert.deepEqual(ops(n), [['root', 'service', 'mysql', 'stop'], ['stop', 3]]);
+  await J.ensureAwake(t.id);
+  fake.script = argv => (argv[0] === 'service' ? { exitCode: 1, output: 'mysql: unrecognized service' } : undefined);
+  n = fake.calls.length;
+  try { await J.pauseTask(t.id); } finally { fake.script = () => undefined; }
+  assert.deepEqual(ops(n), [['root', ...MYSQL_STOP_ARGV], ['stop', 3]]);
+  assert.equal(fake.containers.get(cid)!.running, false);
+  assert.equal(T.getTask(t.id)!.containerRunning, false);
   await J.finishTask(t.id);
 });
 

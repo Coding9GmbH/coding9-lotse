@@ -55,6 +55,13 @@ export function createDemuxer(onFrame: (stream: number, data: Buffer) => void) {
     }
   };
 }
+/** Body of /containers/{id}/logs: multiplexed frames for a container without TTY (ours), plain text otherwise. */
+export function demuxLog(body: Buffer): string {
+  if (body.length < 8 || body[0] > 2 || body[1] || body[2] || body[3]) return body.toString('utf8');
+  const parts: Buffer[] = [];
+  createDemuxer((_s, d) => parts.push(d))(body);
+  return Buffer.concat(parts).toString('utf8');
+}
 /** Keeps the last `max` bytes (errors are at the end). */
 function tailBuffer(max: number) {
   const parts: Buffer[] = []; let size = 0, truncated = false;
@@ -196,8 +203,16 @@ export class DockerEngine implements SandboxRunner {
     const r = await this.call('GET', `/containers/${enc(assertId(id))}/json`);
     if (r.status === 404) return null;
     if (r.status !== 200) throw apiError(r, 'Container prüfen');
-    const c = this.json<{ Id: string; Name?: string; Config?: { Image?: string; Labels?: Record<string, string> | null }; State?: { Status?: string; Running?: boolean }; NetworkSettings?: { Networks?: Nets } }>(r);
-    return { id: c.Id, name: (c.Name ?? '').replace(/^\//, ''), image: c.Config?.Image ?? '', state: c.State?.Status ?? 'unknown', running: c.State?.Running === true, labels: c.Config?.Labels ?? {}, address: netAddress(c.NetworkSettings?.Networks), networks: netNames(c.NetworkSettings?.Networks) };
+    const c = this.json<{ Id: string; Name?: string; Config?: { Image?: string; Labels?: Record<string, string> | null }; State?: { Status?: string; Running?: boolean; ExitCode?: number; OOMKilled?: boolean }; NetworkSettings?: { Networks?: Nets } }>(r);
+    return { id: c.Id, name: (c.Name ?? '').replace(/^\//, ''), image: c.Config?.Image ?? '', state: c.State?.Status ?? 'unknown', running: c.State?.Running === true, labels: c.Config?.Labels ?? {}, address: netAddress(c.NetworkSettings?.Networks), networks: netNames(c.NetworkSettings?.Networks),
+      ...(typeof c.State?.ExitCode === 'number' ? { exitCode: c.State.ExitCode } : {}), ...(c.State?.OOMKilled ? { oomKilled: true } : {}) };
+  }
+  async logs(id: string, o: { tail: number }) {
+    await this.managed(id);
+    const tail = String(Math.max(1, Math.min(1000, Math.floor(o.tail))));
+    const r = await this.call('GET', `/containers/${enc(id)}/logs`, { query: { stdout: '1', stderr: '1', tail }, maxBytes: 1024 * 1024, timeoutMs: 15_000 });
+    if (r.status !== 200) throw apiError(r, 'Container-Log lesen');
+    return demuxLog(r.body);
   }
   async list(labels: Record<string, string> = {}) {
     const filters = JSON.stringify({ label: Object.entries({ ...labels, ...MANAGED }).map(([k, v]) => `${k}=${v}`) });

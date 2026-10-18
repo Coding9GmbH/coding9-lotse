@@ -26,7 +26,7 @@ import { getRunner } from './runner';
 import { captureRunning, removeShotFiles } from './screenshots';
 import { TASK_LABEL } from './labels';
 import { syncAll } from './sync';
-import { streamFileTar } from './tar';
+import { streamFileTar, writeTar } from './tar';
 import { getTemplate, resolveCommand } from './templates';
 import { waitReady } from './templates/dockware';
 import type { StepCtx } from './templates/types';
@@ -108,7 +108,10 @@ async function stopContainer(t: CodeTask, why: RevokeReason = 'pause') {
   try {
     // internet ends with the stop; a failed detach does not keep the container running (waking detaches again before the start)
     await revokeInternet(t.id, why).catch(e => log.warn('Internetzugang nicht gesperrt', { task: t.id, error: e }));
-    await getRunner().stop(t.containerId);
+    // services first (the template's clean shutdown, e.g. MySQL), then docker stop with the template's grace period; a failure only costs time
+    const g = getTemplate(t.template).gracefulStop;
+    if (g) await getRunner().exec(t.containerId, g.argv, { user: g.user, workdir: '/', timeoutMs: g.timeoutMs }).catch(e => log.warn('Dienste im Container nicht sauber beendet', { task: t.id, error: e }));
+    await getRunner().stop(t.containerId, g?.stopTimeoutSec);
     forgetUpstream(t.containerId);
     const fresh = getTask(t.id);
     if (fresh) { fresh.containerRunning = false; saveTask(fresh, false); }
@@ -175,7 +178,7 @@ async function execute(id: string, from: number, signal: AbortSignal) {
       step.state = r === 'skipped' ? 'skipped' : 'done';
     } catch (e) {
       const stopped = signal.aborted, timedOut = !stopped && stepSignal.aborted;
-      const msg = stopped ? 'Abgebrochen.' : timedOut ? `Zeitüberschreitung nach ${Math.round(limit / 60_000) || 1} Min.` : redact(errMsg(e)).slice(0, 1500);
+      const msg = stopped ? 'Abgebrochen.' : timedOut ? `Zeitüberschreitung nach ${Math.round(limit / 60_000) || 1} Min.` : redact(errMsg(e)).slice(0, 3000);
       step.state = stopped ? 'interrupted' : 'failed'; step.error = msg; step.endedAt = now();
       t.status = stopped ? 'interrupted' : 'failed';
       t.error = stopped ? null : msg;
@@ -194,6 +197,24 @@ async function execute(id: string, from: number, signal: AbortSignal) {
   saveTask(t);
 }
 
+/** docker start, with the template's boot file written first (also into containers created before it existed). */
+async function startTaskContainer(t: CodeTask, id: string) {
+  const runner = getRunner(), f = getTemplate(t.template).bootFile;
+  if (f) await runner.putArchive(id, f.dir, writeTar([{ path: f.name, type: 'file', data: Buffer.from(f.content), mode: f.mode }], { uid: 33, gid: 33, uname: 'www-data', gname: 'www-data' }));
+  await runner.start(id); forgetUpstream(id);
+}
+
+/** Why the container is not running any more (it exited while starting): exit code, memory limit, the line of its log that says why
+ *  (in the first line: summaries and the chat show that one) and its last 20 lines (redacted). */
+async function exitedError(id: string, info: { exitCode?: number; oomKilled?: boolean }): Promise<Error> {
+  const lines = await getRunner().logs(id, { tail: 20 }).then(l => redact(l).split('\n').map(x => x.trimEnd()).filter(x => x.trim()).slice(-20), () => [] as string[]);
+  const at = lines.findLastIndex(l => /error|fail|fatal|abort|denied|killed|cannot|can't|unable|no space/i.test(l));
+  // "   ...fail!" alone says little: together with the line before it ("* Starting MySQL database server mysqld")
+  const reason = at < 0 ? '' : (at > 0 && /^\s*\.{2,}/.test(lines[at]) ? `${lines[at - 1].trim()} ${lines[at].trim()}` : lines[at].trim()).slice(0, 200);
+  const head = `Der Container hat sich beim Starten beendet (Exit-Code ${info.exitCode ?? '?'})${info.oomKilled ? ', das Arbeitsspeicher-Limit der Umgebung reichte nicht' : ''}${reason ? ` – „${reason}“` : ''}.`;
+  return new Error(`${head}\n„Erneut versuchen“ bzw. „Fortsetzen“ startet ihn neu${info.oomKilled ? ' (vorher den Arbeitsspeicher in der Umgebung erhöhen)' : ''}.${lines.length ? `\nLetzte Zeilen aus dem Container-Log:\n${lines.join('\n')}` : ''}`);
+}
+
 /** Retry after a restart or a pause: a later step needs the container running and Shopware answering. */
 async function ensureRunning(t: CodeTask, ctx: StepCtx) {
   if (!t.containerId) throw new Error('Kein Container – ab „Container starten“ erneut versuchen.');
@@ -201,7 +222,7 @@ async function ensureRunning(t: CodeTask, ctx: StepCtx) {
   if (!info) { t.containerId = null; t.containerRunning = false; saveTask(t); throw new Error('Der Container fehlt – ab „Container starten“ erneut versuchen.'); }
   if (info.running) return;
   ctx.log('Container ist gestoppt – starte ihn …');
-  await getRunner().start(t.containerId); forgetUpstream(t.containerId);
+  await startTaskContainer(t, t.containerId);
   t.containerRunning = true; saveTask(t);
   await waitReady(ctx);
 }
@@ -248,7 +269,7 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
       t.containerId = await runner.create(spec);
       t.mode = mode;
       saveTask(t, false);
-      await runner.start(t.containerId);
+      await startTaskContainer(t, t.containerId);
       t.containerRunning = true; saveTask(t);
       const addr = (await runner.inspect(t.containerId))?.address;
       if (!addr) throw new Error('Der Container hat keine Adresse im Netzwerk lotse-sandbox.');
@@ -261,6 +282,14 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
       lg(`Container ${spec.name} gestartet (internes Netzwerk lotse-sandbox, ${addr.host}, ohne Internetzugang).`);
     },
     httpStatus: async path => httpStatusOf(await sandboxOrigin(t), path, signal),
+    checkAlive: async () => {
+      const id = container();
+      const info = await runner.inspect(id).catch(() => undefined); // Docker briefly unreachable: keep waiting (the time limit still applies)
+      if (info === undefined || info?.running) return;
+      if (!info) { t.containerId = null; t.containerRunning = false; saveTask(t); throw new Error('Der Container fehlt – Einrichtung ab „Container starten“ erneut versuchen.'); }
+      t.containerRunning = false; saveTask(t, false); // no longer counts against LOTSE_SANDBOX_MAX
+      throw await exitedError(id, info);
+    },
     dump: () => {
       const d = t.dump;
       if (!d || d.imported) return null;
@@ -351,7 +380,7 @@ async function wake(id: string, abort: AbortSignal) {
     // a woken container starts offline (also one stopped outside Lotse while internet was allowed); not detachable = not started
     await revokeInternet(id, 'wake'); t.internet = null;
     const ctx = stepCtx(t, step, signal, 5 * 60_000);
-    await getRunner().start(t.containerId); forgetUpstream(t.containerId);
+    await startTaskContainer(t, t.containerId);
     t.containerRunning = true; saveTask(t);
     await waitReady(ctx);
     await ctx.syncAll();
@@ -368,7 +397,7 @@ async function wake(id: string, abort: AbortSignal) {
     // what Docker says, not what the wake assumed: a container that exited while starting (e.g. its database failed) is not running
     const info = t.containerId ? await getRunner().inspect(t.containerId).catch(() => undefined) : undefined;
     fresh.status = 'paused'; fresh.containerRunning = info === undefined ? t.containerRunning : !!info?.running;
-    fresh.error = abort.aborted ? null : `Fortsetzen fehlgeschlagen: ${redact(errMsg(e)).slice(0, 500)}`;
+    fresh.error = abort.aborted ? null : `Fortsetzen fehlgeschlagen: ${redact(errMsg(e)).slice(0, 2500)}`;
     saveTask(fresh);
     throw e;
   }

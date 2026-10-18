@@ -1,7 +1,8 @@
 // Template "Dockware (Shopware)": a complete Shopware 6 (dockware/shopware, formerly dockware/play) per task, the repo is a plugin
 // or theme below custom/plugins/<Name>. Steps are declared here; the setup job (jobs.ts) executes them with a restricted context.
 // Measured with dockware/shopware:6.7.15.1: first boot until HTTP 200 about 75 s, restart after a stop about 43 s, theme:compile about 7 s
-// (dockware/play:6.7.2.2: about 20 s). Same layout as play: /var/www/html, www-data (uid 33) with sudo, mysql root/root.
+// (dockware/play:6.7.2.2: about 20 s). Same layout as play: /var/www/html, www-data (uid 33), mysql root/root. The entrypoint runs as the
+// image user dockware (also uid 33, in the sudo group); an exec as www-data has no sudo.
 // Dockware keeps APP_URL and the storefront domain at http://localhost; Lotse sends Host: localhost instead of changing them.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -36,11 +37,13 @@ const pluginName = (ctx: StepCtx) => {
   return l;
 };
 
-/** MySQL first, then the storefront with HTTP 200; backoff up to 3 s, ends with the step's time limit or an abort. */
-export async function waitReady(ctx: Pick<StepCtx, 'run' | 'httpStatus' | 'log' | 'signal'>) {
+/** MySQL first, then the storefront with HTTP 200; backoff up to 3 s, ends with the step's time limit or an abort.
+ *  A container that exits meanwhile (e.g. MySQL did not start, Dockware's entrypoint then ends) fails at once with its log. */
+export async function waitReady(ctx: Pick<StepCtx, 'run' | 'httpStatus' | 'log' | 'signal' | 'checkAlive'>) {
   let wait = 500, last = '';
   const note = (s: string) => { if (s !== last) ctx.log(s); last = s; };
   for (;;) {
+    await ctx.checkAlive();
     const db = await ctx.run(['mysqladmin', 'ping', '-h127.0.0.1', '-uroot', '-proot', '--silent'], { okCodes: [0, 1], timeoutMs: 15_000, quiet: true }).catch(() => ({ exitCode: 1 }));
     if (db.exitCode === 0) {
       const status = await ctx.httpStatus('/').catch(() => 0);
@@ -200,6 +203,18 @@ export function detectLayout(worktree: string, o: DetectOptions = {}): TaskLayou
   return { kind: has('src/Resources/theme.json') ? 'theme' : 'plugin', name, pluginDir: `custom/plugins/${name}` };
 }
 
+/** Measured with dockware/shopware:6.7.15.1: the entrypoint runs as PID 1 under bash, which ignores SIGTERM, so `docker stop` always
+ *  waits its full grace period and then kills MySQL with SIGKILL. Its socket lock file (/var/run/mysqld/mysqld.sock.lock, holding the
+ *  old PID) stays behind; the entrypoint's own cleanup runs as www-data and cannot see into the 0700 directory. On the next start
+ *  mysqld aborts whenever that PID belongs to another process again ("Another process with pid … is using unix socket file"),
+ *  `service mysql start` fails after 30 s and the container exits – 2 of 4 quick restarts here. Two remedies:
+ *  - the boot hook /var/www/boot_start.sh (run by the entrypoint before MySQL) removes stale lock files: 10 of 10 SIGKILL restarts
+ *    came up, also those stopped 15 s into the boot; it also covers stops Lotse does not control (OOM, Docker restart);
+ *  - pausing first shuts MySQL down cleanly (as root), then a short grace period: docker stop takes about 3 s instead of 10 s. */
+export const BOOT_SCRIPT = '#!/bin/sh\n# Lotse: remove MySQL socket locks a killed container left behind (see dockware.ts)\nsudo rm -f /var/run/mysqld/mysqld.sock.lock /var/run/mysqld/mysqlx.sock.lock || true\nexit 0\n';
+/** As root: Lotse's execs run as www-data, which shares uid 33 with the image user dockware but not its sudo group (sudo asks for a password). */
+export const MYSQL_STOP_ARGV = ['service', 'mysql', 'stop'];
+
 const DROP_CAPS = ['NET_RAW', 'MKNOD', 'AUDIT_WRITE', 'SYS_CHROOT', 'SETFCAP'];
 /** Create body for one task container. Pure: only the validated task id, the configured image, limits and environment.
  *  Attached to the internal network lotse-sandbox only.
@@ -235,4 +250,6 @@ export const dockware: SandboxTemplate = {
   syncTarget: l => `/var/www/html/${l.pluginDir}`,
   execUser: 'www-data',
   workdir: '/var/www/html',
+  bootFile: { dir: '/var/www', name: 'boot_start.sh', content: BOOT_SCRIPT, mode: 0o755 },
+  gracefulStop: { argv: MYSQL_STOP_ARGV, user: 'root', timeoutMs: 30_000, stopTimeoutSec: 3 },
 };

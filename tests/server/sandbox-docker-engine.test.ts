@@ -14,7 +14,7 @@ const IMAGE = 'dockware/shopware:6.7.15.1';
 
 const calls: string[] = [];
 let imageThere = false, pullError: string | null = null;
-const containers: Record<string, { labels: Record<string, string>; state: string; egress?: boolean }> = {
+const containers: Record<string, { labels: Record<string, string>; state: string; egress?: boolean; exitCode?: number; oom?: boolean }> = {
   mine: { labels: { 'lotse.managed': '1', 'lotse.task': 't1' }, state: 'running' },
   foreign: { labels: { 'com.example': 'x' }, state: 'running' },
 };
@@ -49,12 +49,16 @@ const server = http.createServer(async (req, res) => {
     { Id: 'foreign', Names: ['/other'], Image: 'nginx', State: 'running', Labels: containers.foreign.labels }, // a proxy that ignores filters
   ]);
   if (r === '/containers/create') return send(res, 201, { Id: 'new1' });
-  const c = /^\/containers\/([^/]+)\/(json|stop|start|exec|archive|wait)$/.exec(r) ?? /^\/containers\/([^/]+)()$/.exec(r);
+  const c = /^\/containers\/([^/]+)\/(json|stop|start|exec|archive|wait|logs)$/.exec(r) ?? /^\/containers\/([^/]+)()$/.exec(r);
   if (c) {
     const box = containers[c[1]];
     if (!box) return send(res, 404, { message: 'No such container' });
-    if (c[2] === 'json') return send(res, 200, { Id: c[1], Name: `/${c[1]}`, Config: { Image: IMAGE, Labels: box.labels }, State: { Status: box.state, Running: box.state === 'running' }, NetworkSettings: { Networks: { bridge: { IPAddress: '172.17.0.9' }, 'lotse-sandbox': { IPAddress: '172.30.0.5' }, ...(box.egress ? { 'lotse-sandbox-egress': { IPAddress: '10.214.0.2' } } : {}) } } });
+    if (c[2] === 'json') return send(res, 200, { Id: c[1], Name: `/${c[1]}`, Config: { Image: IMAGE, Labels: box.labels }, State: { Status: box.state, Running: box.state === 'running', ExitCode: box.exitCode ?? 0, OOMKilled: !!box.oom }, NetworkSettings: { Networks: { bridge: { IPAddress: '172.17.0.9' }, 'lotse-sandbox': { IPAddress: '172.30.0.5' }, ...(box.egress ? { 'lotse-sandbox-egress': { IPAddress: '10.214.0.2' } } : {}) } } });
     if (c[2] === 'stop') { box.state = 'exited'; return send(res, 204); }
+    if (c[2] === 'logs') { // no TTY: the same multiplexed frames as an exec
+      assert.deepEqual([u.searchParams.get('stdout'), u.searchParams.get('stderr'), u.searchParams.get('tail')], ['1', '1', '20']);
+      res.writeHead(200, { 'content-type': 'application/vnd.docker.multiplexed-stream' }); return res.end(Buffer.concat([frame(1, ' * Starting MySQL database server mysqld\n'), frame(2, '   ...fail!\n')]));
+    }
     if (c[2] === 'exec') { lastExecBody = JSON.parse(body); return send(res, 201, { Id: 'exec1' }); }
     if (c[2] === 'wait') { assert.equal(u.searchParams.get('condition'), 'not-running'); return send(res, 200, { StatusCode: 3 }); }
     if (c[2] === 'archive' && req.method === 'GET') { res.writeHead(200, { 'content-type': 'application/x-tar' }); return res.end(Buffer.alloc(Number(u.searchParams.get('path') === '/big' ? 300_000 : 2048), 7)); }
@@ -80,7 +84,7 @@ server.on('upgrade', (req, socket) => {
 await new Promise<void>(ok => server.listen(sock, ok));
 after(() => new Promise<void>(ok => server.close(() => ok())));
 
-const { DockerEngine, parseDockerHost, pickApiVersion, createDemuxer, pullProgressParser } = await import('../../src/server/sandbox/docker-engine');
+const { DockerEngine, parseDockerHost, pickApiVersion, createDemuxer, demuxLog, pullProgressParser } = await import('../../src/server/sandbox/docker-engine');
 const d = new DockerEngine({ socketPath: sock });
 
 test('DOCKER_HOST: unix socket and tcp, everything else is refused', () => {
@@ -169,6 +173,19 @@ test('stop/exec/remove/archive on an unlabelled container are refused before any
   await assert.rejects(d.stop('../../etc'), /Container-ID/);
   await d.stop('mine');
   assert.equal(containers.mine.state, 'exited');
+});
+
+test('logs: demultiplexed stdout and stderr of a managed container only; inspect reports exit code and OOM kill', async () => {
+  containers.crashed = { labels: { 'lotse.managed': '1', 'lotse.task': 't2' }, state: 'exited', exitCode: 1, oom: true };
+  assert.equal(await d.logs('crashed', { tail: 20 }), ' * Starting MySQL database server mysqld\n   ...fail!\n');
+  const info = await d.inspect('crashed');
+  assert.deepEqual([info?.running, info?.exitCode, info?.oomKilled], [false, 1, true]);
+  assert.equal((await d.inspect('foreign'))?.oomKilled, undefined);
+  const before = calls.length;
+  await assert.rejects(d.logs('foreign', { tail: 20 }), /nicht von Lotse verwaltet/);
+  assert.ok(!calls.slice(before).some(c => c.includes('/logs')), 'never read from a foreign container');
+  assert.equal(demuxLog(Buffer.from('plain text log\n')), 'plain text log\n', 'a TTY container: plain text');
+  delete containers.crashed;
 });
 
 test('create: only labelled, allowed image, no host access', async () => {
