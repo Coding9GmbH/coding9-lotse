@@ -394,10 +394,14 @@ export function bootFinding(output: string, files: { rel: string; data: unknown;
   }
   return null;
 }
-/** The line of a failed boot that says why (for the step's error) */
+/** The line of a failed boot that says why (for the step's error): Symfony's own message before a line that only names the exception
+ *  class (the console prints "Symfony\…\InvalidConfigurationException {#9979" first, measured with 6.7.15.1) */
 export function bootError(output: string): string {
-  const lines = output.split('\n').map(l => l.trim()).filter(Boolean);
-  return (lines.find(l => /Unrecognized|no extension|Environment variable|Attempted to load|does not exist|not found|Exception|Error/i.test(l) && !/^(#\d|In \S+ line)/.test(l)) ?? lines[0] ?? '').slice(0, 400);
+  const lines = output.split('\n').map(l => l.trim()).filter(l => l && !/^(#\d|In \S+ line|Exception trace|Stack trace|\{#?\d*$|[-=]+$)/.test(l));
+  const specific = /Unrecognized options?|no extension able|Environment variable not found|Attempted to load|does not exist|not found|Invalid .*DSN|Unsupported|Missing dependency|cURL error|Connection refused/i;
+  const generic = /Exception|Error/i, classOnly = /^[\w\\]+(Exception|Error)\b[^:]*$/;
+  const line = lines.find(l => specific.test(l)) ?? lines.find(l => generic.test(l) && !classOnly.test(l)) ?? lines.find(l => generic.test(l)) ?? lines[0] ?? '';
+  return line.replace(/^#message:\s*"(.*)"$/, '$1').slice(0, 400);
 }
 
 // ---- Packages the image lacks ----

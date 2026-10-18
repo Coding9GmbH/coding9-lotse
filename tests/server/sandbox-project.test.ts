@@ -198,6 +198,9 @@ test('container facts and the boot check: extensions, APP_ENV, env names, the fi
   assert.deepEqual(P.bootFinding('Attempted to load class "Client" from namespace "Sentry\\SentryBundle".', fx, 'dev'), { file: 'config/services.yaml', reason: 'Shopware startet damit nicht: Klasse Sentry\\SentryBundle\\Client fehlt im Image' });
   assert.equal(P.bootFinding('Something else entirely', fx, 'dev'), null);
   assert.equal(P.bootError('\nIn X.php line 3:\n\n  Unrecognized option "a" under "b"\n'), 'Unrecognized option "a" under "b"');
+  // measured: the console names the exception class first, Symfony's message follows
+  assert.equal(P.bootError('Symfony\\Component\\Config\\Definition\\Exception\\InvalidConfigurationException {#9979\n  #message: "Unrecognized option "htmlPurifier" under "storefront". Available options are "theme"."\n'), 'Unrecognized option "htmlPurifier" under "storefront". Available options are "theme".');
+  assert.equal(P.bootError('PHP Fatal error:  Uncaught RuntimeException: boom\n'), 'PHP Fatal error:  Uncaught RuntimeException: boom');
   assert.deepEqual(P.missingPsr4({ 'App\\': 'src/', 'Acme\\Shop\\': 'src/Shop/', 'Lib\\': 'lib/', 'bad': 'src/' }, { autoload: { 'psr-4': { 'App\\': 'src/' } } }), { add: { 'Acme\\Shop\\': 'src/Shop/' }, skipped: ['Lib\\', 'bad'] });
   assert.deepEqual(P.requiredPackages({ require: { php: '>=8.2', 'ext-intl': '*', 'shopware/core': '*', 'symfony/flex': '*', 'acme/erp-connector': '*', 'frosh/tools': '^3' } }, new Set(['acme/erp-connector'])), ['frosh/tools']);
 });
