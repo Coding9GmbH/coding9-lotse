@@ -45,7 +45,7 @@ Everything (app, AI runtime, SQLite database) is in the image; data, encrypted c
 
 ## Running on a server
 
-Lotse can also be self-hosted, e.g. for a team: set `LOTSE_PASSWORD` (login via environment variable) and `ALLOWED_HOSTS`, and put HTTPS in front with a reverse proxy (Caddy, nginx, Traefik). Configuration, proxy examples, backups and troubleshooting: **[docs/self-hosting.md](docs/self-hosting.md)** (German).
+Lotse can also be self-hosted, e.g. for a team: set `LOTSE_PASSWORD` (login via environment variable) and `ALLOWED_HOSTS`, and put HTTPS in front with a reverse proxy (Caddy, nginx, Traefik). Configuration, proxy examples, backups and troubleshooting: **[docs/en/self-hosting.md](docs/en/self-hosting.md)**.
 
 ## From source / development
 
@@ -54,6 +54,7 @@ make env     # .env from .env.example (optional – everything can also be set i
 make up      # build and start the image → http://localhost:3333
 make demo    # additionally a demo shop (dockware) → http://localhost:8888
 make logs    # logs   ·   make down  stop   ·   make backup  back up data
+make sandbox-up  # Lotse with Docker access for Sandbox Coding (socket proxy, internal network)
 make help    # all commands
 ```
 
@@ -72,7 +73,8 @@ Without Docker: `npm install && npm run dev` (Node ≥ 22.13) → http://localho
 | Sales | Off by default; can be switched on under Settings → AI access → Sales. Lotse then reads, with a fixed query, only totals per product (quantity, revenue, number of orders), never customers, addresses or single orders. |
 | Web research | Off by default; can be switched on under Settings → AI access → Internet (web search and fetching public web pages, read-only). |
 | Codex (ChatGPT subscription) | Codex's own tools (shell, files, web, images, plugins …) disabled (web search only when web research is on), file access fully blocked via permission profile, no prompts for more permissions; shop tools only via a local MCP endpoint with a random token per chat. If a blocked tool shows up anyway, Lotse aborts the turn. |
-| Server operation | Set `LOTSE_PASSWORD` (login) + `ALLOWED_HOSTS`, HTTPS via reverse proxy. Guide: [`docs/self-hosting.md`](docs/self-hosting.md) (German). |
+| Sandbox Coding | Off by default. Containers only in the internal network without internet (internet only after approval), the AI has no shop tools there and runs commands only in the container, commands from the repository only run after approval, publishing only by click. Details: [Sandbox Coding](#sandbox-coding). |
+| Server operation | Set `LOTSE_PASSWORD` (login) + `ALLOWED_HOSTS`, HTTPS via reverse proxy. Guide: [`docs/en/self-hosting.md`](docs/en/self-hosting.md). |
 
 For live shops: use a dedicated integration with a restricted role instead of an admin login, and test new workflows on staging first. Details: [SECURITY.en.md](SECURITY.en.md).
 
@@ -93,11 +95,12 @@ Language (German/English) is not a variable: it is chosen in Settings or the sid
 | `SHOP_PLATFORM` | connected platform: `shopware` (default), `shopify`, `magento` (Magento 2) or `openmage` (Magento 1 with the module from `integrations/openmage/`); for `SHOPIFY_*`, `MAGENTO_*`, `OPENMAGE_*` variables see `src/lib/platforms.ts` |
 | `AI_MODEL` | e.g. `sonnet` or `opus` |
 | `LOTSE_AI_BUDGET_USD` | Cost brake: monthly budget for Claude in US dollars (Settings → Connect AI takes precedence); empty = no limit |
-| `LOTSE_PASSWORD`, `ALLOWED_HOSTS` | Access protection for server operation ([self-hosting](docs/self-hosting.md)) |
+| `LOTSE_PASSWORD`, `ALLOWED_HOSTS` | Access protection for server operation ([self-hosting](docs/en/self-hosting.md)) |
 | `LOTSE_BIND`, `LOTSE_PORT` | Published address and port of the container (default `127.0.0.1`, `3333`) |
 | `LOTSE_WRITE_CONCURRENCY`, `LOTSE_SHOP_TIMEOUT_MS` | Sparing the shop |
 | `LOTSE_LOG_RETENTION_DAYS`, `LOTSE_AUDIT_RETENTION_DAYS` | Retention of the access log (default 180 days) and change log (365 days); `0` = never prune |
 | `OPENAI_API_KEY`, `IMAGE_MODEL` | optional image AI |
+| `LOTSE_SANDBOX`, `DOCKER_HOST`, `LOTSE_SANDBOX_*` | Sandbox Coding: `0` = hard off, Docker access, limits and networks ([Enable Sandbox Coding](docs/en/self-hosting.md#enable-sandbox-coding)) |
 
 ## Releases & image
 
@@ -110,7 +113,7 @@ Built for amd64 and arm64, with SBOM and provenance. `latest` only exists after 
 
 ## Documentation
 
-The detailed documentation lives in [`docs/`](docs/README.md) (German): [user guide](docs/benutzerhandbuch.md) (how everything works), [self-hosting](docs/self-hosting.md), [architecture](docs/architektur.md) and [platform layer](docs/platform.md). What changed in each version is listed in the [CHANGELOG](CHANGELOG.md) (German).
+The detailed documentation lives in [`docs/`](docs/en/README.md): [user guide](docs/en/user-guide.md) (how everything works, Sandbox Coding included), [self-hosting](docs/en/self-hosting.md), [architecture](docs/en/architecture.md) and [platform layer](docs/en/platform.md). What changed in each version is listed in the [CHANGELOG](CHANGELOG.md) (German).
 
 ## Concept: AI-first administration
 Chat instead of forms. You write what should happen ("Change the layout of product XY", "Lower all prices by 20%", "FAQ on all products"). The agent **understands → asks targeted follow-up questions** (clickable answers) **→ researches (read-only) → shows a preview or old→new comparison → you approve → the server writes** (audit log, undo).
@@ -129,8 +132,21 @@ Chat instead of forms. You write what should happen ("Change the layout of produ
 - **Shopping experience know-how**: the agent knows sections/blocks/slots, reads existing layouts (`get_cms_page`) and takes existing content into account.
 - **Custom HTML/CSS/JS** as an `html` element (block `custom-html`, CSS automatically scoped).
 - **History**: all chats incl. drafts/approvals are stored in the database and can be reopened in the UI.
+- **Sandbox Coding** (optional, needs Docker): code tasks in a development environment with git and a test shop of its own, in which Claude Code or Codex work – for plugins, themes, whole Shopware projects, an own setup or without a project; with preview and console, published as a pull request or plugin ZIP. See [Sandbox Coding](#sandbox-coding).
 - **German and English**: the UI and AI replies are available in German and English. Switch in Settings or the side navigation; without a choice, the browser language applies (stored in the `lotse_lang` cookie).
 - UI in the Coding9 corporate design (dark `#2E2E38`, green, coral, cream; Satoshi/Inter via Fontshare/Google Fonts).
+
+## Sandbox Coding
+
+For code instead of shop data: a sandbox is a **development environment with git in which Claude Code or Codex work** – a working copy of your repository and a Shopware test shop of its own in Docker (Dockware). You start it from an ordinary chat; the AI changes files, runs commands in the container, checks the result in the preview and saves each finished step as a commit. It cannot reach the live shop from a sandbox.
+
+- **Cases:** an existing plugin or theme, a new plugin (also in a newly created GitHub project), a whole Shopware project (laid out like `shopware/production`), an own setup (you set the target folder and commands) or no project at all with a local git. A repository can describe its setup in `.lotse/sandbox.json`; commands from it only run after your approval.
+- **Data:** demo data, a stored database (further sandboxes start from a snapshot without an import) or an uploaded, sanitized dump.
+- **Console:** a shell of your own in the container (`bin/console`, logs, Composer) – for humans only, not for the AI.
+- **Publish:** only by click, as a pull request on a branch of its own `lotse/…` or as a plugin ZIP to upload to the shop. You hand pull request feedback to the AI with one click.
+- **Requirements:** off by default (Settings → Sandbox). Needs Docker access – that is root access to the host – and `LOTSE_PASSWORD` on a server. The containers are offline; internet only after approval.
+
+Setup: [Enable Sandbox Coding](docs/en/self-hosting.md#enable-sandbox-coding) · Usage and every case: [user guide](docs/en/user-guide.md#sandbox-coding-a-sandbox-in-the-chat) · Security model: [SECURITY.en.md](SECURITY.en.md)
 
 ## Supported platforms
 
@@ -169,8 +185,9 @@ src/
 │   ├── settings/         settings: shop, AI, image AI, AI access, logs
 │   ├── api/**/route.ts   REST + chat stream (NDJSON)
 │   ├── shop/             storefront proxy for the live preview
+│   ├── sbx/              proxy for the preview of a sandbox (Sandbox Coding)
 │   └── staged/           staged images (local only until approved)
-├── components/           UI by area (shell = navigation, chat, context, preview, dialogs, settings, ui), CSS Modules
+├── components/           UI by area (shell = navigation, chat, context, preview, dialogs, sandbox, settings, ui), CSS Modules
 ├── hooks/                useChatStream, useAttachments
 ├── lib/
 │   ├── i18n/             languages (de, en), dictionaries per namespace under messages/
@@ -186,15 +203,16 @@ src/
     ├── changes.ts        executor: the only code that writes (throttled, audit, undo)
     ├── shopware.ts       Admin API client (timeouts, backoff) + ReadOnlyShopware for the AI
     ├── cms.ts / patterns.ts   block catalog, spec → `cms_page`, HTML preview
+    ├── sandbox/          Sandbox Coding: Docker runner, templates, setup, sync, console, publishing
     └── db.ts / settings.ts    SQLite, encrypted credentials
-prompts/                  system prompt as versioned Markdown: common/ (all platforms) + shopware/, shopify/, magento/, openmage/
+prompts/                  system prompt as versioned Markdown: common/ (all platforms) + shopware/, shopify/, magento/, openmage/; code/ for sandbox chats
 integrations/openmage/    OpenMage module Lotse_Connector (JSON API, openapi.yaml, tests, package.sh)
 tests/                    all tests (node:test), structure mirrors src/
 └── support/              fake shops (Shopify, OpenMage) with tests and live check scripts
 ```
 
 New block types: add them to `BLOCKS` (`src/server/cms.ts`) (+ preview renderer) – the agent gets the catalog automatically.
-New shop platform: contract, conventions and checklist in [`docs/platform.md`](docs/platform.md) (German).
+New shop platform: contract, conventions and checklist in [`docs/en/platform.md`](docs/en/platform.md).
 New UI language or translations: see [CONTRIBUTING.en.md](CONTRIBUTING.en.md#translations).
 
 ## Disclaimer
