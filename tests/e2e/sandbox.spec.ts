@@ -93,7 +93,7 @@ test('Sandbox Coding: attach a sandbox to a chat, setup reaches ready, preview, 
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
 
   await expect(page).toHaveURL(/\/$/);
-  const panel = page.getByRole('region', { name: 'Sandbox' });
+  const panel = page.getByRole('region', { name: 'Sandbox', exact: true });
   await expect(page.getByText(/Sandbox angehängt: acme\/shop-theme @ main/)).toBeVisible();
   await expect(panel.getByText('Footer grün')).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
@@ -192,7 +192,7 @@ test('Sandbox Coding: console in the container – type, quick commands, reattac
   await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
   await next(dialog);
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
-  const panel = page.getByRole('region', { name: 'Sandbox' });
+  const panel = page.getByRole('region', { name: 'Sandbox', exact: true });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
 
   await panel.getByRole('tab', { name: 'Konsole' }).click();
@@ -283,7 +283,7 @@ test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async (
   await expect(dialog.getByText(/shop\.sql\.gz .* ist bereit/)).toBeVisible();
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
 
-  const panel = page.getByRole('region', { name: 'Sandbox' });
+  const panel = page.getByRole('region', { name: 'Sandbox', exact: true });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
   await panel.getByRole('tab', { name: 'Einrichtung' }).click();
   await panel.getByRole('button', { name: 'Details anzeigen' }).click();
@@ -327,7 +327,7 @@ test('Sandbox Coding: a stored database is reused – snapshot after the first i
   expect([dump.library, dump.expiresAt]).toEqual([true, null]);
   await expect(dialog.getByText(/stored\.sql .* ist gespeichert/)).toBeVisible();
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
-  let panel = page.getByRole('region', { name: 'Sandbox' });
+  let panel = page.getByRole('region', { name: 'Sandbox', exact: true });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
   await panel.getByRole('tab', { name: 'Einrichtung' }).click();
   await expect(panel.getByText(/Gespeicherte Datenbank: stored\.sql .*\(importiert\)/)).toBeVisible();
@@ -359,7 +359,7 @@ test('Sandbox Coding: a stored database is reused – snapshot after the first i
   await next(dialog);
   await expect(dialog.getByLabel('Gespeicherte Datenbank', { exact: true })).toHaveValue(dump.id); // the environment's default, preselected
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
-  panel = page.getByRole('region', { name: 'Sandbox' });
+  panel = page.getByRole('region', { name: 'Sandbox', exact: true });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
   await panel.getByRole('tab', { name: 'Einrichtung' }).click();
   await expect(panel.getByText(/Gespeicherte Datenbank: stored\.sql .*\(aus dem Snapshot übernommen\)/)).toBeVisible();
@@ -392,7 +392,7 @@ test('Sandbox Coding: the agent edits the header template natively, compiles the
   const start = page.getByRole('dialog', { name: 'Sandbox starten' });
   await next(start); await next(start);
   await start.getByRole('button', { name: 'Sandbox starten' }).click();
-  const panel = page.getByRole('region', { name: 'Sandbox' });
+  const panel = page.getByRole('region', { name: 'Sandbox', exact: true });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
   const preview = page.frameLocator('iframe[title="Vorschau der Sandbox-Storefront"]');
   await expect(preview.getByText('Lotse Test-Header')).toBeVisible();
@@ -424,12 +424,12 @@ test('Sandbox Coding: the agent edits the header template natively, compiles the
   // the chat keeps its sandbox: after a reload both come back
   await page.reload();
   await expect(page.getByRole('group', { name: `Geändert: ${header}, 1 Zeilen hinzu, 1 entfernt` })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Pausieren' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Sandbox', exact: true }).getByRole('button', { name: 'Pausieren' })).toBeVisible();
 
   page.once('dialog', d => void d.accept());
-  await page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('region', { name: 'Sandbox', exact: true }).getByRole('button', { name: 'Weitere Aktionen' }).click();
   await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
-  await expect(page.getByRole('region', { name: 'Sandbox' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Sandbox', exact: true })).toHaveCount(0);
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
 });
 
@@ -448,7 +448,7 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await dialog.getByLabel('Titel (optional)').fill('Gratis Versand');
   await next(dialog); await next(dialog);
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
-  const panel = page.getByRole('region', { name: 'Sandbox' });
+  const panel = page.getByRole('region', { name: 'Sandbox', exact: true });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
 
   const header = 'src/Resources/views/storefront/layout/header/header.html.twig';
@@ -519,7 +519,7 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { screenshots: true } })).ok()).toBeTruthy();
   await page.reload();
   await expect(page.getByRole('log').getByRole('region', { name: /^Pull Request #\d+:/ })).toBeVisible();
-  const sbx = page.getByRole('region', { name: 'Sandbox' });
+  const sbx = page.getByRole('region', { name: 'Sandbox', exact: true });
   await sbx.getByRole('tab', { name: 'Vorschau' }).click();
   await sbx.getByRole('button', { name: 'Screenshot', exact: true }).click();
   await expect(sbx.getByRole('status').filter({ hasText: 'Screenshot gespeichert' })).toBeVisible({ timeout: 30_000 });
@@ -528,11 +528,11 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await expect(shots.getByRole('img', { name: /^Screenshot Desktop: \/ / })).toBeVisible();
   await expect(shots.getByRole('img', { name: /^Screenshot Mobil: \/ / })).toBeVisible();
   // the task list shows the number
-  await page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('region', { name: 'Sandbox', exact: true }).getByRole('button', { name: 'Weitere Aktionen' }).click();
   await page.getByRole('menuitem', { name: 'Alle Sandboxes' }).click();
   await expect(page.locator('section[aria-labelledby="sbx-tasks"]').getByRole('link', { name: /^PR #\d+ · offen$/ }).first()).toBeVisible();
   await page.locator('section[aria-labelledby="sbx-tasks"]').getByRole('link', { name: /Gratis Versand/ }).first().click();
-  await expect(page.getByRole('region', { name: 'Sandbox' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Sandbox', exact: true })).toBeVisible();
 
   // a review on GitHub comes back into the chat (the watcher polls every 2 s here); only the click hands it to the AI
   const prNo = Number((await page.getByRole('log').getByRole('link', { name: 'Auf GitHub öffnen' }).first().getAttribute('href'))!.split('/').pop());
@@ -557,7 +557,7 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await expect(merged).toBeVisible({ timeout: 30_000 });
   page.once('dialog', d => void d.accept());
   await merged.getByRole('button', { name: 'Sandbox abschließen' }).click();
-  await expect(page.getByRole('region', { name: 'Sandbox' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Sandbox', exact: true })).toHaveCount(0);
   await expect(merged.getByText(/Die Sandbox ist abgeschlossen/)).toBeVisible();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
 });
@@ -597,7 +597,7 @@ test('Sandbox Coding: a new project for a new plugin, the ZIP says what is missi
   await next(dialog);
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
 
-  const panel = page.getByRole('region', { name: 'Sandbox' });
+  const panel = page.getByRole('region', { name: 'Sandbox', exact: true });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
   await panel.getByRole('tab', { name: 'Freigabe' }).click();
   const zip = panel.getByRole('region', { name: 'Plugin als ZIP' });
@@ -615,9 +615,9 @@ test('Sandbox Coding: a new project for a new plugin, the ZIP says what is missi
   await expect(row.getByRole('alert')).toContainText('Kein ZIP: composer.json fehlt');
   await tasks.getByRole('link', { name: /Sandbox versand-hinweis/ }).click();
   page.once('dialog', d => void d.accept());
-  await page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('region', { name: 'Sandbox', exact: true }).getByRole('button', { name: 'Weitere Aktionen' }).click();
   await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
-  await expect(page.getByRole('region', { name: 'Sandbox' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Sandbox', exact: true })).toHaveCount(0);
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
 });
 
@@ -636,7 +636,7 @@ test('Sandbox Coding: a whole Shopware project – plugins, apps and config brou
   await expect(dialog.getByRole('status').filter({ hasText: 'Erkannt: ganzer Shopware-Shop (3 Plugins)' })).toBeVisible();
   await next(dialog);
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
-  const panel = page.getByRole('region', { name: 'Sandbox' });
+  const panel = page.getByRole('region', { name: 'Sandbox', exact: true });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
 
   await panel.getByRole('tab', { name: 'Einrichtung' }).click();
@@ -670,7 +670,7 @@ test('Sandbox Coding: a whole Shopware project – plugins, apps and config brou
   page.once('dialog', d => void d.accept());
   await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
   await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
-  await expect(page.getByRole('region', { name: 'Sandbox' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Sandbox', exact: true })).toHaveCount(0);
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
 });
 
@@ -723,7 +723,7 @@ test('Sandbox Coding: start dialog in three steps – repository file with appro
   await expect(dialog.getByText('Bestehendes Projekt · acme/flex-plugin @ main · Demo-Daten')).toBeVisible();
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
 
-  const panel = page.getByRole('region', { name: 'Sandbox' });
+  const panel = page.getByRole('region', { name: 'Sandbox', exact: true });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
   await expect(panel.getByLabel('Pfad in der Sandbox')).toHaveValue('/de/'); // the repository's start page right after the setup
   await panel.getByRole('tab', { name: 'Einrichtung' }).click();
@@ -807,7 +807,7 @@ test('Sandbox Coding: quick starts – save in the dialog, one click in the Sand
   await expect(item).toContainText('Bestehendes Projekt · acme/shop-theme @ main · Demo-Daten · Image 6.7.14.0');
   await item.click();
   await expect(page.getByText(/Schnellstart „Theme Demo“ gestartet: Bestehendes Projekt · acme\/shop-theme @ main/)).toBeVisible();
-  const panel = page.getByRole('region', { name: 'Sandbox' });
+  const panel = page.getByRole('region', { name: 'Sandbox', exact: true });
   await expect(panel.getByRole('heading', { name: 'Theme Demo' })).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
   await expect(panel.getByLabel('Pfad in der Sandbox')).toHaveValue('/de/'); // the quick start's start page
