@@ -90,6 +90,8 @@ export const api = {
     deleteTask: (id: string) => request<{ ok: true }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     /** "Änderungen": workspace against the base branch */
     diff: (id: string) => request<TaskDiff>(`/api/sandbox/tasks/${encodeURIComponent(id)}/diff`),
+    /** "Screenshot" in the preview: the configured pages of the running sandbox, desktop and mobile (only while switched on) */
+    screenshot: (id: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/screenshots`, json('POST', {})),
     /** start | stop | pause | resume | finish; start takes the step to retry from */
     taskAction: (id: string, action: 'start' | 'stop' | 'pause' | 'resume' | 'finish', body: { fromStep?: string; ignoreVersion?: boolean } = {}) =>
       request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/${action}`, json('POST', body)),

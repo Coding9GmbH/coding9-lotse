@@ -1,8 +1,9 @@
 import 'server-only';
-// Changes of a task's workspace against its base branch: for the agent (git_diff) and the "Änderungen" tab.
-// Secret and denied paths never appear, the patch is redacted and capped.
+// Changes of a task's workspace against its base branch: for the agent (git_diff) and the "Änderungen" tab – the net diff, the local
+// commits on top of the base (git_commit, earlier publishes) and what is not committed yet. Secret and denied paths never appear,
+// the patch and the commit subjects are redacted and capped.
 import type { TaskDiff } from '@/lib/protocol';
-import { changedSince, diffAgainstBase } from '../git';
+import { changedSince, diffAgainstBase, localCommits, pendingChanges } from '../git';
 import { redact } from '../settings';
 import { taskPaths, type CodeTask } from './tasks';
 import { isDenied } from './workspace-fs';
@@ -38,6 +39,9 @@ export function parseDiff(raw: { numstat: string; status: string; patch: string 
 export async function taskDiff(t: Pick<CodeTask, 'id' | 'baseBranch' | 'pushedSha'>, maxBytes: number, o: { sincePush?: boolean } = {}): Promise<TaskDiff> {
   const p = taskPaths(t.id);
   const d = parseDiff(await diffAgainstBase(p.worktree, p.gitDir, t.baseBranch), maxBytes);
+  const [commits, pending] = await Promise.all([localCommits(p.worktree, p.gitDir, t.baseBranch, t.pushedSha), pendingChanges(p.worktree, p.gitDir)]);
+  d.commits = commits.map(c => ({ ...c, subject: redact(c.subject).slice(0, 200) }));
+  d.uncommitted = [...new Set(pending.map(c => c.path))].filter(f => !isDenied(f)).slice(0, 300);
   // published before: is there anything new since that push ("Pull Request aktualisieren" only then)
   return o.sincePush && t.pushedSha ? { ...d, unpublished: await changedSince(p.worktree, p.gitDir, t.pushedSha) } : d;
 }

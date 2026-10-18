@@ -99,8 +99,8 @@ export function setupSeconds(task: Pick<CodeTaskPublic, 'steps'>): number | null
   return Math.max(0, Math.round((Math.max(...ends) - Math.min(...starts)) / 1000));
 }
 
-/** Publish stepper (Screenshots → Commit → Push → Pull Request): the state of each step from task.publish. */
-export const PUBLISH_STEPS = ['screenshots', 'commit', 'push', 'pr'] as const;
+/** Publish stepper (Commit → Push → Pull Request): the state of each step from task.publish. */
+export const PUBLISH_STEPS = ['commit', 'push', 'pr'] as const;
 export type PublishStepState = 'pending' | 'running' | 'done' | 'failed';
 export function publishSteps(p: CodeTaskPublic['publish']): Record<(typeof PUBLISH_STEPS)[number], PublishStepState> {
   const at = p ? PUBLISH_STEPS.indexOf(p.step as (typeof PUBLISH_STEPS)[number]) : -1; // 'check' = before the first
@@ -110,7 +110,7 @@ export function publishSteps(p: CodeTaskPublic['publish']): Record<(typeof PUBLI
     if (i > at) return 'pending';
     return p.state === 'running' ? 'running' : p.state === 'failed' ? 'failed' : 'pending';
   };
-  return { screenshots: state(0), commit: state(1), push: state(2), pr: state(3) };
+  return { commit: state(0), push: state(1), pr: state(2) };
 }
 
 /** An action's response vs. the live stream: the stream may already carry a newer state (resume answers "waking" while the

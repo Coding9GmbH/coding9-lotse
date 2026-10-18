@@ -245,7 +245,7 @@ export interface GithubTestResult extends TestResult { login: string | null; /**
 export interface GithubRepo { fullName: string; private: boolean; defaultBranch: string; /** may push (from GitHub's permissions) */ push: boolean; pushedAt: string | null }
 export interface GithubBranch { name: string; protected: boolean }
 // ---- Sandbox Coding: one container per task from a fixed template; secrets of the environment never reach the browser ----
-export type SandboxStepKey = 'check-image' | 'clone' | 'detect-layout' | 'start-container' | 'wait-ready' | 'version-check' | 'import-db' | 'set-domain' | 'preview-tidy' | 'install-plugin' | 'custom-after-db' | 'theme-compile' | 'custom-final' | 'screenshots' | 'ready';
+export type SandboxStepKey = 'check-image' | 'clone' | 'detect-layout' | 'start-container' | 'wait-ready' | 'version-check' | 'import-db' | 'set-domain' | 'preview-tidy' | 'install-plugin' | 'custom-after-db' | 'theme-compile' | 'custom-final' | 'ready';
 export type SandboxCommandKey = 'theme-compile' | 'cache-clear' | 'plugin-refresh' | 'theme-refresh' | 'lint-twig' | 'php-lint';
 /** When an own setup command runs: after the database (before theme:compile) or at the very end of the setup */
 export type CommandPhase = 'after-db' | 'final';
@@ -262,7 +262,8 @@ export interface SandboxEnvPublic {
   envVars: SandboxEnvVar[]; commands: SandboxCommand[]; updatedAt: string | null;
   /** preselected in "Sandbox starten" (empty = none) */ defaultRepo: string; defaultBranch: string;
   /** "Internet im Container": only after a human allowed it per task (default) or never */ internet: InternetPolicy;
-  /** storefront paths captured before (setup) and after (publish), desktop and mobile; empty = no screenshots */ screenshotPaths: string[];
+  /** "Screenshot" button in the preview (off by default): captures screenshotPaths on desktop and mobile, only on the user's click */ screenshots: boolean;
+  /** storefront paths the "Screenshot" button captures */ screenshotPaths: string[];
 }
 export type InternetPolicy = 'approval' | 'never';
 /** Both modes: task containers only on the internal network lotse-sandbox. network = Lotse runs in Docker on that network; local = Lotse on the host reaches the container IPs */
@@ -271,7 +272,7 @@ export interface SandboxDocker { reachable: boolean; apiVersion: string | null; 
 export interface SandboxEnvView { env: SandboxEnvPublic; docker: SandboxDocker | null; imagePresent: boolean | null; templates: TemplateDescriptor[] }
 /** PUT /api/sandbox/env: secret value empty/undefined = unchanged; a command without id is new */
 export interface SandboxEnvPatch {
-  enabled?: boolean; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number; defaultRepo?: string; defaultBranch?: string; internet?: InternetPolicy; screenshotPaths?: string[];
+  enabled?: boolean; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number; defaultRepo?: string; defaultBranch?: string; internet?: InternetPolicy; screenshots?: boolean; screenshotPaths?: string[];
   envVars?: { key: string; secret: boolean; value?: string }[];
   commands?: { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec?: number }[];
 }
@@ -300,17 +301,16 @@ export interface CodeTaskPublic {
   /** the task's pull request (null = not published yet) */ pr: TaskPr | null;
   /** publishing right now, or the last attempt failed / was cut off by a restart (a retry continues idempotently) */ publish: TaskPublish | null;
   /** internet access a human allowed for this task (container attached to lotse-sandbox-egress); null = offline */ internet: { since: string } | null;
-  /** before (end of the setup) and after (at publishing) screenshots of the sandbox storefront, stored in Lotse only */ shots: TaskShots;
+  /** screenshots of the sandbox storefront the user took by hand ("Screenshot" in the preview), oldest first; stored in Lotse only */ shots: TaskShotSet[];
 }
 export type ShotDevice = 'desktop' | 'mobile';
 /** One stored screenshot; url = GET /api/sandbox/tasks/[id]/screenshots/[file] */
 export interface TaskShot { path: string; device: ShotDevice; url: string }
-export interface TaskShotSet { at: string; shots: TaskShot[]; /** why some or all shots are missing */ error?: string }
-export interface TaskShots { before: TaskShotSet | null; after: TaskShotSet | null }
+export interface TaskShotSet { id: string; at: string; shots: TaskShot[]; /** why some of the shots are missing */ error?: string }
 export interface TaskPr { number: number; url: string; title: string; /** seen by the PR watcher: merged or closed (missing = open or unknown) */ state?: 'merged' | 'closed' }
 /** One piece of PR feedback: review (state APPROVED/CHANGES_REQUESTED/COMMENTED), comment on the PR, line comment (path/line), failed check (name) */
 export interface PrFeedbackItem { kind: 'review' | 'comment' | 'line' | 'check'; id: string; author?: string; state?: string; name?: string; path?: string; line?: number; body: string; url?: string }
-export type PublishStep = 'check' | 'screenshots' | 'commit' | 'push' | 'pr';
+export type PublishStep = 'check' | 'commit' | 'push' | 'pr';
 /** Something in a changed file that looks like a secret (file, line, kind – never the value). overridable: may be a false positive
  *  (a stored value, a URL with credentials) and can be published anyway by the user, by id (hash of file and line content). */
 export interface SecretFinding { id: string; file: string; line: number; kind: string; overridable: boolean }
@@ -322,7 +322,14 @@ export interface PublishResult { task: CodeTaskPublic; pr: TaskPr; action: 'crea
 /** GET /api/sandbox/tasks/[id]/pr: live state from GitHub (cached briefly); checks null = not readable with the token */
 export interface PrStatus { number: number; url: string; title: string; state: 'open' | 'closed' | 'merged'; draft: boolean; checks: { total: number; success: number; failure: number; pending: number } | null; fetchedAt: string }
 /** GET /api/sandbox/tasks/[id]/diff: changes in the workspace against the base branch (redacted, capped) */
-export interface TaskDiff { files: { path: string; added: number; removed: number; status: 'added' | 'modified' | 'deleted' | 'renamed' }[]; diff: string; truncated: boolean; /** pushed before: changes since that push exist (missing = never pushed) */ unpublished?: boolean }
+export interface TaskDiff {
+  files: { path: string; added: number; removed: number; status: 'added' | 'modified' | 'deleted' | 'renamed' }[]; diff: string; truncated: boolean;
+  /** pushed before: changes since that push exist (missing = never pushed) */ unpublished?: boolean;
+  /** local commits on top of the base branch (the AI's git_commit, earlier publishes), newest first */ commits?: TaskCommit[];
+  /** changed paths not committed yet (publishing adds them as one last commit) */ uncommitted?: string[];
+}
+/** A local commit of the task's worktree; published = contained in the last push */
+export interface TaskCommit { sha: string; at: string; subject: string; published: boolean }
 /** Dump of a task: imported once and deleted right after the import (also on failure). versionMismatch blocks until "Trotzdem fortfahren". */
 export interface TaskDumpPublic { name: string; size: number; sha256: string | null; imported: boolean; deleted: boolean; ignoreVersion: boolean; versionMismatch?: { dump: string; image: string } }
 /** An uploaded dump (GET/POST /api/sandbox/dumps…): metadata, never the content */

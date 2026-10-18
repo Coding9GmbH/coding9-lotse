@@ -4,13 +4,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import { parseDiff, type DiffFile } from '@/lib/diff-parse';
 import type { TaskDiff } from '@/lib/protocol';
-import { useT } from '@/lib/i18n/I18nProvider';
+import { useI18n, useT } from '@/lib/i18n/I18nProvider';
 import { IconChevron, IconRefresh } from '@/components/ui/icons';
 import styles from './Sandbox.module.css';
 
 const anchor = (i: number) => `sbx-diff-${i}`;
 
-/** "Änderungen": the workspace against the base branch (redacted on the server), per file with +/− counts and line numbers.
+/** "Änderungen": the AI's local commits (newest first, published or local), the files not committed yet and the whole workspace against
+ *  the base branch (redacted on the server), per file with +/− counts and line numbers.
  *  Reloads by itself when `refresh` changes (a file card arrived, a turn ended); the icon reloads by hand. */
 export function DiffPanel({ taskId, refresh }: { taskId: string; refresh: number }) {
   const t = useT().sandbox.code.diff;
@@ -27,6 +28,9 @@ export function DiffPanel({ taskId, refresh }: { taskId: string; refresh: number
   const patch = diff?.diff ?? '';
   const files = useMemo(() => (patch ? parseDiff(patch) : []), [patch]);
   const toggle = (p: string, open?: boolean) => setClosed(c => { const n = new Set(c); if (open ?? n.has(p)) n.delete(p); else n.add(p); return n; });
+  const { locale } = useI18n();
+  const at = (iso: string) => new Date(iso).toLocaleString(locale === 'en' ? 'en-GB' : 'de-DE', { dateStyle: 'short', timeStyle: 'short' });
+  const commits = diff?.commits ?? [], open = diff?.uncommitted ?? [];
   const jump = (i: number, p: string) => { toggle(p, true); requestAnimationFrame(() => document.getElementById(anchor(i))?.scrollIntoView({ block: 'start', behavior: 'smooth' })); };
 
   return (
@@ -38,6 +42,29 @@ export function DiffPanel({ taskId, refresh }: { taskId: string; refresh: number
         </button>
       </div>
       {error && <p className={styles.bad} role="alert">{t.failed(error)}</p>}
+      {commits.length > 0 && (
+        <section className={styles.dfCommits} aria-labelledby="sbx-commits-h">
+          <h3 id="sbx-commits-h" className={styles.label}>{t.commits} <small className={styles.muted}>(Commits)</small></h3>
+          <p className={styles.fieldHint}>{t.commitsHint}</p>
+          <ol>
+            {commits.map(c => (
+              <li key={c.sha}>
+                <span className={styles.dfSubject}>{c.subject}</span>
+                <small className={styles.muted}><code>{c.sha.slice(0, 7)}</code> · {at(c.at)}</small>
+                <span className={styles.dfBadge} data-status={c.published ? 'published' : 'local'}>{c.published ? t.published : t.local}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+      {open.length > 0 && (
+        <details className={styles.dfOpen}>
+          <summary>{t.uncommitted(open.length)}</summary>
+          <p className={styles.fieldHint}>{t.uncommittedHint}</p>
+          <ul className={styles.dfFiles}>{open.map(p => <li key={p}><code>{p}</code></li>)}</ul>
+        </details>
+      )}
+      {commits.length > 0 && !!diff?.files.length && <h3 className={styles.label}>{t.total}</h3>}
       {!!diff?.files.length && (
         <ul className={styles.dfFiles}>
           {diff.files.map(f => {

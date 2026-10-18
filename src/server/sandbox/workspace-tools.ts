@@ -2,15 +2,20 @@ import 'server-only';
 // MCP tools of a chat with an attached sandbox (Sandbox Coding), the same for Claude (in-process) and Codex (over HTTP).
 // Files are read and edited with the agent's own tools (Claude: Read/Edit/Write/Glob/Grep, see native-tools.ts; Codex: its patches),
 // confined to the task's worktree. Here only what those do not cover: sandbox_bash (any shell command INSIDE the task container,
-// never on the host), delete_file, git_diff, the task's own storefront, the environment, questions, the PR proposal and request_internet
-// (asks the human; only the click attaches the container to the internet, internet.ts).
+// never on the host), delete_file, git_diff, git_commit (a local commit in the worktree, like Claude Code does it), the task's own
+// storefront, the environment, questions, the PR proposal and request_internet (asks the human; only the click attaches the
+// container to the internet, internet.ts).
 // Codex has no file reading of its own without a shell, so it also gets list_files/read_file/search_files.
-// Nothing commits, pushes, calls GitHub or controls Docker beyond the container exec. Cheap to build, no side effects.
+// Nothing pushes, switches branches, rewrites history, calls GitHub or controls Docker beyond the container exec: git_commit only adds
+// one commit on top of HEAD through git.ts, after the same checks publishing makes (paths, workflows, secrets). Cheap to build.
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { z } from 'zod';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatEvent } from '@/lib/protocol';
+import { currentActor } from '../actor';
 import { accessAdd } from '../db';
+import { COMMIT_LIMITS, assertCommitPath, commitChanges, pendingChanges, runGit } from '../git';
 import { decodeEntities } from '../html-sanitize';
 import { redact } from '../settings';
 import { fail, guard, ok, type AnyTool, type ToolResult } from '../tool-kit';
@@ -20,14 +25,16 @@ import { sandboxPublic } from './env';
 import { grantInternet, internetBlocked, noteInternetDenied, noteInternetFailed } from './internet';
 import { ensureAwake, touchTask, withTaskLock } from './jobs';
 import { fetchUpstream, sandboxUpstream } from './preview';
+import { relOf } from './native-tools';
+import { LOTSE_AUTHOR, coAuthor, commitCheck } from './publish';
 import { getRunner } from './runner';
 import { syncAll, syncPaths } from './sync';
 import { getTemplate } from './templates';
-import { mustTask, settleNewPlugin, taskPaths, type CodeTask } from './tasks';
+import { mustTask, publishRunning, settleNewPlugin, taskPaths, type CodeTask } from './tasks';
 import { deleteText, listFiles, readText, searchFiles, type Change } from './workspace-fs';
 
 /** MCP tools of every sandbox chat */
-export const SANDBOX_TOOL_NAMES = ['sandbox_bash', 'delete_file', 'git_diff', 'read_sandbox_page', 'get_environment', 'ask_user', 'request_internet', 'propose_publish'] as const;
+export const SANDBOX_TOOL_NAMES = ['sandbox_bash', 'delete_file', 'git_diff', 'git_commit', 'read_sandbox_page', 'get_environment', 'ask_user', 'request_internet', 'propose_publish'] as const;
 /** Codex only: reading the worktree (Claude reads with its own Read/Glob/Grep) */
 export const CODEX_READ_TOOL_NAMES = ['list_files', 'read_file', 'search_files'] as const;
 export const sandboxToolNames = (provider: 'claude' | 'codex'): string[] => (provider === 'codex' ? [...CODEX_READ_TOOL_NAMES, ...SANDBOX_TOOL_NAMES] : [...SANDBOX_TOOL_NAMES]);
@@ -150,11 +157,31 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
       { path: z.string().min(1).max(500).describe('Pfad relativ zur Repository-Wurzel') },
       act('delete_file', async ({ path }) => changed(deleteText(worktree(), path)))),
 
-    tool('git_diff', 'Zeigt alle bisherigen Änderungen gegenüber dem Basis-Branch (Dateiliste mit +/− und Patch, gekürzt).', {},
+    tool('git_diff', 'Zeigt alle bisherigen Änderungen gegenüber dem Basis-Branch (Dateiliste mit +/− und Patch, gekürzt), dazu deine lokalen Commits und was noch nicht committet ist.', {},
       act('git_diff', async () => {
         const d = await taskDiff(task(), DIFF_FOR_AI);
-        if (!d.files.length) return ok('Keine Änderungen gegenüber dem Basis-Branch.');
-        return ok(`${d.files.map(f => `${f.status} ${f.path} (+${f.added} −${f.removed})`).join('\n')}\n\n${d.diff}`);
+        const commits = d.commits?.length ? `Lokale Commits (neueste zuerst):\n${d.commits.map(c => `${c.sha.slice(0, 7)} ${c.subject}${c.published ? ' (veröffentlicht)' : ''}`).join('\n')}\n\n` : '';
+        const open = d.uncommitted?.length ? `Noch nicht committet: ${d.uncommitted.slice(0, 50).join(', ')}${d.uncommitted.length > 50 ? ' …' : ''}\n\n` : '';
+        if (!d.files.length) return ok(`${commits}${open}Keine Änderungen gegenüber dem Basis-Branch.`);
+        return ok(`${commits}${open}${d.files.map(f => `${f.status} ${f.path} (+${f.added} −${f.removed})`).join('\n')}\n\n${d.diff}`);
+      })),
+
+    tool('git_commit', `Speichert Änderungen als lokalen Commit im Repository der Aufgabe – wie in Claude Code: nach jedem in sich abgeschlossenen, geprüften Schritt ein Commit mit eigener, aussagekräftiger Nachricht (erste Zeile kurz, höchstens ${COMMIT_LIMITS.subject} Zeichen, im Stil des Repositorys; optional eine Leerzeile und ein Text, warum). Ohne paths alle Änderungen, sonst nur diese Dateien/Ordner (relativ zur Repository-Wurzel). Nur lokal: kein Push, kein Branch-Wechsel, kein Ändern früherer Commits – gepusht und als Pull Request veröffentlicht wird erst mit dem Klick des Nutzers. Geschützte Dateien, GitHub-Workflows und alles, was wie ein Geheimnis aussieht, werden nicht committet.`,
+      { message: z.string().min(1).max(COMMIT_LIMITS.message).describe('Commit-Nachricht: erste Zeile = Zusammenfassung'), paths: z.array(z.string().min(1).max(500)).min(1).max(COMMIT_LIMITS.paths).optional().describe('nur diese Dateien/Ordner; leer = alle Änderungen') },
+      act('git_commit', async ({ message, paths }) => {
+        const t = task(), { worktree: wt, gitDir } = taskPaths(taskId);
+        if (!t.steps.some(s => s.key === 'clone' && s.state === 'done') || !fs.existsSync(wt)) return fail('Das Repository ist noch nicht geklont.');
+        if (publishRunning(taskId)) return fail('Gerade wird veröffentlicht – später erneut committen.');
+        const rels = paths?.map(p => assertCommitPath(relOf(wt, p)));
+        const pending = await pendingChanges(wt, gitDir, rels);
+        if (!pending.length) return ok(rels ? `Keine Änderungen an ${rels.join(', ')} – nichts committet.` : 'Keine Änderungen – nichts committet.');
+        const head = (await runGit(['rev-parse', 'HEAD'], { cwd: wt, gitDir })).stdout.trim();
+        const why = await commitCheck(t, pending, head);
+        if (why) return fail(`${why}${rels ? '' : ' Mit paths nur die übrigen Dateien committen.'}`);
+        const r = await commitChanges(wt, gitDir, message, LOTSE_AUTHOR, coAuthor(currentActor(t.chatId)), rels);
+        if (!r) return ok('Keine Änderungen – nichts committet.');
+        const subject = redact(message.trim().split('\n')[0]);
+        return ok(`Commit ${r.sha.slice(0, 7)} (${r.files === 1 ? '1 Datei' : `${r.files} Dateien`}): ${subject}. Nur lokal gespeichert – veröffentlicht wird erst mit dem Klick des Nutzers im Reiter „Pull Request“.`);
       })),
     tool('read_sandbox_page', 'Ruft eine Seite der Sandbox-Storefront dieser Aufgabe ab (nur diese, z. B. "/" oder "/checkout/cart") und liefert Status, Titel und sichtbaren Text – mit format "html" den HTML-Quelltext (gekürzt). Zum Prüfen, ob eine Änderung wirkt.',
       { path: z.string().min(1).max(500).describe('Pfad der Storefront, beginnt mit /'), format: z.enum(['text', 'html']).optional() },

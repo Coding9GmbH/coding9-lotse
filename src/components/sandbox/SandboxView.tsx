@@ -16,15 +16,15 @@ import styles from './Sandbox.module.css';
 
 interface VarRow { key: string; secret: boolean; value: string; hasValue: boolean; /** stored as secret with a value: unticking needs a new value */ wasSecret?: boolean }
 interface CmdRow { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec: string }
-interface Form { image: string; defaultRepo: string; defaultBranch: string; internet: InternetPolicy; shots: string; vars: VarRow[]; cmds: CmdRow[] }
+interface Form { image: string; defaultRepo: string; defaultBranch: string; internet: InternetPolicy; shotsOn: boolean; shots: string; vars: VarRow[]; cmds: CmdRow[] }
 const formOf = (v: SandboxEnvView): Form => ({
-  image: v.env.image, defaultRepo: v.env.defaultRepo, defaultBranch: v.env.defaultBranch, internet: v.env.internet, shots: v.env.screenshotPaths.join('\n'),
+  image: v.env.image, defaultRepo: v.env.defaultRepo, defaultBranch: v.env.defaultBranch, internet: v.env.internet, shotsOn: v.env.screenshots, shots: v.env.screenshotPaths.join('\n'),
   vars: v.env.envVars.map(x => ({ ...x, wasSecret: x.secret && x.hasValue })),
   cmds: v.env.commands.map(c => ({ id: c.id, label: c.label, command: c.command, phase: c.phase, timeoutSec: String(c.timeoutSec) })),
 });
 const patchOf = (f: Form): SandboxEnvPatch => ({
   image: f.image.trim(), defaultRepo: f.defaultRepo.trim(), defaultBranch: f.defaultBranch.trim(), internet: f.internet,
-  screenshotPaths: f.shots.split('\n').map(x => x.trim()).filter(Boolean),
+  screenshots: f.shotsOn, screenshotPaths: f.shots.split('\n').map(x => x.trim()).filter(Boolean),
   envVars: f.vars.filter(v => v.key.trim() || v.value).map(v => ({ key: v.key.trim(), secret: v.secret, ...(v.secret && !v.value ? {} : { value: v.value }) })),
   commands: f.cmds.filter(c => c.label.trim() || c.command.trim()).map(c => ({ ...(c.id ? { id: c.id } : {}), label: c.label, command: c.command, phase: c.phase, timeoutSec: Number(c.timeoutSec) || undefined })),
 });
@@ -235,11 +235,17 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
         <Hint small text={t.internetHint} more={t.internetMore} />
       </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>{t.shots}</span>
-        <textarea rows={3} value={form.shots} spellCheck={false} placeholder="/" onChange={e => set(f => ({ ...f, shots: e.target.value }))} />
-        <Hint small text={t.shotsHint} more={t.shotsMore} />
-      </label>
+      <div className={styles.field}>
+        <label className={styles.toggle}><input type="checkbox" role="switch" checked={form.shotsOn} onChange={e => set(f => ({ ...f, shotsOn: e.target.checked }))} /> {t.shotsOn}</label>
+        <Hint small text={t.shotsOnHint} />
+      </div>
+      {form.shotsOn && (
+        <label className={styles.field}>
+          <span className={styles.label}>{t.shots}</span>
+          <textarea rows={3} value={form.shots} spellCheck={false} placeholder="/" onChange={e => set(f => ({ ...f, shots: e.target.value }))} />
+          <Hint small text={t.shotsHint} more={t.shotsMore} />
+        </label>
+      )}
 
       <h3 className={styles.h3}>{t.vars}</h3>
       <Hint text={t.varsHint} more={t.varsMore} />

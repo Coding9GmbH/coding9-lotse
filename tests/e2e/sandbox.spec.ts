@@ -167,7 +167,7 @@ test('Sandbox Coding: attach a sandbox to a chat, setup reaches ready, preview, 
   await expect(page.getByRole('button', { name: 'Sandbox starten', exact: true })).toBeVisible();
   await page.goto('/sandbox-coding');
   await expect(tasks.getByRole('link', { name: /Footer grün.*Abgeschlossen/ })).toBeVisible();
-  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '', screenshots: false } })).ok()).toBeTruthy();
 });
 
 // Database dump: chunked upload in the "Sandbox starten" dialog, imported during the setup and deleted right afterwards.
@@ -256,9 +256,10 @@ test('Sandbox Coding: the agent edits the header template natively, compiles the
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
 });
 
-// Publishing (scripted model): the AI edits the header and proposes a pull request ([e2e:pr]); the proposal card opens the
-// "Pull Request" tab prefilled, only the click there commits, pushes to lotse/… and opens the PR (GitHub fake); the PR card
-// shows number and link in the chat and the tab, the task list shows the number.
+// Publishing (scripted model): the AI edits the header, commits it locally ([e2e:commit], shown in "Änderungen") and proposes a
+// pull request ([e2e:pr]); the proposal card opens the "Pull Request" tab prefilled (no screenshots: nobody took one), only the
+// click there pushes the commit to lotse/… and opens the PR (GitHub fake); the PR card shows number and link in the chat and the
+// tab, the task list shows the number. With "Screenshots" switched on, the preview's "Screenshot" adds one to the tab.
 test('Sandbox Coding: the AI proposes a pull request, the click publishes it, the PR card shows the link', async ({ page, request }) => {
   test.setTimeout(150_000);
   const lotse = { 'x-lotse': '1' };
@@ -273,9 +274,14 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
 
   const header = 'src/Resources/views/storefront/layout/header/header.html.twig';
-  await page.getByRole('textbox', { name: 'Nachricht an Lotse' }).fill(`Bitte umsetzen. [e2e:replace ${header} Lotse Test-Header|Gratis Versand] [e2e:pr Header: Gratis Versand|Im Header steht jetzt Gratis Versand.]`);
+  await page.getByRole('textbox', { name: 'Nachricht an Lotse' }).fill(`Bitte umsetzen. [e2e:replace ${header} Lotse Test-Header|Gratis Versand] [e2e:commit Gratis Versand im Header anzeigen] [e2e:pr Header: Gratis Versand|Im Header steht jetzt Gratis Versand.]`);
   await page.getByRole('button', { name: 'Senden' }).click();
-  await expect(page.getByText('Fertig: 3 Schritte.')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText('Fertig: 4 Schritte.')).toBeVisible({ timeout: 60_000 });
+  // the AI's local commit in "Änderungen": saved, not published, nothing left uncommitted
+  await panel.getByRole('tab', { name: /Änderungen/ }).click();
+  const commits = panel.getByRole('region', { name: /Gespeicherte Schritte/ });
+  await expect(commits.getByRole('listitem').filter({ hasText: 'Gratis Versand im Header anzeigen' })).toContainText('lokal');
+  await expect(panel.getByText(/Noch nicht gespeichert/)).toHaveCount(0);
   const proposal = page.getByRole('region', { name: 'Vorschlag für den Pull Request' });
   await expect(proposal.getByText('Header: Gratis Versand')).toBeVisible();
   const pulls = async () => ((await (await request.get(`${githubUrl}/__fake/calls`)).json()) as { method: string; path: string; body: { head?: string; base?: string; body?: string } }[])
@@ -289,11 +295,8 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await expect(form.getByLabel('Beschreibung')).toHaveValue('Im Header steht jetzt Gratis Versand.');
   await expect(form.getByText(header)).toBeVisible();
   await expect(form.getByText(/^lotse\/gratis-versand-[a-z0-9]{6} → main$/)).toBeVisible();
-  // before screenshots from the setup next to the after slot (taken when publishing)
-  const shots = panel.getByRole('region', { name: 'Vorher / Nachher' });
-  await expect(shots.getByRole('img', { name: 'Vorher, Desktop: /' })).toBeVisible();
-  await expect(shots.getByRole('img', { name: 'Vorher, Mobil: /' })).toBeVisible();
-  await expect(shots.getByText('beim Veröffentlichen').first()).toBeVisible();
+  // no screenshots: neither the setup nor publishing takes any by itself
+  await expect(panel.getByRole('region', { name: 'Screenshots' })).toHaveCount(0);
   expect((await pulls()).length).toBe(before); // nothing published before the click
   await form.getByLabel('Titel').fill('Header: Gratis Versand ab 50 €');
   await form.getByRole('button', { name: 'Pull Request erstellen' }).click();
@@ -307,8 +310,8 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   expect(posted).toHaveLength(1);
   expect(posted[0].body.head).toMatch(/^lotse\/gratis-versand-[a-z0-9]{6}$/);
   expect(posted[0].body.base).toBe('main');
-  expect(posted[0].body.body).toMatch(/\*\*Screenshots:\*\* Vorher-\/Nachher-Screenshots .* Sie werden nicht auf GitHub hochgeladen\./);
-  await expect(shots.getByRole('img', { name: 'Nachher, Mobil: /' })).toBeVisible();
+  expect(posted[0].body.body).not.toMatch(/Screenshot/);
+  await expect(panel.getByRole('region', { name: 'Screenshots' })).toHaveCount(0);
   await expect(panel.getByRole('tab', { name: /Pull Request\s*#\d+/ })).toBeVisible();
   await expect(panel.getByRole('status').filter({ hasText: /✓ Pull Request #\d+ angelegt\./ })).toBeVisible(); // success at the top of the tab
   // nothing new since the push: no button that would only send the same state again; editing the title offers the update
@@ -321,9 +324,19 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await expect(proposal.getByRole('link', { name: /^Veröffentlicht als #\d+$/ })).toBeVisible();
   await expect(proposal.getByRole('button', { name: 'Prüfen und veröffentlichen' })).toHaveCount(0);
 
-  // after a reload the card is replayed, the task list shows the number
+  // after a reload the card is replayed; "Screenshots" switched on: the preview's button adds a set to the "Pull Request" tab
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { screenshots: true } })).ok()).toBeTruthy();
   await page.reload();
   await expect(page.getByRole('log').getByRole('region', { name: /^Pull Request #\d+:/ })).toBeVisible();
+  const sbx = page.getByRole('region', { name: 'Sandbox' });
+  await sbx.getByRole('tab', { name: 'Vorschau' }).click();
+  await sbx.getByRole('button', { name: 'Screenshot', exact: true }).click();
+  await expect(sbx.getByRole('status').filter({ hasText: 'Screenshot gespeichert' })).toBeVisible({ timeout: 30_000 });
+  await sbx.getByRole('tab', { name: /Pull Request/ }).click();
+  const shots = sbx.getByRole('region', { name: 'Screenshots' });
+  await expect(shots.getByRole('img', { name: /^Screenshot Desktop: \/ / })).toBeVisible();
+  await expect(shots.getByRole('img', { name: /^Screenshot Mobil: \/ / })).toBeVisible();
+  // the task list shows the number
   await page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Weitere Aktionen' }).click();
   await page.getByRole('menuitem', { name: 'Alle Sandboxes' }).click();
   await expect(page.locator('section[aria-labelledby="sbx-tasks"]').getByRole('link', { name: /^PR #\d+ · offen$/ }).first()).toBeVisible();

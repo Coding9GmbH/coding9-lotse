@@ -20,7 +20,7 @@ interface StoredVar { key: string; secret: boolean; /** sealed when secret */ va
 interface StoredSandbox {
   enabled?: boolean; templateId?: string; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number;
   envVars?: StoredVar[]; commands?: SandboxCommand[]; updatedAt?: string; defaultRepo?: string; defaultBranch?: string; internet?: InternetPolicy;
-  screenshotPaths?: string[];
+  /** the manual "Screenshot" button of the preview; off by default */ screenshots?: boolean; screenshotPaths?: string[];
 }
 const KV = 'sandbox';
 const stored = (): StoredSandbox => {
@@ -146,6 +146,7 @@ export function saveSandbox(p: SandboxEnvPatch, env: Record<string, string | und
     if (p.internet !== 'approval' && p.internet !== 'never') throw new Error('Internet im Container: erlaubt sind „nur nach Freigabe“ oder „nie“.');
     if (p.internet !== (s.internet ?? 'approval')) { next.internet = p.internet; changed.push('internet'); }
   }
+  if (p.screenshots !== undefined && p.screenshots !== !!s.screenshots) { next.screenshots = p.screenshots; changed.push('screenshots'); }
   if (p.screenshotPaths !== undefined) {
     next.screenshotPaths = validShotPaths(p.screenshotPaths);
     if (JSON.stringify(next.screenshotPaths) !== JSON.stringify(s.screenshotPaths ?? DEFAULT_SHOT_PATHS)) changed.push('screenshotPaths');
@@ -172,7 +173,7 @@ export function sandboxPublic(env: Record<string, string | undefined> = process.
     memoryMb: s.memoryMb ?? LIMITS.memoryMb.def, cpus: s.cpus ?? LIMITS.cpus.def, idleMinutes: s.idleMinutes ?? defaultIdle(env), maxRunning: maxRunning(env),
     envVars: (s.envVars ?? []).map(v => ({ key: v.key, secret: v.secret, value: v.secret ? '' : v.value, hasValue: !!v.value })),
     commands: s.commands ?? [], updatedAt: s.updatedAt ?? null, defaultRepo: s.defaultRepo ?? '', defaultBranch: s.defaultBranch ?? '', internet: s.internet ?? 'approval',
-    screenshotPaths: s.screenshotPaths ?? DEFAULT_SHOT_PATHS,
+    screenshots: !!s.screenshots, screenshotPaths: s.screenshotPaths ?? DEFAULT_SHOT_PATHS,
   };
 }
 
@@ -220,14 +221,14 @@ export function sandboxForbidden(): Response | null {
   return s.enabled ? null : Response.json({ error: s.message ?? SANDBOX_OFF, reason: s.reason }, { status: 403 });
 }
 
-/** The screenshot image (only while screenshot pages are set). Not loadable = a note, never a failed check: screenshots are optional. */
+/** The screenshot image (only while screenshots are switched on). Not loadable = a note, never a failed check: screenshots are optional. */
 async function checkShotImage(onProgress: (text: string, pct?: number) => void, signal?: AbortSignal): Promise<string> {
-  if (!sandboxPublic().screenshotPaths.length) return '';
+  if (!sandboxPublic().screenshots) return '';
   try {
     onProgress(`Image ${SCREENSHOT_IMAGE} (Screenshots) prüfen …`);
     const { pulled } = await getRunner().ensureImage(SCREENSHOT_IMAGE, p => onProgress(p.text, p.pct), signal);
     return pulled ? ` Screenshot-Image ${SCREENSHOT_IMAGE} geladen.` : '';
-  } catch (e) { return ` Screenshot-Image ${SCREENSHOT_IMAGE} nicht geladen (${errMsg(e).slice(0, 200)}) – Screenshots werden übersprungen.`; }
+  } catch (e) { return ` Screenshot-Image ${SCREENSHOT_IMAGE} nicht geladen (${errMsg(e).slice(0, 200)}) – der erste Screenshot versucht es erneut.`; }
 }
 
 /** "Umgebung prüfen": Docker reachable, internal network (network mode), image present or pulled now. One at a time. */

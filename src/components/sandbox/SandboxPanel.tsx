@@ -18,7 +18,7 @@ import { PrCard } from './PrCard';
 import { PublishCard, type PrProposal } from './PublishCard';
 import { SandboxOff } from './SandboxOff';
 import { SandboxPreview } from './SandboxPreview';
-import { ShotCompare } from './ShotCompare';
+import { ShotList } from './ShotList';
 import { StepTimeline } from './StepTimeline';
 import { TaskStatus } from './TaskList';
 import styles from './Sandbox.module.css';
@@ -32,8 +32,9 @@ const SETUP = new Set(['setting_up', 'failed', 'interrupted']);
  * Right panel of a chat with an attached sandbox (instead of the draft preview). Header in two lines: title and status, then the
  * repository (shortened in the middle, full in the tooltip) with the working branch and a copy button; on the right the internet state,
  * the one lifecycle action that fits the status and a "⋯" menu (finish, replace the database, all sandboxes).
- * Tabs: Vorschau (the task's storefront, full width, full screen), Einrichtung (step timeline), Änderungen (diff per file) and
- * Pull Request (status, form with a sticky button, screenshots below). During the setup it shows "Einrichtung" and switches to
+ * Tabs: Vorschau (the task's storefront, full width, full screen; "Screenshot" while switched on), Einrichtung (step timeline),
+ * Änderungen (the AI's commits, what is not committed yet, diff per file) and Pull Request (status, form with a sticky button, the
+ * screenshots the user took). During the setup it shows "Einrichtung" and switches to
  * "Vorschau" once the sandbox is ready. `files`: file cards so far (refreshes the diff); `openPr` changing opens the PR tab.
  */
 export function SandboxPanel({ taskId, className, reload, files, busy, proposal, openPr = 0, feedbackOpen = 0, chatHidden, onToggleChat, onPublished, onSendNotes, onClose, onTask, onChatEvent }: {
@@ -58,7 +59,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
   const [uploading, setUploading] = useState(false);
   const [idle, setIdle] = useState(30);
   const [policy, setPolicy] = useState<InternetPolicy>('approval');
-  const [shotPages, setShotPages] = useState(true);
+  const [shotPages, setShotPages] = useState<string[] | null>(null); // null = screenshots switched off
   const [prSeen, setPrSeen] = useState(openPr);
   const [prTick, setPrTick] = useState(0);
   const [published, setPublished] = useState<PublishResult | null>(null);
@@ -73,7 +74,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
     return () => mq.removeEventListener('change', on);
   }, []);
   if (openPr !== prSeen) { setPrSeen(openPr); setTab('pr'); }
-  useEffect(() => { api.sandbox.env().then(v => { setIdle(v.env.idleMinutes); setPolicy(v.env.internet); setShotPages(v.env.screenshotPaths.length > 0); }, () => {}); }, []);
+  useEffect(() => { api.sandbox.env().then(v => { setIdle(v.env.idleMinutes); setPolicy(v.env.internet); setShotPages(v.env.screenshots ? v.env.screenshotPaths : null); }, () => {}); }, []);
   useEffect(() => {
     if (!full) return;
     // an Escape that closes a menu or a dialog does only that
@@ -187,7 +188,8 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
       <div ref={body} className={styles.panelBody} data-tab={shown}>
         <div role="tabpanel" id="sbx-panel-preview" aria-labelledby="sbx-tab-preview" hidden={shown !== 'preview'} className={styles.pvPanel}>
           <SandboxPreview task={task} reload={reload} inTabs onSendNotes={onSendNotes}
-            layout={{ full, onFull: () => setFull(f => !f), chatHidden, onToggleChat: full ? undefined : onToggleChat }} />
+            layout={{ full, onFull: () => setFull(f => !f), chatHidden, onToggleChat: full ? undefined : onToggleChat }}
+            shots={shotPages ? { pages: shotPages, onTaken: setTask } : undefined} />
         </div>
         <section role="tabpanel" id="sbx-panel-setup" aria-labelledby="sbx-tab-setup" hidden={shown !== 'setup'} className={styles.tabBody}>
           <p className={styles.hint} role="status">{typeof hint === 'function' ? hint(idle) : hint}</p>
@@ -210,13 +212,13 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
               <PrCard taskId={task.id} pr={task.pr} refresh={prTick} />
             </div>
           )}
-          {/* the screenshots sit inside the form, above its footer: the button stays at the bottom of the tab while scrolling */}
+          {/* screenshots (only those the user took) sit inside the form, above its footer: the button stays at the bottom of the tab while scrolling */}
           {shown === 'pr' && (s !== 'done'
             ? <PublishCard task={task} proposal={proposal ?? null} onPublished={r => {
               setTask(r.task); setPrTick(n => n + 1); setPublished(r); onPublished?.(r);
               requestAnimationFrame(() => body.current?.scrollTo({ top: 0, behavior: 'smooth' }));
-            }}><ShotCompare task={task} enabled={shotPages} /></PublishCard>
-            : <ShotCompare task={task} enabled={shotPages} />)}
+            }}><ShotList task={task} /></PublishCard>
+            : <ShotList task={task} />)}
         </section>
       </div>
       <Dialog open={replacing} onClose={() => { setReplacing(false); setNewDump(null); }} title={all.sandbox.dump.replaceTitle} wide footer={

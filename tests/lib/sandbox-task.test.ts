@@ -7,7 +7,7 @@ import { applyTaskEvent, canRetryFrom, errorSummary, formatSeconds, newerTask, s
 const task = (o: Partial<CodeTaskPublic> = {}): CodeTaskPublic => ({
   id: 't_aaaaaaaaaaaa', title: 'T', goal: '', repo: 'a/b', baseBranch: 'main', branch: 'lotse/t-aaaaaa', template: 'dockware', status: 'setting_up',
   steps: [{ id: 'clone', key: 'clone', state: 'running', log: [] }, { id: 'ready', key: 'ready', state: 'pending', log: [] }],
-  layout: null, error: null, container: null, preview: '/sbx/t_aaaaaaaaaaaa.0123456789abcdef0123', dump: null, prUrl: null, createdAt: '', updatedAt: '', lastActiveAt: '', finishedAt: null, chatId: null, pluginName: null, pr: null, publish: null, internet: null, shots: { before: null, after: null }, ...o,
+  layout: null, error: null, container: null, preview: '/sbx/t_aaaaaaaaaaaa.0123456789abcdef0123', dump: null, prUrl: null, createdAt: '', updatedAt: '', lastActiveAt: '', finishedAt: null, chatId: null, pluginName: null, pr: null, publish: null, internet: null, shots: [], ...o,
 });
 
 test('applyTaskEvent: snapshot, log lines (max. 200), deleted', () => {

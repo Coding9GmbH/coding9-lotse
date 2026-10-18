@@ -24,8 +24,8 @@ export function ErrorText({ text, details }: { text: string; details: string }) 
 }
 
 /** "Pull Request" tab: the changed files, branch → base, title and description (the AI's proposal prefilled, editable), `children`
- *  (the screenshots) and a footer that sticks to the bottom of the tab with the button and the steps Screenshots → Commit → Push →
- *  Pull Request. Only this click publishes; progress and errors come with the task (task.publish), so a reload shows them too.
+ *  (the screenshots the user took, if any) and a footer that sticks to the bottom of the tab with the button and the steps Commit (only
+ *  what is not committed yet; the AI's commits are pushed as they are) → Push → Pull Request. Only this click publishes; progress and errors come with the task (task.publish), so a reload shows them too.
  *  Published already: "aktualisieren" only when something changed since the last push (or title/description were edited).
  *  Blocked by the secret scan: the findings with file and line; when all may be false positives, "Trotzdem veröffentlichen" (audited). */
 export function PublishCard({ task, proposal, onPublished, children }: { task: CodeTaskPublic; proposal: PrProposal | null; onPublished: (r: PublishResult) => void; children?: React.ReactNode }) {

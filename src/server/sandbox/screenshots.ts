@@ -1,44 +1,47 @@
 import 'server-only';
-// Before/after screenshots of a task's sandbox storefront (desktop and mobile per configured page).
-// - before: setup step "screenshots" after theme:compile, i.e. before the first agent turn; kept until a new clone or database import
-// - after: when publishing (publish.ts), before the commit; the PR body only mentions them (no link, no upload to GitHub)
+// Screenshots of a task's sandbox storefront (desktop and mobile per configured page) – only by hand: the "Screenshot" button of the
+// preview, offered when "Screenshots" is switched on in the environment (off by default). Neither the setup nor publishing takes any;
+// the "Pull Request" tab shows the sets the user took, the PR body only mentions them (no link, no upload to GitHub).
 // The capture runs in a short-lived container of the pinned screenshot image (screenshot-spec.ts); the PNGs come back through
-// the archive API, are checked (PNG signature, size) and stored in <data>/screenshots/<task>. A failure never blocks the setup
-// or publishing: the set then carries the reason. The AI has no tool for any of this.
+// the archive API, are checked (PNG signature, size) and stored in <data>/screenshots/<task>. The AI has no tool for any of this.
 import fs from 'node:fs';
 import path from 'node:path';
 import { log } from '../log';
 import { redact } from '../settings';
-import { errMsg } from '../util';
+import { singleton } from '../state';
 import { getSandboxConfig } from './env';
 import { ROLE_LABEL, SHOT_ROLE, TASK_LABEL } from './labels';
 import { getRunner } from './runner';
 import { DEVICES, SCREENSHOT_IMAGE, SHOT_DIR, SHOT_OUT, SHOT_OWNER, SHOT_SCRIPT, buildShotJob, buildShotSpec, jobTimeoutMs, shotFile, validShotPaths, type ShotDevice } from './screenshot-spec';
 import { readTarEntries, writeTar } from './tar';
-import { mustTask, now, saveTask, taskPaths, type CodeTask, type ShotKind, type StoredShotSet } from './tasks';
+import { getTask, mustTask, now, saveTask, taskPaths, type CodeTask, type StoredShotSet } from './tasks';
 
 export const SHOT_LIMITS = { pngBytes: 8 * 1024 * 1024, archiveBytes: 48 * 1024 * 1024 } as const;
-/** Stored file names (also the only names the image route serves). */
-export const SHOT_FILE = /^(before|after)-[1-5]-(desktop|mobile)\.png$/;
+/** Sets kept per task: an older one is removed with its files when a new one is taken. */
+export const MAX_SHOT_SETS = 6;
+/** Stored file names (also the only names the image route serves): <set id>-<n>-<device>.png */
+export const SHOT_FILE = /^s[0-9a-z]{6,12}-[1-5]-(desktop|mobile)\.png$/;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const isPng = (b: Buffer) => b.length > PNG_SIGNATURE.length && b.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE);
+/** The task's stored sets; rows from before manual screenshots (an object) count as none. */
+export const shotSets = (t: Pick<CodeTask, 'shots'>): StoredShotSet[] => (Array.isArray(t.shots) ? t.shots : []);
 
-/** Deletes the stored PNGs of one kind (or all). */
-export function removeShotFiles(taskId: string, kind?: ShotKind) {
+/** Deletes the stored PNGs of one set (or all). */
+export function removeShotFiles(taskId: string, setId?: string) {
   const dir = taskPaths(taskId).screenshots;
-  if (!kind) { fs.rmSync(dir, { recursive: true, force: true }); return; }
+  if (!setId) { fs.rmSync(dir, { recursive: true, force: true }); return; }
   let names: string[] = [];
   try { names = fs.readdirSync(dir); } catch { return; }
-  for (const n of names) if (n.startsWith(`${kind}-`)) fs.rmSync(path.join(dir, n), { force: true });
+  for (const n of names) if (n.startsWith(`${setId}-`)) fs.rmSync(path.join(dir, n), { force: true });
 }
 
-export interface CaptureOpts { signal?: AbortSignal; log?: (line: string) => void; /** pull the image if missing (setup); otherwise a missing image is an error */ pull?: boolean }
+export interface CaptureOpts { signal?: AbortSignal; log?: (line: string) => void; /** pull the image if missing; otherwise a missing image is an error */ pull?: boolean }
 
-/** Captures the configured pages of the task's running sandbox and stores them as `kind` (replacing the previous ones).
- *  Throws if nothing could be captured; single failed shots are listed in `error`. Returns null when no pages are configured. */
-export async function captureShots(t: CodeTask, kind: ShotKind, o: CaptureOpts = {}): Promise<StoredShotSet | null> {
+/** Captures the configured pages of the task's running sandbox and stores them as a new set (files only; the caller stores the row).
+ *  Throws if nothing could be captured or no pages are configured; single failed shots are listed in `error`. */
+export async function captureShots(t: CodeTask, o: CaptureOpts = {}): Promise<StoredShotSet> {
   const paths = validShotPaths(getSandboxConfig().screenshotPaths);
-  if (!paths.length) return null;
+  if (!paths.length) throw new Error('Keine Seiten für Screenshots eingestellt (Sandbox Coding → Umgebung).');
   const r = getRunner(), note = o.log ?? (() => {});
   const info = t.containerId ? await r.inspect(t.containerId) : null;
   if (!info?.running) throw new Error('Der Sandbox-Container läuft nicht.');
@@ -73,46 +76,63 @@ export async function captureShots(t: CodeTask, kind: ShotKind, o: CaptureOpts =
   let reported: { file?: string; error?: string }[] = [];
   try { reported = JSON.parse(got.get('result.json')?.toString('utf8') ?? '[]'); } catch { /* no report: judged by the files */ }
   const why = (file: string) => String(reported.find(x => x.file === file)?.error ?? 'kein Bild').slice(0, 200);
+  const setId = newSetId(t);
   const items: StoredShotSet['items'] = [], missing: string[] = [], keep: { name: string; data: Buffer }[] = [];
   paths.forEach((p, i) => (Object.keys(DEVICES) as ShotDevice[]).forEach(device => {
     const f = shotFile(i, device), data = got.get(f);
     if (!data || !isPng(data) || data.length > SHOT_LIMITS.pngBytes) { missing.push(`${p} (${device}): ${data ? 'kein gültiges PNG oder zu groß' : why(f)}`); return; }
-    const name = `${kind}-${f}`;
+    const name = `${setId}-${f}`;
     keep.push({ name, data }); items.push({ path: p, device, file: name });
   }));
   if (!items.length) throw new Error(`Keine Screenshots entstanden: ${missing[0] ?? 'unbekannter Fehler'}`);
   const dir = taskPaths(t.id).screenshots;
   fs.mkdirSync(dir, { recursive: true });
-  removeShotFiles(t.id, kind);
   for (const k of keep) { const tmp = path.join(dir, `.${k.name}.tmp`); fs.writeFileSync(tmp, k.data); fs.renameSync(tmp, path.join(dir, k.name)); }
-  return { at: now(), items, ...(missing.length ? { error: redact(`${missing.length} von ${job.shots.length} Aufnahmen fehlen – ${missing[0]}`).slice(0, 400) } : {}) };
+  return { id: setId, at: now(), items, ...(missing.length ? { error: redact(`${missing.length} von ${job.shots.length} Aufnahmen fehlen – ${missing[0]}`).slice(0, 400) } : {}) };
+}
+/** s + time in base 36; never the id of an existing set of the task. */
+function newSetId(t: Pick<CodeTask, 'shots'>): string {
+  const taken = new Set(shotSets(t).map(x => x.id));
+  let n = Date.now();
+  while (taken.has(`s${n.toString(36)}`)) n++;
+  return `s${n.toString(36)}`;
 }
 
-const PAUSED = 'Die Sandbox war beim Veröffentlichen nicht bereit (pausiert oder gestoppt) – „Fortsetzen“ und erneut veröffentlichen, dann entstehen Nachher-Screenshots.';
-/** At publishing: the after set. Never throws; a failure is stored as the set's reason (and the old after set is gone). */
-export async function captureAfter(id: string, timeoutMs = 6 * 60_000): Promise<StoredShotSet | null> {
-  if (!getSandboxConfig().screenshotPaths.length) return null;
+const capturing = () => singleton('sandboxShotsRunning', () => new Set<string>());
+/** A manual capture runs for the task: the idle sweeper and LOTSE_SANDBOX_MAX leave its container running meanwhile. */
+export const captureRunning = (id: string) => capturing().has(id);
+const conflict = (message: string) => Object.assign(new Error(message), { status: 409 });
+
+/** "Screenshot" in the preview: captures the configured pages now and adds the set to the task (the oldest beyond MAX_SHOT_SETS goes).
+ *  Only while "Screenshots" is on and the sandbox runs. Throws with a status (409 conflict, 400 off, 502 capture failed). */
+export async function takeScreenshots(id: string, timeoutMs = 15 * 60_000): Promise<CodeTask> {
   const t = mustTask(id);
-  let set: StoredShotSet | null;
+  if (!getSandboxConfig().screenshots) throw Object.assign(new Error('Screenshots sind in der Umgebung ausgeschaltet (Sandbox Coding → Umgebung).'), { status: 400 });
+  if (t.status !== 'ready' || !t.containerRunning) throw conflict('Die Sandbox läuft nicht – erst „Fortsetzen“, dann den Screenshot aufnehmen.');
+  if (captureRunning(id)) throw conflict('Es wird bereits ein Screenshot aufgenommen.');
+  capturing().add(id);
   try {
-    if (t.status !== 'ready' || !t.containerRunning) throw new Error(PAUSED);
-    set = await captureShots(t, 'after', { signal: AbortSignal.timeout(timeoutMs) });
-  } catch (e) {
-    removeShotFiles(id, 'after');
-    set = { at: now(), items: [], error: redact(errMsg(e)).slice(0, 400) };
-    log.warn('Nachher-Screenshots nicht möglich', { task: id, error: set.error });
-  }
-  const fresh = mustTask(id); // the capture took a while: store on the current row
-  fresh.shots = { ...fresh.shots, after: set };
-  saveTask(fresh);
-  return set;
+    let set: StoredShotSet;
+    try { set = await captureShots(t, { signal: AbortSignal.timeout(timeoutMs), pull: true }); } catch (e) {
+      const msg = redact(e instanceof Error ? e.message : String(e)).slice(0, 400);
+      log.warn('Screenshot nicht möglich', { task: id, error: msg });
+      throw Object.assign(new Error(`Kein Screenshot: ${msg}`), { status: 502 });
+    }
+    const fresh = getTask(id);
+    if (!fresh || fresh.status === 'done') { removeShotFiles(id, set.id); throw conflict('Die Aufgabe wurde inzwischen abgeschlossen.'); }
+    const all = [...shotSets(fresh), set], drop = all.slice(0, Math.max(0, all.length - MAX_SHOT_SETS));
+    for (const d of drop) removeShotFiles(id, d.id);
+    fresh.shots = all.slice(drop.length);
+    fresh.lastActiveAt = now();
+    saveTask(fresh);
+    return fresh;
+  } finally { capturing().delete(id); }
 }
 
-/** Link-free mention for the pull request body (the images stay in Lotse). Empty without any stored screenshot. */
+/** Link-free mention for the pull request body (the images stay in Lotse). Empty without any screenshot the user took. */
 export function shotNote(t: Pick<CodeTask, 'shots'>): string {
-  const b = t.shots?.before?.items ?? [], a = t.shots?.after?.items ?? [];
-  if (!a.length && !b.length) return '';
-  const pages = [...new Set([...b, ...a].map(i => i.path))].map(p => `\`${p}\``).join(', ');
-  const what = a.length && b.length ? 'Vorher-/Nachher-Screenshots' : a.length ? 'Nachher-Screenshots' : 'Vorher-Screenshots';
-  return `\n\n**Screenshots:** ${what} der Sandbox-Storefront (Desktop und Mobil; ${pages}) liegen in Lotse bei dieser Aufgabe (Reiter „Pull Request“). Sie werden nicht auf GitHub hochgeladen.`;
+  const items = shotSets(t).flatMap(s => s.items);
+  if (!items.length) return '';
+  const pages = [...new Set(items.map(i => i.path))].map(p => `\`${p}\``).join(', ');
+  return `\n\n**Screenshots:** ${items.length === 1 ? '1 Screenshot' : `${items.length} Screenshots`} der Sandbox-Storefront (${pages}) liegen in Lotse bei dieser Aufgabe (Reiter „Pull Request“). Sie werden nicht auf GitHub hochgeladen.`;
 }

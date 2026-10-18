@@ -67,7 +67,7 @@ test('publish: commit as Lotse with the actor as co-author, push to lotse/<slug>
   assert.match(msg, /Co-Authored-By: alex <alex@lotse\.invalid>/);
   const [created] = posts();
   assert.deepEqual({ head: (created.body as any).head, base: (created.body as any).base, draft: (created.body as any).draft, title: (created.body as any).title }, { head: task.branch, base: 'main', draft: false, title: 'Header: Gratis Versand' }); // eslint-disable-line @typescript-eslint/no-explicit-any
-  assert.match((created.body as { body: string }).body, /Geprüft in der Vorschau\.\n\n\*\*Screenshots:\*\* Vorher-\/Nachher-Screenshots .*nicht auf GitHub hochgeladen\.\n\n---\n_Erstellt mit Lotse/);
+  assert.match((created.body as { body: string }).body, /Geprüft in der Vorschau\.\n\n---\n_Erstellt mit Lotse/, 'no screenshot note: nobody took one');
   const t = T.getTask(task.id)!;
   assert.deepEqual(T.publicTask(t).pr, { number: 1, url: 'https://github.com/acme/shop-theme/pull/1', title: 'Header: Gratis Versand' });
   assert.equal(t.publish, null);
