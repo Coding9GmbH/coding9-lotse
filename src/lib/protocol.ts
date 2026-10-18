@@ -314,6 +314,8 @@ export interface NewSandboxRequest {
   chatId: string; title?: string; repo: string; baseBranch: string; dumpId?: string; pluginName?: string;
   source?: 'repo' | 'none'; mode?: SandboxMode; targetPath?: string; commands?: { label: string; command: string; phase: CommandPhase }[];
   env?: { key: string; value: string }[]; skipRepoHash?: string;
+  /** A22: another image tag of the environment's image, the preview's first page, notes for the AI of this sandbox */
+  image?: string; previewPath?: string; notes?: string;
 }
 /** The user's choices in "Sandbox starten" for a task (stored on it) */
 export interface TaskSetupPublic { source: 'repo' | 'none'; mode: SandboxMode; targetPath?: string; commands: number; env: string[] }

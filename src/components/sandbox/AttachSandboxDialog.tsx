@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { CodeTaskPublic, CommandPhase, GithubBranch, GithubRepo, LibraryDumpPublic, NewSandboxRequest, RepoOwner, RepoProbe } from '@/lib/protocol';
 import { useI18n } from '@/lib/i18n/I18nProvider';
-import { PLUGIN_NAME, REPO_NAME, SANDBOX_DOCS, pluginNameFromRepo, suggestTargetPath, targetPathProblem } from '@/lib/sandbox-task';
+import { PLUGIN_NAME, PREVIEW_PATH, REPO_NAME, SANDBOX_DOCS, pluginNameFromRepo, suggestTargetPath, targetPathProblem } from '@/lib/sandbox-task';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { DumpUpload } from './DumpUpload';
@@ -59,6 +59,9 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
   const [commands, setCommands] = useState<{ label: string; command: string; phase: CommandPhase }[]>([]);
   const [vars, setVars] = useState<{ key: string; value: string }[]>([]);
   const [advanced, setAdvanced] = useState(false);
+  // A22: another image tag, the preview's first page and notes for the AI of this sandbox ('' = the environment's / none)
+  const [extra, setExtra] = useState({ image: '', previewPath: '', notes: '' });
+  const [envImage, setEnvImage] = useState('');
   // the repository file's commands: approved (server), declined for this sandbox (hash), deciding
   const [skipHash, setSkipHash] = useState<string | null>(null);
   const [deciding, setDeciding] = useState(false);
@@ -74,7 +77,7 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
     setShown({ open, initial });
     if (open) {
       setStep(initial?.repo ? 1 : 0); setKind('existing'); setName({ value: '', editedFor: '' }); setForm(f => ({ ...f, title: initial?.title?.slice(0, 120) ?? '' }));
-      setNewRepo(null); setRepoNote(null); setError(null); setModeOpen(false); setCustom(false); setTarget({ value: '', edited: false }); setCommands([]); setVars([]); setAdvanced(false);
+      setNewRepo(null); setRepoNote(null); setError(null); setModeOpen(false); setCustom(false); setTarget({ value: '', edited: false }); setCommands([]); setVars([]); setAdvanced(false); setExtra({ image: '', previewPath: '', notes: '' });
       setSkipHash(null); setData('demo'); setStoredId(''); setUploadId(null); setStored(null);
     }
   }
@@ -106,7 +109,7 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
     const env = api.sandbox.env().then(v => v.env, () => null);
     void Promise.all([env, api.sandbox.storedDbs().then(r => r.dumps, () => [] as LibraryDumpPublic[])]).then(([v, dumps]) => {
       if (!live) return;
-      setStored(dumps);
+      setStored(dumps); setEnvImage(v?.image ?? '');
       const preset = v?.defaultDumpId && dumps.some(d => d.id === v.defaultDumpId) ? v.defaultDumpId : '';
       if (preset) { setStoredId(preset); setData('stored'); } else if (dumps[0]) setStoredId(dumps[0].id);
     });
@@ -160,6 +163,7 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
   const fileState: 'pending' | 'approved' | 'skipped' = !file?.commands.length ? 'approved' : file.approved ? 'approved' : skipHash === file.hash ? 'skipped' : 'pending';
   const varsOk = vars.every(v => ENV_KEY.test(v.key.trim()));
   const commandsOk = commands.every(c => c.label.trim() && c.command.trim());
+  const previewBad = !!extra.previewPath.trim() && !PREVIEW_PATH.test(extra.previewPath.trim());
   // the repository file's commands wait for a decision: bring the card with "Befehle erlauben" into view (it sits below the fold)
   const pendingHash = step === 1 && fileState === 'pending' ? file?.hash ?? null : null;
   useEffect(() => {
@@ -170,7 +174,7 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
     true,
     kind === 'none' ? nameOk
       : !!form.repo && !!form.baseBranch && !!probed && !newRepo && !creatingRepo && !fileError && fileState !== 'pending'
-        && (kind !== 'new' || probed.empty === true) && (!newPlugin || nameOk) && !targetBad && varsOk && commandsOk,
+        && (kind !== 'new' || probed.empty === true) && (!newPlugin || nameOk) && !targetBad && varsOk && commandsOk && !previewBad,
     data === 'demo' || (data === 'stored' && !!storedId) || (data === 'upload' && !!uploadId && !uploading),
   ];
   const canGo = (i: number) => stepOk.slice(0, i).every(Boolean);
@@ -198,6 +202,8 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
       // own commands and variables only where "Erweitert" shows them (not for a sandbox without a project)
       ...(usesRepo && commands.length ? { commands: commands.map(c => ({ label: c.label.trim(), command: c.command.trim(), phase: c.phase })) } : {}),
       ...(usesRepo && vars.length ? { env: vars.map(v => ({ key: v.key.trim(), value: v.value })) } : {}),
+      ...(usesRepo && extra.image.trim() ? { image: extra.image.trim() } : {}), ...(usesRepo && extra.previewPath.trim() ? { previewPath: extra.previewPath.trim() } : {}),
+      ...(usesRepo && extra.notes.trim() ? { notes: extra.notes.trim() } : {}),
       ...(file && fileState === 'skipped' ? { skipRepoHash: file.hash } : {}),
     };
     try {
@@ -382,6 +388,21 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
               {!varsOk && <span className={`${styles.fieldNote} ${styles.fieldBad}`}>{ts.varInvalid}</span>}
               {vars.length < 20 && <p className={styles.fieldNote}><button type="button" className={styles.textBtn} onClick={() => setVars(l => [...l, { key: '', value: '' }])}>{ts.addVar}</button></p>}
             </div>
+            <label className={styles.field}>
+              <span className={styles.label}>{ts.image}</span>
+              <input value={extra.image} maxLength={120} spellCheck={false} autoComplete="off" placeholder={envImage} aria-describedby="sbx-image-hint" onChange={e => setExtra(x => ({ ...x, image: e.target.value.trim() }))} />
+              <span id="sbx-image-hint" className={styles.fieldNote}>{ts.imageHint(envImage || '–')}</span>
+            </label>
+            <label className={styles.field}>
+              <span className={styles.label}>{ts.previewPath}</span>
+              <input value={extra.previewPath} maxLength={300} spellCheck={false} autoComplete="off" placeholder="/" aria-invalid={previewBad} aria-describedby="sbx-start-hint" onChange={e => setExtra(x => ({ ...x, previewPath: e.target.value.trim() }))} />
+              <span id="sbx-start-hint" className={`${styles.fieldNote} ${previewBad ? styles.fieldBad : ''}`}>{previewBad ? ts.previewPathInvalid : ts.previewPathHint}</span>
+            </label>
+            <label className={styles.field}>
+              <span className={styles.label}>{ts.notes}</span>
+              <textarea value={extra.notes} rows={3} maxLength={4000} aria-describedby="sbx-notes-hint" onChange={e => setExtra(x => ({ ...x, notes: e.target.value }))} />
+              <span id="sbx-notes-hint" className={styles.fieldNote}>{ts.notesHint}</span>
+            </label>
           </details>
           {repos && !repos.length && !error && <p className={styles.alert}>{t.noGithub}</p>}
         </>}

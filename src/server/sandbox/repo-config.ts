@@ -13,7 +13,7 @@ import { z } from 'zod';
 import type { RepoFileInfo } from '@/lib/protocol';
 import { PREVIEW_PATH, targetPathProblem } from '@/lib/sandbox-task';
 import { auditAdd, kvGet, kvSet } from '../db';
-import { ENV_KEY, LIMITS, validateImage } from './env';
+import { ENV_KEY, LIMITS, imageTag } from './env';
 import type { SandboxTemplate } from './templates/types';
 
 export const REPO_FILE = '.lotse/sandbox.json';
@@ -69,10 +69,7 @@ export function readRepoFile(worktree: string): RepoFileInfo | null {
 
 /** The image the file asks for: a tag ("6.7.14.0") or the full name; only the configured image repository, as the template allows it. */
 export function repoFileImage(wanted: string, configured: string, t: SandboxTemplate): string {
-  const repo = configured.slice(0, configured.lastIndexOf(':'));
-  const full = wanted.includes(':') ? wanted : `${repo}:${wanted}`;
-  if (full.slice(0, full.lastIndexOf(':')) !== repo) throw new RepoFileError(`${REPO_FILE}: Image „${wanted.slice(0, 80)}“ ist nicht erlaubt – nur ein anderer Tag von ${repo} (z. B. "image": "${configured.slice(repo.length + 1)}").`);
-  try { return validateImage(full, t); } catch (e) { throw new RepoFileError(`${REPO_FILE}: ${(e as Error).message}`); }
+  try { return imageTag(wanted, configured, t); } catch (e) { throw new RepoFileError(`${REPO_FILE}: ${(e as Error).message}`); }
 }
 
 // ---- Approvals: per repository, the hashes whose commands a human allowed ----

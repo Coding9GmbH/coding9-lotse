@@ -76,6 +76,22 @@ export function validateImage(image: string, t: SandboxTemplate = getTemplate(DE
   return s;
 }
 
+/** Another image for one sandbox (start dialog, quick start, .lotse/sandbox.json): a tag ("6.7.14.0") or the full name, only of the
+ *  configured image repository and as the template allows it (pinned version). Throws a German message. */
+export function imageTag(wanted: string, configured: string, t: SandboxTemplate = getTemplate(DEFAULT_TEMPLATE)): string {
+  const w = wanted.trim(), repo = configured.slice(0, configured.lastIndexOf(':'));
+  const full = w.includes(':') ? w : `${repo}:${w}`;
+  if (full.slice(0, full.lastIndexOf(':')) !== repo) throw new Error(`Image „${w.slice(0, 80)}“ ist nicht erlaubt – nur ein anderer Tag von ${repo} (z. B. ${configured.slice(repo.length + 1)}).`);
+  return validateImage(full, t);
+}
+
+/** Free text for the agent ("Hinweise für die KI"): line breaks normalized, control characters removed, at most `max` characters. */
+export function cleanNotes(text: string, max: number = LIMITS.aiNotes): string {
+  const notes = text.replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').trim();
+  if (notes.length > max) throw new Error(`Hinweise für die KI: höchstens ${max} Zeichen.`);
+  return notes;
+}
+
 const num = (v: number | undefined, l: { min: number; max: number; def: number }, label: string, int = true) => {
   if (v === undefined) return l.def;
   if (!Number.isFinite(v) || v < l.min || v > l.max || (int && !Number.isInteger(v))) throw new Error(`${label}: erlaubt sind ${l.min} bis ${l.max}.`);
@@ -172,8 +188,7 @@ export function saveSandbox(p: SandboxEnvPatch, env: Record<string, string | und
     if (id !== storedDb(s.defaultDumpId)) { next.defaultDumpId = id; changed.push('defaultDumpId'); }
   }
   if (p.aiNotes !== undefined) {
-    const notes = p.aiNotes.replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').trim();
-    if (notes.length > LIMITS.aiNotes) throw new Error(`Hinweise für die KI: höchstens ${LIMITS.aiNotes} Zeichen.`);
+    const notes = cleanNotes(p.aiNotes);
     if (notes !== (s.aiNotes ?? '')) { next.aiNotes = notes; changed.push('aiNotes'); }
   }
   if (p.screenshots !== undefined && p.screenshots !== !!s.screenshots) { next.screenshots = p.screenshots; changed.push('screenshots'); }
