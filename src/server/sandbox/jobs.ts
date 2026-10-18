@@ -16,7 +16,7 @@ import { log } from '../log';
 import { chatExists, noteChatEvent } from '../sessions';
 import { redact } from '../settings';
 import { singleton } from '../state';
-import { errMsg } from '../util';
+import { errMsg, pool } from '../util';
 import { assertAttachable, deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
 import { getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
 import { revokeInternet, type RevokeReason } from './internet';
@@ -38,6 +38,8 @@ const STARTING: CodeTaskStatus[] = ['setting_up', 'waking'];
 /** Counts against LOTSE_SANDBOX_MAX: starting, or a running container (also failed/interrupted). A paused one is being stopped. */
 const occupies = (t: CodeTask) => STARTING.includes(t.status) || (!!t.containerId && t.containerRunning && t.status !== 'paused' && t.status !== 'done');
 const MAX_OUTPUT = 256 * 1024;
+/** containers stopped at the same time when Sandbox Coding is switched off */
+export const STOP_CONCURRENCY = 4;
 
 interface Job { ac: AbortController; done: Promise<void> }
 interface Jobs { setup: Map<string, Job>; wakes: Map<string, Job>; locks: Map<string, Promise<unknown>>; finishing: Set<string> }
@@ -441,15 +443,17 @@ export async function deleteTask(id: string): Promise<void> {
   emitTask(id, { t: 'deleted' });
 }
 
-/** Sandbox Coding switched off: abort setups, stop (not remove) every running task container. Switching on again resumes on demand. */
+/** Sandbox Coding switched off: abort setups, stop (not remove) every running task container. Switching on again resumes on demand.
+ *  The containers stop in parallel (at most STOP_CONCURRENCY at once): each one takes seconds (clean MySQL shutdown, docker stop). */
 export async function suspendAll(): Promise<number> {
   await Promise.all([...jobs().setup.values(), ...jobs().wakes.values()].map(abortAndWait));
-  let n = 0;
+  const running: CodeTask[] = [];
   for (const t of listTasks()) {
     if (t.status === 'ready' || t.status === 'waking') { t.status = 'paused'; saveTask(t); }
-    if (t.containerId && t.containerRunning) await withTaskLock(t.id, () => stopContainer(t)).then(() => n++, () => {});
+    if (t.containerId && t.containerRunning) running.push(t);
   }
-  return n;
+  const ok = await pool(running, STOP_CONCURRENCY, t => withTaskLock(t.id, () => stopContainer(t)).then(() => true, () => false));
+  return ok.filter(Boolean).length;
 }
 
 /** Idle sweeper body: ready tasks without activity for idleMinutes (and nobody watching) are paused; containers of failed tasks stopped.

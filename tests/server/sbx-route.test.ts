@@ -199,6 +199,45 @@ test('a paused task wakes on preview access ("Umgebung startet …", reloads its
   assert.match((await (await call(`${pre(t)}/`, { headers: { 'accept-language': 'en' } })).text()), /wach/);
 });
 
+test('a start that failed is not retried by the preview itself (no endless reloads): error page with one explicit "Erneut starten"', async () => {
+  const t = await readyTask('paused');
+  const failing = fake.start.bind(fake);
+  let starts = 0;
+  fake.start = async id => { if (id === t.containerId) { starts++; throw new Error('Container starten: Docker meldet HTTP 500 – kaputt'); } return failing(id); };
+  try {
+    assert.equal((await call(`${pre(t)}/checkout/cart`, { headers: { 'accept-language': 'de' } })).status, 503);
+    const end = Date.now() + 10_000;
+    while (T.getTask(t.id)!.status !== 'paused' || !T.getTask(t.id)!.error) { if (Date.now() > end) throw new Error('wake did not fail'); await new Promise(res => setTimeout(res, 20)); }
+    assert.equal(starts, 1);
+    assert.equal(P.wakeFailed(T.getTask(t.id)!), true);
+    // the reload of "Umgebung startet …" (and a preview in its own tab) only shows the error now
+    for (let i = 0; i < 3; i++) {
+      const r = await call(`${pre(t)}/checkout/cart`, { headers: { 'accept-language': 'de' } });
+      assert.equal(r.status, 503);
+      const html = await r.text();
+      assert.match(html, /Start fehlgeschlagen/);
+      assert.match(html, /Fortsetzen fehlgeschlagen: Container starten: Docker meldet HTTP 500/);
+      assert.doesNotMatch(html, /http-equiv="refresh"/, 'no automatic reload');
+      assert.ok(html.includes(`href="${pre(t)}/__lotse/wake?to=%2Fcheckout%2Fcart">Erneut starten</a>`));
+    }
+    assert.equal(starts, 1, 'no further start without a click');
+    assert.match(await (await call(`${pre(t)}/`, { headers: { 'accept-language': 'en' } })).text(), /Start failed[\s\S]*Start again/);
+    // the click: one more start, then on to the page that was asked for (only below the prefix)
+    const click = await call(`${pre(t)}/__lotse/wake?to=%2Fcheckout%2Fcart`);
+    assert.equal(click.status, 303);
+    assert.equal(click.headers.get('location'), `${pre(t)}/checkout/cart`);
+    while (T.getTask(t.id)!.status === 'waking') await new Promise(res => setTimeout(res, 20));
+    assert.equal(starts, 2);
+  } finally { fake.start = failing; }
+  // works again: the wake path starts it, then only redirects
+  const ok = await call(`${pre(t)}/__lotse/wake?to=%2F`);
+  assert.equal(ok.status, 303);
+  await waitReady(t.id);
+  assert.equal(T.getTask(t.id)!.error, null);
+  assert.equal((await call(`${pre(t)}/__lotse/wake?to=%2Fx`)).headers.get('location'), `${pre(t)}/x`);
+  for (const bad of ['%2F%2Fevil.example', 'https%3A%2F%2Fevil.example', '%2F__lotse%2Fwake', '%2F%5Cevil']) assert.equal((await call(`${pre(t)}/__lotse/wake?to=${bad}`)).headers.get('location'), `${pre(t)}/`, bad);
+});
+
 const waitReady = async (id: string) => {
   const end = Date.now() + 10_000;
   while (T.getTask(id)!.status !== 'ready') { if (Date.now() > end) throw new Error(`still ${T.getTask(id)!.status}: ${T.getTask(id)!.error}`); await new Promise(res => setTimeout(res, 20)); }

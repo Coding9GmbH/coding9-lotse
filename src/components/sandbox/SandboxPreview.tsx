@@ -7,7 +7,7 @@ import { annotationMessage, type Annotation } from '@/lib/annotations';
 import { markKeySelects } from '@/lib/a11y';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { popoverLeft } from '@/lib/popover';
-import { sandboxSrc } from '@/lib/urls';
+import { sandboxSrc, sandboxWakeSrc } from '@/lib/urls';
 import { Button } from '@/components/ui/Button';
 import { IconCamera, IconExpand, IconExternal, IconMonitor, IconPanel, IconPhone, IconPin, IconRefresh, IconShrink } from '@/components/ui/icons';
 import { Menu } from '@/components/ui/Menu';
@@ -49,7 +49,10 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
   const running = !!task.container?.running && s !== 'done' && s !== 'paused';
   const show = s === 'ready' || s === 'waking' || (running && (s === 'failed' || s === 'interrupted')) || (wake && s === 'paused');
   const src = sandboxSrc(task.preview, path);
-  const frameKey = `${src}|${previewBust(task)}|${reloads}|${reload}`;
+  // after "Vorschau laden" the frame goes through the wake path: an explicit start, also when the last one failed (plain preview
+  // requests no longer retry then); once running that path only redirects to the page
+  const frameSrc = wake ? sandboxWakeSrc(task.preview, path) : src;
+  const frameKey = `${frameSrc}|${previewBust(task)}|${reloads}|${reload}`;
   const mobile = device === 'mobile' || (device === 'auto' && box.w > 0 && box.w < MOBILE_BELOW);
   // Lotse's status pages ("Umgebung startet …") stay unscaled: only the running storefront gets the desktop viewport
   const scale = !mobile && s === 'ready' && box.w > 0 && box.w < DESKTOP_BREAK ? box.w / DESKTOP_WIDTH : 1;
@@ -197,7 +200,7 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
           </section>
         )}
         {show
-          ? <iframe key={frameKey} className={styles.pvFrame} style={frameStyle} src={src} title={t.frame} sandbox={PREVIEW_SANDBOX} data-kind="live" />
+          ? <iframe key={frameKey} className={styles.pvFrame} style={frameStyle} src={frameSrc} title={t.frame} sandbox={PREVIEW_SANDBOX} data-kind="live" />
           : s === 'paused' && task.stopping // stored as paused, the container is still being stopped
             ? <div className={styles.pvEmpty}><p role="status">{t.pausing}</p></div>
             : s === 'paused'

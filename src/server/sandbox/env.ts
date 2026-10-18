@@ -9,7 +9,7 @@ import { exposedWithoutPassword, sandboxSubnet } from '../access';
 import { kvGet, kvSet, seal, unseal } from '../db';
 import { assertRepoName } from '../github';
 import { singleton } from '../state';
-import { errMsg } from '../util';
+import { errMsg, pool } from '../util';
 import { ensureNetwork, networkMode } from './network';
 import { getRunner } from './runner';
 import { DEFAULT_SHOT_PATHS, SCREENSHOT_IMAGE, validShotPaths } from './screenshot-spec';
@@ -207,12 +207,11 @@ export function dockerState(force = false): Promise<SandboxDocker> {
 }
 export const forgetDockerState = () => { dockerCache().value = null; };
 
-/** Switched off: stop (not remove) every running Lotse container; code, database and changes stay. */
+/** Switched off: stop (not remove) every running Lotse container, a few at once; code, database and changes stay. */
 export async function stopRunningSandboxes(): Promise<number> {
   const r = getRunner();
-  let n = 0;
-  for (const c of await r.list()) if (c.running) { await r.stop(c.id).then(() => n++, () => {}); }
-  return n;
+  const ok = await pool((await r.list()).filter(c => c.running), 4, c => r.stop(c.id).then(() => true, () => false));
+  return ok.filter(Boolean).length;
 }
 
 /** For sandbox routes: 403 with the German reason while Sandbox Coding is off. */

@@ -35,6 +35,8 @@ export function previewState(id: string): PreviewState {
   if (task.status !== 'done' && task.containerId && task.containerRunning) return { kind: 'proxy', task };
   return { kind: 'stopped', task };
 }
+/** The task's last start (wake) failed: it is paused and keeps that error until the next start (beginWake clears it). */
+export const wakeFailed = (t: CodeTask) => t.status === 'paused' && !!t.error;
 /** Origin of the task's storefront, from the registry only (see tasks.sandboxOrigin). Cached per container, so the many asset
  *  requests of one page do not each ask Docker for the port; forgotten when Lotse starts or stops the container or a request fails. */
 const origins = () => singleton<Map<string, string>>('sandboxOrigins', () => new Map());
