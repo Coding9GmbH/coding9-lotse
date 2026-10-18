@@ -104,6 +104,15 @@ function makeRoom(self: string): CodeTask[] {
   for (const v of victims) if (v.status === 'ready') { v.status = 'paused'; saveTask(v); }
   return victims;
 }
+/** The chat of the sandbox that starts learns which ones were paused for it (by title), before the start request answers – the
+ *  workspace reloads the chat once the sandbox is attached; a wake from the panel gets it through the task's events. */
+function noteDisplaced(t: CodeTask, victims: CodeTask[]) {
+  const paused = victims.filter(v => v.status === 'paused').map(v => v.title);
+  if (!paused.length || !t.chatId || !chatExists(t.chatId)) return;
+  const ev: ChatEvent = { t: 'sandbox_status', state: 'displaced', paused, max: maxRunning() };
+  noteChatEvent(t.chatId, ev);
+  if (!turnRunning(t.id)) emitTask(t.id, { t: 'chat', event: ev }); // a running turn's stream has it already
+}
 const stopVictims = (victims: CodeTask[]) => Promise.all(victims.map(v => withTaskLock(v.id, () => stopContainer(v)).catch(e => log.warn('Sandbox pausieren fehlgeschlagen', { task: v.id, error: e }))));
 
 /** The container is stopped (or stopping failed): the task is no longer "stopping", the views learn it. */
@@ -143,6 +152,7 @@ export function runSteps(id: string, fromStep?: string, o: { ignoreVersion?: boo
   if (fromStep && from < 0) throw Object.assign(new Error('Unbekannter Schritt.'), { status: 400 });
   if (from < 0) throw new TaskConflict('Die Einrichtung ist bereits fertig.');
   const victims = makeRoom(id);
+  noteDisplaced(t, victims);
   // Only now (nothing can throw any more): binding the new dump deletes the previous one
   if (o.dumpId) setTaskDump(t, o.dumpId);
   if (o.ignoreVersion && t.dump && !t.dump.deletedAt) t.dump.ignoreVersion = true;
@@ -451,6 +461,7 @@ function beginWake(id: string): CodeTask {
   if (jobs().finishing.has(id)) throw new TaskConflict('Die Aufgabe wird gerade abgeschlossen.');
   if (t.status !== 'paused' && !(t.status === 'ready' && !t.containerRunning)) throw new TaskConflict(t.status === 'setting_up' ? 'Die Umgebung wird noch eingerichtet.' : 'Die Umgebung ist nicht bereit – Einrichtung erneut versuchen.');
   const victims = makeRoom(id);
+  noteDisplaced(t, victims);
   t.status = 'waking'; t.error = null; t.lastActiveAt = now(); saveTask(t);
   const ac = new AbortController();
   const done = stopVictims(victims).then(() => withTaskLock(id, () => wake(id, ac.signal))).finally(() => { jobs().wakes.delete(id); });

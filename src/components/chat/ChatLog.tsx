@@ -112,7 +112,7 @@ export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStylegui
           case 'styleguide': return <StyleguideCard key={item.key} sg={item.sg} onOpen={onOpenStyleguide} />;
           case 'file': return <FileChangeCard key={item.key} path={item.path} kind={item.change} added={item.added} removed={item.removed} />;
           case 'command': return <CommandCard key={item.key} c={item} />;
-          case 'sandbox': return <SandboxStatusLine key={item.key} state={item.state} message={item.message} />;
+          case 'sandbox': return <SandboxStatusLine key={item.key} state={item.state} message={item.message} paused={item.paused} max={item.max} />;
           case 'publish': return <PublishProposalCard key={item.key} title={item.title} body={item.body} {...proposals.get(item.key)}
             onReview={onReviewPublish ? () => onReviewPublish({ key: item.key, title: item.title, body: item.body }) : undefined} />;
           case 'pr': return <PrCard key={item.key} taskId={item.taskId} pr={item} done={{ action: item.action, files: item.files }} />;

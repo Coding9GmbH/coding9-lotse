@@ -117,7 +117,7 @@ export type ChatEvent =
   | { t: 'command'; id: string; command: string; args?: Record<string, string>; status: 'running' | 'ok' | 'failed'; exitCode?: number; tail?: string; ms?: number }
   /** The task's container before the turn: waking (paused or still being set up) → ready, or failed (message) */
   /** approval: the setup waits for the user's decision on the repository's .lotse/sandbox.json commands (not an error) */
-  | { t: 'sandbox_status'; state: 'waking' | 'ready' | 'failed' | 'approval' | 'finished'; message?: string }
+  | { t: 'sandbox_status'; state: SandboxLineState; message?: string; /** displaced: titles of the sandboxes paused for this one, and LOTSE_SANDBOX_MAX */ paused?: string[]; max?: number }
   /** The storefront changed (theme compiled, cache cleared): the preview reloads (live only) */
   | { t: 'preview_reload' }
   /** The AI proposes to publish its changes as a pull request (card only; publishing itself comes from the user) */
@@ -141,6 +141,8 @@ export type ChatEvent =
 
 export type ChatEventType = ChatEvent['t'];
 export type FileChangeKind = 'create' | 'edit' | 'delete';
+/** A sandbox status line in the chat; displaced = starting this one paused others (LOTSE_SANDBOX_MAX) */
+export type SandboxLineState = 'waking' | 'ready' | 'failed' | 'approval' | 'finished' | 'displaced';
 
 // ---- REST ----
 /** locale: language of the AI responses (set by the server from cookie/Accept-Language) */

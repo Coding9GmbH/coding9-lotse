@@ -404,7 +404,10 @@ export const de = {
       note: 'Mit Internet erreicht der Container jede öffentliche Adresse – auch die Website deines Live-Shops. Lotse bleibt unerreichbar. Der Zugang endet mit „Internet sperren“, beim Pausieren und beim Abschließen.',
       allow: 'Für diese Sandbox erlauben', deny: 'Ablehnen', allowed: 'Erlaubt', revokedSince: 'Erlaubt – inzwischen wieder gesperrt', denied: 'Abgelehnt', open: 'Nicht entschieden', failed: 'Erlaubt, aber nicht verbunden:', restart: 'Nicht entschieden (Neustart)',
     },
-    sandbox: { waking: 'Sandbox startet … (der Chat wartet, bis Shopware antwortet)', ready: 'Sandbox bereit', failed: 'Sandbox nicht bereit', approval: 'Sandbox wartet auf deine Freigabe – das Projekt möchte beim Einrichten Befehle ausführen (Reiter „Einrichtung“)', finished: 'Sandbox abgeschlossen. Der Chat bleibt erhalten.' } as Record<'waking' | 'ready' | 'failed' | 'approval' | 'finished', string>,
+    sandbox: {
+      waking: 'Sandbox startet … (der Chat wartet, bis Shopware antwortet)', ready: 'Sandbox bereit', failed: 'Sandbox nicht bereit', approval: 'Sandbox wartet auf deine Freigabe – das Projekt möchte beim Einrichten Befehle ausführen (Reiter „Einrichtung“)', finished: 'Sandbox abgeschlossen. Der Chat bleibt erhalten.',
+      displaced: (titles: string[], max: number) => `${titles.map(x => `„${x}“`).join(', ')} ${titles.length === 1 ? 'wurde' : 'wurden'} pausiert, weil höchstens ${max === 1 ? '1 Sandbox gleichzeitig läuft' : `${max} Sandboxes gleichzeitig laufen`}. Fortsetzen geht jederzeit in ${titles.length === 1 ? 'ihrem Chat' : 'ihren Chats'}.`,
+    } as Record<'waking' | 'ready' | 'failed' | 'approval' | 'finished', string> & { displaced: (titles: string[], max: number) => string },
     publish: {
       heading: 'Vorschlag: zur Prüfung freigeben', note: 'Noch nicht freigegeben.', review: 'Ansehen und freigeben', reviewUpdate: 'Ansehen und Freigabe aktualisieren',
       reviewNote: 'Freigegeben wird erst mit deinem Klick im Reiter „Freigabe“.',
@@ -1396,7 +1399,10 @@ export const en: typeof de = {
       note: 'With internet the container reaches any public address – including your live shop\'s website. Lotse stays unreachable. Access ends with "Block internet", when pausing and when finishing.',
       allow: 'Allow for this sandbox', deny: 'Decline', allowed: 'Allowed', revokedSince: 'Allowed – blocked again since', denied: 'Declined', open: 'Not decided', failed: 'Allowed, but not connected:', restart: 'Not decided (restart)',
     },
-    sandbox: { waking: 'Sandbox starting… (the chat waits until Shopware answers)', ready: 'Sandbox ready', failed: 'Sandbox not ready', approval: 'Sandbox is waiting for your approval – the project wants to run commands during the setup (“Setup” tab)', finished: 'Sandbox finished. The chat stays.' },
+    sandbox: {
+      waking: 'Sandbox starting… (the chat waits until Shopware answers)', ready: 'Sandbox ready', failed: 'Sandbox not ready', approval: 'Sandbox is waiting for your approval – the project wants to run commands during the setup (“Setup” tab)', finished: 'Sandbox finished. The chat stays.',
+      displaced: (titles, max) => `${titles.map(x => `“${x}”`).join(', ')} ${titles.length === 1 ? 'was' : 'were'} paused because at most ${max === 1 ? '1 sandbox runs' : `${max} sandboxes run`} at the same time. ${titles.length === 1 ? 'It can be resumed in its chat' : 'Each can be resumed in its chat'} at any time.`,
+    },
     publish: {
       heading: 'Proposal: submit for review', note: 'Not submitted yet.', review: 'View and submit', reviewUpdate: 'View and update the submission',
       reviewNote: 'Nothing is submitted until you click in the “Review” tab.',
