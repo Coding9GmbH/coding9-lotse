@@ -10,7 +10,7 @@ import { SHOT_DIR, SHOT_OUT, type ShotJob } from './screenshot-spec';
 import { readTar, readTarEntries, writeTar, type TarRecord } from './tar';
 
 export interface FakeCall { op: string; id?: string; argv?: string[]; user?: string; detail?: unknown }
-interface FakeContainer { id: string; spec: ContainerSpec; running: boolean; exitCode?: number; networks: string[]; files: Map<string, Buffer>; server: http.Server | null; port: number | null; /** storefront templates as of the last theme:compile */ compiled: string[] }
+interface FakeContainer { id: string; spec: ContainerSpec; running: boolean; exitCode?: number; oomKilled?: boolean; /** container output (docker logs) */ log: string[]; networks: string[]; files: Map<string, Buffer>; server: http.Server | null; port: number | null; /** storefront templates as of the last theme:compile */ compiled: string[] }
 type ExecScript = (argv: readonly string[], id: string) => Partial<ExecResult> | undefined;
 
 export { readTar, readTarEntries, type TarRecord } from './tar';
@@ -60,7 +60,8 @@ export class FakeRunner implements SandboxRunner {
   }
   private managed(id: string): FakeContainer { const c = this.containers.get(assertId(id)); assertManaged(this.info(c)); return c!; }
   private info(c: FakeContainer | undefined): ContainerInfo | null {
-    return c ? { id: c.id, name: c.spec.name, image: c.spec.Image, state: c.running ? 'running' : 'exited', running: c.running, labels: c.spec.Labels, address: c.port ? { host: '127.0.0.1', port: c.port } : null, networks: [...c.networks] } : null;
+    return c ? { id: c.id, name: c.spec.name, image: c.spec.Image, state: c.running ? 'running' : 'exited', running: c.running, labels: c.spec.Labels, address: c.port ? { host: '127.0.0.1', port: c.port } : null, networks: [...c.networks],
+      ...(c.exitCode !== undefined ? { exitCode: c.exitCode } : {}), ...(c.oomKilled ? { oomKilled: true } : {}) } : null;
   }
 
   async ping() { this.enter('ping'); }
@@ -78,7 +79,7 @@ export class FakeRunner implements SandboxRunner {
     this.enter('create', { detail: spec });
     assertSafeSpec(spec);
     const id = `fake${(++this.seq).toString().padStart(8, '0')}`;
-    this.containers.set(id, { id, spec, running: false, networks: [SANDBOX_NET], files: new Map(), server: null, port: null, compiled: [] });
+    this.containers.set(id, { id, spec, running: false, log: [], networks: [SANDBOX_NET], files: new Map(), server: null, port: null, compiled: [] });
     return id;
   }
   async start(id: string) {
@@ -86,7 +87,7 @@ export class FakeRunner implements SandboxRunner {
     const c = this.managed(id);
     if (c.running) return;
     if (c.spec.Labels[ROLE_LABEL] === SHOT_ROLE) { this.shoot(c); return; }
-    c.running = true;
+    c.running = true; delete c.exitCode; delete c.oomKilled;
     c.server = http.createServer((req, res) => {
       if (this.storefront?.(req, res, c.id)) return;
       const p = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
@@ -123,8 +124,19 @@ export class FakeRunner implements SandboxRunner {
     if (tar.length > o.maxBytes) throw new Error('Antwort von Docker ist zu groß.');
     return tar;
   }
-  async stop(id: string) {
-    this.enter('stop', { id });
+  /** Tests: the container's main process ends by itself (e.g. its database failed while starting), with these output lines. */
+  async exit(id: string, o: { exitCode?: number; log?: string[]; oomKilled?: boolean } = {}) {
+    const c = this.managed(id);
+    c.running = false; c.exitCode = o.exitCode ?? 1; c.oomKilled = o.oomKilled; c.log.push(...(o.log ?? []));
+    await this.closeServer(c);
+  }
+  async logs(id: string, o: { tail: number }) {
+    this.enter('logs', { id, detail: o.tail });
+    const c = this.managed(id);
+    return c.log.slice(-o.tail).map(l => `${l}\n`).join('');
+  }
+  async stop(id: string, timeoutSec?: number) {
+    this.enter('stop', { id, detail: timeoutSec });
     const c = this.managed(id);
     c.running = false;
     await this.closeServer(c);

@@ -13,6 +13,7 @@ import { IconCamera, IconExpand, IconExternal, IconMonitor, IconPanel, IconPhone
 import { Menu } from '@/components/ui/Menu';
 import { attachAnnotator, drawPins, type FrameTarget, type Pick } from '@/components/preview/annotator';
 import { PREVIEW_SANDBOX } from '@/components/preview/DraftFrame';
+import { ErrorText } from './PublishCard';
 import pp from '@/components/preview/PreviewPane.module.css';
 import styles from './Sandbox.module.css';
 
@@ -200,7 +201,7 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
           : s === 'paused' && task.stopping // stored as paused, the container is still being stopped
             ? <div className={styles.pvEmpty}><p role="status">{t.pausing}</p></div>
             : s === 'paused'
-              ? <div className={styles.pvEmpty}><p>{t.loadHint}</p><Button onClick={() => setWake(true)}>{t.load}</Button></div>
+              ? <div className={styles.pvEmpty}>{task.error && <ErrorText text={task.error} details={t.errorDetails} />}<p>{t.loadHint}</p><Button onClick={() => setWake(true)}>{t.load}</Button></div>
             : <div className={styles.pvEmpty}><p>{t.none}</p></div>}
       </div>
     </section>

@@ -24,7 +24,8 @@ export interface ContainerSpec {
   NetworkingConfig?: Record<string, unknown>;
 }
 export interface ContainerInfo { id: string; name: string; image: string; state: string; running: boolean; labels: Record<string, string>; /** storefront address on the internal network lotse-sandbox (null = not attached there) */ address: { host: string; port: number } | null;
-  /** names of the Docker networks the container is attached to */ networks: string[] }
+  /** names of the Docker networks the container is attached to */ networks: string[];
+  /** inspect only: exit code of the last run and whether the kernel killed it for its memory limit */ exitCode?: number; oomKilled?: boolean }
 export interface NetworkInfo { name: string; internal: boolean; labels: Record<string, string>; /** IPAM subnets (CIDR) */ subnets: string[];
   /** gateway_mode_ipv4=isolated: the host has no address on the bridge */ isolated: boolean; /** IPAM gateway (the host's address on the bridge) */ gateway?: string;
   /** containers on the bridge may talk to each other (Docker's default; enable_icc=false turns it off) */ icc: boolean }
@@ -47,6 +48,8 @@ export interface SandboxRunner {
   stop(id: string, timeoutSec?: number): Promise<void>;
   remove(id: string): Promise<void>;
   inspect(id: string): Promise<ContainerInfo | null>;
+  /** the last `tail` lines of the container's output (stdout and stderr), e.g. why it exited while starting */
+  logs(id: string, o: { tail: number }): Promise<string>;
   exec(id: string, argv: readonly string[], opts: ExecOpts): Promise<ExecResult>;
   putArchive(id: string, dir: string, tar: Buffer | ArchiveStream, o?: { timeoutMs?: number; signal?: AbortSignal }): Promise<void>;
   /** tar of a path in the container (screenshots); more than maxBytes = error */

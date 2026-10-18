@@ -39,9 +39,16 @@ export interface StepCtx {
   copyDump: (dir: string) => Promise<void>;
   /** after the import (success or not): deletes the dump on the host and `containerDir` in the container, records the result */
   discardDump: (imported: boolean, containerDir: string) => Promise<void>;
+  /** while waiting for the container: throws a clear German error (exit code, end of the container log) once it is no longer running */
+  checkAlive: () => Promise<void>;
   log: (line: string) => void;
   signal: AbortSignal;
 }
+
+/** A file written into the (possibly stopped) container before every start, e.g. a boot hook of the image. Constant content. */
+export interface BootFile { dir: string; name: string; content: string; mode: number }
+/** Shutting the container's services down cleanly before `docker stop` (whose signal the image may ignore). */
+export interface GracefulStop { argv: string[]; user: string; timeoutMs: number; /** docker stop's grace period afterwards */ stopTimeoutSec: number }
 
 /** Input of the pure container spec builder: only server-side values (validated task id, configured image, limits). */
 export interface SpecInput {
@@ -107,6 +114,8 @@ export interface SandboxTemplate {
   /** user and working directory for setup commands and own commands */
   execUser: string;
   workdir: string;
+  bootFile?: BootFile;
+  gracefulStop?: GracefulStop;
 }
 
 /**
