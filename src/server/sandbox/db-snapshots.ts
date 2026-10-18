@@ -61,13 +61,17 @@ async function runCopy(o: { taskId: string; image: string; from: string; to: str
 const taskVolumeLabels = (taskId: string) => ({ ...MANAGED, [ROLE_LABEL]: TASK_DB_ROLE, [TASK_LABEL]: taskId });
 
 /** Before the task container is created (its old one is gone): a fresh data volume, filled from the snapshot of this stored database
- *  and image if there is one. A snapshot that cannot be copied only costs the quick start: the volume starts empty again (Docker fills
+ *  and image if there is one. A snapshot that cannot be found or copied only costs the quick start: the volume starts empty again (Docker fills
  *  it from the image on the first start) and the import runs as usual. */
 export async function prepareTaskDb(o: { taskId: string; dumpId: string | null; image: string; log: (line: string) => void; signal?: AbortSignal }): Promise<{ volume: string; restored: boolean }> {
   const r = getRunner(), volume = taskDbVolume(o.taskId);
   await r.removeVolume(volume);
   await r.createVolume(volume, taskVolumeLabels(o.taskId));
-  const snap = o.dumpId ? await usableSnapshot(o.dumpId, o.image) : null;
+  const snap = o.dumpId ? await usableSnapshot(o.dumpId, o.image).catch(e => {
+    // e.g. a volume of that name not made by Lotse: no quick start, the import runs as usual
+    o.log(`Snapshot nicht nutzbar (${errMsg(e)}) – die Datenbank wird stattdessen importiert.`);
+    return null;
+  }) : null;
   if (!snap) {
     if (o.dumpId && snapshotsEnabled()) o.log('Noch kein Snapshot dieser Datenbank für dieses Image – sie wird importiert, danach als Snapshot gesichert.');
     return { volume, restored: false };
@@ -94,15 +98,21 @@ export async function saveSnapshot(o: { taskId: string; dumpId: string; image: s
   if (!snapshotsEnabled()) { o.log('Snapshots sind ausgeschaltet (LOTSE_SANDBOX_DB_SNAPSHOTS=0) – jede Sandbox importiert die Datenbank.'); return 'skipped'; }
   const d = codeDumpGet(o.dumpId);
   if (!d?.library || d.status !== 'ready') { o.log('Die gespeicherte Datenbank wurde inzwischen gelöscht – kein Snapshot.'); return 'skipped'; }
-  if (await usableSnapshot(o.dumpId, o.image)) { o.log('Für diese Datenbank und dieses Image gibt es bereits einen Snapshot.'); return 'skipped'; }
+  // Docker trouble or a volume of that name not made by Lotse: no snapshot, the setup goes on (such a volume is not touched)
+  const skip = (e: unknown) => { o.log(`Snapshot nicht angelegt: ${errMsg(e)} Die nächste Sandbox mit dieser Datenbank importiert sie wieder.`); return 'skipped' as const; };
+  try {
+    if (await usableSnapshot(o.dumpId, o.image)) { o.log('Für diese Datenbank und dieses Image gibt es bereits einen Snapshot.'); return 'skipped'; }
+  } catch (e) { return skip(e); }
   const volume = snapshotVolume(o.dumpId, o.image), B = busy();
   if (B.has(volume)) { o.log('Eine andere Sandbox legt den Snapshot dieser Datenbank gerade an.'); return 'skipped'; }
   B.add(volume);
   const r = getRunner(), t0 = Date.now();
   const exec = (c: { argv: string[]; user: string }) => r.exec(o.containerId, c.argv, { user: c.user, workdir: '/', timeoutMs: 120_000 });
   try {
-    if (await r.inspectVolume(volume)) await r.removeVolume(volume); // an unfinished copy from before (never recorded)
-    await r.createVolume(volume, { ...MANAGED, [ROLE_LABEL]: DB_SNAPSHOT_ROLE, [DUMP_LABEL]: o.dumpId, [IMAGE_LABEL]: o.image });
+    try {
+      if (await r.inspectVolume(volume)) await r.removeVolume(volume); // an unfinished copy from before (never recorded)
+      await r.createVolume(volume, { ...MANAGED, [ROLE_LABEL]: DB_SNAPSHOT_ROLE, [DUMP_LABEL]: o.dumpId, [IMAGE_LABEL]: o.image });
+    } catch (e) { return skip(e); }
     o.log('MySQL sauber beenden …');
     let saved = false;
     try {
