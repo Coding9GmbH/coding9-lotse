@@ -264,6 +264,7 @@ export interface PublishOutcome { task: CodeTask; pr: TaskPr; action: 'created' 
 /** Checks what can be checked synchronously, then runs the publish (registered at once: a second click gets 409). */
 export function publishTask(id: string, input: { title: string; body: string; allowFindings?: string[] }, locale: Locale = DEFAULT_LOCALE): Promise<PublishOutcome> {
   const t = mustTask(id);
+  if (!t.repo) throw new TaskConflict(messages(locale).server.noRepo);
   if (!githubConnected()) throw fail(400, 'GitHub ist nicht verbunden (Einstellungen → Integrationen).');
   if (publishRunning(id)) throw new TaskConflict(messages(locale).server.publishRunning);
   if (setupBusy(id)) throw new TaskConflict(messages(locale).server.publishSetupBusy);

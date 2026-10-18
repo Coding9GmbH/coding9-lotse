@@ -123,7 +123,7 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
 
   return [
     ...reads,
-    tool('sandbox_bash', `Führt einen Shell-Befehl IM Container der Aufgabe aus (bash -lc, als www-data in /var/www/html; der Container ist ein Wegwerf-Shopware, normalerweise ohne Internet; braucht ein Befehl Internet, erst request_internet). Vorher wird das Repository in den Container übertragen (ein ganzes Projekt nur, wenn sich seit dem letzten Übertragen etwas geändert hat). Für bin/console (z. B. theme:compile, cache:clear, plugin:refresh), Logs (var/log), mysql -uroot -proot -h127.0.0.1 shopware, curl -H 'Host: localhost' http://127.0.0.1/…, php -l usw. Nach theme:compile/cache:clear lädt die Vorschau neu; zeigt sie nach cache:clear noch den alten Stand, hält ihn der Template- bzw. HTTP-Cache fest – dann bin/console cache:pool:clear --all. Dateien des Repositorys änderst du NICHT hier (Änderungen im Container gehen beim nächsten Übertragen verloren), sondern mit den Datei-Werkzeugen. Zeitlimit Standard ${BASH_TIMEOUT.def} s, höchstens ${BASH_TIMEOUT.max} s; die Ausgabe wird gekürzt (Ende) und geschwärzt.`,
+    tool('sandbox_bash', `Führt einen Shell-Befehl IM Container der Aufgabe aus (bash -lc, als www-data in /var/www/html – bei einem eigenen Setup im Zielordner; der Container ist ein Wegwerf-Shopware, normalerweise ohne Internet; braucht ein Befehl Internet, erst request_internet). Vorher wird das Repository in den Container übertragen (ein ganzes Projekt nur, wenn sich seit dem letzten Übertragen etwas geändert hat). Für bin/console (z. B. theme:compile, cache:clear, plugin:refresh), Logs (var/log), mysql -uroot -proot -h127.0.0.1 shopware, curl -H 'Host: localhost' http://127.0.0.1/…, php -l usw. Nach theme:compile/cache:clear lädt die Vorschau neu; zeigt sie nach cache:clear noch den alten Stand, hält ihn der Template- bzw. HTTP-Cache fest – dann bin/console cache:pool:clear --all. Dateien des Repositorys änderst du NICHT hier (Änderungen im Container gehen beim nächsten Übertragen verloren), sondern mit den Datei-Werkzeugen. Zeitlimit Standard ${BASH_TIMEOUT.def} s, höchstens ${BASH_TIMEOUT.max} s; die Ausgabe wird gekürzt (Ende) und geschwärzt.`,
       { command: z.string().min(1).max(10_000).describe('Befehlszeile für bash -lc'), timeout_sec: z.number().int().min(1).max(BASH_TIMEOUT.max).optional().describe(`Zeitlimit in Sekunden (Standard ${BASH_TIMEOUT.def})`) },
       act('sandbox_bash', async ({ command, timeout_sec }) => {
         if (command.includes('\0')) return fail('Ungültiger Befehl.');
@@ -139,7 +139,9 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
             const fresh = task();
             if (!fresh.containerId || !fresh.containerRunning || !fresh.layout) throw new Error('Der Container läuft nicht.');
             await syncTaskAll(fresh, host.abort?.signal, { ifChanged: true });
-            return getRunner().exec(fresh.containerId, ['bash', '-lc', command], { user: tpl.execUser, workdir: tpl.workdir, timeoutMs: (timeout_sec ?? BASH_TIMEOUT.def) * 1000, maxOutput: 256 * 1024, signal: host.abort?.signal });
+            // an own setup: in its target folder (no Shopware root assumed)
+            const workdir = fresh.layout.kind === 'custom' && fresh.layout.targetPath ? fresh.layout.targetPath : tpl.workdir;
+            return getRunner().exec(fresh.containerId, ['bash', '-lc', command], { user: tpl.execUser, workdir, timeoutMs: (timeout_sec ?? BASH_TIMEOUT.def) * 1000, maxOutput: 256 * 1024, signal: host.abort?.signal });
           });
         } catch (e) {
           const msg = redact(e instanceof Error ? e.message : e).slice(0, 500);
@@ -205,11 +207,15 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
     tool('get_environment', 'Liest die Umgebung der Aufgabe: Vorlage, Image, Plugin/Theme und Pfad im Container, die Namen der Umgebungsvariablen (ohne Werte) und die eigenen Einrichtungsbefehle. Nur lesen – ändern kann das nur der Nutzer in der Umgebung.', {},
       act('get_environment', async () => {
         const t = task(), env = sandboxPublic(), tpl = getTemplate(t.template);
+        const rf = t.repoFile;
         return ok({
-          template: t.template, image: env.image, repo: t.repo, baseBranch: t.baseBranch, branch: t.branch, status: t.status,
+          template: t.template, image: t.image || env.image, repo: t.repo || null, mode: t.layout?.kind === 'custom' ? 'eigenes Setup' : t.setup?.source === 'none' ? 'ohne Projekt (nur lokales Git)' : 'automatisch erkannt', baseBranch: t.baseBranch, branch: t.branch, status: t.status,
           layout: t.layout, containerPath: t.layout ? tpl.syncTarget(t.layout) : null,
           envVars: env.envVars.map(v => ({ key: v.key, secret: v.secret })),
           setupCommands: env.commands.map(c => ({ label: c.label, phase: c.phase, command: redact(c.command) })),
+          sandboxCommands: (t.setup?.commands ?? []).map(c => ({ label: c.label, phase: c.phase, command: redact(c.command) })),
+          sandboxEnvVars: (t.setup?.env ?? []).map(v => v.key),
+          repoFile: rf ? { commands: rf.commands.map(c => ({ label: c.label, phase: c.phase, command: redact(c.command) })), state: rf.state, envNames: rf.env, previewPath: rf.previewPath ?? null } : null,
         });
       })),
 

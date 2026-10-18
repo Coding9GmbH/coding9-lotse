@@ -265,6 +265,7 @@ export interface SandboxEnvPublic {
   /** "Screenshot" button in the preview (off by default): captures screenshotPaths on desktop and mobile, only on the user's click */ screenshots: boolean;
   /** storefront paths the "Screenshot" button captures */ screenshotPaths: string[];
   /** stored database preselected in "Sandbox starten" ('' = none, or the one stored was deleted) */ defaultDumpId: string;
+  /** "Hinweise für die KI": the user's own notes for the agent of every sandbox (data in its prompt) */ aiNotes: string;
 }
 export type InternetPolicy = 'approval' | 'never';
 /** Both modes: task containers only on the internal network lotse-sandbox. network = Lotse runs in Docker on that network; local = Lotse on the host reaches the container IPs */
@@ -275,6 +276,7 @@ export interface SandboxEnvView { env: SandboxEnvPublic; docker: SandboxDocker |
 export interface SandboxEnvPatch {
   enabled?: boolean; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number; defaultRepo?: string; defaultBranch?: string; internet?: InternetPolicy; screenshots?: boolean; screenshotPaths?: string[];
   /** '' = no stored database preselected */ defaultDumpId?: string;
+  aiNotes?: string;
   envVars?: { key: string; secret: boolean; value?: string }[];
   commands?: { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec?: number }[];
 }
@@ -283,16 +285,49 @@ export type SandboxCheckEvent = { t: 'progress'; text: string; pct?: number } | 
 /** GET /api/sandbox/repo-probe: an (almost) empty repository becomes a new plugin; null = unknown */
 /** An account the GitHub token may create a repository under ("Neues Projekt") */
 export interface RepoOwner { login: string; kind: 'user' | 'org' }
-export interface RepoProbe { empty: boolean | null; suggestedName: string }
+/** How a sandbox brings its code into the container (A20): auto = what .lotse/sandbox.json or the detection says; plugin and project
+ *  as detected; custom = "Eigenes Setup" (a target path and the user's own commands, no Shopware steps) */
+export type SandboxMode = 'auto' | 'plugin' | 'project' | 'custom';
+/** What "Sandbox starten" found in repo@branch before the start: a plugin/theme, a whole project, an empty repository (new plugin), or
+ *  nothing Lotse knows (unknown: then only an own setup works; reason = the detection's message) */
+export interface RepoDetected { kind: 'plugin' | 'theme' | 'project' | 'new' | 'unknown'; name?: string; plugins?: number; reason?: string }
+/** A command a repository's .lotse/sandbox.json asks to run during the setup (shown to the user; runs only after their approval) */
+export interface RepoFileCommand { label: string; command: string; phase: CommandPhase; timeoutSec: number }
+/** .lotse/sandbox.json as Lotse read it. hash = SHA-256 of the file: an approval of its commands holds for exactly this content. */
+export interface RepoFileInfo {
+  hash: string; mode?: Exclude<SandboxMode, 'auto'>; targetPath?: string; image?: string; previewPath?: string; notes?: string;
+  commands: RepoFileCommand[];
+  /** environment variable NAMES the project needs (values only from the Lotse environment) */ env: string[];
+  /** keys of the file Lotse does not know: ignored */ ignored: string[];
+}
+/** GET /api/sandbox/repo-probe */
+export interface RepoProbe {
+  empty: boolean | null; suggestedName: string;
+  /** null = GitHub or the clone could not tell (the setup decides) */ detected?: RepoDetected | null;
+  /** the repository's .lotse/sandbox.json (null = none); error = it exists but is invalid (the setup would stop with that message) */
+  repoFile?: (RepoFileInfo & { approved: boolean; missingEnv: string[] }) | { error: string } | null;
+}
+/** POST /api/sandbox/tasks: attach a sandbox to a chat. source 'none' = "Ohne Projekt starten" (repo/baseBranch ignored). commands/env:
+ *  this sandbox's own (typed by the user in "Erweitert"); skipRepoHash: the repository file's commands declined in the dialog */
+export interface NewSandboxRequest {
+  chatId: string; title?: string; repo: string; baseBranch: string; dumpId?: string; pluginName?: string;
+  source?: 'repo' | 'none'; mode?: SandboxMode; targetPath?: string; commands?: { label: string; command: string; phase: CommandPhase }[];
+  env?: { key: string; value: string }[]; skipRepoHash?: string;
+}
+/** The user's choices in "Sandbox starten" for a task (stored on it) */
+export interface TaskSetupPublic { source: 'repo' | 'none'; mode: SandboxMode; targetPath?: string; commands: number; env: string[] }
+/** .lotse/sandbox.json of the task as the setup read it; state: commands approved, skipped by the user, waiting for a decision, or none */
+export interface TaskRepoFile extends RepoFileInfo { state: 'approved' | 'skipped' | 'pending' | 'none' }
 /** Code task lifecycle: setting_up → ready ⇄ paused (waking in between) → done; failed/interrupted stop the setup (retry possible) */
 export type CodeTaskStatus = 'setting_up' | 'ready' | 'waking' | 'paused' | 'failed' | 'interrupted' | 'done';
 export type TaskStepState = 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'interrupted';
 /** One setup step. key = template step; 'custom' = an own setup command of the environment (label = its name) */
-export interface TaskStep { id: string; key: SandboxStepKey | 'custom'; label?: string; state: TaskStepState; startedAt?: string; endedAt?: string; /** last lines, redacted */ log: string[]; error?: string }
+export interface TaskStep { id: string; key: SandboxStepKey | 'custom'; label?: string; /** own commands: from the environment, this sandbox's start dialog or the repository's .lotse/sandbox.json */ source?: 'env' | 'task' | 'repo'; state: TaskStepState; startedAt?: string; endedAt?: string; /** last lines, redacted */ log: string[]; error?: string }
 /** What the repository is: a plugin or a theme plugin below custom/plugins/<name>, or a whole Shopware project (project: its plugins,
  *  apps and configuration, synced into the shop's root; pluginDir ''). isNew: the repository was empty (README, LICENSE, .gitignore at
  *  most) and the plugin is built in the sandbox; nothing was installed during the setup. */
-export interface TaskLayout { kind: 'plugin' | 'theme' | 'project'; name: string; pluginDir: string; isNew?: boolean; project?: ProjectInfo }
+export interface TaskLayout { kind: 'plugin' | 'theme' | 'project' | 'custom'; name: string; pluginDir: string; isNew?: boolean; project?: ProjectInfo;
+  /** custom ("Eigenes Setup"): absolute folder in the container the repository is synced to */ targetPath?: string }
 /** What a project plugin brings (detected from its files): storefront templates, styles, JavaScript, administration, PHP code, settings,
  *  migrations, texts */
 export type ProjectPart = 'storefront' | 'styles' | 'js' | 'admin' | 'php' | 'settings' | 'migrations' | 'snippets';
@@ -336,6 +371,10 @@ export interface CodeTaskPublic {
   /** internet access a human allowed for this task (container attached to lotse-sandbox-egress); null = offline */ internet: { since: string } | null;
   /** screenshots of the sandbox storefront the user took by hand ("Screenshot" in the preview), oldest first; stored in Lotse only */ shots: TaskShotSet[];
   /** the template offers the user a console (tab "Konsole"); missing = none (containerless templates) */ console?: true;
+  /** how it was started (A20); missing in rows from before */ setup?: TaskSetupPublic;
+  /** the repository's .lotse/sandbox.json (null = none or not read yet) */ repoFile?: TaskRepoFile | null;
+  /** the image of this task when the repository asked for another tag than the environment's */ image?: string | null;
+  /** first page of the preview (.lotse/sandbox.json "previewPath"); missing = "/" */ startPath?: string;
 }
 export type ShotDevice = 'desktop' | 'mobile';
 /** One stored screenshot; url = GET /api/sandbox/tasks/[id]/screenshots/[file] */

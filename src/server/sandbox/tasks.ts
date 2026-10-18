@@ -6,13 +6,13 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
 import { DEFAULT_LOCALE, messages, type Locale } from '@/lib/i18n';
-import type { CodeTaskPublic, CodeTaskStatus, TaskDumpPublic, CommandPhase, ShotDevice, TaskEvent, TaskLayout, TaskPublish, TaskShotSet, TaskStep } from '@/lib/protocol';
-import { PLUGIN_NAME } from '@/lib/sandbox-task';
+import type { CodeTaskPublic, CodeTaskStatus, TaskDumpPublic, CommandPhase, SandboxMode, ShotDevice, TaskEvent, TaskLayout, TaskPublish, TaskRepoFile, TaskShotSet, TaskStep } from '@/lib/protocol';
+import { PLUGIN_NAME, pluginNameFromRepo, suggestTargetPath, targetPathProblem } from '@/lib/sandbox-task';
 import { codeTaskByChat, codeTaskGet, codeTaskList, codeTaskPut, dataDir, macOf, type CodeTaskRow } from '../db';
 import { assertLotseBranch } from '../git';
 import { singleton } from '../state';
 import { attachDump, deleteDump } from './dumps';
-import { getSandboxConfig } from './env';
+import { checkCommands, checkTaskEnv, getSandboxConfig } from './env';
 import type { NetworkMode } from './network';
 import { getRunner } from './runner';
 import { canonicalTemplateId, getTemplate } from './templates';
@@ -23,6 +23,14 @@ const LINE_MAX = 2000;
 
 /** A step as stored: own setup commands carry their command (user-authored environment, never AI input) and time limit. */
 export interface StoredStep extends TaskStep { phase?: CommandPhase; command?: string; timeoutSec?: number }
+/** What the user chose in "Sandbox starten" (A20). source 'none' = "Ohne Projekt starten": no repository, a local git only (a new plugin
+ *  in the worktree), "Als GitHub-Projekt anlegen" later. commands/env: own commands and plain variables of this sandbox only (user input,
+ *  never AI input). skipRepoHash: the repository file's commands the user declined ("Ohne diese Befehle"). */
+export interface StoredSetup {
+  source: 'repo' | 'none'; mode: SandboxMode; targetPath?: string;
+  commands: { id: string; label: string; command: string; phase: CommandPhase; timeoutSec: number }[];
+  env: { key: string; value: string }[]; skipRepoHash?: string;
+}
 /** The task's dump: id of the file in code_dumps while it waits for the import; afterwards only the facts remain (a stored database,
  *  library, stays in code_dumps). restored: the task's data volume was filled from the snapshot of this database for that image. */
 export interface StoredDump { id: string; name: string; size: number; sha256: string | null; imported: boolean; deletedAt: string | null; ignoreVersion: boolean; versionMismatch?: { dump: string; image: string };
@@ -41,7 +49,21 @@ export interface CodeTask extends CodeTaskRow {
   /** internet a human allowed (container attached to lotse-sandbox-egress, internet.ts); null/missing = offline */ internet?: { since: string; via: 'chat' | 'panel' } | null;
   /** what the PR watcher (pr-watch.ts) knows about the PR: state, head, feedback ids already reported */ prWatch?: PrWatch | null;
   /** screenshots the user took by hand (screenshots.ts), oldest first; files in taskPaths().screenshots. not an array = none (rows from before) */ shots?: StoredShotSet[];
+  /** the start dialog's choices (A20); missing in rows from before = a repository, mode auto */ setup?: StoredSetup;
+  /** the repository's .lotse/sandbox.json as the setup read it (repo-config.ts) */ repoFile?: TaskRepoFile | null;
+  /** another image tag the repository file asked for (allowed by the template); null = the environment's */ image?: string | null;
+  /** first page of the preview (repository file) */ previewPath?: string | null;
 }
+const setupOf = (t: Pick<CodeTask, 'setup'>): StoredSetup => t.setup ?? { source: 'repo', mode: 'auto', commands: [], env: [] };
+/** The image this task runs: the repository file's tag, else the environment's */
+export const taskImage = (t: Pick<CodeTask, 'image'>): string => t.image || getSandboxConfig().image;
+/** How the code goes into the container: the dialog's choice, else the repository file's, else detected (auto) */
+export const effectiveMode = (t: Pick<CodeTask, 'setup' | 'repoFile'>): SandboxMode => { const m = setupOf(t).mode; return m !== 'auto' ? m : t.repoFile?.mode ?? 'auto'; };
+/** Target folder of an own setup: the dialog's, else the repository file's, else /opt/<repository name> */
+export const effectiveTarget = (t: Pick<CodeTask, 'setup' | 'repoFile' | 'repo'>): string => setupOf(t).targetPath || t.repoFile?.targetPath || suggestTargetPath(t.repo);
+/** Working directory of own commands: the target folder of an own setup (except the environment's commands), else the template's */
+export const commandDir = (t: Pick<CodeTask, 'layout'>, step: Pick<StoredStep, 'source'>, workdir: string): string =>
+  t.layout?.kind === 'custom' && t.layout.targetPath && step.source !== 'env' ? t.layout.targetPath : workdir;
 export interface PrWatch { number: number; state: 'open' | 'merged' | 'closed'; headSha: string | null; seen: string[] }
 export interface StoredShotSet { id: string; at: string; items: { path: string; device: ShotDevice; file: string }[]; error?: string }
 
@@ -148,13 +170,15 @@ export function publicTask(t: CodeTask, o: { logs?: boolean } = {}): CodeTaskPub
   return {
     id: t.id, title: t.title, goal: t.goal, repo: t.repo, baseBranch: t.baseBranch, branch: t.branch, template: t.template,
     status: t.status, layout: t.layout, error: t.error,
-    steps: t.steps.map(({ id, key, label, state, startedAt, endedAt, log, error }) => ({ id, key, ...(label ? { label } : {}), state, ...(startedAt ? { startedAt } : {}), ...(endedAt ? { endedAt } : {}), log: o.logs === false ? [] : log, ...(error ? { error } : {}) })),
+    steps: t.steps.map(({ id, key, label, source, state, startedAt, endedAt, log, error }) => ({ id, key, ...(label ? { label } : {}), ...(source ? { source } : {}), state, ...(startedAt ? { startedAt } : {}), ...(endedAt ? { endedAt } : {}), log: o.logs === false ? [] : log, ...(error ? { error } : {}) })),
     container: t.containerId ? { running: t.containerRunning } : null, ...(stopping().has(t.id) ? { stopping: true } : {}),
     preview: previewPath(t.id), dump: t.dump ? publicTaskDump(t.dump) : null, prUrl: t.prUrl, createdAt: t.createdAt, updatedAt: t.updatedAt, lastActiveAt: t.lastActiveAt, finishedAt: t.finishedAt,
     chatId: t.chatId, pluginName: t.pluginName ?? null, pr: t.prNumber && t.prUrl ? { number: t.prNumber, url: t.prUrl, title: t.prTitle ?? t.title, ...(t.prWatch?.number === t.prNumber && t.prWatch.state !== 'open' ? { state: t.prWatch.state } : {}) } : null, publish: t.publish ?? null,
     internet: t.internet ? { since: t.internet.since } : null,
     shots: (Array.isArray(t.shots) ? t.shots : []).map(s => publicShots(t.id, s)),
     ...(hasConsole(t.template) ? { console: true as const } : {}),
+    ...(t.setup ? { setup: { source: t.setup.source, mode: t.setup.mode, ...(t.setup.targetPath ? { targetPath: t.setup.targetPath } : {}), commands: t.setup.commands.length, env: t.setup.env.map(v => v.key) } } : {}),
+    repoFile: t.repoFile ?? null, image: t.image ?? null, ...(t.previewPath ? { startPath: t.previewPath } : {}),
   };
 }
 const hasConsole = (template: string) => { try { return !!getTemplate(template).console; } catch { return false; } };
@@ -175,17 +199,41 @@ export function setTaskDump(t: CodeTask, dumpId: string): void {
   t.dump = { id: d.id, name: d.name, size: d.size, sha256: d.sha256, imported: false, deletedAt: null, ignoreVersion: false, ...(d.library ? { library: true } : {}) };
 }
 
-/** Steps of a new task: the template's steps; each slot for own commands becomes one step per configured command of that phase. */
-export function planSteps(templateId: string, commands: { id: string; label: string; command: string; phase: CommandPhase; timeoutSec: number }[]): StoredStep[] {
+type OwnCommand = { id: string; label: string; command: string; phase: CommandPhase; timeoutSec: number };
+/** Steps of a new task: the template's steps; each slot for own commands becomes one step per command of that phase – the environment's
+ *  first, then this sandbox's own (start dialog). */
+export function planSteps(templateId: string, commands: OwnCommand[], own: OwnCommand[] = []): StoredStep[] {
   const out: StoredStep[] = [];
   for (const s of getTemplate(templateId).steps) {
     if (!s.custom) { out.push({ id: s.id, key: s.id, state: 'pending', log: [] }); continue; }
-    for (const c of commands.filter(x => x.phase === s.custom)) out.push({ id: `${s.id}:${c.id}`, key: 'custom', label: c.label, phase: c.phase, command: c.command, timeoutSec: c.timeoutSec, state: 'pending', log: [] });
+    for (const [source, list] of [['env', commands], ['task', own]] as const)
+      for (const c of list.filter(x => x.phase === s.custom)) out.push({ id: `${s.id}:${source === 'env' ? '' : 't'}${c.id}`, key: 'custom', label: c.label, source, phase: c.phase, command: c.command, timeoutSec: c.timeoutSec, state: 'pending', log: [] });
   }
   return out;
 }
 
-export interface NewTask { chatId: string; title?: string; goal?: string; repo: string; baseBranch: string; dumpId?: string; pluginName?: string }
+/** The repository file's commands as steps (approved ones only): replaces earlier ones, each phase after the other own commands of that
+ *  phase (before the template step that follows the slot). Steps before `from` stay as they are. */
+export function placeRepoSteps(t: CodeTask, templateId: string, commands: { label: string; command: string; phase: CommandPhase; timeoutSec: number }[]): void {
+  t.steps = t.steps.filter(s => s.source !== 'repo');
+  const tpl = getTemplate(templateId).steps;
+  for (const phase of ['after-db', 'final'] as const) {
+    const slot = tpl.findIndex(s => s.custom === phase), next = tpl.slice(slot + 1).find(s => !s.custom)?.id;
+    let at = next ? t.steps.findIndex(s => s.key === next) : t.steps.length;
+    if (at < 0) at = t.steps.length;
+    const add: StoredStep[] = commands.filter(c => c.phase === phase).map((c, i) => ({ id: `custom-${phase}:r${i}`, key: 'custom', label: c.label, source: 'repo', phase, command: c.command, timeoutSec: c.timeoutSec, state: 'pending', log: [] }));
+    t.steps.splice(at, 0, ...add);
+  }
+}
+
+export interface NewTask {
+  chatId: string; title?: string; goal?: string; repo: string; baseBranch: string; dumpId?: string; pluginName?: string;
+  /** A20: no repository ("Ohne Projekt starten"), the mode, an own setup's target, own commands and variables, declined repository commands */
+  source?: 'repo' | 'none'; mode?: SandboxMode; targetPath?: string; commands?: { label: string; command: string; phase: CommandPhase; timeoutSec?: number }[];
+  env?: { key: string; value: string }[]; skipRepoHash?: string;
+}
+/** Branch base of a sandbox without a project: its local git starts with an empty commit on main */
+export const NO_REPO_BASE = 'main';
 /** Creates the row only (not running yet: runSteps sets setting_up), bound to the chat it was started from.
  *  Title (branch name, list): given, otherwise the repository's name. Own commands are taken from the environment now. */
 export const attachedMsg = (locale: Locale = DEFAULT_LOCALE) => messages(locale).server.sandboxAttached;
@@ -196,12 +244,22 @@ export function createTask(p: NewTask, locale: Locale = DEFAULT_LOCALE): CodeTas
   // checked again here, without an await before codeTaskPut: two overlapping requests never attach two sandboxes to one chat
   if (attachedTask(p.chatId)) throw Object.assign(new Error(attachedMsg(locale)), { status: 409 });
   if (p.pluginName && !PLUGIN_NAME.test(p.pluginName)) throw Object.assign(new Error(pluginNameMsg(locale)), { status: 400 });
-  const title = (p.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || `Sandbox ${p.repo.split('/').pop() ?? p.repo}`;
+  const none = p.source === 'none', bad = (m: string) => Object.assign(new Error(m), { status: 400 });
+  const mode: SandboxMode = none ? 'plugin' : p.mode ?? 'auto';
+  const targetPath = mode === 'custom' && p.targetPath?.trim() ? p.targetPath.trim() : undefined;
+  if (targetPath && targetPathProblem(targetPath)) throw bad(messages(locale).server.targetPathInvalid);
+  let own: StoredSetup['commands'] = [], env: StoredSetup['env'] = [];
+  try { own = p.commands?.length ? checkCommands(p.commands, 10) : []; env = p.env?.length ? checkTaskEnv(p.env) : []; } catch (e) { throw bad((e as Error).message); }
+  const title = (p.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || (none ? messages(locale).server.noRepoTitle : `Sandbox ${p.repo.split('/').pop() ?? p.repo}`);
+  // without a project: a new plugin in the local git; its name as given, else one from the title
+  const pluginName = none ? p.pluginName || pluginNameFromRepo(title.replace(/^Sandbox\s+/i, '')) || 'SandboxPlugin' : p.pluginName || null;
   const t: CodeTask = {
-    id, chatId: p.chatId, template: cfg.templateId, repo: p.repo, baseBranch: p.baseBranch, branch: branchFor(title, id),
+    id, chatId: p.chatId, template: cfg.templateId, repo: none ? '' : p.repo, baseBranch: none ? NO_REPO_BASE : p.baseBranch, branch: branchFor(title, id),
     status: 'interrupted', containerId: null, prNumber: null, prUrl: null, pushedSha: null, createdAt: ts, updatedAt: ts,
-    title, goal: (p.goal ?? '').trim().slice(0, 4000), steps: planSteps(cfg.templateId, cfg.commands), layout: null, error: null,
-    containerRunning: false, mode: null, port: null, lastActiveAt: ts, finishedAt: null, dump: null, pluginName: p.pluginName || null,
+    title, goal: (p.goal ?? '').trim().slice(0, 4000), steps: planSteps(cfg.templateId, cfg.commands, own), layout: null, error: null,
+    containerRunning: false, mode: null, port: null, lastActiveAt: ts, finishedAt: null, dump: null, pluginName,
+    setup: { source: none ? 'none' : 'repo', mode, ...(targetPath ? { targetPath } : {}), commands: own, env, ...(p.skipRepoHash && /^[0-9a-f]{64}$/.test(p.skipRepoHash) ? { skipRepoHash: p.skipRepoHash } : {}) },
+    repoFile: null, image: null, previewPath: null,
   };
   if (p.dumpId) setTaskDump(t, p.dumpId);
   codeTaskPut(t);

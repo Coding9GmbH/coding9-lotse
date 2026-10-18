@@ -196,9 +196,10 @@ const post = (body: unknown, lang = 'de') => tasksRoute.POST(new Request('http:/
 const probe = (q: string) => probeRoute.GET(new Request(`http://127.0.0.1/api/sandbox/repo-probe?${q}`));
 
 test('routes: the probe tells an empty repository with a suggested name; creating validates the technical name', async () => {
-  assert.deepEqual(await (await probe('repo=conine/header-banner&branch=main')).json(), { empty: true, suggestedName: 'HeaderBanner' });
-  assert.deepEqual(await (await probe('repo=acme/shop-theme&branch=main')).json(), { empty: false, suggestedName: 'ShopTheme' });
-  assert.deepEqual(await (await probe('repo=acme/unknown&branch=main')).json(), { empty: null, suggestedName: 'Unknown' }, 'GitHub cannot tell: unknown, no error');
+  assert.deepEqual(await (await probe('repo=conine/header-banner&branch=main')).json(), { empty: true, suggestedName: 'HeaderBanner', detected: { kind: 'new', name: 'HeaderBanner' }, repoFile: null });
+  // not empty: a shallow clone would show what the setup detects (sandbox-flex.test.ts); without a clone source here it cannot tell
+  assert.deepEqual(await (await probe('repo=acme/shop-theme&branch=main')).json(), { empty: false, suggestedName: 'ShopTheme', detected: null, repoFile: null });
+  assert.deepEqual(await (await probe('repo=acme/unknown&branch=main')).json(), { empty: null, suggestedName: 'Unknown', detected: null, repoFile: null }, 'GitHub cannot tell: unknown, no error');
   assert.equal((await probe('repo=../x&branch=main')).status, 400);
   const bad = await post({ chatId: crypto.randomUUID(), repo: 'conine/header-banner', baseBranch: 'main', pluginName: 'header-banner' });
   assert.equal(bad.status, 400);

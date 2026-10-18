@@ -5,7 +5,7 @@ import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget 
 import { createLineSplitter } from './ndjson';
 import type { CodexLoginState, GithubBranch, GithubPublic, GithubRepo, GithubTestResult, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
-  CodeTaskPublic, ConsoleSessionPublic, DumpPublic, LibraryDumpPublic, PluginZipCheck, RepoOwner, RepoProbe, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
+  CodeTaskPublic, ConsoleSessionPublic, DumpPublic, LibraryDumpPublic, NewSandboxRequest, PluginZipCheck, RepoOwner, RepoProbe, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
   PrStatus, PublishRequest, PublishResult } from './protocol';
 
 export class ApiError extends Error {
@@ -83,9 +83,15 @@ export const api = {
     check: (onEvent: (ev: SandboxCheckEvent) => void, signal?: AbortSignal) => checkStream(onEvent, signal),
     tasks: () => request<{ tasks: CodeTaskPublic[] }>('/api/sandbox/tasks'),
     /** attach a sandbox to a chat (one per chat) */
-    createTask: (t: { chatId: string; title?: string; repo: string; baseBranch: string; dumpId?: string; pluginName?: string }) => request<{ task: CodeTaskPublic }>('/api/sandbox/tasks', json('POST', t)),
-    /** is repo@branch still empty (new plugin)? with a suggested technical name */
+    createTask: (t: NewSandboxRequest) => request<{ task: CodeTaskPublic }>('/api/sandbox/tasks', json('POST', t)),
+    /** what repo@branch is before the start (empty = new plugin, plugin, theme, project, unknown) and its .lotse/sandbox.json */
     repoProbe: (repo: string, branch: string) => request<RepoProbe>(`/api/sandbox/repo-probe?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}`),
+    /** "Befehle erlauben" in the start dialog: the repository file's commands of exactly this content */
+    approveRepoFile: (repo: string, branch: string, hash: string) => request<RepoProbe>('/api/sandbox/repo-file', json('POST', { repo, branch, hash })),
+    /** the setup waits for a decision on the repository file's commands: allow them, or continue without */
+    taskRepoFile: (id: string, decision: 'approve' | 'skip', hash: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/repo-file`, json('POST', { decision, hash })),
+    /** "Als GitHub-Projekt anlegen" for a sandbox started without a project */
+    githubProject: (id: string, p: { owner: string; name: string }) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/github-project`, json('POST', p)),
     /** "Neues Projekt": accounts the token may create a repository under, and creating a private one for a new plugin */
     repoOwners: () => request<{ owners: RepoOwner[] }>('/api/sandbox/repos'),
     createRepo: (p: { owner: string; name: string; description?: string }) => request<{ repo: GithubRepo }>('/api/sandbox/repos', json('POST', p)),

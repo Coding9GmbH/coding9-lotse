@@ -1,0 +1,2 @@
+## Ohne GitHub-Projekt
+Diese Sandbox wurde ohne Projekt gestartet: Die Arbeitskopie ist ein lokales Git ohne GitHub-Repository (Basis ist ein leerer Start-Commit). Committe wie sonst mit git_commit. Einen Pull Request gibt es erst, wenn der Nutzer im Reiter „Freigabe“ „Als GitHub-Projekt anlegen“ klickt; bis dahin kann er das Plugin dort als ZIP herunterladen. Erwähne das am Ende kurz, statt propose_publish aufzurufen, solange es kein GitHub-Projekt gibt.

@@ -22,6 +22,7 @@ interface StoredSandbox {
   envVars?: StoredVar[]; commands?: SandboxCommand[]; updatedAt?: string; defaultRepo?: string; defaultBranch?: string; internet?: InternetPolicy;
   /** the manual "Screenshot" button of the preview; off by default */ screenshots?: boolean; screenshotPaths?: string[];
   /** stored database preselected in "Sandbox starten" */ defaultDumpId?: string;
+  /** "Hinweise für die KI" (plain text, data in the sandbox prompt) */ aiNotes?: string;
 }
 const KV = 'sandbox';
 const stored = (): StoredSandbox => {
@@ -36,6 +37,7 @@ export const LIMITS = {
   maxRunning: { min: 1, max: 10, def: 2 },
   envVars: 50, envValue: 4000, commands: 20, command: 2000, label: 80,
   timeoutSec: { min: 10, max: 3600, def: 600 },
+  aiNotes: 4000,
 } as const;
 export const ENV_KEY = /^[A-Z_][A-Z0-9_]{0,63}$/;
 const COMMAND_ID = /^c_[a-z0-9]{8}$/;
@@ -102,8 +104,8 @@ function mergeVars(prev: StoredVar[], next: NonNullable<SandboxEnvPatch['envVars
 }
 
 const newCommandId = () => `c_${crypto.randomBytes(6).toString('base64url').toLowerCase().replace(/[^a-z0-9]/g, '0').slice(0, 8)}`;
-function checkCommands(next: NonNullable<SandboxEnvPatch['commands']>): SandboxCommand[] {
-  if (next.length > LIMITS.commands) throw new Error(`Höchstens ${LIMITS.commands} eigene Befehle.`);
+export function checkCommands(next: NonNullable<SandboxEnvPatch['commands']>, max: number = LIMITS.commands): SandboxCommand[] {
+  if (next.length > max) throw new Error(`Höchstens ${max} eigene Befehle.`);
   const ids = new Set<string>();
   return next.map((c, i) => {
     const label = c.label.trim(), command = c.command.trim();
@@ -117,6 +119,20 @@ function checkCommands(next: NonNullable<SandboxEnvPatch['commands']>): SandboxC
     while (ids.has(id)) id = newCommandId();
     ids.add(id);
     return { id, label, command, phase: c.phase, timeoutSec };
+  });
+}
+
+/** Variables of one sandbox ("Sandbox starten" → Erweitert): plain values (secrets belong into the environment), at most 20. */
+export function checkTaskEnv(list: { key: string; value: string }[]): { key: string; value: string }[] {
+  if (list.length > 20) throw new Error('Höchstens 20 Variablen je Sandbox.');
+  const seen = new Set<string>();
+  return list.map(v => {
+    const key = v.key.trim();
+    if (!ENV_KEY.test(key)) throw new Error(`Ungültiger Variablenname „${key.slice(0, 70)}“: nur GROSSBUCHSTABEN, Ziffern und _ (nicht mit Ziffer beginnend).`);
+    if (seen.has(key)) throw new Error(`Variable ${key} ist doppelt.`);
+    seen.add(key);
+    if (v.value.length > LIMITS.envValue || v.value.includes('\0')) throw new Error(`Wert von ${key} ist zu lang (max. ${LIMITS.envValue} Zeichen).`);
+    return { key, value: v.value };
   });
 }
 
@@ -155,6 +171,11 @@ export function saveSandbox(p: SandboxEnvPatch, env: Record<string, string | und
     if (id && storedDb(id) !== id) throw new Error('Die gewählte Datenbank ist nicht (mehr) gespeichert.');
     if (id !== storedDb(s.defaultDumpId)) { next.defaultDumpId = id; changed.push('defaultDumpId'); }
   }
+  if (p.aiNotes !== undefined) {
+    const notes = p.aiNotes.replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').trim();
+    if (notes.length > LIMITS.aiNotes) throw new Error(`Hinweise für die KI: höchstens ${LIMITS.aiNotes} Zeichen.`);
+    if (notes !== (s.aiNotes ?? '')) { next.aiNotes = notes; changed.push('aiNotes'); }
+  }
   if (p.screenshots !== undefined && p.screenshots !== !!s.screenshots) { next.screenshots = p.screenshots; changed.push('screenshots'); }
   if (p.screenshotPaths !== undefined) {
     next.screenshotPaths = validShotPaths(p.screenshotPaths);
@@ -182,7 +203,7 @@ export function sandboxPublic(env: Record<string, string | undefined> = process.
     memoryMb: s.memoryMb ?? LIMITS.memoryMb.def, cpus: s.cpus ?? LIMITS.cpus.def, idleMinutes: s.idleMinutes ?? defaultIdle(env), maxRunning: maxRunning(env),
     envVars: (s.envVars ?? []).map(v => ({ key: v.key, secret: v.secret, value: v.secret ? '' : v.value, hasValue: !!v.value })),
     commands: s.commands ?? [], updatedAt: s.updatedAt ?? null, defaultRepo: s.defaultRepo ?? '', defaultBranch: s.defaultBranch ?? '', internet: s.internet ?? 'approval',
-    screenshots: !!s.screenshots, screenshotPaths: s.screenshotPaths ?? DEFAULT_SHOT_PATHS, defaultDumpId: storedDb(s.defaultDumpId),
+    screenshots: !!s.screenshots, screenshotPaths: s.screenshotPaths ?? DEFAULT_SHOT_PATHS, defaultDumpId: storedDb(s.defaultDumpId), aiNotes: s.aiNotes ?? '',
   };
 }
 

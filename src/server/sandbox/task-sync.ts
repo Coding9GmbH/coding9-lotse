@@ -21,6 +21,7 @@ function target(t: CodeTask, signal?: AbortSignal): SyncTarget {
   return {
     runner: getRunner(), containerId: t.containerId, worktree: taskPaths(t.id).worktree, target: tpl.syncTarget(t.layout), user: tpl.execUser, signal,
     ...(t.layout.kind === 'project' ? { project: { runtime: projectRuntime(p), held: Object.fromEntries((p?.held ?? []).map(({ file, ...q }) => [file, q])) } } : {}),
+    ...(t.layout.kind === 'custom' ? { custom: true } : {}),
   };
 }
 

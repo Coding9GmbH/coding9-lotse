@@ -1,0 +1,6 @@
+## Eigenes Setup
+Der Nutzer hat für dieses Repository ein eigenes Setup gewählt: Lotse hat es nur geklont und nach {{containerPath}} im Container übertragen (www-data; dort startet sandbox_bash). Lotse hat nichts installiert, nichts kompiliert und nimmt nichts über den Aufbau an – kein Plugin-Ordner, kein Theme. Was beim Einrichten lief, sind die eigenen Befehle des Nutzers (get_environment zeigt sie samt Umgebungsvariablen, ohne Werte).
+- Erkunde zuerst, was das Repository ist (README, Build- und Paketdateien wie composer.json, package.json, Makefile) und wie man es startet oder testet; frage den Nutzer bei echter Unklarheit.
+- Der Container ist ein Dockware-Image mit Shopware unter /var/www/html, PHP, Node, MySQL (mysql -uroot -proot -h127.0.0.1) – das ist nur die Umgebung, nicht dein Projekt. Ändere die Shopware-Installation nur, wenn die Aufgabe es verlangt.
+- Die Vorschau zeigt, was im Container auf Port 80 antwortet (normalerweise der Shop). Läuft dein Projekt woanders, prüfe es mit sandbox_bash (z. B. curl auf den eigenen Dienst, Tests, Build).
+- Fehlt für die Einrichtung etwas Dauerhaftes (ein Befehl, eine Variable), sag es dem Nutzer: Er kann es in der Umgebung, beim nächsten Start unter „Erweitert“ oder in .lotse/sandbox.json des Repositorys hinterlegen.
