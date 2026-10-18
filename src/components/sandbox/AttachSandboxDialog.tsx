@@ -7,12 +7,13 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { PLUGIN_NAME, REPO_NAME, SANDBOX_DOCS } from '@/lib/sandbox-task';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
-import { DumpUpload } from './DumpUpload';
+import { DumpPicker } from './DumpPicker';
 import { Term } from './Term';
 import styles from './Sandbox.module.css';
 
 /** "Sandbox starten" in a chat: repository and base branch (preselected from the environment's presets or the AI's proposal),
- *  an optional title (the AI's reason when it proposed the sandbox) and, behind a disclosure, a dump. An empty repository (README,
+ *  an optional title (the AI's reason when it proposed the sandbox) and, behind a disclosure, the database: a stored one (the environment's
+ *  default preselected, the disclosure then open), none or a new upload. An empty repository (README,
  *  LICENSE, .gitignore at most) becomes a new plugin: the dialog then asks for its technical name (suggested from the repository name
  *  or the AI's proposal). No project yet: "Neues Projekt anlegen" creates a private repository with the stored token (owner = the token's user
  *  or one of its organisations) and selects it, so it continues as a new plugin. Creating attaches the sandbox to `chatId` and starts its
@@ -28,6 +29,8 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
   const [want, setWant] = useState<string>(''); // preferred base branch once the branches are known
   const [busy, setBusy] = useState(false);
   const [dumpId, setDumpId] = useState<string | null>(null);
+  // the environment's stored database preset; null while it loads (the picker mounts afterwards, once per opening)
+  const [dumpPreset, setDumpPreset] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // "Neues Projekt anlegen": null = closed; owners load when it opens
@@ -44,7 +47,7 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
   const [shown, setShown] = useState({ open, initial });
   if (shown.open !== open || shown.initial !== initial) {
     setShown({ open, initial });
-    if (open) { setName({ value: '', editedFor: '' }); setForm(f => ({ ...f, title: initial?.title?.slice(0, 120) ?? '' })); setNewRepo(null); setRepoNote(null); }
+    if (open) { setName({ value: '', editedFor: '' }); setForm(f => ({ ...f, title: initial?.title?.slice(0, 120) ?? '' })); setNewRepo(null); setRepoNote(null); setDumpId(null); setDumpPreset(null); }
   }
   const probeKey = form.repo && form.baseBranch ? `${form.repo}@${form.baseBranch}` : '';
   const repoNameOk = !!newRepo && REPO_NAME.test(newRepo.name.trim());
@@ -70,7 +73,9 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
   useEffect(() => {
     if (!open) return;
     let live = true;
-    const pre = initial?.repo ? Promise.resolve({ repo: initial.repo, baseBranch: initial.baseBranch }) : api.sandbox.env().then(v => ({ repo: v.env.defaultRepo, baseBranch: v.env.defaultBranch }), () => ({ repo: '', baseBranch: '' }));
+    const env = api.sandbox.env().then(v => v.env, () => null);
+    void env.then(v => { if (live) setDumpPreset(v?.defaultDumpId ?? ''); });
+    const pre = initial?.repo ? Promise.resolve({ repo: initial.repo, baseBranch: initial.baseBranch }) : env.then(v => ({ repo: v?.defaultRepo ?? '', baseBranch: v?.defaultBranch ?? '' }));
     Promise.all([repos ? Promise.resolve(repos) : api.github.repos().then(r => r.repos), pre]).then(([list, p]) => {
       if (!live) return;
       setRepos(list); setError(null);
@@ -185,9 +190,9 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
           <span className={styles.label}>{t.name}</span>
           <input value={form.title} maxLength={120} placeholder={t.namePlaceholder} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
         </label>
-        <details className={styles.dumpMore}>
+        <details className={styles.dumpMore} open={!!dumpPreset || undefined}>
           <summary>{all.sandbox.dump.add}</summary>
-          <DumpUpload onChange={d => setDumpId(d?.id ?? null)} onBusy={setUploading} disabled={busy} />
+          {open && dumpPreset !== null && <DumpPicker preset={dumpPreset} onChange={setDumpId} onBusy={setUploading} disabled={busy} />}
         </details>
         {repos && !repos.length && !error && <p className={styles.alert}>{t.noGithub}</p>}
         {error && <p className={styles.bad} role="alert">{error}</p>}

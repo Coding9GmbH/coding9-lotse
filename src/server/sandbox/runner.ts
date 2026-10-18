@@ -18,6 +18,8 @@ export interface ContainerSpec {
   Hostname?: string;
   /** screenshot containers only: the fixed script and its user (guards.ts) */
   Cmd?: string[];
+  /** database copy containers only: the fixed copy command (db-snapshot-spec.ts) */
+  Entrypoint?: string[];
   User?: string;
   ExposedPorts?: Record<string, object>;
   HostConfig?: Record<string, unknown>;
@@ -30,6 +32,8 @@ export interface NetworkInfo { name: string; internal: boolean; labels: Record<s
   /** gateway_mode_ipv4=isolated: the host has no address on the bridge */ isolated: boolean; /** IPAM gateway (the host's address on the bridge) */ gateway?: string;
   /** containers on the bridge may talk to each other (Docker's default; enable_icc=false turns it off) */ icc: boolean }
 export interface NetworkOpts { internal: boolean; labels: Record<string, string>; subnet?: string; isolated?: boolean; /** false = enable_icc=false */ icc?: boolean }
+/** A label-managed volume (stored databases: db-snapshots.ts) */
+export interface VolumeInfo { name: string; labels: Record<string, string>; createdAt?: string }
 export interface ExecOpts { user: string; workdir?: string; env?: string[]; timeoutMs: number; signal?: AbortSignal; stdin?: Buffer; /** keep at most this many bytes (the end of the output) */ maxOutput?: number }
 export interface ExecResult { exitCode: number; output: string; truncated: boolean }
 export interface PullProgress { text: string; pct?: number }
@@ -104,6 +108,14 @@ export interface SandboxRunner {
   inspectNetwork(name: string): Promise<NetworkInfo | null>;
   /** only lotse-sandbox and lotse-sandbox-egress */
   createNetwork(name: string, opts: NetworkOpts): Promise<void>;
+  /** only volumes named like a snapshot or a task database (db-snapshot-spec.ts), always with lotse.managed=1 */
+  createVolume(name: string, labels: Record<string, string>): Promise<void>;
+  /** null = missing (also: a volume of that name without the Lotse label is reported as foreign, never as missing) */
+  inspectVolume(name: string): Promise<VolumeInfo | null>;
+  /** managed volumes only; missing = nothing to do; in use = error */
+  removeVolume(name: string): Promise<void>;
+  /** managed volumes only; extra labels narrow the list */
+  listVolumes(labels?: Record<string, string>): Promise<VolumeInfo[]>;
   /** Internet for a task: attach a managed container to lotse-sandbox-egress (a Lotse-labelled network), or detach it. Idempotent. */
   connectEgress(id: string): Promise<void>;
   disconnectEgress(id: string): Promise<void>;

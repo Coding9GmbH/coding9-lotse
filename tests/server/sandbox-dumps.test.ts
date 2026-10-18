@@ -45,7 +45,7 @@ test('chunked assembly: file identical, mode 0600 in a 0700 directory, sha256 re
   assert.equal(d.status, 'ready');
   assert.equal(d.sha256, sha(SQL));
   const pub = D.publicDump(d);
-  assert.deepEqual(Object.keys(pub).sort(), ['expiresAt', 'id', 'name', 'received', 'sha256', 'size', 'status', 'taskId']);
+  assert.deepEqual(Object.keys(pub).sort(), ['expiresAt', 'id', 'library', 'name', 'received', 'sha256', 'size', 'status', 'taskId']);
   assert.ok(!JSON.stringify(pub).includes('MySQL') && !JSON.stringify(pub).includes(file));
   assert.equal(await D.dumpShopwareVersion(file), '6.6', 'newest core migration namespace');
   D.deleteDump(d.id);

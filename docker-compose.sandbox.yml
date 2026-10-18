@@ -4,7 +4,8 @@
 # Then switch it on in Lotse: Einstellungen → Sandbox. Without this file Lotse has no Docker access at all.
 #
 # Lotse never mounts the Docker socket itself. A filtering socket proxy only lets through what the sandbox needs
-# (containers incl. start/stop, images, networks, exec); everything else (volumes, build, swarm, secrets, system, …) is refused.
+# (containers incl. start/stop, images, networks, exec, volumes for stored databases); everything else (build, swarm, secrets,
+# system, …) is refused. Lotse itself only creates, mounts and removes volumes with its own label and names (lotse-db-*, lotse-taskdb-*).
 # Docker access is still root-equivalent on the host: the proxy is defence in depth, the real boundary is the container
 # spec that only the Lotse server builds (pinned dockware/shopware image, no host paths, no privileges, internal network).
 services:
@@ -42,7 +43,8 @@ services:
       SWARM: 0
       SYSTEM: 0
       TASKS: 0
-      VOLUMES: 0
+      # stored databases: a MySQL snapshot per stored database and image, a data volume per task (label-managed, never host paths)
+      VOLUMES: 1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [docker-api]          # no published port: only Lotse reaches the proxy

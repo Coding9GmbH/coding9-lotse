@@ -4,7 +4,8 @@ import 'server-only';
 // - one lock per task: setup steps, wake-up and sandbox_bash never run in the same container at the same time
 // - LOTSE_SANDBOX_MAX running containers: one more stops a failed task's container or pauses the least recently used ready task, otherwise 409
 // - pause = docker stop (code, database and changes stay), wake = docker start + wait + full sync (no new setup)
-// - finish = container, workspace, git dir, dump and screenshots removed; the task stays as a record (done)
+// - finish = container, its database volume, workspace, git dir, dump and screenshots removed; the task stays as a record (done)
+// - a stored database (db-snapshots.ts): the container keeps MySQL in a volume of the task, filled from a snapshot when one exists
 // - internet (internet.ts) ends with every stop, a new setup and finish; a woken container starts offline
 // - the user's consoles (console.ts) close with every stop, a new setup and finish
 import fs from 'node:fs';
@@ -19,6 +20,8 @@ import { redact } from '../settings';
 import { singleton } from '../state';
 import { errMsg, pool } from '../util';
 import { closeAllConsoles, closeTaskConsoles, endConsoleShells } from './console';
+import { prepareTaskDb, saveSnapshot } from './db-snapshots';
+import { taskDbVolume } from './db-snapshot-spec';
 import { assertAttachable, deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
 import { STOP_CONCURRENCY, getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
 import { revokeInternet, type RevokeReason } from './internet';
@@ -270,7 +273,17 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
       for (const c of await runner.list({ [TASK_LABEL]: t.id })) { lg(`Alten Container ${c.name} entfernen …`); await runner.remove(c.id); }
       t.containerId = null; t.containerRunning = false; t.port = null; clearJar(t.id); // a new shop: the old storefront session is meaningless
       await ensureNetwork(runner); // both modes: the internal network only, no internet, no live shop
-      const spec = tpl.buildSpec({ taskId: t.id, image: cfg.image, memoryMb: cfg.memoryMb, cpus: cfg.cpus, env: cfg.env });
+      // a stored database: MySQL's data in a fresh volume of the task, filled from the snapshot for this image if there is one
+      let dbVolume: string | undefined;
+      if (tpl.database && t.dbVolume && !t.dump?.library) await runner.removeVolume(taskDbVolume(t.id)); // its stored database was replaced
+      if (tpl.database && t.dump?.library && !t.dump.deletedAt) {
+        Object.assign(t.dump, { imported: false, restored: null }); // a new container: its database is the image's until imported or restored
+        const r = await prepareTaskDb({ taskId: t.id, dumpId: t.dump.id, image: cfg.image, log: lg, signal });
+        dbVolume = r.volume;
+        if (r.restored) t.dump.restored = { image: cfg.image, at: now() };
+      }
+      t.dbVolume = !!dbVolume; saveTask(t, false);
+      const spec = tpl.buildSpec({ taskId: t.id, image: cfg.image, memoryMb: cfg.memoryMb, cpus: cfg.cpus, env: cfg.env, ...(dbVolume ? { dbVolume } : {}) });
       t.containerId = await runner.create(spec);
       t.mode = mode;
       saveTask(t, false);
@@ -299,7 +312,7 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
       const d = t.dump;
       if (!d || d.imported) return null;
       if (d.deletedAt) throw new Error('Der Dump wurde nach dem fehlgeschlagenen Import gelöscht – bitte erneut hochladen („Datenbank ersetzen“).');
-      return { name: d.name, size: d.size, ignoreVersion: d.ignoreVersion };
+      return { name: d.name, size: d.size, ignoreVersion: d.ignoreVersion, library: !!d.library, restored: !!d.restored };
     },
     hasDump: () => !!t.dump,
     dumpVersion: async () => (t.dump ? dumpShopwareVersion(dumpPathFor(t.dump.id, t.id)) : null),
@@ -311,9 +324,21 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
       await runner.putArchive(container(), path.posix.dirname(dir), archive, { timeoutMs: limit, signal });
     },
     discardDump: async (imported, dir) => {
-      if (t.dump) { deleteDump(t.dump.id); Object.assign(t.dump, { imported, deletedAt: now() }); saveTask(t); }
+      // a stored database stays for further sandboxes; a one-off dump is gone after its import (also a failed one)
+      if (t.dump?.library) { t.dump.imported = imported; saveTask(t); }
+      else if (t.dump) { deleteDump(t.dump.id); Object.assign(t.dump, { imported, deletedAt: now() }); saveTask(t); }
       // the import command removes it itself; this also covers a failed or aborted transfer (own time limit: the step's signal may be aborted)
-      await runner.exec(container(), ['rm', '-rf', '--', dir], { user: tpl.execUser, workdir: '/', timeoutMs: 30_000 }).catch(e => lg(`Aufräumen im Container fehlgeschlagen: ${errMsg(e)}`));
+      if (dir) await runner.exec(container(), ['rm', '-rf', '--', dir], { user: tpl.execUser, workdir: '/', timeoutMs: 30_000 }).catch(e => lg(`Aufräumen im Container fehlgeschlagen: ${errMsg(e)}`));
+    },
+    saveDbSnapshot: async () => {
+      const d = t.dump;
+      if (!tpl.database || !d?.library || d.deletedAt) { lg('Keine gespeicherte Datenbank – kein Snapshot nötig.'); return 'skipped'; }
+      if (d.restored) { lg('Die Datenbank kam schon aus dem Snapshot.'); return 'skipped'; }
+      if (!d.imported) { lg('Die Datenbank wurde nicht importiert – kein Snapshot.'); return 'skipped'; }
+      if (!t.dbVolume) { lg('Diese Sandbox hält ihre Datenbank nicht in einem eigenen Volume – der Snapshot entsteht bei der nächsten neuen Sandbox mit dieser Datenbank.'); return 'skipped'; }
+      // the image the container was created with (the environment may name another one by now)
+      const image = (await runner.inspect(container()))?.image || getSandboxConfig().image;
+      return saveSnapshot({ taskId: t.id, dumpId: d.id, image, db: tpl.database, containerId: container(), log: lg, signal });
     },
     syncAll: async () => {
       if (!t.layout) throw new Error('Plugin noch nicht erkannt.');
@@ -425,10 +450,11 @@ export async function finishTask(id: string): Promise<CodeTask> {
       const fresh = mustTask(id);
       if (fresh.containerId) await getRunner().remove(fresh.containerId);
       for (const c of await getRunner().list({ [TASK_LABEL]: id }).catch(() => [])) await getRunner().remove(c.id);
+      if (fresh.dbVolume) await getRunner().removeVolume(taskDbVolume(id)); // its database (stored databases; the sweep catches the rest)
       const p = taskPaths(id);
       for (const d of [p.workspace, p.gitDir, p.screenshots]) fs.rmSync(d, { recursive: true, force: true });
       deleteTaskDumps(id);
-      if (fresh.dump && !fresh.dump.deletedAt) fresh.dump.deletedAt = now();
+      if (fresh.dump && !fresh.dump.deletedAt && !fresh.dump.library) fresh.dump.deletedAt = now(); // a stored database stays
       for (const s of fresh.steps) if (s.state === 'running') s.state = 'interrupted';
       clearJar(id);
       Object.assign(fresh, { status: 'done', containerId: null, containerRunning: false, finishedAt: now(), error: null, internet: null, shots: [] } satisfies Partial<CodeTask>);

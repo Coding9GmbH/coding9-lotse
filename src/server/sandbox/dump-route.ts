@@ -11,6 +11,6 @@ export const dumpRoute = (req: Request, fn: () => Promise<Response>) => taskRout
     throw e;
   }
 });
-/** Audit: name, size and checksum only. */
-export const auditDump = (d: Pick<CodeDumpRow, 'id' | 'name' | 'size' | 'sha256'>, action: 'upload' | 'delete') =>
-  auditAdd({ decision: 'changed', kind: 'sandbox-dump', dumpId: d.id, action, title: `Datenbank-Dump: ${d.name}`, size: d.size, ...(d.sha256 ? { sha256: d.sha256 } : {}) });
+/** Audit: name, size and checksum only (and whether it is a stored database). */
+export const auditDump = (d: Pick<CodeDumpRow, 'id' | 'name' | 'size' | 'sha256' | 'library'>, action: 'upload' | 'delete') =>
+  auditAdd({ decision: 'changed', kind: 'sandbox-dump', dumpId: d.id, action, title: `${d.library ? 'Gespeicherte Datenbank' : 'Datenbank-Dump'}: ${d.name}`, size: d.size, ...(d.sha256 ? { sha256: d.sha256 } : {}), ...(d.library ? { library: true } : {}) });

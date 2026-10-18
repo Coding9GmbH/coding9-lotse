@@ -9,7 +9,7 @@ import path from 'node:path';
 import type { ContainerSpec } from '../runner';
 import type { TaskLayout } from '@/lib/protocol';
 import { PLUGIN_NAME, isEmptyRepoListing, pluginNameFromRepo } from '@/lib/sandbox-task';
-import { MANAGED, SANDBOX_NET, TASK_LABEL, sandboxAlias } from '../labels';
+import { MANAGED, SANDBOX_NET, TASK_LABEL, sandboxAlias, taskDbVolume } from '../labels';
 import type { CommandArg, CommandSpec, ConsoleSpec, SandboxTemplate, SpecInput, StepCtx, TemplateStep } from './types';
 
 const MIN = 60_000;
@@ -83,10 +83,12 @@ async function versionCheck(ctx: StepCtx): Promise<void | 'skipped'> {
   throw new Error(`Dump stammt von ${dumpV}, Image enthält ${image} – passendes Dockware-Image (dockware/shopware:${dumpV}.x) in der Umgebung wählen oder „Trotzdem fortfahren“.`);
 }
 
-/** Import, then the dump is deleted on the host and in the container – also when the import fails. */
+/** Import, then the dump is deleted in the container and – unless it is a stored database – on the host, also when the import fails.
+ *  A stored database whose snapshot was restored before the container started needs no import. */
 async function importDb(ctx: StepCtx): Promise<void | 'skipped'> {
   const d = ctx.dump();
   if (!d) { ctx.log('Kein Datenbank-Dump – es bleiben die Demodaten von Dockware.'); return 'skipped'; }
+  if (d.restored) { await ctx.discardDump(true, null); ctx.log(`Datenbank ${d.name} aus dem Snapshot übernommen – kein Import nötig.`); return; }
   let ok = false;
   try {
     ctx.log(`Dump ${d.name} (${(d.size / 1048576).toFixed(1)} MB) in den Container übertragen …`);
@@ -94,7 +96,7 @@ async function importDb(ctx: StepCtx): Promise<void | 'skipped'> {
     await ctx.run(IMPORT_ARGV);
     ok = true;
   } finally { await ctx.discardDump(ok, IMPORT_DIR); }
-  ctx.log('Datenbank importiert. Dump gelöscht ✓');
+  ctx.log(d.library ? 'Datenbank importiert. Die gespeicherte Datenbank bleibt für weitere Sandboxes erhalten.' : 'Datenbank importiert. Dump gelöscht ✓');
 }
 
 const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
@@ -126,6 +128,8 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
   'version-check': versionCheck,
   'import-db': importDb,
   'set-domain': async ctx => { await ctx.run([...MYSQL, '-e', SET_DOMAIN_SQL]); ctx.log('Storefront-Domain: http://localhost'); },
+  // right after import + domain, before anything of the task: MySQL is stopped and started again around the copy
+  'db-snapshot': async ctx => { if ((await ctx.saveDbSnapshot()) === 'skipped') return 'skipped'; await waitReady(ctx); },
   // cosmetic for the preview (and screenshots taken by hand): a failure only skips the step (the preview proxy hides both by CSS as well)
   'preview-tidy': async ctx => {
     try { await ctx.run(TIDY_ARGV, { timeoutMs: 2 * MIN }); ctx.log('Debug-Leiste und Cookie-Hinweis in der Sandbox ausgeschaltet.'); }
@@ -143,12 +147,14 @@ const STEPS: TemplateStep[] = [
   step('check-image', 30 * MIN),
   step('clone', 5 * MIN),
   step('detect-layout', 30_000),
-  step('start-container', 2 * MIN),
+  // includes filling the task's database volume from a snapshot (stored databases)
+  step('start-container', 10 * MIN),
   step('wait-ready', 5 * MIN),
   // the dump replaces the whole database (plugin table, domains), so it comes first; the plugin is installed into it afterwards
   step('version-check', 10 * MIN, { optional: true }),
   step('import-db', 60 * MIN, { optional: true }),
   step('set-domain', MIN),
+  step('db-snapshot', 10 * MIN, { optional: true }),
   step('preview-tidy', 3 * MIN, { optional: true }),
   step('install-plugin', 5 * MIN),
   step('custom-after-db', 0, { custom: 'after-db' }),
@@ -214,11 +220,14 @@ export function detectLayout(worktree: string, o: DetectOptions = {}): TaskLayou
 export const BOOT_SCRIPT = '#!/bin/sh\n# Lotse: remove MySQL socket locks a killed container left behind (see dockware.ts)\nsudo rm -f /var/run/mysqld/mysqld.sock.lock /var/run/mysqld/mysqlx.sock.lock || true\nexit 0\n';
 /** As root: Lotse's execs run as www-data, which shares uid 33 with the image user dockware but not its sudo group (sudo asks for a password). */
 export const MYSQL_STOP_ARGV = ['service', 'mysql', 'stop'];
+export const MYSQL_START_ARGV = ['service', 'mysql', 'start'];
+/** Stored databases: MySQL's data directory lives in a volume of the task; snapshots are taken from a cleanly stopped MySQL (jobs.ts) */
+export const DATABASE = { dataDir: '/var/lib/mysql', stop: { argv: MYSQL_STOP_ARGV, user: 'root' }, start: { argv: MYSQL_START_ARGV, user: 'root' } };
 
 const DROP_CAPS = ['NET_RAW', 'MKNOD', 'AUDIT_WRITE', 'SYS_CHROOT', 'SETFCAP'];
 /** Create body for one task container. Pure: only the validated task id, the configured image, limits and environment.
  *  Attached to the internal network lotse-sandbox only.
- *  No binds, no devices, not privileged. Dockware starts its services with sudo, so no-new-privileges is not possible;
+ *  No binds, no devices, not privileged; at most the task's own database volume (stored databases). Dockware starts its services with sudo, so no-new-privileges is not possible;
  *  instead capabilities the services do not need are dropped on top of Docker's defaults. */
 export function buildSpec(o: SpecInput): ContainerSpec {
   if (!/^t_[a-z0-9]{12}$/.test(o.taskId)) throw new Error('Ungültige Aufgaben-ID.');
@@ -229,9 +238,12 @@ export function buildSpec(o: SpecInput): ContainerSpec {
     RestartPolicy: { Name: 'no' }, LogConfig: { Type: 'json-file', Config: { 'max-size': '10m', 'max-file': '2' } },
   };
   const base = { name: alias, Image: o.image, Hostname: alias, Labels: { ...MANAGED, [TASK_LABEL]: o.taskId, 'lotse.template': 'dockware' }, Env: [...o.env] };
+  // a stored database: MySQL's data directory is the task's own volume (restored from a snapshot or filled from the image on first use)
+  if (o.dbVolume !== undefined && o.dbVolume !== taskDbVolume(o.taskId)) throw new Error('Ungültiges Datenbank-Volume.');
+  const mounts = o.dbVolume ? { Mounts: [{ Type: 'volume', Source: o.dbVolume, Target: DATABASE.dataDir, ReadOnly: false }] } : {};
   // Always only the internal network (no route to the internet or the live shop), no published ports: Lotse reaches the storefront
   // there, by alias inside the compose setup or by the container's IP from the host.
-  return { ...base, HostConfig: { ...host, NetworkMode: SANDBOX_NET }, NetworkingConfig: { EndpointsConfig: { [SANDBOX_NET]: { Aliases: [alias] } } } };
+  return { ...base, HostConfig: { ...host, ...mounts, NetworkMode: SANDBOX_NET }, NetworkingConfig: { EndpointsConfig: { [SANDBOX_NET]: { Aliases: [alias] } } } };
 }
 
 /** Console shells as the image's own user "dockware" (uid 33 like www-data, so files keep their owner; member of sudo, so sudo works as
@@ -315,5 +327,6 @@ export const dockware: SandboxTemplate = {
   workdir: '/var/www/html',
   bootFile: { dir: '/var/www', name: 'boot_start.sh', content: BOOT_SCRIPT, mode: 0o755 },
   gracefulStop: { argv: MYSQL_STOP_ARGV, user: 'root', timeoutMs: 30_000, stopTimeoutSec: 3 },
+  database: DATABASE,
   console: CONSOLE,
 };

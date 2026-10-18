@@ -5,7 +5,7 @@ import { errMsg, jsonError, parseJson } from '@/server/http';
 import { dockerState, forgetDockerState, sandboxPublic, saveSandbox, stopRunningSandboxes } from '@/server/sandbox/env';
 import { revokeAllInternet } from '@/server/sandbox/internet';
 import { suspendAll } from '@/server/sandbox/jobs';
-import { ensureReconciled } from '@/server/sandbox/reconcile';
+import { ensureReconciled, sweepDbVolumesNow } from '@/server/sandbox/reconcile';
 import { getRunner } from '@/server/sandbox/runner';
 import { TEMPLATES, describeTemplate } from '@/server/sandbox/templates';
 
@@ -26,6 +26,7 @@ const schema = z.object({
   commands: z.array(z.object({ id: z.string().max(40).optional(), label: z.string().max(200), command: z.string().max(5000), phase: z.enum(['after-db', 'final']), timeoutSec: z.number().optional() })).max(50).optional(),
   screenshots: z.boolean().optional(),
   screenshotPaths: z.array(z.string().max(300)).max(20).optional(),
+  defaultDumpId: z.string().max(40).optional(),
 }).strict();
 
 async function view(): Promise<SandboxEnvView> {
@@ -53,5 +54,7 @@ export async function PUT(req: Request) {
   if (!wasOn && nowOn) void ensureReconciled();
   // "Internet im Container: nie": every task goes offline at once
   if (changed.includes('internet') && sandboxPublic().internet === 'never') await revokeAllInternet('policy').catch(() => []);
+  // a new image: snapshots of stored databases taken with the old one are stale (the next sandbox imports and takes a new one)
+  if (changed.includes('image')) void sweepDbVolumesNow();
   return Response.json(await view());
 }

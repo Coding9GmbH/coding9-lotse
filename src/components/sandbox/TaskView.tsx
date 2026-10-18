@@ -8,7 +8,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useTaskEvents } from '@/hooks/useTaskEvents';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
-import { DumpUpload } from './DumpUpload';
+import { DumpPicker } from './DumpPicker';
 import { SandboxOff } from './SandboxOff';
 import { useShell } from '@/components/shell/ShellProvider';
 import { StepTimeline } from './StepTimeline';
@@ -71,7 +71,7 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
           <b>{task.repo}</b> {t.branchInfo(task.baseBranch, task.branch)} · {all.sandbox.templates[task.template] ?? task.template}
           {' · '}{task.container ? (task.container.running ? t.container.running : t.container.stopped) : t.container.none}
           {task.layout && <> · {task.layout.pluginDir}</>}
-          {task.dump && <> · {all.sandbox.dump.info(task.dump.name, task.dump.size)} ({task.dump.imported ? all.sandbox.dump.imported : task.dump.deleted ? all.sandbox.dump.deleted : all.sandbox.dump.waiting})</>}
+          {task.dump && <> · {(task.dump.library ? all.sandbox.dump.infoStored : all.sandbox.dump.info)(task.dump.name, task.dump.size)} ({task.dump.restored ? all.sandbox.dump.restored : task.dump.imported ? all.sandbox.dump.imported : task.dump.deleted ? all.sandbox.dump.deleted : all.sandbox.dump.waiting})</>}
         </p>
         <p className={styles.hint} role="status">{typeof hint === 'function' ? hint(idleMinutes) : hint}</p>
         {error && <p className={styles.muted}>{t.connection(error)}</p>}
@@ -106,7 +106,7 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
         }>
           <div className={styles.form}>
             <p className={styles.hint}>{all.sandbox.dump.replaceLead}</p>
-            <DumpUpload onChange={d => setNewDump(d?.id ?? null)} onBusy={setUploading} disabled={busy} />
+            {replacing && <DumpPicker allowNone={false} onChange={setNewDump} onBusy={setUploading} disabled={busy} />}
           </div>
         </Dialog>
       </main>

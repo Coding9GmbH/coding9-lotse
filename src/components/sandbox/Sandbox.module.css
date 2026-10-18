@@ -105,6 +105,8 @@
 .form input:focus, .form select:focus, .form textarea:focus { border-color: var(--green); }
 .form input[aria-invalid=true] { border-color: var(--coral-d); }
 .form textarea { resize: vertical; }
+.form .toggle { align-self: flex-start; font-weight: 500; }
+.form .toggle input[type=checkbox] { width: auto; flex: none; padding: 0; }
 
 .back { display: inline-block; font-size: 13px; color: var(--mute); margin-bottom: 10px; }
 .taskHead { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
@@ -334,3 +336,17 @@ a.iconBtn:hover { border-color: var(--dark); text-decoration: none; }
 .newRepo p { margin: 0; }
 .newRepoRow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 8px; }
 @media (max-width: 520px) { .newRepoRow { grid-template-columns: 1fr; } }
+
+/* Stored databases ("Gespeicherte Datenbanken") */
+.dbList { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.dbRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title actions" "meta actions"; gap: 2px 12px; align-items: center; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; }
+.dbRow .taskTitle { grid-area: title; }
+.dbRow .taskMeta { grid-area: meta; margin: 0; }
+.dbActions { grid-area: actions; display: inline-flex; align-items: center; gap: 10px; }
+.badgeOk { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 99px; background: var(--green-bg); color: var(--green-d); white-space: nowrap; }
+.dbUpload { display: grid; gap: 8px; justify-items: start; margin-top: 12px; }
+.dbUpload > :first-child { width: 100%; }
+@media (max-width: 640px) {
+  .dbRow { grid-template-columns: minmax(0, 1fr); grid-template-areas: "title" "meta" "actions"; }
+  .dbActions { justify-content: space-between; }
+}

@@ -14,7 +14,7 @@ import { Menu, type MenuItem } from '@/components/ui/Menu';
 import pp from '@/components/preview/PreviewPane.module.css';
 import { ConsolePanel } from './ConsolePanel';
 import { DiffPanel } from './DiffPanel';
-import { DumpUpload } from './DumpUpload';
+import { DumpPicker } from './DumpPicker';
 import { PrCard } from './PrCard';
 import { PublishCard, type PrProposal } from './PublishCard';
 import { SandboxOff } from './SandboxOff';
@@ -203,7 +203,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
             {t.branchInfo(task.baseBranch, task.branch)} · {all.sandbox.templates[task.template] ?? task.template}
             {' · '}{task.container ? (task.container.running ? t.container.running : t.container.stopped) : t.container.none}
             {task.layout && <> · {task.layout.pluginDir}</>}
-            {task.dump && <> · {all.sandbox.dump.info(task.dump.name, task.dump.size)} ({task.dump.imported ? all.sandbox.dump.imported : task.dump.deleted ? all.sandbox.dump.deleted : all.sandbox.dump.waiting})</>}
+            {task.dump && <> · {(task.dump.library ? all.sandbox.dump.infoStored : all.sandbox.dump.info)(task.dump.name, task.dump.size)} ({task.dump.restored ? all.sandbox.dump.restored : task.dump.imported ? all.sandbox.dump.imported : task.dump.deleted ? all.sandbox.dump.deleted : all.sandbox.dump.waiting})</>}
           </p>
           {error && <p className={styles.muted}>{t.connection(error)}</p>}
           <StepTimeline task={task} busy={busyAct} onRetry={stepId => void act('start', { fromStep: stepId })} onIgnoreVersion={() => void act('start', { fromStep: 'version-check', ignoreVersion: true })} />
@@ -241,7 +241,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
       }>
         <div className={styles.form}>
           <p className={styles.hint}>{all.sandbox.dump.replaceLead}</p>
-          <DumpUpload onChange={d => setNewDump(d?.id ?? null)} onBusy={setUploading} disabled={busyAct} />
+          {replacing && <DumpPicker allowNone={false} onChange={setNewDump} onBusy={setUploading} disabled={busyAct} />}
         </div>
       </Dialog>
     </>,
