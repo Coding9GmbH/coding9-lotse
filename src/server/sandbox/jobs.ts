@@ -242,12 +242,16 @@ async function applyRepoFile(t: CodeTask, ctx: StepCtx): Promise<void> {
     throw e;
   }
   const cfg = getSandboxConfig(), tpl = getTemplate(t.template);
-  if (!f) { t.repoFile = null; t.image = null; t.previewPath = null; saveTask(t, false); return; }
+  // the start dialog's (or quick start's) image and start page win over the file's
+  const own = t.setup ?? null;
+  if (!f) { t.repoFile = null; t.image = own?.image ?? null; t.previewPath = own?.previewPath ?? null; saveTask(t, false); return; }
   ctx.log(`${REPO_FILE} gefunden${f.mode ? ` – Modus „${f.mode}“` : ''}${f.commands.length ? `, ${f.commands.length} Einrichtungsbefehl(e)` : ''}.`);
   if (f.ignored.length) ctx.log(`Hinweis: Unbekannte Angaben in ${REPO_FILE} werden ignoriert: ${f.ignored.join(', ')}`);
-  const image = f.image ? repoFileImage(f.image, cfg.image, tpl) : null;
+  const image = own?.image ?? (f.image ? repoFileImage(f.image, cfg.image, tpl) : null);
+  const fileImage = !own?.image; // check-image pulled the dialog's already
   t.image = image && image !== cfg.image ? image : null;
-  t.previewPath = f.previewPath ?? null;
+  t.previewPath = own?.previewPath ?? f.previewPath ?? null;
+  if (own?.image && f.image) ctx.log(`Image aus dem Startdialog: ${own.image} (statt ${f.image} laut ${REPO_FILE}).`);
   const known = new Set([...cfg.envVars.map(v => v.key), ...(t.setup?.env ?? []).map(v => v.key)]);
   const missing = f.env.filter(n => !known.has(n));
   if (missing.length) ctx.log(`Warnung: Das Projekt erwartet diese Umgebungsvariablen, sie fehlen in der Umgebung: ${missing.join(', ')} (Sandbox Coding → Umgebung → Umgebungsvariablen).`);
@@ -263,7 +267,7 @@ async function applyRepoFile(t: CodeTask, ctx: StepCtx): Promise<void> {
   if (state === 'skipped') ctx.log(`Die Befehle aus ${REPO_FILE} laufen nicht („Ohne diese Befehle“ gewählt).`);
   placeRepoSteps(t, t.template, state === 'approved' ? f.commands : []);
   if (state === 'approved') ctx.log(`Befehle aus ${REPO_FILE} erlaubt – sie laufen als eigene Schritte.`);
-  if (t.image) { ctx.log(`Image laut ${REPO_FILE}: ${t.image}`); saveTask(t); await ctx.ensureImage(); }
+  if (t.image && fileImage) { ctx.log(`Image laut ${REPO_FILE}: ${t.image}`); saveTask(t); await ctx.ensureImage(); }
   else saveTask(t);
 }
 

@@ -7,12 +7,12 @@ import http from 'node:http';
 import path from 'node:path';
 import { DEFAULT_LOCALE, messages, type Locale } from '@/lib/i18n';
 import type { CodeTaskPublic, CodeTaskStatus, TaskDumpPublic, CommandPhase, SandboxMode, ShotDevice, TaskEvent, TaskLayout, TaskPublish, TaskRepoFile, TaskShotSet, TaskStep } from '@/lib/protocol';
-import { PLUGIN_NAME, pluginNameFromRepo, suggestTargetPath, targetPathProblem } from '@/lib/sandbox-task';
+import { PLUGIN_NAME, PREVIEW_PATH, pluginNameFromRepo, suggestTargetPath, targetPathProblem } from '@/lib/sandbox-task';
 import { codeTaskByChat, codeTaskGet, codeTaskList, codeTaskPut, dataDir, macOf, type CodeTaskRow } from '../db';
 import { assertLotseBranch } from '../git';
 import { singleton } from '../state';
 import { attachDump, deleteDump } from './dumps';
-import { checkCommands, checkTaskEnv, getSandboxConfig } from './env';
+import { checkCommands, checkTaskEnv, cleanNotes, getSandboxConfig, imageTag } from './env';
 import type { NetworkMode } from './network';
 import { getRunner } from './runner';
 import { canonicalTemplateId, getTemplate } from './templates';
@@ -30,6 +30,9 @@ export interface StoredSetup {
   source: 'repo' | 'none'; mode: SandboxMode; targetPath?: string;
   commands: { id: string; label: string; command: string; phase: CommandPhase; timeoutSec: number }[];
   env: { key: string; value: string }[]; skipRepoHash?: string;
+  /** A22 (start dialog / quick start): another image tag, the preview's first page and notes for the AI of this sandbox; each wins over
+   *  the repository file's */
+  image?: string; previewPath?: string; notes?: string;
 }
 /** The task's dump: id of the file in code_dumps while it waits for the import; afterwards only the facts remain (a stored database,
  *  library, stays in code_dumps). restored: the task's data volume was filled from the snapshot of this database for that image. */
@@ -232,6 +235,29 @@ export interface NewTask {
   /** A20: no repository ("Ohne Projekt starten"), the mode, an own setup's target, own commands and variables, declined repository commands */
   source?: 'repo' | 'none'; mode?: SandboxMode; targetPath?: string; commands?: { label: string; command: string; phase: CommandPhase; timeoutSec?: number }[];
   env?: { key: string; value: string }[]; skipRepoHash?: string;
+  /** A22: another image tag (or the full name) of the configured image repository, the preview's first page, notes for the AI */
+  image?: string; previewPath?: string; notes?: string;
+}
+/** What the start dialog chose, checked: the same rules for a new task and for a quick start (A22). Throws status 400 with a German
+ *  message. image: the full name, only when it differs from the environment's. */
+export function checkSetup(p: Omit<NewTask, 'chatId'>, locale: Locale = DEFAULT_LOCALE): Omit<StoredSetup, 'skipRepoHash'> {
+  const bad = (m: string) => Object.assign(new Error(m), { status: 400 });
+  if (p.pluginName && !PLUGIN_NAME.test(p.pluginName)) throw bad(pluginNameMsg(locale));
+  const none = p.source === 'none', cfg = getSandboxConfig();
+  const mode: SandboxMode = none ? 'plugin' : p.mode ?? 'auto';
+  const targetPath = mode === 'custom' && p.targetPath?.trim() ? p.targetPath.trim() : undefined;
+  if (targetPath && targetPathProblem(targetPath)) throw bad(messages(locale).server.targetPathInvalid);
+  const previewPath = p.previewPath?.trim() || undefined;
+  if (previewPath && !PREVIEW_PATH.test(previewPath)) throw bad(messages(locale).server.previewPathInvalid);
+  let commands: StoredSetup['commands'] = [], env: StoredSetup['env'] = [], image: string | undefined, notes = '';
+  try {
+    commands = p.commands?.length ? checkCommands(p.commands, 10) : [];
+    env = p.env?.length ? checkTaskEnv(p.env) : [];
+    image = p.image?.trim() ? imageTag(p.image, cfg.image, cfg.template) : undefined;
+    notes = p.notes ? cleanNotes(p.notes) : '';
+  } catch (e) { throw bad((e as Error).message); }
+  return { source: none ? 'none' : 'repo', mode, ...(targetPath ? { targetPath } : {}), commands, env,
+    ...(image && image !== cfg.image ? { image } : {}), ...(previewPath ? { previewPath } : {}), ...(notes ? { notes } : {}) };
 }
 /** Branch base of a sandbox without a project: its local git starts with an empty commit on main */
 export const NO_REPO_BASE = 'main';
@@ -244,23 +270,17 @@ export function createTask(p: NewTask, locale: Locale = DEFAULT_LOCALE): CodeTas
   if (!p.chatId) throw new Error('Chat fehlt.');
   // checked again here, without an await before codeTaskPut: two overlapping requests never attach two sandboxes to one chat
   if (attachedTask(p.chatId)) throw Object.assign(new Error(attachedMsg(locale)), { status: 409 });
-  if (p.pluginName && !PLUGIN_NAME.test(p.pluginName)) throw Object.assign(new Error(pluginNameMsg(locale)), { status: 400 });
-  const none = p.source === 'none', bad = (m: string) => Object.assign(new Error(m), { status: 400 });
-  const mode: SandboxMode = none ? 'plugin' : p.mode ?? 'auto';
-  const targetPath = mode === 'custom' && p.targetPath?.trim() ? p.targetPath.trim() : undefined;
-  if (targetPath && targetPathProblem(targetPath)) throw bad(messages(locale).server.targetPathInvalid);
-  let own: StoredSetup['commands'] = [], env: StoredSetup['env'] = [];
-  try { own = p.commands?.length ? checkCommands(p.commands, 10) : []; env = p.env?.length ? checkTaskEnv(p.env) : []; } catch (e) { throw bad((e as Error).message); }
+  const setup = checkSetup(p, locale), none = setup.source === 'none';
   const title = (p.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || (none ? messages(locale).server.noRepoTitle : `Sandbox ${p.repo.split('/').pop() ?? p.repo}`);
   // without a project: a new plugin in the local git; its name as given, else one from the title
   const pluginName = none ? p.pluginName || pluginNameFromRepo(title.replace(/^Sandbox\s+/i, '')) || 'SandboxPlugin' : p.pluginName || null;
   const t: CodeTask = {
     id, chatId: p.chatId, template: cfg.templateId, repo: none ? '' : p.repo, baseBranch: none ? NO_REPO_BASE : p.baseBranch, branch: branchFor(title, id),
     status: 'interrupted', containerId: null, prNumber: null, prUrl: null, pushedSha: null, createdAt: ts, updatedAt: ts,
-    title, goal: (p.goal ?? '').trim().slice(0, 4000), steps: planSteps(cfg.templateId, cfg.commands, own), layout: null, error: null,
+    title, goal: (p.goal ?? '').trim().slice(0, 4000), steps: planSteps(cfg.templateId, cfg.commands, setup.commands), layout: null, error: null,
     containerRunning: false, mode: null, port: null, lastActiveAt: ts, finishedAt: null, dump: null, pluginName,
-    setup: { source: none ? 'none' : 'repo', mode, ...(targetPath ? { targetPath } : {}), commands: own, env, ...(p.skipRepoHash && /^[0-9a-f]{64}$/.test(p.skipRepoHash) ? { skipRepoHash: p.skipRepoHash } : {}) },
-    repoFile: null, image: null, previewPath: null,
+    setup: { ...setup, ...(p.skipRepoHash && /^[0-9a-f]{64}$/.test(p.skipRepoHash) ? { skipRepoHash: p.skipRepoHash } : {}) },
+    repoFile: null, image: setup.image ?? null, previewPath: setup.previewPath ?? null,
   };
   if (p.dumpId) setTaskDump(t, p.dumpId);
   codeTaskPut(t);
