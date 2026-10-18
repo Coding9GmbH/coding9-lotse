@@ -167,7 +167,7 @@ test('check: pulls with progress lines, then present; unreachable Docker gives t
   assert.equal(res.ok, true);
   assert.equal(res.pulled, true);
   assert.equal(res.docker.mode, 'local');
-  assert.deepEqual(fake.calls.filter(c => c.op === 'ensureImage').map(c => c.detail), ['dockware/play:6.6.10.4', 'mcr.microsoft.com/playwright:v1.64.0-noble'], 'the screenshot image too (pages are set by default)');
+  assert.deepEqual(fake.calls.filter(c => c.op === 'ensureImage').map(c => c.detail), ['dockware/play:6.6.10.4'], 'not the screenshot image: screenshots are off by default');
   assert.equal((await lines(await check())).at(-1)!.pulled, false);
 
   fake.down = true;

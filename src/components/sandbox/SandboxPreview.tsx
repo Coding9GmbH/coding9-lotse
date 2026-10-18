@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { CodeTaskPublic } from '@/lib/protocol';
+import { api, errorText } from '@/lib/api';
 import { annotationMessage, type Annotation } from '@/lib/annotations';
 import { markKeySelects } from '@/lib/a11y';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { popoverLeft } from '@/lib/popover';
 import { sandboxSrc } from '@/lib/urls';
 import { Button } from '@/components/ui/Button';
-import { IconExpand, IconExternal, IconMonitor, IconPanel, IconPhone, IconPin, IconRefresh, IconShrink } from '@/components/ui/icons';
+import { IconCamera, IconExpand, IconExternal, IconMonitor, IconPanel, IconPhone, IconPin, IconRefresh, IconShrink } from '@/components/ui/icons';
 import { Menu } from '@/components/ui/Menu';
 import { attachAnnotator, drawPins, type FrameTarget, type Pick } from '@/components/preview/annotator';
 import { PREVIEW_SANDBOX } from '@/components/preview/DraftFrame';
@@ -29,8 +30,10 @@ export const previewBust = (task: CodeTaskPublic) => task.steps.filter(s => s.ke
 const DESKTOP_WIDTH = 1280, DESKTOP_BREAK = 992, MOBILE_BELOW = 700;
 
 export interface PreviewLayout { full: boolean; onFull: () => void; chatHidden?: boolean; onToggleChat?: () => void }
+/** "Screenshot" (only while switched on in the environment): the configured pages, desktop and mobile, on the user's click */
+export interface PreviewShots { pages: string[]; onTaken: (task: CodeTaskPublic) => void }
 
-export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, layout }: { task: CodeTaskPublic; reload?: number; onSendNotes?: (text: string) => void; inTabs?: boolean; layout?: PreviewLayout }) {
+export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, layout, shots }: { task: CodeTaskPublic; reload?: number; onSendNotes?: (text: string) => void; inTabs?: boolean; layout?: PreviewLayout; shots?: PreviewShots }) {
   const { locale, t: all } = useI18n();
   const t = all.sandbox.preview, tp = all.preview;
   const [path, setPath] = useState('/');
@@ -56,6 +59,8 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
   const [notes, setNotes] = useState<Annotation[]>([]);
   const [text, setText] = useState('');
   const [copied, setCopied] = useState(false);
+  const [shooting, setShooting] = useState(false);
+  const [shotNote, setShotNote] = useState<{ ok: boolean; text: string } | null>(null);
   const viewRef = useRef<HTMLDivElement>(null);
   const scaleRef = useRef(scale);
   useEffect(() => { scaleRef.current = scale; }, [scale]);
@@ -95,6 +100,16 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
   const copy = () => {
     void navigator.clipboard?.writeText(annotationMessage(notes, 'sandbox', locale)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {});
   };
+  // a screenshot needs the running storefront; it takes a while (browser container), the result lands in the "Pull Request" tab
+  const canShoot = !!shots && s === 'ready' && !!task.container?.running && !shooting;
+  const shoot = async () => {
+    if (!shots || shooting) return;
+    setShooting(true); setShotNote(null);
+    try { shots.onTaken((await api.sandbox.screenshot(task.id)).task); setShotNote({ ok: true, text: t.screenshotDone }); setTimeout(() => setShotNote(n => (n?.ok ? null : n)), 4000); }
+    catch (e) { setShotNote({ ok: false, text: t.screenshotFailed(errorText(e)) }); }
+    finally { setShooting(false); }
+  };
+  const shotTitle = shots ? t.screenshotTitle(shots.pages.join(', ') || '/') : '';
   const toggleMark = () => { setMarking(m => !m); setPick(null); };
   const frameStyle: React.CSSProperties | undefined = scale < 1 ? { width: DESKTOP_WIDTH, height: box.h / scale, transform: `scale(${scale})` } : undefined;
 
@@ -116,6 +131,10 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
         <Button size="sm" className={`${styles.pvMark} ${marking ? styles.pvMarkOn : ''}`} aria-pressed={marking} disabled={!show && !marking} title={t.markTitle} onClick={toggleMark}>
           <IconPin size={15} /><span>{marking ? t.markStop : t.mark}</span>
         </Button>
+        {shots && (
+          <button type="button" className={`${styles.iconBtn} ${styles.pvWide}`} onClick={() => void shoot()} disabled={!canShoot} aria-busy={shooting || undefined}
+            aria-label={shooting ? t.screenshotBusy : t.screenshot} title={shooting ? t.screenshotBusy : shotTitle}><IconCamera size={16} className={shooting ? styles.pulsing : undefined} /></button>
+        )}
         {show && <a className={`${styles.iconBtn} ${styles.pvWide}`} href={src} target="_blank" rel="noopener" aria-label={t.newTab} title={t.newTab}><IconExternal size={16} /></a>}
         {show && <a className={`${styles.pvAdmin} ${styles.pvWide}`} href={sandboxSrc(task.preview, '/admin')} target="_blank" rel="noopener" title={t.adminTitle}>{t.admin}</a>}
         {layout && (
@@ -125,10 +144,12 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
         <Menu className={styles.pvNarrow} label={t.tools} items={[
           { key: 'reload', label: t.reload, onSelect: () => setReloads(n => n + 1), disabled: !show },
           { key: 'device', label: mobile ? t.desktop : t.mobile, onSelect: () => setDevice(mobile ? 'desktop' : 'mobile') },
+          ...(shots ? [{ key: 'shot', label: shooting ? t.screenshotBusy : t.screenshot, onSelect: () => void shoot(), disabled: !canShoot }] : []),
           ...(show ? [{ key: 'tab', label: t.newTab, href: src, external: true }, { key: 'admin', label: t.admin, href: sandboxSrc(task.preview, '/admin'), external: true }] : []),
           ...(layout ? [{ key: 'full', label: layout.full ? t.exitFull : t.full, onSelect: layout.onFull }] : []),
         ]} />
       </form>
+      {(shooting || shotNote) && <p className={`${styles.pvNote} ${shotNote && !shotNote.ok ? styles.bad : ''}`} role={shotNote && !shotNote.ok ? 'alert' : 'status'}>{shooting ? t.screenshotBusy : shotNote?.text}</p>}
       <div ref={viewRef} className={`${styles.pvView} ${mobile ? styles.pvMobile : ''} ${marking && show ? styles.pvMarking : ''}`}>
         {marking && show && !pick && <div className={pp.markHint}>{tp.markHint}</div>}
         {marking && show && !pick && targets.length > 0 && (

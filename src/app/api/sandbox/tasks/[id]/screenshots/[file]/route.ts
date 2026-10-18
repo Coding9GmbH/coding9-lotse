@@ -2,17 +2,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { jsonError } from '@/server/http';
 import { taskRoute } from '@/server/sandbox/api';
-import { SHOT_FILE } from '@/server/sandbox/screenshots';
+import { SHOT_FILE, shotSets } from '@/server/sandbox/screenshots';
 import { mustTask, taskPaths } from '@/server/sandbox/tasks';
 
 export const dynamic = 'force-dynamic';
 
-/** One stored before/after screenshot of the task (PNG). Only names the task lists are served. */
+/** One screenshot the user took for the task (PNG). Only names the task lists are served. */
 export function GET(req: Request, { params }: { params: Promise<{ id: string; file: string }> }) {
   return taskRoute(req, async () => {
     const { id, file } = await params;
     const t = mustTask(id);
-    const listed = [t.shots?.before, t.shots?.after].some(s => s?.items.some(i => i.file === file));
+    const listed = shotSets(t).some(s => s.items.some(i => i.file === file));
     if (!SHOT_FILE.test(file) || !listed) return jsonError(404, 'Screenshot nicht gefunden.');
     let data: Buffer;
     try { data = fs.readFileSync(path.join(taskPaths(t.id).screenshots, file)); } catch { return jsonError(404, 'Screenshot nicht gefunden.'); }

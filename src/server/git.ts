@@ -5,6 +5,8 @@ import 'server-only';
 // - the GitHub token goes only into the environment of one child process as an http.extraheader scoped to the clone host,
 //   never into argv, URLs, .git/config or output (everything is redacted)
 // - push targets are built here and limited to refs/heads/lotse/*; no force push except --force-with-lease on the task's own branch
+// - local commits of a sandbox (the agent's git_commit, publishing) only add a commit on top of HEAD: no amend, rebase, reset,
+//   checkout or branch switch is offered anywhere, so the pushed history is always a fast-forward of what was pushed before
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -159,6 +161,84 @@ async function commitAllNow(worktree: string, gitDir: string, message: string, a
   await runGit(['add', '-A', '--', '.'], o);
   await runGit(['commit', '--no-verify', '--no-gpg-sign', '-q', '-m', co ? `${msg}\n\nCo-Authored-By: ${co.name} <${co.email}>` : msg], { ...o, identity: id });
   return (await runGit(['rev-parse', 'HEAD'], o)).stdout.trim();
+}
+
+/** Limits of a commit message from the agent (git_commit): a short first line, a bounded body, a bounded list of paths. */
+export const COMMIT_LIMITS = { subject: 120, message: 2000, paths: 100 } as const;
+/** A path for git_commit: relative to the worktree, no "..", no leading "-" or "/", no control characters, never .git. Throws in German. */
+export function assertCommitPath(p: string): string {
+  const v = typeof p === 'string' ? p.trim().replace(/^\.\/+/, '').replace(/\/+$/, '') : '';
+  if (!v || v.length > 500 || v.startsWith('-') || v.startsWith('/') || v.includes('\\') || /[\x00-\x1f\x7f]/.test(v) || v.split('/').some(x => x === '..' || x === '.git' || x === ''))
+    throw new Error(`Ungültiger Pfad für den Commit: „${String(p).slice(0, 120)}“ (relativ zum Repository, ohne „..“ und .git).`);
+  return v;
+}
+/** The agent's commit message: control characters removed, a first line of at most COMMIT_LIMITS.subject and a total of COMMIT_LIMITS.message. */
+export function commitMessage(m: string): string {
+  const msg = cleanMessage(String(m ?? '')).replace(/\n{3,}/g, '\n\n');
+  if (!msg) throw new Error('Commit-Nachricht fehlt.');
+  const subject = msg.split('\n')[0];
+  if (subject.length > COMMIT_LIMITS.subject) throw new Error(`Die erste Zeile der Commit-Nachricht ist zu lang (${subject.length} Zeichen, höchstens ${COMMIT_LIMITS.subject}).`);
+  if (msg.length > COMMIT_LIMITS.message) throw new Error(`Die Commit-Nachricht ist zu lang (höchstens ${COMMIT_LIMITS.message} Zeichen).`);
+  return msg;
+}
+
+/** Uncommitted changes of the worktree (also new files), optionally only below `paths`: path and git's status letter
+ *  (M, A, D, R; "?" for a new file). Read-only. */
+export async function pendingChanges(worktree: string, gitDir: string, paths?: string[]): Promise<{ path: string; status: string }[]> {
+  const o = { cwd: assertAbs(worktree, 'Arbeitsordner'), gitDir: assertAbs(gitDir, 'Git-Ordner') };
+  const spec = paths?.length ? paths.map(assertCommitPath) : [];
+  return serialIndex(o.gitDir, async () => parsePorcelain((await runGit(['--literal-pathspecs', '-c', 'core.quotePath=false', 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...(spec.length ? spec : ['.'])], o)).stdout));
+}
+/** `git status --porcelain=v1 -z`: "XY path\0", a rename "XY new\0old\0". */
+function parsePorcelain(out: string): { path: string; status: string }[] {
+  const parts = out.split('\0'), res: { path: string; status: string }[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const e = parts[i];
+    if (e.length < 4) continue;
+    const xy = e.slice(0, 2), file = e.slice(3);
+    // the index only ever holds intent-to-add entries (diffAgainstBase): " A" is a new file like "??"
+    const code = xy === '??' ? '?' : xy.includes('R') ? 'R' : xy.includes('D') ? 'D' : xy.includes('A') ? 'A' : 'M';
+    res.push({ path: file, status: code });
+    if (code === 'R') { const old = parts[++i]; if (old) res.push({ path: old, status: 'R' }); }
+  }
+  return res;
+}
+
+/**
+ * The agent's commit in a sandbox worktree (git_commit): stages all changes or only `paths` and adds ONE commit on top of HEAD.
+ * Nothing else: no push, no amend, no branch switch, no hooks, no signing. Author and co-author like publishing. null = nothing to commit.
+ */
+export async function commitChanges(worktree: string, gitDir: string, message: string, author: GitIdentity, coAuthor?: GitIdentity, paths?: string[]): Promise<{ sha: string; files: number } | null> {
+  const o = { cwd: assertAbs(worktree, 'Arbeitsordner'), gitDir: assertAbs(gitDir, 'Git-Ordner') };
+  const id = assertIdentity(author, 'Autor'), co = coAuthor ? assertIdentity(coAuthor, 'Co-Autor') : null;
+  const msg = commitMessage(message);
+  if ((paths?.length ?? 0) > COMMIT_LIMITS.paths) throw new Error(`Höchstens ${COMMIT_LIMITS.paths} Pfade je Commit.`);
+  const spec = paths?.length ? [...new Set(paths.map(assertCommitPath))] : [];
+  return serialIndex(o.gitDir, async () => {
+    const pending = parsePorcelain((await runGit(['--literal-pathspecs', 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...(spec.length ? spec : ['.'])], o)).stdout);
+    if (!pending.length) return null;
+    const idle = spec.filter(x => !pending.some(c => c.path === x || c.path.startsWith(`${x}/`)));
+    if (idle.length) throw new Error(`Keine Änderungen an: ${idle.slice(0, 5).join(', ')}.`); // git add would fail on a path that matches nothing
+    const lit = ['--literal-pathspecs'];
+    await runGit([...lit, 'add', '-A', '--', ...(spec.length ? spec : ['.'])], o);
+    // with paths: --only those (whatever else the index holds); without: everything just staged
+    await runGit([...lit, 'commit', '--no-verify', '--no-gpg-sign', '-q', '-m', co ? `${msg}\n\nCo-Authored-By: ${co.name} <${co.email}>` : msg, ...(spec.length ? ['--', ...spec] : [])], { ...o, identity: id });
+    return { sha: (await runGit(['rev-parse', 'HEAD'], o)).stdout.trim(), files: new Set(pending.map(p => p.path)).size };
+  });
+}
+
+export interface LocalCommit { sha: string; at: string; subject: string; /** contained in the last push (pushedSha) */ published: boolean }
+/** Commits on top of the cloned base branch (newest first, at most `max`), each marked whether the last push contains it. Read-only. */
+export async function localCommits(worktree: string, gitDir: string, baseBranch: string, pushedSha?: string | null, max = 50): Promise<LocalCommit[]> {
+  const o = { cwd: assertAbs(worktree, 'Arbeitsordner'), gitDir: assertAbs(gitDir, 'Git-Ordner') };
+  const ref = `refs/remotes/origin/${await assertBaseBranch(baseBranch)}`;
+  const out = (await runGit(['log', '--no-color', `--max-count=${Math.max(1, Math.min(200, max))}`, '--format=%H%x1f%aI%x1f%s', `${ref}..HEAD`, '--'], o)).stdout;
+  const list = out.split('\n').filter(Boolean).map(l => { const [sha, at, subject] = l.split('\x1f'); return { sha, at, subject: subject ?? '' }; });
+  let unpushed: Set<string> | null = null;
+  if (pushedSha && list.length) {
+    unpushed = await runGit(['rev-list', '--max-count=500', `${assertSha(pushedSha)}..HEAD`, '--'], o).then(r => new Set(r.stdout.split('\n').filter(Boolean)), () => null);
+  }
+  return list.map(c => ({ ...c, published: !!unpushed && !unpushed.has(c.sha) }));
 }
 
 export interface PushTarget { repo: string; branch: string; worktree: string; gitDir: string; /** last SHA Lotse pushed to this branch: allows --force-with-lease on it */ pushedSha?: string | null }

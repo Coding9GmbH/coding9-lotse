@@ -57,6 +57,7 @@
 
 .varRow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto auto; gap: 8px; align-items: center; margin-bottom: 8px; }
 .secret { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--mute); white-space: nowrap; }
+.toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--ink); }
 .cmd { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
 .cmdHead { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 190px) 96px auto auto; gap: 8px; align-items: end; }
 .cmdHead > .x { margin-bottom: 6px; }
@@ -156,6 +157,11 @@ a.iconBtn:hover { border-color: var(--dark); text-decoration: none; }
   .pvBar .pvNarrow { display: inline-flex; }
   .pvMark span { display: none; }
 }
+.pvNote { flex: none; margin: 0; padding: 4px 10px; font-size: 12.5px; color: var(--mute); background: var(--panel); border-bottom: 1px solid var(--line); }
+.pvNote.bad { margin: 0; color: var(--warn); }
+.pulsing { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .pulsing { animation: none; } }
 .pvView { position: relative; flex: 1; min-height: 360px; overflow: hidden; background: #fff; }
 .card .pvView { flex: none; height: min(70vh, 720px); border: 1px solid var(--line); border-radius: 8px; }
 .pvMarking .pvFrame { outline: 2px dashed var(--coral); outline-offset: -2px; }
@@ -228,6 +234,13 @@ a.iconBtn:hover { border-color: var(--dark); text-decoration: none; }
 .dfJump { border: 0; background: none; padding: 0; color: var(--green-d); text-align: left; min-width: 0; }
 .dfJump:hover code { text-decoration: underline; }
 .dfBadge { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 99px; background: var(--green-bg); color: var(--green-d); }
+.dfBadge[data-status=local] { background: var(--sand); color: var(--ink); }
+.dfCommits h3 { margin: 0; }
+.dfCommits ol { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.dfCommits li { display: flex; align-items: baseline; gap: 4px 8px; flex-wrap: wrap; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.dfSubject { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.dfOpen { font-size: 13px; }
+.dfOpen summary { cursor: pointer; font-weight: 600; }
 .dfBadge[data-status=deleted] { background: var(--coral-bg); color: var(--warn); }
 .dfBadge[data-status=renamed] { background: var(--line); color: var(--ink); }
 .dfAdd { color: var(--green-d); }
@@ -269,16 +282,14 @@ a.iconBtn:hover { border-color: var(--dark); text-decoration: none; }
 .findings p { margin: 0; }
 .bad .tlLog { color: var(--ink); }
 
-/* before/after screenshots ("Pull Request" tab) */
+/* screenshots the user took ("Pull Request" tab) */
 .shots { margin: 18px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
 .shots .h3 { margin: 0; display: inline; }
 .shotsHead { cursor: pointer; margin-bottom: 8px; }
 .shotsHead small { margin-left: 8px; }
-.shotRow { margin-bottom: 12px; }
-.shotPair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-.shotPairMobile { max-width: 420px; }
+.shotRow { margin-bottom: 14px; }
+.shotGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 10px; align-items: start; }
 .shot { margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.shot figcaption { font-size: 12px; font-weight: 600; color: var(--mute); }
-.shot figcaption small { font-weight: 400; }
+.shotMobile { max-width: 200px; }
+.shot figcaption { font-size: 12px; font-weight: 600; color: var(--mute); overflow-wrap: anywhere; }
 .shot img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
-.shotMissing { display: flex; align-items: center; justify-content: center; min-height: 80px; border: 1px dashed var(--line); border-radius: 6px; color: var(--mute); font-size: 12px; }

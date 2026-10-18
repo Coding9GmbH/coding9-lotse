@@ -123,7 +123,7 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
   'version-check': versionCheck,
   'import-db': importDb,
   'set-domain': async ctx => { await ctx.run([...MYSQL, '-e', SET_DOMAIN_SQL]); ctx.log('Storefront-Domain: http://localhost'); },
-  // cosmetic for preview and screenshots: a failure only skips the step (the preview proxy hides both by CSS as well)
+  // cosmetic for the preview (and screenshots taken by hand): a failure only skips the step (the preview proxy hides both by CSS as well)
   'preview-tidy': async ctx => {
     try { await ctx.run(TIDY_ARGV, { timeoutMs: 2 * MIN }); ctx.log('Debug-Leiste und Cookie-Hinweis in der Sandbox ausgeschaltet.'); }
     catch (e) { if (ctx.signal.aborted) throw e; ctx.log(`Übersprungen: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`); return 'skipped'; }
@@ -133,7 +133,6 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
     if (ctx.layout()?.isNew && !ctx.hasDump()) { ctx.log('Neues Plugin: Die Storefront bleibt vorerst unverändert; kompiliert wird, sobald das Plugin Styles oder Templates mitbringt.'); return 'skipped'; }
     await ctx.run(bin('theme:compile')); await ctx.run(bin('cache:clear'));
   },
-  screenshots: ctx => ctx.screenshots(),
   ready: async ctx => { const s = await ctx.httpStatus('/'); if (s !== 200) throw new Error(`Die Storefront antwortet mit HTTP ${s}.`); },
 };
 const step = (id: TemplateStep['id'], timeoutMs: number, extra: Partial<TemplateStep> = {}): TemplateStep => ({ id, labelKey: id, timeoutMs, run: RUNS[id], ...extra });
@@ -152,8 +151,6 @@ const STEPS: TemplateStep[] = [
   step('custom-after-db', 0, { custom: 'after-db' }),
   step('theme-compile', 10 * MIN),
   step('custom-final', 0, { custom: 'final' }),
-  // before the first agent turn: how the storefront looks without the change (desktop and mobile; optional, never fails the setup)
-  step('screenshots', 15 * MIN, { optional: true }),
   step('ready', 30_000),
 ];
 

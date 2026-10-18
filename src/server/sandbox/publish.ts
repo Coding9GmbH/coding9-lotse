@@ -1,6 +1,7 @@
 import 'server-only';
-// Publishing a task's changes: commit, push to lotse/<slug>-<id> and open (or update) the pull request. Only a human click
-// (POST /api/sandbox/tasks/[id]/publish) gets here; the AI can only propose title and description (propose_publish).
+// Publishing a task's changes: push the local commits (the AI's git_commit) to lotse/<slug>-<id> – plus one last commit only for
+// what is not committed yet – and open (or update) the pull request. Only a human click (POST /api/sandbox/tasks/[id]/publish)
+// gets here; the AI can only commit locally and propose title and description (propose_publish).
 // - branch and base come from the task (fixed at creation), never from the request; only refs/heads/lotse/* is written,
 //   a re-push uses --force-with-lease on exactly the SHA Lotse pushed last (git.ts)
 // - preflight before anything is written: changes exist, paths stay in the repository, no .github/workflows or
@@ -8,7 +9,7 @@ import 'server-only';
 //   every plausible secret Lotse stores, as a token of its own – secret-values.ts); a finding names file and line, and the ones that
 //   may be false positives (stored values, URLs with credentials) can be published anyway by an explicit, audited click of the user
 // - audit "started" before the first write and a result row afterwards, both with the actor; the token never appears
-// - after screenshots of the sandbox before the commit (screenshots.ts); a failure never blocks, the body only mentions them
+// - no screenshots of its own: the body only mentions the ones the user took by hand (screenshots.ts)
 // - idempotent: a retry after a failure or a restart continues (nothing new to commit, push is a no-op, the open PR is reused)
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -26,7 +27,7 @@ import { noteChatEvent } from '../sessions';
 import { singleton } from '../state';
 import { errMsg } from '../util';
 import { setupBusy, TaskConflict } from './jobs';
-import { captureAfter, shotNote } from './screenshots';
+import { shotNote } from './screenshots';
 import { isDenied } from './workspace-fs';
 import { markPublishing, mustTask, now, publishRunning, saveTask, taskPaths, turnRunning, type CodeTask } from './tasks';
 
@@ -120,7 +121,7 @@ export function scanFile(file: string, content: string, baseLines: Set<string>, 
 }
 
 /** Sizes, symlinks and the secret scan on the files as they are on disk (git's own output is redacted, so it cannot be scanned). */
-async function checkOnDisk(t: CodeTask, files: Changed[], known: string[]): Promise<{ why: string | null; findings: SecretFinding[] }> {
+async function checkOnDisk(t: CodeTask, files: Changed[], known: string[], head?: string): Promise<{ why: string | null; findings: SecretFinding[] }> {
   const { worktree, gitDir } = taskPaths(t.id), realRoot = fs.realpathSync(worktree);
   const findings: SecretFinding[] = [];
   let total = 0;
@@ -145,7 +146,9 @@ async function checkOnDisk(t: CodeTask, files: Changed[], known: string[]): Prom
     const baseText = base ? base.toString('latin1') : '';
     // lines Lotse already pushed (a finding the user published anyway) do not block the next update again
     const pushed = t.pushedSha ? await readBaseBlob(worktree, gitDir, t.baseBranch, f.path, t.pushedSha) : null;
-    const lines = new Set([...(baseText ? baseText.split('\n') : []), ...(pushed ? pushed.toString('latin1').split('\n') : [])]);
+    // a commit check (git_commit): lines already committed were checked when they were committed
+    const committed = head && head !== t.pushedSha ? await readBaseBlob(worktree, gitDir, t.baseBranch, f.path, head) : null;
+    const lines = new Set([...(baseText ? baseText.split('\n') : []), ...(pushed ? pushed.toString('latin1').split('\n') : []), ...(committed ? committed.toString('latin1').split('\n') : [])]);
     findings.push(...scanFindings(f.path, fs.readFileSync(abs).toString('latin1'), lines, known, baseText));
   }
   return { why: null, findings: findings.slice(0, FINDINGS_MAX) };
@@ -166,6 +169,21 @@ export async function preflight(t: CodeTask, allow: readonly string[] = []): Pro
   const ok = new Set(allow), open = findings.filter(f => !(f.overridable && ok.has(f.id)));
   if (open.length) throw new PublishBlocked(findingsText(open), open);
   return { files, overridden: findings };
+}
+
+/**
+ * Before the AI's local commit (git_commit): the same rules as publishing for exactly the files to be committed – every commit is
+ * pushed later, and history is never rewritten, so a secret must not get into a commit at all. Unlike publishing nothing can be
+ * overridden here (a possible false positive stays uncommitted; the user decides at publishing). Returns the reason, or null.
+ */
+export async function commitCheck(t: CodeTask, files: Changed[], head: string): Promise<string | null> {
+  const early = blockReason(files);
+  if (early) return early;
+  const { why, findings } = await checkOnDisk(t, files.filter(f => f.status !== 'D'), knownSecrets(), head);
+  if (why) return why;
+  if (!findings.length) return null;
+  const [f] = findings;
+  return `Nicht committet: In „${f.file.slice(0, 120)}“ (Zeile ${f.line}) steht etwas, das wie ein Geheimnis aussieht (${f.kind})${findings.length > 1 ? ` – dazu ${findings.length - 1} weitere Stelle(n)` : ''}. Entfernen und erneut committen; ist es sicher kein Geheimnis, die Datei nicht committen – der Nutzer entscheidet beim Veröffentlichen.`;
 }
 
 // ---- Errors in plain language ----
@@ -213,7 +231,8 @@ function errorText(step: PublishStep, e: unknown, t: CodeTask, locale: Locale): 
 }
 
 // ---- Publish ----
-const coAuthor = (actor: string | null): GitIdentity | undefined => {
+/** The person behind a commit as co-author (author is always Lotse): publishing and the AI's git_commit. */
+export const coAuthor = (actor: string | null): GitIdentity | undefined => {
   const name = actor?.replace(/[<>\n\r]/g, '').trim().slice(0, 80);
   if (!name) return undefined;
   const local = name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'nutzer';
@@ -256,9 +275,7 @@ async function run(id: string, title: string, body: string, actor: string | null
     auditAdd({ ...base, decision: 'approved', status: 'started', files: files.length, ...override }, actor); // before the first write
     if (overridden.length) log.warn('Veröffentlichen trotz Geheimnis-Fund freigegeben', { task: id, findings: overridden.map(f => `${f.file}:${f.line}`) });
     started = true;
-    at('screenshots');
-    await captureAfter(id);
-    at('commit');
+    at('commit'); // the AI's commits are pushed as they are; only what is not committed yet becomes one last commit
     await commitAll(p.worktree, p.gitDir, `${title}\n\n${body}`.slice(0, 4000), LOTSE_AUTHOR, coAuthor(actor));
     at('push');
     const head = (await runGit(['rev-parse', 'HEAD'], { cwd: p.worktree, gitDir: p.gitDir })).stdout.trim();

@@ -10,7 +10,7 @@
  *  - chats with a sandbox (Sandbox Coding), with Claude Code's own file tools in the worktree (its path is read from the system prompt,
  *    line "Arbeitsverzeichnis (Repository-Wurzel): …"): `[e2e:replace <path> <old>|<new>]` = Read, then Edit; `[e2e:write <path> <text>]`
  *    = Write (a .html.twig becomes a template that extends Shopware's and puts <text> into the outer block); `[e2e:bash <command line>]`
- *    = sandbox_bash; `[e2e:pr <title>|<description>]` = propose_publish (the card for the pull request). Several markers run in order, one tool call per model request, then it replies "Fertig: <n> Schritte."
+ *    = sandbox_bash; `[e2e:commit <message>]` = git_commit (all changes); `[e2e:pr <title>|<description>]` = propose_publish (the card for the pull request). Several markers run in order, one tool call per model request, then it replies "Fertig: <n> Schritte."
  *  - otherwise it replies with a short text ("Hallo aus dem Test-Modell.")
  *
  * Control endpoints: GET /__fake/requests (received requests: last message as JSON, truncated, and the text of the user messages, the end of it), POST /__fake/reset, GET /__fake/health.
@@ -25,7 +25,7 @@ interface MessagesBody { model?: string; system?: string | { type: string; text?
 
 export const GREETING = 'Hallo aus dem Test-Modell.';
 const PROPOSE = /\[e2e:propose (\S+) (\w+)=([^\]]+)\]/;
-const CODE_STEP = /\[e2e:(replace|write|bash|pr) ([^\]]+)\]/g;
+const CODE_STEP = /\[e2e:(replace|write|bash|commit|pr) ([^\]]+)\]/g;
 const WORKDIR = /Arbeitsverzeichnis \(Repository-Wurzel\): (\S+)/;
 /** Outer block of a few Shopware storefront templates (the scripted edit extends it) */
 const BLOCKS: Record<string, string> = { 'header.html.twig': 'layout_header', 'footer.html.twig': 'layout_footer' };
@@ -43,6 +43,7 @@ function codeCalls(text: string, root: string): { name: string; input: unknown }
   const abs = (p: string) => `${root}/${p}`;
   return [...text.matchAll(CODE_STEP)].flatMap(([, kind, rest]): { name: string; input: unknown }[] => {
     if (kind === 'bash') return [{ name: 'sandbox_bash', input: { command: rest.trim() } }];
+    if (kind === 'commit') return [{ name: 'git_commit', input: { message: rest.trim() } }];
     if (kind === 'pr') { const [title, body = ''] = rest.split('|'); return [{ name: 'propose_publish', input: { title: title.trim(), body: body.trim() } }]; }
     const [p, ...more] = rest.trim().split(' '), arg = more.join(' ');
     if (kind === 'write') return [{ name: 'Write', input: { file_path: abs(p), content: scriptedFile(p, arg || 'Lotse') } }];
@@ -54,7 +55,7 @@ function codeCalls(text: string, root: string): { name: string; input: unknown }
 /** Code script: the markers of the last user text, one tool call per request (tool calls since that message = steps done). */
 function codeTurn(msgs: Msg[], tools: { name: string }[], system: string): { text?: string; tool?: { name: string; input: unknown } } | null {
   const start = msgs.findLastIndex(m => m.role === 'user' && !blocks(m).some(b => b.type === 'tool_result')); // the user's last message
-  if (start < 0 || !/\[e2e:(replace|write|bash|pr) /.test(textOf(msgs[start]))) return null;
+  if (start < 0 || !/\[e2e:(replace|write|bash|commit|pr) /.test(textOf(msgs[start]))) return null;
   const root = WORKDIR.exec(system)?.[1];
   if (!root) return { text: 'Arbeitsverzeichnis fehlt im Systemprompt.' };
   const calls = codeCalls(textOf(msgs[start]), root);
