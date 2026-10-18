@@ -252,8 +252,10 @@ export async function prepareCodeTurn(s: Session, emit: (ev: ChatEvent) => void,
     emit({ t: 'sandbox_status', state: 'waking' });
     if (await until(setupSettled(task.id)) === 'stopped') { emit({ t: 'sandbox_status', state: 'failed' }); return null; }
     task = getTask(task.id);
+    if (task?.status === 'failed' && task.repoFile?.state === 'pending') { emit({ t: 'sandbox_status', state: 'approval' }); return t.codeAwaitsApproval; }
     if (!task || task.status !== 'ready') { const msg = task?.error ? `${t.codeNotReady} ${redact(task.error).slice(0, 300)}` : t.codeNotReady; emit({ t: 'sandbox_status', state: 'failed', message: msg }); return msg; }
   }
+  if (task.status === 'failed' && task.repoFile?.state === 'pending') return t.codeAwaitsApproval;
   if (!['ready', 'paused', 'waking'].includes(task.status)) return t.codeNotReady;
   const asleep = task.status !== 'ready' || !task.containerRunning;
   if (asleep && !waited) emit({ t: 'sandbox_status', state: 'waking' });

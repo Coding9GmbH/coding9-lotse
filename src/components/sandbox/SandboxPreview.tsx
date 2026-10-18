@@ -7,6 +7,7 @@ import { annotationMessage, type Annotation } from '@/lib/annotations';
 import { markKeySelects } from '@/lib/a11y';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { popoverLeft } from '@/lib/popover';
+import { followStartPath } from '@/lib/sandbox-task';
 import { sandboxSrc, sandboxWakeSrc } from '@/lib/urls';
 import { Button } from '@/components/ui/Button';
 import { IconCamera, IconExpand, IconExternal, IconMonitor, IconPanel, IconPhone, IconPin, IconRefresh, IconShrink } from '@/components/ui/icons';
@@ -44,6 +45,13 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
   const [reloads, setReloads] = useState(0);
   const [wake, setWake] = useState(false);
   const [seen, setSeen] = useState(task.status);
+  // the start page is known only once the setup read the file (the panel is open from the start): follow it while the user stays put
+  const [startSeen, setStartSeen] = useState(task.startPath);
+  if (task.startPath !== startSeen) {
+    setStartSeen(task.startPath);
+    const next = followStartPath(path, startSeen, task.startPath);
+    if (next !== path) { setPath(next); setTyped(next); }
+  }
   const [box, setBox] = useState({ w: 0, h: 0 });
   const s = task.status;
   if (s !== seen) { setSeen(s); if (s === 'paused') setWake(false); } // paused again (button, idle): wait for a new request

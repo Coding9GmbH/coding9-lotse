@@ -38,6 +38,7 @@
 .pvPip { width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; }
 .pvPip[data-tone=ok] { background: var(--green); }
 .pvPip[data-tone=bad] { background: var(--coral-d); }
+.pvPip[data-tone=wait] { background: var(--coral); }
 .pvPip[data-tone=busy] { background: var(--coral); animation: pvPulse 1.2s ease-in-out infinite; }
 @keyframes pvPulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .pvPip[data-tone=busy] { animation: none; } }

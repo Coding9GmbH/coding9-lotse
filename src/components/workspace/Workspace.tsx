@@ -14,7 +14,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { CHAT_COOKIE, setupReady } from '@/lib/nav';
 import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, CheckFinding, CodeTaskPublic, Health, PublishResult, Target } from '@/lib/protocol';
 import { liveSrc, withBust } from '@/lib/urls';
-import { PLUGIN_NAME, statusTone } from '@/lib/sandbox-task';
+import { PLUGIN_NAME, displayStatus, statusTone } from '@/lib/sandbox-task';
 import { INTL_LOCALE } from '@/lib/i18n';
 import Link from 'next/link';
 import { useShell, type WorkspaceBridge } from '@/components/shell/ShellProvider';
@@ -530,7 +530,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
               {pv && (
                 <div className={styles.pvBar}>
                   <Button size="sm" onClick={() => setPreviewOpen(true)}>
-                    {taskId && <i className={styles.pvPip} data-tone={sbxTask ? statusTone(sbxTask.status) : 'busy'} aria-hidden="true" />}
+                    {taskId && <i className={styles.pvPip} data-tone={sbxTask ? statusTone(displayStatus(sbxTask)) : 'busy'} aria-hidden="true" />}
                     {taskId ? tsb.view : state.draft ? t.viewDraft : t.preview}
                   </Button>
                 </div>

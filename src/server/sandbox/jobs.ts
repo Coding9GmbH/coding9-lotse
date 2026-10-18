@@ -214,9 +214,11 @@ async function execute(id: string, from: number, signal: AbortSignal) {
       t.status = stopped ? 'interrupted' : 'failed';
       t.error = stopped ? null : msg;
       saveTask(t);
-      // the chat says so too (a waiting agent turn reports it itself)
+      // the chat says so too (a waiting agent turn reports it itself); the repository file's commands waiting for a decision are no error
       if (!stopped && t.chatId && !turnRunning(t.id) && chatExists(t.chatId)) {
-        const ev: ChatEvent = { t: 'sandbox_status', state: 'failed', message: errorSummary(msg).slice(0, 400) };
+        const ev: ChatEvent = t.repoFile?.state === 'pending' && step.key === 'detect-layout'
+          ? { t: 'sandbox_status', state: 'approval' }
+          : { t: 'sandbox_status', state: 'failed', message: errorSummary(msg).slice(0, 400) };
         noteChatEvent(t.chatId, ev); emitTask(t.id, { t: 'chat', event: ev });
       }
       return;

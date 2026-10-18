@@ -14,10 +14,22 @@ export function applyTaskEvent(task: CodeTaskPublic | null, ev: TaskEvent): Code
   return { ...task, steps: task.steps.map(s => (s.id === ev.step ? { ...s, log: [...s.log, ev.line].slice(-LOG_LINES) } : s)) };
 }
 
-/** Pip in list and header: starting (setting up / waking), ready, error, stopped (paused, interrupted), published/done. */
-export type StatusTone = 'busy' | 'ok' | 'bad' | 'idle' | 'done';
-export const statusTone = (s: CodeTaskStatus): StatusTone =>
-  s === 'setting_up' || s === 'waking' ? 'busy' : s === 'ready' ? 'ok' : s === 'failed' ? 'bad' : s === 'done' ? 'done' : 'idle';
+/** The setup stopped at "Plugin erkennen" for the user's decision on the repository's .lotse/sandbox.json commands: stored as failed
+ *  (so the step can continue), but it waits for the user – not an error. */
+export const awaitsApproval = (t: Pick<CodeTaskPublic, 'status' | 'repoFile'>) => t.status === 'failed' && t.repoFile?.state === 'pending';
+/** What status line, pip and hints show: the stored status, or 'approval' while the setup waits for that decision. */
+export type TaskDisplayStatus = CodeTaskStatus | 'approval';
+export const displayStatus = (t: Pick<CodeTaskPublic, 'status' | 'repoFile'>): TaskDisplayStatus => (awaitsApproval(t) ? 'approval' : t.status);
+
+/** Pip in list and header: starting (setting up / waking), ready, waiting for the user, error, stopped (paused, interrupted), published/done. */
+export type StatusTone = 'busy' | 'ok' | 'wait' | 'bad' | 'idle' | 'done';
+export const statusTone = (s: TaskDisplayStatus): StatusTone =>
+  s === 'setting_up' || s === 'waking' ? 'busy' : s === 'ready' ? 'ok' : s === 'approval' ? 'wait' : s === 'failed' ? 'bad' : s === 'done' ? 'done' : 'idle';
+
+/** The preview's path when the start page (.lotse/sandbox.json "previewPath", known only once the setup read the file) changes: the new
+ *  start page while the user stays on the previous one (or "/"), otherwise where the user went. */
+export const followStartPath = (current: string, before: string | undefined, now: string | undefined): string =>
+  current === (before ?? '/') ? now ?? '/' : current;
 /** Something is happening on the server: the list keeps polling. */
 export const isBusy = (s: CodeTaskStatus) => statusTone(s) === 'busy';
 

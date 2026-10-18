@@ -140,6 +140,10 @@ Chat instead of forms. You write what should happen ("Change the layout of produ
 
 For code instead of shop data: a sandbox is a **development environment with git in which Claude Code or Codex work** – a working copy of your repository and a Shopware test shop of its own in Docker (Dockware). You start it from an ordinary chat; the AI changes files, runs commands in the container, checks the result in the preview and saves each finished step as a commit. It cannot reach the live shop from a sandbox.
 
+| Start sandbox | Sandbox preview | Console in the container |
+|---|---|---|
+| <img src="docs/screenshots/sandbox-start-dialog.png" alt="“Start sandbox” dialog: what do you want to do?" width="300"> | <img src="docs/screenshots/sandbox-preview.png" alt="Chat with an attached sandbox and the preview of its test shop" width="300"> | <img src="docs/screenshots/sandbox-console.png" alt="Console: a shell of your own in the sandbox container" width="300"> |
+
 - **Cases:** an existing plugin or theme, a new plugin (also in a newly created GitHub project), a whole Shopware project (laid out like `shopware/production`), an own setup (you set the target folder and commands) or no project at all with a local git. A repository can describe its setup in `.lotse/sandbox.json`; commands from it only run after your approval.
 - **Data:** demo data, a stored database (further sandboxes start from a snapshot without an import) or an uploaded, sanitized dump.
 - **Console:** a shell of your own in the container (`bin/console`, logs, Composer) – for humans only, not for the AI.

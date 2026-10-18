@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { CodeTaskPublic } from '../../src/lib/protocol';
-import { applyTaskEvent, canRetryFrom, errorSummary, formatSeconds, newerTask, statusTone, stepSeconds } from '../../src/lib/sandbox-task';
+import { applyTaskEvent, canRetryFrom, displayStatus, errorSummary, followStartPath, formatSeconds, newerTask, statusTone, stepSeconds } from '../../src/lib/sandbox-task';
 
 // Task view state: snapshot replaces, log lines append to their step (capped), deleted clears; status pips and durations.
 const task = (o: Partial<CodeTaskPublic> = {}): CodeTaskPublic => ({
@@ -29,6 +29,23 @@ test('status tone, durations, retry only from a failed/interrupted step of a sto
   const failed = task({ status: 'failed', steps: [{ id: 'clone', key: 'clone', state: 'failed', log: [] }] });
   assert.ok(canRetryFrom(failed, failed.steps[0]));
   assert.ok(!canRetryFrom({ ...failed, status: 'setting_up' }, failed.steps[0]));
+});
+
+test('a setup waiting for the approval of the repository file\'s commands is shown as waiting, not as an error', () => {
+  const file = { commands: [], env: [], ignored: [], hash: 'h' };
+  const waiting = task({ status: 'failed', repoFile: { ...file, state: 'pending' } });
+  assert.equal(displayStatus(waiting), 'approval');
+  assert.equal(statusTone(displayStatus(waiting)), 'wait');
+  assert.equal(displayStatus({ ...waiting, repoFile: { ...waiting.repoFile!, state: 'approved' } }), 'failed');
+  assert.equal(displayStatus({ ...waiting, status: 'setting_up' }), 'setting_up');
+  assert.equal(displayStatus(task({ status: 'failed' })), 'failed');
+});
+
+test('followStartPath: the preview takes the repository\'s start page once known, unless the user went elsewhere', () => {
+  assert.equal(followStartPath('/', undefined, '/de/'), '/de/');
+  assert.equal(followStartPath('/de/', '/de/', '/en/'), '/en/');
+  assert.equal(followStartPath('/checkout/cart', undefined, '/de/'), '/checkout/cart');
+  assert.equal(followStartPath('/de/', '/de/', undefined), '/');
 });
 
 test('errorSummary: the first line of the step and the first output line that says why, without trace noise', () => {

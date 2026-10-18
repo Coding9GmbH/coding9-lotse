@@ -140,6 +140,10 @@ Chat statt Formulare. Du schreibst, was passieren soll („Ändere das Layout vo
 
 Für Code statt Shop-Daten: Eine Sandbox ist eine **Entwicklungsumgebung mit Git, in der Claude Code oder Codex arbeiten** – eine Arbeitskopie deines Repositorys und ein eigener Shopware-Test-Shop in Docker (Dockware). Du startest sie aus einem normalen Chat; die KI ändert Dateien, führt Befehle im Container aus, prüft das Ergebnis in der Vorschau und speichert jeden fertigen Schritt als Commit. Den Live-Shop erreicht sie aus einer Sandbox nicht.
 
+| Sandbox starten | Vorschau der Sandbox | Konsole im Container |
+|---|---|---|
+| <img src="docs/screenshots/sandbox-start-dialog.png" alt="Dialog „Sandbox starten“: Was möchtest du tun?" width="300"> | <img src="docs/screenshots/sandbox-preview.png" alt="Chat mit angehängter Sandbox und Vorschau des Test-Shops" width="300"> | <img src="docs/screenshots/sandbox-console.png" alt="Konsole: eigene Shell im Container der Sandbox" width="300"> |
+
 - **Fälle:** bestehendes Plugin oder Theme, neues Plugin (auch in einem neu angelegten GitHub-Projekt), ganzes Shopware-Projekt (Aufbau wie `shopware/production`), eigenes Setup (Zielordner und Befehle legst du fest) oder ganz ohne Projekt mit lokalem Git. Ein Repository kann seine Einrichtung in `.lotse/sandbox.json` beschreiben; Befehle daraus laufen erst nach deiner Freigabe.
 - **Daten:** Demo-Daten, eine gespeicherte Datenbank (weitere Sandboxes starten per Snapshot ohne Import) oder ein hochgeladener, bereinigter Dump.
 - **Konsole:** eine eigene Shell im Container (`bin/console`, Logs, Composer) – nur für Menschen, nicht für die KI.

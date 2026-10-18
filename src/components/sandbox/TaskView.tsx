@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { awaitsApproval, displayStatus } from '@/lib/sandbox-task';
 import { useTaskEvents } from '@/hooks/useTaskEvents';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
@@ -63,7 +64,7 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
 
   if (toChat) return <div className={styles.page}><main className={styles.wrap}>{back}<p className={styles.muted} role="status">{t.redirecting}</p></main></div>;
 
-  const s = task.status, hint = t.hints[s];
+  const s = task.status, hint = t.hints[displayStatus(task)];
   return (
     <div className={styles.page}>
       <main className={`${styles.wrap} ${styles.wrapWide}`}>
@@ -85,7 +86,7 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
           {s === 'setting_up' && <Button onClick={() => void act('stop')} disabled={busy}>{t.actions.stop}</Button>}
           {s === 'ready' && <Button onClick={() => void act('pause')} disabled={busy}>{t.actions.pause}</Button>}
           {s === 'paused' && <Button variant="primary" onClick={() => void act('resume')} disabled={busy}>{t.actions.resume}</Button>}
-          {(s === 'failed' || s === 'interrupted') && <Button variant="primary" onClick={() => void act('start')} disabled={busy}>{t.actions.retry}</Button>}
+          {(s === 'failed' || s === 'interrupted') && !awaitsApproval(task) && <Button variant="primary" onClick={() => void act('start')} disabled={busy}>{t.actions.retry}</Button>}
           {['ready', 'paused', 'failed', 'interrupted'].includes(s) && <Button onClick={() => setReplacing(true)} disabled={busy}>{all.sandbox.dump.replace}</Button>}
           {s !== 'done' && <Button variant="danger" onClick={() => void act('finish')} disabled={busy}>{t.actions.finish}</Button>}
           {s === 'done' && <Button variant="danger" onClick={() => void remove()} disabled={busy}>{t.actions.remove}</Button>}
