@@ -304,7 +304,7 @@ test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async (
 // Stored database: uploaded once in the start dialog (stored by default), listed under "Gespeicherte Datenbanken", the first sandbox
 // imports it and saves the quick-start snapshot, the next one (preselected as the environment's default) takes the snapshot over without
 // an import; deleting it removes it from the list.
-test('Sandbox Coding: a stored database is reused – snapshot after the first import, quick start for the next sandbox, delete', async ({ page, request }) => {
+test('Sandbox Coding: a stored database is reused – snapshot after the first import, restored for the next sandbox, delete', async ({ page, request }) => {
   test.setTimeout(150_000);
   const lotse = { 'x-lotse': '1' };
   expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
@@ -332,18 +332,18 @@ test('Sandbox Coding: a stored database is reused – snapshot after the first i
   await panel.getByRole('tab', { name: 'Einrichtung' }).click();
   await expect(panel.getByText(/Gespeicherte Datenbank: stored\.sql .*\(importiert\)/)).toBeVisible();
   await panel.getByRole('button', { name: 'Details anzeigen' }).click();
-  await expect(panel.getByRole('listitem').filter({ hasText: 'Datenbank für den Schnellstart sichern' }).getByText('erledigt')).toBeVisible();
+  await expect(panel.getByRole('listitem').filter({ hasText: 'Datenbank-Snapshot sichern' }).getByText('erledigt')).toBeVisible();
   page.once('dialog', d => void d.accept());
   await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
   await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
   await expect(panel).toHaveCount(0);
 
-  // the list: version, size, quick start ready; preselected as the default of "Sandbox starten"
+  // the list: version, size, snapshot ready; preselected as the default of "Sandbox starten"
   await page.goto('/sandbox-coding');
   const card = page.getByRole('region', { name: 'Gespeicherte Datenbanken' });
   const row = card.getByRole('listitem').filter({ hasText: 'stored.sql' });
   await expect(row.getByText(/Shopware 6\.7 · .* MB · hochgeladen .* · zuletzt verwendet/)).toBeVisible();
-  await expect(row.getByText('Schnellstart bereit')).toBeVisible();
+  await expect(row.getByText('Snapshot bereit')).toBeVisible();
   const env = page.locator('#sbx-env');
   if ((await env.getAttribute('open')) === null) await env.locator('> summary').click();
   await env.getByLabel('Datenbank', { exact: true }).selectOption(dump.id);
@@ -364,7 +364,7 @@ test('Sandbox Coding: a stored database is reused – snapshot after the first i
   await panel.getByRole('tab', { name: 'Einrichtung' }).click();
   await expect(panel.getByText(/Gespeicherte Datenbank: stored\.sql .*\(aus dem Snapshot übernommen\)/)).toBeVisible();
   await panel.getByRole('button', { name: 'Details anzeigen' }).click();
-  await expect(panel.getByRole('listitem').filter({ hasText: 'Datenbank für den Schnellstart sichern' }).getByText('übersprungen')).toBeVisible();
+  await expect(panel.getByRole('listitem').filter({ hasText: 'Datenbank-Snapshot sichern' }).getByText('übersprungen')).toBeVisible();
   page.once('dialog', d => void d.accept());
   await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
   await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();

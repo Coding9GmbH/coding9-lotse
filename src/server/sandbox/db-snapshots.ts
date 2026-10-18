@@ -1,5 +1,5 @@
 import 'server-only';
-// Quick start for stored databases ("Gespeicherte Datenbanken", dumps.ts): instead of importing the same dump into every new sandbox,
+// Faster start for stored databases ("Gespeicherte Datenbanken", dumps.ts): instead of importing the same dump into every new sandbox,
 // Lotse keeps a copy of MySQL's data directory per stored database and image in a label-managed Docker volume.
 // - A task with a stored database gets its own data volume (lotse-taskdb-<task>) at MySQL's data directory (template.database).
 // - After the first successful import (+ set-domain) into an image, before anything of the task changes the database: MySQL is stopped
@@ -61,14 +61,14 @@ async function runCopy(o: { taskId: string; image: string; from: string; to: str
 const taskVolumeLabels = (taskId: string) => ({ ...MANAGED, [ROLE_LABEL]: TASK_DB_ROLE, [TASK_LABEL]: taskId });
 
 /** Before the task container is created (its old one is gone): a fresh data volume, filled from the snapshot of this stored database
- *  and image if there is one. A snapshot that cannot be found or copied only costs the quick start: the volume starts empty again (Docker fills
+ *  and image if there is one. A snapshot that cannot be found or copied only costs the faster start: the volume starts empty again (Docker fills
  *  it from the image on the first start) and the import runs as usual. */
 export async function prepareTaskDb(o: { taskId: string; dumpId: string | null; image: string; log: (line: string) => void; signal?: AbortSignal }): Promise<{ volume: string; restored: boolean }> {
   const r = getRunner(), volume = taskDbVolume(o.taskId);
   await r.removeVolume(volume);
   await r.createVolume(volume, taskVolumeLabels(o.taskId));
   const snap = o.dumpId ? await usableSnapshot(o.dumpId, o.image).catch(e => {
-    // e.g. a volume of that name not made by Lotse: no quick start, the import runs as usual
+    // e.g. a volume of that name not made by Lotse: no snapshot, the import runs as usual
     o.log(`Snapshot nicht nutzbar (${errMsg(e)}) – die Datenbank wird stattdessen importiert.`);
     return null;
   }) : null;
