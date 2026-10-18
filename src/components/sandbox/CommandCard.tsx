@@ -40,8 +40,9 @@ export function CommandCard({ c }: { c: Command }) {
   );
 }
 
-/** Status of the task's container (waking → ready, a failed setup, finished): a static check once finished. */
-export function SandboxStatusLine({ state, message }: { state: 'waking' | 'ready' | 'failed' | 'finished'; message?: string }) {
+/** Status of the task's container (waking → ready, a failed setup, a setup waiting for the approval of the repository's commands,
+ *  finished): a static check once finished. */
+export function SandboxStatusLine({ state, message }: { state: 'waking' | 'ready' | 'failed' | 'approval' | 'finished'; message?: string }) {
   const t = useI18n().t.sandbox.code.sandbox;
   return (
     <p className={`${styles.sbx} ${styles[`sbx_${state}`]}`} role="status">

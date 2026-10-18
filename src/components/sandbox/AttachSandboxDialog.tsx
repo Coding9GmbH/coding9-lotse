@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { CodeTaskPublic, CommandPhase, GithubBranch, GithubRepo, LibraryDumpPublic, NewSandboxRequest, RepoOwner, RepoProbe } from '@/lib/protocol';
 import { useI18n } from '@/lib/i18n/I18nProvider';
@@ -62,6 +62,7 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
   // the repository file's commands: approved (server), declined for this sandbox (hash), deciding
   const [skipHash, setSkipHash] = useState<string | null>(null);
   const [deciding, setDeciding] = useState(false);
+  const fileRef = useRef<HTMLDivElement>(null);
   // step 3
   const [data, setData] = useState<Data>('demo');
   const [stored, setStored] = useState<LibraryDumpPublic[] | null>(null);
@@ -159,6 +160,11 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
   const fileState: 'pending' | 'approved' | 'skipped' = !file?.commands.length ? 'approved' : file.approved ? 'approved' : skipHash === file.hash ? 'skipped' : 'pending';
   const varsOk = vars.every(v => ENV_KEY.test(v.key.trim()));
   const commandsOk = commands.every(c => c.label.trim() && c.command.trim());
+  // the repository file's commands wait for a decision: bring the card with "Befehle erlauben" into view (it sits below the fold)
+  const pendingHash = step === 1 && fileState === 'pending' ? file?.hash ?? null : null;
+  useEffect(() => {
+    if (pendingHash) fileRef.current?.querySelector('button')?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  }, [pendingHash]);
 
   const stepOk = [
     true,
@@ -211,7 +217,7 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
   const ready = !busy && !uploading && !dockerDown;
   const last = step === 2;
   const dataName = data === 'demo' ? ts.dataDemo : data === 'stored' ? stored?.find(d => d.id === storedId)?.name ?? ts.dataStored : ts.dataUpload;
-  const sourceName = kind === 'none' ? ts.kinds.none.title : form.repo ? `${form.repo}${form.baseBranch ? ` @ ${form.baseBranch}` : ''}` : '–';
+  const sourceName = kind === 'none' ? ts.localSource(pluginName.trim()) : form.repo ? `${form.repo}${form.baseBranch ? ` @ ${form.baseBranch}` : ''}` : '–';
 
   return (
     <Dialog open={open} onClose={onClose} title={t.title} wide footer={
@@ -245,7 +251,7 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
               </label>
             ))}
           </fieldset>
-          <p className={styles.hint}>{t.lead}</p>
+          <p className={`${styles.hint} ${styles.kindLead}`} role="note">{t.lead[kind]}</p>
           <label className={styles.field}>
             <span className={styles.label}>{t.name}</span>
             <input value={form.title} maxLength={120} placeholder={t.namePlaceholder} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
@@ -336,7 +342,7 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
             </div>
           )}
           {fileError && <p className={styles.bad} role="alert">{all.sandbox.repoFile.invalid(fileError)}</p>}
-          {file && <RepoFileCard file={file} missingEnv={file.missingEnv} state={fileState} busy={deciding} onApprove={() => void decide(true)} onSkip={() => void decide(false)} />}
+          {file && <div ref={fileRef} className={styles.repoFileWrap}><RepoFileCard file={file} missingEnv={file.missingEnv} state={fileState} busy={deciding} onApprove={() => void decide(true)} onSkip={() => void decide(false)} /></div>}
 
           <details className={styles.advanced} open={advanced || ownSetup || undefined} onToggle={e => setAdvanced((e.currentTarget as HTMLDetailsElement).open)}>
             <summary>{ts.advanced}</summary>

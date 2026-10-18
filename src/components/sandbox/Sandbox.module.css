@@ -95,6 +95,7 @@
 .status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; white-space: nowrap; }
 .status[data-tone=ok] .pip { background: var(--green); }
 .status[data-tone=bad] .pip { background: var(--warn); }
+.status[data-tone=wait] .pip { background: var(--coral); }
 .status[data-tone=busy] .pip { background: var(--green); animation: sbxPulse 1.2s ease-in-out infinite; }
 .status[data-tone=done] .pip { background: var(--ink); }
 @keyframes sbxPulse { 50% { opacity: .3; } }
@@ -408,3 +409,7 @@ a.iconBtn:hover { border-color: var(--dark); text-decoration: none; }
 .repoCmds { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 13px; }
 .repoCmds pre { margin: 4px 0 0; padding: 6px 8px; border-radius: 6px; background: var(--line); font-size: 12px; white-space: pre-wrap; word-break: break-all; }
 .repoExtra { margin: 0; padding-left: 18px; font-size: 12px; color: var(--mute); }
+/* Step 1: the lead below the kind cards keeps its distance to them */
+.kindLead { margin-top: 14px; }
+/* the repository file's card is scrolled into view while it waits for a decision; a little air below its buttons */
+.repoFileWrap button { scroll-margin: 16px 0; }

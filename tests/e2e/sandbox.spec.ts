@@ -277,7 +277,7 @@ test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async (
   await expect(dialog.getByText('Nur bereinigte Dumps ohne Kundendaten. Die Datei wird nach dem Import gelöscht.')).toBeVisible();
   const sql = "-- MySQL dump\nINSERT INTO `migration` VALUES ('Shopware\\\\Core\\\\Migration\\\\V6_7\\\\Migration1700000000Foo',1,NULL,NULL,NULL);\n";
   const completed = page.waitForResponse(r => /\/api\/sandbox\/dumps\/d_[a-z0-9]{16}\/complete$/.test(r.url()));
-  await dialog.getByLabel('Datenbank-Dump (optional)', { exact: true }).first().setInputFiles({ name: 'shop.sql.gz', mimeType: 'application/gzip', buffer: zlib.gzipSync(Buffer.from(sql)) });
+  await dialog.getByLabel('Datenbank hochladen', { exact: true }).first().setInputFiles({ name: 'shop.sql.gz', mimeType: 'application/gzip', buffer: zlib.gzipSync(Buffer.from(sql)) });
   const { dump } = await (await completed).json() as { dump: { id: string; status: string } };
   expect(dump.status).toBe('ready');
   await expect(dialog.getByText(/shop\.sql\.gz .* ist bereit/)).toBeVisible();
@@ -322,7 +322,7 @@ test('Sandbox Coding: a stored database is reused – snapshot after the first i
   await expect(dialog.getByText('Nur bereinigte Dumps ohne Kunden- und Bestelldaten speichern.')).toBeVisible();
   const sql = "-- MySQL dump\nINSERT INTO `migration` VALUES ('Shopware\\\\Core\\\\Migration\\\\V6_7\\\\Migration1700000000Foo',1,NULL,NULL,NULL);\n";
   const completed = page.waitForResponse(r => /\/api\/sandbox\/dumps\/d_[a-z0-9]{16}\/complete$/.test(r.url()));
-  await dialog.getByLabel('Datenbank-Dump (optional)', { exact: true }).first().setInputFiles({ name: 'stored.sql', mimeType: 'application/sql', buffer: Buffer.from(sql) });
+  await dialog.getByLabel('Datenbank hochladen', { exact: true }).first().setInputFiles({ name: 'stored.sql', mimeType: 'application/sql', buffer: Buffer.from(sql) });
   const { dump } = await (await completed).json() as { dump: { id: string; library: boolean; expiresAt: string | null } };
   expect([dump.library, dump.expiresAt]).toEqual([true, null]);
   await expect(dialog.getByText(/stored\.sql .* ist gespeichert/)).toBeVisible();
@@ -688,6 +688,13 @@ test('Sandbox Coding: start dialog in three steps – repository file with appro
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await expect(dialog.getByRole('button', { name: /^Schritt 1 von 3: Was\?/ })).toHaveAttribute('aria-current', 'step');
   await expect(dialog.getByRole('button', { name: /Schritt 3 von 3/ })).toBeDisabled(); // not before the source is complete
+  // the text below the cards fits the chosen case
+  await expect(dialog.getByRole('note')).toHaveText(/^Lotse holt dein Projekt von GitHub/);
+  await dialog.getByLabel('Ohne Projekt starten').check();
+  await expect(dialog.getByRole('note')).toHaveText(/ganz ohne GitHub/);
+  await dialog.getByLabel('Eigenes Setup').check();
+  await expect(dialog.getByRole('note')).toHaveText(/in einen Ordner deiner Wahl/);
+  await dialog.getByLabel('Bestehendes Projekt').check();
   await dialog.getByLabel('Titel (optional)').fill('Flex');
   await next(dialog);
   await dialog.getByLabel('Repository').selectOption('acme/flex-plugin');
@@ -695,6 +702,7 @@ test('Sandbox Coding: start dialog in three steps – repository file with appro
   const file = dialog.getByRole('region', { name: 'Dieses Projekt möchte beim Einrichten folgende Befehle ausführen' });
   await expect(file.getByText('bin/console framework:demodata')).toBeVisible();
   await expect(file.getByText(/fehlen in der Umgebung: STRIPE_KEY/)).toBeVisible();
+  await expect(file.getByRole('button', { name: 'Befehle erlauben' })).toBeInViewport(); // scrolled into view, not below the fold
   await expect(dialog.getByRole('button', { name: 'Weiter' })).toBeDisabled(); // a decision first
   await file.getByRole('button', { name: 'Befehle erlauben' }).click();
   await expect(file.getByText('✓ Befehle erlaubt')).toBeVisible();
@@ -717,6 +725,7 @@ test('Sandbox Coding: start dialog in three steps – repository file with appro
 
   const panel = page.getByRole('region', { name: 'Sandbox' });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+  await expect(panel.getByLabel('Pfad in der Sandbox')).toHaveValue('/de/'); // the repository's start page right after the setup
   await panel.getByRole('tab', { name: 'Einrichtung' }).click();
   const steps = panel.getByRole('tabpanel', { name: 'Einrichtung' });
   await expect(steps.getByText(/Eigenes Setup: \/srv\/flex/)).toBeVisible();
@@ -738,6 +747,7 @@ test('Sandbox Coding: start dialog in three steps – repository file with appro
   await next(dialog);
   await expect(dialog.getByLabel('Technischer Name des Plugins')).toHaveValue('VersandBanner');
   await next(dialog);
+  await expect(dialog.getByText('Ohne Projekt starten · Plugin VersandBanner, nur lokales Git · Demo-Daten')).toBeVisible();
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
   await page.setViewportSize({ width: 1280, height: 800 });
   await expect(page.getByText(/Sandbox ohne Projekt angehängt/)).toBeVisible();
@@ -750,6 +760,7 @@ test('Sandbox Coding: start dialog in three steps – repository file with appro
   await gh.getByRole('button', { name: 'GitHub-Projekt anlegen' }).click();
   await expect(panel.getByText('octo-lotse/versand-banner').first()).toBeVisible();
   await expect(panel.getByRole('region', { name: 'Als GitHub-Projekt anlegen' })).toHaveCount(0); // the usual "Zur Prüfung freigeben" now
+  await expect(panel.getByRole('status').filter({ hasText: 'Projekt octo-lotse/versand-banner angelegt' })).toBeVisible();
   const created = ((await (await request.get(`${githubUrl}/__fake/calls`)).json()) as { method: string; path: string; body: { name?: string; auto_init?: boolean } }[])
     .filter(c => c.method === 'POST' && c.path === '/user/repos').at(-1);
   expect(created?.body).toMatchObject({ name: 'versand-banner', auto_init: false });

@@ -28,7 +28,8 @@ const commands: Record<SandboxCommandKey, string> = {
   'php-lint': 'PHP-Syntax prüfen',
 };
 const phases: Record<CommandPhase, string> = { 'after-db': 'Nach der Datenbank', final: 'Zum Schluss' };
-const status: Record<CodeTaskStatus, string> = { setting_up: 'Wird eingerichtet', waking: 'Wird gestartet', ready: 'Bereit', paused: 'Pausiert', failed: 'Fehler', interrupted: 'Unterbrochen', done: 'Abgeschlossen' };
+/** 'approval': the setup waits for the user's approval of the repository's commands (stored as failed, shown as waiting) */
+const status: Record<CodeTaskStatus | 'approval', string> = { setting_up: 'Wird eingerichtet', waking: 'Wird gestartet', ready: 'Bereit', paused: 'Pausiert', failed: 'Fehler', approval: 'Wartet auf deine Freigabe', interrupted: 'Unterbrochen', done: 'Abgeschlossen' };
 const stepState: Record<TaskStepState, string> = { pending: 'wartet', running: 'läuft', done: 'erledigt', failed: 'fehlgeschlagen', skipped: 'übersprungen', interrupted: 'unterbrochen' };
 
 const mb = (bytes: number) => `${(bytes / 1048576).toFixed(bytes < 10 * 1048576 ? 1 : 0)} MB`;
@@ -161,7 +162,13 @@ export const de = {
   },
   create: {
     title: 'Sandbox starten',
-    lead: 'Lotse holt dein Projekt von GitHub und richtet dafür einen eigenen Test-Shop ein (ein bis zwei Minuten). Das Projekt kann ein Plugin oder Theme sein, ein ganzer Shopware-Shop mit mehreren Plugins und eigener Konfiguration – oder leer, dann baut die KI darin ein neues Plugin. Ab dann arbeitet die KI in diesem Chat nur noch im Test-Shop – ohne Zugriff auf den Live-Shop.',
+    /** step 1, below the cards: what happens with the chosen kind */
+    lead: {
+      existing: 'Lotse holt dein Projekt von GitHub und richtet dafür einen eigenen Test-Shop ein (ein bis zwei Minuten). Das Projekt kann ein Plugin oder Theme sein oder ein ganzer Shopware-Shop mit mehreren Plugins und eigener Konfiguration. Ab dann arbeitet die KI in diesem Chat nur noch im Test-Shop – ohne Zugriff auf den Live-Shop.',
+      new: 'Lotse richtet einen eigenen Test-Shop ein (ein bis zwei Minuten), die KI baut darin ein neues Plugin – in einem leeren oder neuen GitHub-Projekt. Ab dann arbeitet die KI in diesem Chat nur noch im Test-Shop – ohne Zugriff auf den Live-Shop.',
+      none: 'Lotse richtet einen eigenen Test-Shop ein (ein bis zwei Minuten), ganz ohne GitHub. Die KI baut darin ein neues Plugin; jeder Schritt bleibt im lokalen Git, ein GitHub-Projekt oder ein ZIP gibt es später. Ab dann arbeitet die KI in diesem Chat nur noch im Test-Shop – ohne Zugriff auf den Live-Shop.',
+      custom: 'Lotse holt dein Projekt von GitHub, legt es in einen Ordner deiner Wahl im Container und führt nur deine Befehle aus – es installiert und kompiliert nichts. Ab dann arbeitet die KI in diesem Chat nur noch in der Sandbox – ohne Zugriff auf den Live-Shop.',
+    } as Record<'existing' | 'new' | 'none' | 'custom', string>,
     repo: 'Projekt',
     repoTech: 'GitHub-Repository',
     repoPick: 'Projekt wählen …',
@@ -247,13 +254,14 @@ export const de = {
       waking: 'Umgebung startet …',
       setting_up: 'Die Sandbox wird eingerichtet. Du kannst schon schreiben oder die Seite verlassen – es läuft im Hintergrund weiter.',
       failed: 'Die Einrichtung ist an einem Schritt gescheitert. Ursache beheben (im Repository oder in der Umgebung) und ab dem Schritt erneut versuchen.',
+      approval: 'Die Einrichtung wartet auf deine Freigabe: Das Projekt möchte beim Einrichten Befehle ausführen (.lotse/sandbox.json). Unten prüfen und erlauben – oder ohne sie fortfahren.',
       interrupted: 'Die Einrichtung wurde unterbrochen. Sie kann an der Stelle fortgesetzt werden.',
       done: 'Abgeschlossen: Container und Dateien dieser Sandbox sind gelöscht.',
-    } satisfies Record<CodeTaskStatus, unknown>,
+    } satisfies Record<CodeTaskStatus | 'approval', unknown>,
     actionFailed: (e: string) => `Nicht möglich: ${e}`,
   },
   dump: {
-    heading: 'Datenbank-Dump (optional)',
+    heading: 'Datenbank hochladen',
     add: 'Datenbank (optional)',
     hint: 'Nur bereinigte Dumps ohne Kundendaten.',
     hintOnce: 'Die Datei wird nach dem Import gelöscht.',
@@ -395,7 +403,7 @@ export const de = {
       note: 'Mit Internet erreicht der Container jede öffentliche Adresse – auch die Website deines Live-Shops. Lotse bleibt unerreichbar. Der Zugang endet mit „Internet sperren“, beim Pausieren und beim Abschließen.',
       allow: 'Für diese Sandbox erlauben', deny: 'Ablehnen', allowed: 'Erlaubt', revokedSince: 'Erlaubt – inzwischen wieder gesperrt', denied: 'Abgelehnt', open: 'Nicht entschieden', failed: 'Erlaubt, aber nicht verbunden:', restart: 'Nicht entschieden (Neustart)',
     },
-    sandbox: { waking: 'Sandbox startet … (der Chat wartet, bis Shopware antwortet)', ready: 'Sandbox bereit', failed: 'Sandbox nicht bereit', finished: 'Sandbox abgeschlossen. Der Chat bleibt erhalten.' } as Record<'waking' | 'ready' | 'failed' | 'finished', string>,
+    sandbox: { waking: 'Sandbox startet … (der Chat wartet, bis Shopware antwortet)', ready: 'Sandbox bereit', failed: 'Sandbox nicht bereit', approval: 'Sandbox wartet auf deine Freigabe – das Projekt möchte beim Einrichten Befehle ausführen (Reiter „Einrichtung“)', finished: 'Sandbox abgeschlossen. Der Chat bleibt erhalten.' } as Record<'waking' | 'ready' | 'failed' | 'approval' | 'finished', string>,
     publish: {
       heading: 'Vorschlag: zur Prüfung freigeben', note: 'Noch nicht freigegeben.', review: 'Ansehen und freigeben', reviewUpdate: 'Ansehen und Freigabe aktualisieren',
       reviewNote: 'Freigegeben wird erst mit deinem Klick im Reiter „Freigabe“.',
@@ -629,6 +637,8 @@ export const de = {
     dataUploadText: 'Eine .sql- oder .sql.gz-Datei, nur bereinigt (ohne Kunden- und Bestelldaten).',
     dataNoStored: 'Noch keine gespeichert',
     summary: (what: string, source: string, data: string) => `${what} · ${source} · ${data}`,
+    /** the summary's source without a project: the new plugin, kept in the local git */
+    localSource: (plugin: string) => `Plugin ${plugin}, nur lokales Git`,
   },
   /** .lotse/sandbox.json: the commands a repository wants to run during the setup */
   repoFile: {
@@ -811,12 +821,17 @@ export const en: typeof de = {
     add: 'Sandbox in a new chat',
     openChat: 'Open chat',
     noChat: 'no chat',
-    status: { setting_up: 'Setting up', waking: 'Starting', ready: 'Ready', paused: 'Paused', failed: 'Error', interrupted: 'Interrupted', done: 'Finished' },
+    status: { setting_up: 'Setting up', waking: 'Starting', ready: 'Ready', paused: 'Paused', failed: 'Error', approval: 'Waiting for your approval', interrupted: 'Interrupted', done: 'Finished' },
     loadFailed: (e: string) => `Sandboxes not loaded: ${e}`,
   },
   create: {
     title: 'Start sandbox',
-    lead: 'Lotse fetches your project from GitHub and sets up a test shop of its own for it (one to two minutes). The project can be a plugin or theme, a whole Shopware shop with several plugins and its own configuration – or empty, then the AI builds a new plugin in it. From then on the AI works in this chat only in the test shop – without access to the live shop.',
+    lead: {
+      existing: 'Lotse fetches your project from GitHub and sets up a test shop of its own for it (one to two minutes). The project can be a plugin or theme or a whole Shopware shop with several plugins and its own configuration. From then on the AI works in this chat only in the test shop – without access to the live shop.',
+      new: 'Lotse sets up a test shop of its own (one to two minutes), the AI builds a new plugin in it – in an empty or new GitHub project. From then on the AI works in this chat only in the test shop – without access to the live shop.',
+      none: 'Lotse sets up a test shop of its own (one to two minutes), without GitHub at all. The AI builds a new plugin in it; every step stays in the local git, a GitHub project or a ZIP comes later. From then on the AI works in this chat only in the test shop – without access to the live shop.',
+      custom: 'Lotse fetches your project from GitHub, puts it into a folder of your choice in the container and runs only your commands – it installs and compiles nothing. From then on the AI works in this chat only in the sandbox – without access to the live shop.',
+    },
     repo: 'Project',
     repoTech: 'GitHub repository',
     repoPick: 'Choose a project …',
@@ -902,13 +917,14 @@ export const en: typeof de = {
       waking: 'Environment is starting …',
       setting_up: 'The sandbox is being set up. You can already write or leave this page – it keeps running in the background.',
       failed: 'The setup failed at one step. Fix the cause (e.g. in the repository or the environment) and retry from that step.',
+      approval: 'The setup is waiting for your approval: the project wants to run commands during the setup (.lotse/sandbox.json). Check and allow them below – or continue without them.',
       interrupted: 'The setup was interrupted. It can continue where it stopped.',
       done: 'Finished: the container and files of this sandbox are deleted.',
     },
     actionFailed: (e: string) => `Not possible: ${e}`,
   },
   dump: {
-    heading: 'Database dump (optional)',
+    heading: 'Upload database',
     add: 'Database (optional)',
     hint: 'Only sanitized dumps without customer data.',
     hintOnce: 'The file is deleted after the import.',
@@ -1120,6 +1136,7 @@ export const en: typeof de = {
     dataUploadText: 'A .sql or .sql.gz file, sanitized only (no customer or order data).',
     dataNoStored: 'None stored yet',
     summary: (what, source, data) => `${what} · ${source} · ${data}`,
+    localSource: plugin => `Plugin ${plugin}, local git only`,
   },
   repoFile: {
     heading: 'This project wants to run the following commands during the setup',
@@ -1222,7 +1239,7 @@ export const en: typeof de = {
       note: 'With internet the container reaches any public address – including your live shop\'s website. Lotse stays unreachable. Access ends with "Block internet", when pausing and when finishing.',
       allow: 'Allow for this sandbox', deny: 'Decline', allowed: 'Allowed', revokedSince: 'Allowed – blocked again since', denied: 'Declined', open: 'Not decided', failed: 'Allowed, but not connected:', restart: 'Not decided (restart)',
     },
-    sandbox: { waking: 'Sandbox starting… (the chat waits until Shopware answers)', ready: 'Sandbox ready', failed: 'Sandbox not ready', finished: 'Sandbox finished. The chat stays.' },
+    sandbox: { waking: 'Sandbox starting… (the chat waits until Shopware answers)', ready: 'Sandbox ready', failed: 'Sandbox not ready', approval: 'Sandbox is waiting for your approval – the project wants to run commands during the setup (“Setup” tab)', finished: 'Sandbox finished. The chat stays.' },
     publish: {
       heading: 'Proposal: submit for review', note: 'Not submitted yet.', review: 'View and submit', reviewUpdate: 'View and update the submission',
       reviewNote: 'Nothing is submitted until you click in the “Review” tab.',

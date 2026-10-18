@@ -116,7 +116,8 @@ export type ChatEvent =
   /** A shell command in the task container (sandbox_bash): first 'running', then the result (same id); tail = redacted end of the output */
   | { t: 'command'; id: string; command: string; args?: Record<string, string>; status: 'running' | 'ok' | 'failed'; exitCode?: number; tail?: string; ms?: number }
   /** The task's container before the turn: waking (paused or still being set up) → ready, or failed (message) */
-  | { t: 'sandbox_status'; state: 'waking' | 'ready' | 'failed' | 'finished'; message?: string }
+  /** approval: the setup waits for the user's decision on the repository's .lotse/sandbox.json commands (not an error) */
+  | { t: 'sandbox_status'; state: 'waking' | 'ready' | 'failed' | 'approval' | 'finished'; message?: string }
   /** The storefront changed (theme compiled, cache cleared): the preview reloads (live only) */
   | { t: 'preview_reload' }
   /** The AI proposes to publish its changes as a pull request (card only; publishing itself comes from the user) */

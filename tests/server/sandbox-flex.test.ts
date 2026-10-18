@@ -47,6 +47,7 @@ const C = await import('../../src/server/sandbox/repo-config');
 const L = await import('../../src/lib/sandbox-task');
 const { codeSystemFor } = await import('../../src/server/prompt');
 const { auditList } = await import('../../src/server/db');
+const { getSession } = await import('../../src/server/sessions');
 const tasksRoute = await import('../../src/app/api/sandbox/tasks/route');
 const probeRoute = await import('../../src/app/api/sandbox/repo-probe/route');
 const approveRoute = await import('../../src/app/api/sandbox/repo-file/route');
@@ -156,12 +157,18 @@ test('a changed file needs a new approval: the setup stops with the commands; "O
   const git = (a: string[]) => execFileSync('git', ['-c', 'user.name=F', '-c', 'user.email=f@example.com', ...a], { cwd: seed });
   git(['commit', '-qam', 'more']); git(['push', '-q', plugin.bare, 'HEAD:refs/heads/main']);
 
-  const t1 = T.createTask({ chatId: crypto.randomUUID(), title: 'Neu 1', repo: 'acme/flex-plugin', baseBranch: 'main' });
+  const chat1 = crypto.randomUUID();
+  getSession(chat1); // an open chat: the setup reports to it
+  const t1 = T.createTask({ chatId: chat1, title: 'Neu 1', repo: 'acme/flex-plugin', baseBranch: 'main' });
   J.runSteps(t1.id);
   await settled(t1.id);
   let cur = T.getTask(t1.id)!;
   assert.equal(cur.status, 'failed');
   assert.equal(cur.repoFile?.state, 'pending');
+  // waiting for the user, not an error: status, pip and the chat line say so
+  assert.equal(L.displayStatus(cur), 'approval');
+  assert.equal(L.statusTone(L.displayStatus(cur)), 'wait');
+  assert.deepEqual(getSession(chat1).events.filter(e => e.t === 'sandbox_status'), [{ t: 'sandbox_status', state: 'approval' }]);
   assert.match(cur.error!, /möchte beim Einrichten 3 Befehle ausführen/);
   assert.ok(!fake.calls.some(c => c.op === 'exec' && c.argv?.join(' ') === 'bash -lc echo neu'), 'nothing ran');
   const hash = cur.repoFile!.hash;
@@ -173,6 +180,7 @@ test('a changed file needs a new approval: the setup stops with the commands; "O
   cur = T.getTask(t1.id)!;
   assert.equal(cur.status, 'ready', cur.error ?? '');
   assert.equal(cur.repoFile?.state, 'skipped');
+  assert.equal(L.displayStatus(cur), 'ready');
   assert.ok(!cur.steps.some(s => s.source === 'repo'));
   assert.ok(!C.repoFileApproved('acme/flex-plugin', hash), 'skipping approves nothing');
 

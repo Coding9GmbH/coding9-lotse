@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import type { ChatEvent, CodeTaskPublic, InternetPolicy, PublishResult } from '@/lib/protocol';
-import { canRetryFrom, middleTruncate, newerTask } from '@/lib/sandbox-task';
+import { canRetryFrom, displayStatus, middleTruncate, newerTask } from '@/lib/sandbox-task';
 import { useTaskEvents } from '@/hooks/useTaskEvents';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
@@ -68,6 +68,8 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
   const [prSeen, setPrSeen] = useState(openPr);
   const [prTick, setPrTick] = useState(0);
   const [published, setPublished] = useState<PublishResult | null>(null);
+  // "Als GitHub-Projekt anlegen" succeeded: its card gives way to "Zur Prüfung freigeben", the confirmation stays above it
+  const [ghCreated, setGhCreated] = useState<string | null>(null);
   const [full, setFull] = useState(false);
   const [copied, setCopied] = useState(false);
   const [phone, setPhone] = useState(false);
@@ -141,7 +143,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
   const s = task.status, busyAct = acting !== null;
   // "paused" is stored before the container is stopped: until it is, header and body say "Pausiere …" and offer no "Fortsetzen"
   const stopping = s === 'paused' && !!task.stopping;
-  const hint = stopping ? t.pending.pause : t.hints[s];
+  const hint = stopping ? t.pending.pause : t.hints[displayStatus(task)];
   const pending = acting && acting !== 'internet' && acting !== 'db' ? t.pending[acting] : stopping ? t.pending.pause : null;
   // the one lifecycle action of the header; a failed or interrupted setup is retried at its step ("Ab hier erneut versuchen")
   const stepRetry = task.steps.some(x => canRetryFrom(task, x));
@@ -228,7 +230,8 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
             </div>
           )}
           {/* screenshots (only those the user took) sit inside the form, above its footer: the button stays at the bottom of the tab while scrolling */}
-          {shown === 'pr' && s !== 'done' && !task.repo && <GithubProjectCard task={task} onCreated={setTask} />}
+          {shown === 'pr' && s !== 'done' && !task.repo && <GithubProjectCard task={task} onCreated={next => { setTask(next); setGhCreated(next.repo || null); }} />}
+          {ghCreated && task.repo === ghCreated && !task.pr && <p className={styles.okBox} role="status">✓ {all.sandbox.ghProject.done(ghCreated)}</p>}
           {shown === 'pr' && (task.repo || s === 'done') && (s !== 'done'
             ? <PublishCard task={task} proposal={proposal ?? null} onPublished={r => {
               setTask(r.task); setPrTick(n => n + 1); setPublished(r); onPublished?.(r);

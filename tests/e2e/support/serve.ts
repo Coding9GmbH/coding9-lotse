@@ -25,7 +25,7 @@ fs.mkdirSync(remoteRoot, { recursive: true });
 const themeRepo = makePluginRepo(remoteRoot, { repo: 'acme/shop-theme', name: 'AcmeShopTheme', theme: true, files: { [HEADER_TEMPLATE]: headerTemplate('Lotse Test-Header') } });
 makeProjectRepo(remoteRoot, { repo: 'acme/shop' }); // a whole Shopware project (A19)
 // A20: a plugin whose .lotse/sandbox.json brings setup commands (approval in the start dialog), and a repository Lotse does not know
-makePluginRepo(remoteRoot, { repo: 'acme/flex-plugin', name: 'AcmeFlex', files: { '.lotse/sandbox.json': JSON.stringify({ commands: [{ label: 'Demodaten anlegen', command: 'bin/console framework:demodata', phase: 'after-db' }], env: ['STRIPE_KEY'], previewPath: '/', notes: 'Testkunde: test@example.com' }, null, 2) } });
+makePluginRepo(remoteRoot, { repo: 'acme/flex-plugin', name: 'AcmeFlex', files: { '.lotse/sandbox.json': JSON.stringify({ commands: [{ label: 'Demodaten anlegen', command: 'bin/console framework:demodata', phase: 'after-db' }], env: ['STRIPE_KEY'], previewPath: '/de/', notes: 'Testkunde: test@example.com' }, null, 2) } });
 makePluginRepo(remoteRoot, { repo: 'acme/tools', composer: { name: 'acme/tools', type: 'library' }, files: { 'package.json': '{"name":"tools"}\n' } });
 
 const shop = await startFakeShopify({ port: E2E.shopPort, log: false });

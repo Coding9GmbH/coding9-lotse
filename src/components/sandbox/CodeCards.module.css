@@ -23,6 +23,7 @@
 .sbx_failed { color: var(--warn); }
 .sbx_failed i { background: var(--coral-d); }
 .sbx_waking i { animation: pulse 1s infinite; }
+.sbx_approval { color: var(--ink); }
 .sbx_finished { color: var(--green-d); }
 .sbxCheck { flex: none; align-self: center; color: var(--green-d); }
 
