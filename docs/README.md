@@ -13,7 +13,7 @@
 
 Code-Aufgaben in einer Entwicklungsumgebung mit Git und eigenem Test-Shop (Docker), in der Claude Code oder Codex arbeiten. Wo was steht:
 
-- **Bedienen:** [Sandbox im Chat](benutzerhandbuch.md#sandbox-coding-sandbox-im-chat) (Reiter, Daten, Konsole, mit der KI arbeiten, zur Prüfung freigeben), [Sandbox starten: jeder Fall](benutzerhandbuch.md#sandbox-starten-jeder-fall) (Plugin, neues Plugin, ganzes Projekt, eigenes Setup, ohne Projekt, `.lotse/sandbox.json`, Hinweise für die KI), [Ganzes Shopware-Projekt](benutzerhandbuch.md#ganzes-shopware-projekt), [Ohne Entwickler: so baust du ein eigenes Plugin](benutzerhandbuch.md#ohne-entwickler-so-baust-du-ein-eigenes-plugin)
+- **Bedienen:** [Sandbox im Chat](benutzerhandbuch.md#sandbox-coding-sandbox-im-chat) (Reiter, Daten, Konsole, mit der KI arbeiten, zur Prüfung freigeben), [Sandbox starten: jeder Fall](benutzerhandbuch.md#sandbox-starten-jeder-fall) (Plugin, neues Plugin, ganzes Projekt, eigenes Setup, ohne Projekt, `.lotse/sandbox.json`, Hinweise für die KI), [Schnellstarts](benutzerhandbuch.md#schnellstarts-gespeicherte-setups), [Ganzes Shopware-Projekt](benutzerhandbuch.md#ganzes-shopware-projekt), [Ohne Entwickler: so baust du ein eigenes Plugin](benutzerhandbuch.md#ohne-entwickler-so-baust-du-ein-eigenes-plugin)
 - **Betreiben:** [Sandbox Coding aktivieren](self-hosting.md#sandbox-coding-aktivieren) (Docker, Netze, Variablen, Einrichtungsschritte, Dumps)
 - **Verstehen und prüfen:** [Chats mit Sandbox](architektur.md#chats-mit-sandbox-sandbox-coding) (Werkzeuge, Konsole, Veröffentlichen, alle Fälle), [`SECURITY.md`](../SECURITY.md) (Sicherheitsmodell)
 
