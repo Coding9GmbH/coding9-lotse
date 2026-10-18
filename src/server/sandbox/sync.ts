@@ -11,6 +11,7 @@ import {
   CONFIG_STAGE, PROJECT_PARSE_PHP, SYNC_MANIFEST, isProjectConfig, isUncheckedConfig, overrideFile, overrideYaml, parseConfigOutput, planConfig, projectSyncPath, realDir,
   type ConfigPlan, type ProjectRuntime, type Quarantine,
 } from './project';
+import { targetPathProblem } from '@/lib/sandbox-task';
 import type { SandboxRunner } from './runner';
 import { writeTar, type TarEntry } from './tar';
 
@@ -88,20 +89,30 @@ export function collectAll(root: string, prefix: string, b: SyncBudget = syncBud
 export interface SyncTarget { runner: SandboxRunner; containerId: string; worktree: string; /** absolute directory in the container, e.g. /var/www/html/custom/plugins/AcmeTheme */ target: string; user: string; signal?: AbortSignal;
   /** a full project (target = the shop's root): what the container said during the setup (null = not asked yet: config files are not
    *  synced) and the files the boot check took out */
-  project?: { runtime: ProjectRuntime | null; held: Record<string, Quarantine> } }
+  project?: { runtime: ProjectRuntime | null; held: Record<string, Quarantine> };
+  /** "Eigenes Setup": target is the user's folder (below /var/www, /opt or /srv); the repository is laid over it, nothing else there is removed */
+  custom?: boolean }
 
-const checkTarget = (t: string) => {
-  if (!/^\/var\/www\/html\/custom\/plugins\/[A-Z][A-Za-z0-9]{1,60}$/.test(t)) throw new Error('Ungültiges Zielverzeichnis im Container.');
+const checkTarget = (t: string, custom = false) => {
+  if (custom ? targetPathProblem(t) !== null : !/^\/var\/www\/html\/custom\/plugins\/[A-Z][A-Za-z0-9]{1,60}$/.test(t)) throw new Error('Ungültiges Zielverzeichnis im Container.');
   return { parent: path.posix.dirname(t), base: path.posix.basename(t) };
 };
-const rm = (s: SyncTarget, flags: '-f' | '-rf', abs: string) =>
-  s.runner.exec(s.containerId, ['rm', flags, '--', abs], { user: s.user, timeoutMs: 120_000, signal: s.signal }).then(r => {
+/** What the last full sync of an own setup wrote (first line: the target): files the repository no longer has are removed next time */
+export const CUSTOM_MANIFEST = '/var/tmp/lotse-custom-sync.txt';
+/** The target's parent folders as root (an own setup may name /opt/app, which www-data cannot create); the target itself comes with the archive */
+const ensureParent = async (s: SyncTarget, parent: string) => {
+  const r = await s.runner.exec(s.containerId, ['mkdir', '-p', '--', parent], { user: 'root', timeoutMs: 30_000, signal: s.signal });
+  if (r.exitCode !== 0) throw new Error(`Ordner ${parent} im Container nicht angelegt: ${r.output.trim().slice(-200)}`);
+};
+const rm = (s: SyncTarget, flags: '-f' | '-rf', ...abs: string[]) =>
+  s.runner.exec(s.containerId, ['rm', flags, '--', ...abs], { user: s.user, timeoutMs: 120_000, signal: s.signal }).then(r => {
     if (r.exitCode !== 0) throw new Error(`Löschen im Container fehlgeschlagen: ${r.output.trim().slice(-200)}`);
   });
 
 /** Full mirror: the plugin directory is removed and written again from the workspace. A project: see syncProjectAll. */
 export async function syncAll(s: SyncTarget): Promise<{ files: number; bytes: number; config?: ConfigPlan | null }> {
   if (s.project) return syncProjectAll(s);
+  if (s.custom) return syncCustomAll(s);
   const { parent, base } = checkTarget(s.target);
   const entries = collectAll(s.worktree, base);
   const tar = writeTar(entries, WWW_DATA);
@@ -113,7 +124,8 @@ export async function syncAll(s: SyncTarget): Promise<{ files: number; bytes: nu
 /** Changed paths only: existing files are uploaded (with their parent directories), missing ones are deleted in the container. */
 export async function syncPaths(s: SyncTarget, rels: string[]): Promise<{ put: number; removed: number; config?: ConfigPlan | null }> {
   if (s.project) return syncProjectPaths(s, rels);
-  const { parent, base } = checkTarget(s.target);
+  const { parent, base } = checkTarget(s.target, s.custom);
+  if (s.custom) await ensureParent(s, parent);
   const entries: TarEntry[] = [], dirs = new Set<string>(), gone: string[] = [], b = syncBudget();
   for (const raw of rels) {
     const rel = guardRel(raw);
@@ -130,6 +142,24 @@ export async function syncPaths(s: SyncTarget, rels: string[]): Promise<{ put: n
   if (entries.length) await s.runner.putArchive(s.containerId, parent, writeTar([{ path: base, type: 'dir' }, ...entries], WWW_DATA));
   for (const rel of gone) await rm(s, '-f', `${s.target}/${rel}`);
   return { put: entries.filter(e => e.type !== 'dir').length, removed: gone.length };
+}
+
+/** Full sync of an own setup: every file of the repository is written over the target folder (created if missing, owned by www-data);
+ *  what the previous full sync wrote there and the repository no longer has is removed – nothing else in the target. */
+export async function syncCustomAll(s: SyncTarget): Promise<{ files: number; bytes: number }> {
+  const { parent, base } = checkTarget(s.target, true);
+  const entries = collectAll(s.worktree, base);
+  const written = entries.filter(e => e.type !== 'dir').map(e => e.path.slice(base.length + 1));
+  const old = await s.runner.exec(s.containerId, ['cat', CUSTOM_MANIFEST], { user: s.user, timeoutMs: 30_000, signal: s.signal }).catch(() => ({ exitCode: 1, output: '' }));
+  const [oldTarget, ...oldFiles] = old.exitCode === 0 ? old.output.split('\n').map(l => l.trim()) : [];
+  const now = new Set(written);
+  const stale = oldTarget === s.target ? oldFiles.filter(r => r && !now.has(r)).flatMap(r => { try { return [guardRel(r)]; } catch { return []; } }) : [];
+  await ensureParent(s, parent);
+  const tar = writeTar(entries, WWW_DATA);
+  await s.runner.putArchive(s.containerId, parent, tar);
+  for (let i = 0; i < stale.length; i += 200) await rm(s, '-f', ...stale.slice(i, i + 200).map(r => `${s.target}/${r}`));
+  await s.runner.putArchive(s.containerId, path.posix.dirname(CUSTOM_MANIFEST), writeTar([{ path: path.posix.basename(CUSTOM_MANIFEST), type: 'file', data: Buffer.from(`${[s.target, ...written].join('\n')}\n`), mode: 0o644 }], WWW_DATA));
+  return { files: written.length, bytes: tar.length };
 }
 const isLink = (p: string) => { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } };
 

@@ -105,7 +105,7 @@ test('new project: owners are the user and its organisations; a private README-o
   assert.ok(gh.calls.some(c => c.method === 'POST' && c.path === '/orgs/acme/repos'));
 
   // the start dialog's probe sees an empty project and suggests the technical name; the sandbox builds a new plugin in it
-  assert.deepEqual(await (await probeRoute.GET(new Request('http://127.0.0.1/api/sandbox/repo-probe?repo=mia-shop/versandhinweis-plugin&branch=main'))).json(), { empty: true, suggestedName: 'VersandhinweisPlugin' });
+  assert.deepEqual(await (await probeRoute.GET(new Request('http://127.0.0.1/api/sandbox/repo-probe?repo=mia-shop/versandhinweis-plugin&branch=main'))).json(), { empty: true, suggestedName: 'VersandhinweisPlugin', detected: { kind: 'new', name: 'VersandhinweisPlugin' }, repoFile: null });
   const created = await tasksRoute.POST(new Request('http://127.0.0.1/api/sandbox/tasks', { method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ chatId: crypto.randomUUID(), repo: 'mia-shop/versandhinweis-plugin', baseBranch: 'main', pluginName: 'MiaShippingNote' }) }));
   assert.equal(created.status, 201);

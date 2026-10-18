@@ -13,7 +13,7 @@ import path from 'node:path';
 import type { ChatEvent, CodeTaskStatus } from '@/lib/protocol';
 import { errorSummary } from '@/lib/sandbox-task';
 import { codeTaskDelete } from '../db';
-import { cloneRepo } from '../git';
+import { cloneRepo, initLocalRepo } from '../git';
 import { log } from '../log';
 import { chatExists, noteChatEvent } from '../sessions';
 import { redact } from '../settings';
@@ -35,7 +35,10 @@ import { streamFileTar, writeTar } from './tar';
 import { getTemplate, resolveCommand } from './templates';
 import { waitReady } from './templates/dockware';
 import type { StepCtx } from './templates/types';
-import { appendLog, emitTask, getTask, httpStatusOf, listTasks, markStopping, mustTask, now, publicTask, publishRunning, sandboxOrigin, saveTask, setTaskDump, taskPaths, turnRunning, type CodeTask, type StoredStep } from './tasks';
+import { REPO_FILE, RepoFileError, readRepoFile, repoFileApproved, repoFileImage } from './repo-config';
+import { appendLog, commandDir, effectiveMode, effectiveTarget, emitTask, getTask, httpStatusOf, listTasks, markStopping, mustTask, now, placeRepoSteps, publicTask, publishRunning, sandboxOrigin, saveTask, setTaskDump, taskImage, taskPaths, turnRunning, type CodeTask, type StoredStep } from './tasks';
+/** Author of the empty start commit of a sandbox without a project (the same identity publishing commits with) */
+const LOTSE_AUTHOR = { name: 'Lotse', email: 'lotse@users.noreply.github.com' };
 
 export class TaskConflict extends Error { readonly status = 409; }
 /** Statuses in which the task's container is about to run even if it is not started yet. */
@@ -184,7 +187,8 @@ async function execute(id: string, from: number, signal: AbortSignal) {
       if (signal.aborted) throw new Error('Abgebrochen.');
       const ctx = stepCtx(t, step, stepSignal, limit);
       if (startIdx >= 0 && i > startIdx) await ensureRunning(t, ctx);
-      const r = step.key === 'custom' ? await ctx.run(['bash', '-lc', step.command ?? 'false'], { timeoutMs: limit }) : await def?.run?.(ctx);
+      if (step.key === 'detect-layout') await applyRepoFile(t, ctx);
+      const r = step.key === 'custom' ? await ctx.run(['bash', '-lc', step.command ?? 'false'], { timeoutMs: limit, workdir: commandDir(t, step, tpl.workdir) }) : await def?.run?.(ctx);
       step.state = r === 'skipped' ? 'skipped' : 'done';
     } catch (e) {
       const stopped = signal.aborted, timedOut = !stopped && stepSignal.aborted;
@@ -205,6 +209,43 @@ async function execute(id: string, from: number, signal: AbortSignal) {
   }
   t.status = 'ready'; t.lastActiveAt = now();
   saveTask(t);
+}
+
+/** The repository's .lotse/sandbox.json (repo-config.ts), read before the layout is detected: mode, target, image, preview path and notes
+ *  apply at once; its commands become steps only when a human approved exactly this content – otherwise the step stops and the views
+ *  show the commands with "Erlauben" / "Ohne diese Befehle" (POST …/repo-file). A sandbox without a project has no such file. */
+async function applyRepoFile(t: CodeTask, ctx: StepCtx): Promise<void> {
+  placeRepoSteps(t, t.template, []); // the file decides again (it may have changed or gone)
+  if (t.setup?.source === 'none') { t.repoFile = null; return; }
+  let f;
+  try { f = readRepoFile(taskPaths(t.id).worktree); } catch (e) {
+    if (e instanceof RepoFileError) throw new Error(`${e.message}\nDatei im Projekt korrigieren (oder entfernen) und die Einrichtung ab „Plugin erkennen“ wiederholen.`);
+    throw e;
+  }
+  const cfg = getSandboxConfig(), tpl = getTemplate(t.template);
+  if (!f) { t.repoFile = null; t.image = null; t.previewPath = null; saveTask(t, false); return; }
+  ctx.log(`${REPO_FILE} gefunden${f.mode ? ` – Modus „${f.mode}“` : ''}${f.commands.length ? `, ${f.commands.length} Einrichtungsbefehl(e)` : ''}.`);
+  if (f.ignored.length) ctx.log(`Hinweis: Unbekannte Angaben in ${REPO_FILE} werden ignoriert: ${f.ignored.join(', ')}`);
+  const image = f.image ? repoFileImage(f.image, cfg.image, tpl) : null;
+  t.image = image && image !== cfg.image ? image : null;
+  t.previewPath = f.previewPath ?? null;
+  const known = new Set([...cfg.envVars.map(v => v.key), ...(t.setup?.env ?? []).map(v => v.key)]);
+  const missing = f.env.filter(n => !known.has(n));
+  if (missing.length) ctx.log(`Warnung: Das Projekt erwartet diese Umgebungsvariablen, sie fehlen in der Umgebung: ${missing.join(', ')} (Sandbox Coding → Umgebung → Umgebungsvariablen).`);
+  let state: NonNullable<CodeTask['repoFile']>['state'] = 'none';
+  if (f.commands.length) {
+    if (repoFileApproved(t.repo, f.hash)) state = 'approved';
+    else if (t.setup?.skipRepoHash === f.hash) state = 'skipped';
+    else state = 'pending';
+  }
+  t.repoFile = { ...f, state };
+  saveTask(t);
+  if (state === 'pending') throw new Error(`Das Projekt möchte beim Einrichten ${f.commands.length === 1 ? 'einen Befehl' : `${f.commands.length} Befehle`} ausführen (${REPO_FILE}). Befehle prüfen und erlauben – oder ohne sie fortfahren.`);
+  if (state === 'skipped') ctx.log(`Die Befehle aus ${REPO_FILE} laufen nicht („Ohne diese Befehle“ gewählt).`);
+  placeRepoSteps(t, t.template, state === 'approved' ? f.commands : []);
+  if (state === 'approved') ctx.log(`Befehle aus ${REPO_FILE} erlaubt – sie laufen als eigene Schritte.`);
+  if (t.image) { ctx.log(`Image laut ${REPO_FILE}: ${t.image}`); saveTask(t); await ctx.ensureImage(); }
+  else saveTask(t);
 }
 
 /** docker start, with the template's boot file written first (also into containers created before it existed). */
@@ -243,13 +284,15 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
   const lg = (line: string) => appendLog(t, step, line, redact);
   const container = () => { if (!t.containerId) throw new Error('Kein Container für diese Aufgabe.'); return t.containerId; };
   return {
-    taskId: t.id, repo: t.repo, baseBranch: t.baseBranch, image: getSandboxConfig().image, worktree: p.worktree, signal, log: lg,
+    taskId: t.id, repo: t.repo, baseBranch: t.baseBranch, get image() { return taskImage(t); }, worktree: p.worktree, signal, log: lg,
     layout: () => t.layout,
+    mode: () => effectiveMode(t),
+    targetPath: () => effectiveTarget(t),
     setLayout: l => { t.layout = l; saveTask(t, false); },
     newPluginName: t.pluginName ?? null,
     ignoreProjectVersion: !!t.ignoreProjectVersion,
     run: async (cmd, o = {}) => {
-      const r = Array.isArray(cmd) ? { argv: cmd as readonly string[], user: tpl.execUser, workdir: tpl.workdir, timeoutMs: o.timeoutMs ?? limit, maxOutput: MAX_OUTPUT }
+      const r = Array.isArray(cmd) ? { argv: cmd as readonly string[], user: tpl.execUser, workdir: o.workdir ?? tpl.workdir, timeoutMs: o.timeoutMs ?? limit, maxOutput: MAX_OUTPUT }
         : resolveCommand(tpl, (cmd as { command: string }).command, (cmd as { args?: Record<string, string> }).args, { pluginDir: t.layout?.pluginDir ?? '' });
       if (!o.quiet) lg(`$ ${step.key === 'custom' && step.command ? step.command.split('\n')[0].slice(0, 200) : r.argv.map(a => (a.length > 80 ? `${a.slice(0, 77)}…` : a)).join(' ')}`);
       const res = await runner.exec(container(), r.argv, { user: r.user, workdir: r.workdir, timeoutMs: Math.min(o.timeoutMs ?? r.timeoutMs, limit), maxOutput: r.maxOutput, signal });
@@ -262,13 +305,14 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
     },
     ensureImage: async () => {
       let last = 0;
-      const { pulled } = await runner.ensureImage(getSandboxConfig().image, pr => { if (Date.now() - last > 2000 || pr.pct === 100) { last = Date.now(); lg(`${pr.text}${pr.pct !== undefined ? ` (${pr.pct} %)` : ''}`); } }, signal);
+      const { pulled } = await runner.ensureImage(taskImage(t), pr => { if (Date.now() - last > 2000 || pr.pct === 100) { last = Date.now(); lg(`${pr.text}${pr.pct !== undefined ? ` (${pr.pct} %)` : ''}`); } }, signal);
       lg(pulled ? 'Image geladen.' : 'Image ist vorhanden.');
     },
     clone: async () => {
       removeShotFiles(t.id); t.shots = []; // a fresh base: earlier screenshots no longer show it
       fs.rmSync(p.workspace, { recursive: true, force: true });
       fs.rmSync(p.gitDir, { recursive: true, force: true });
+      if (t.setup?.source === 'none') return initLocalRepo(t.baseBranch, p.worktree, p.gitDir, LOTSE_AUTHOR);
       return cloneRepo(t.repo, t.baseBranch, p.worktree, p.gitDir, { signal });
     },
     createContainer: async () => {
@@ -281,12 +325,14 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
       if (tpl.database && t.dbVolume && !t.dump?.library) await runner.removeVolume(taskDbVolume(t.id)); // its stored database was replaced
       if (tpl.database && t.dump?.library && !t.dump.deletedAt) {
         Object.assign(t.dump, { imported: false, restored: null }); // a new container: its database is the image's until imported or restored
-        const r = await prepareTaskDb({ taskId: t.id, dumpId: t.dump.id, image: cfg.image, log: lg, signal });
+        const r = await prepareTaskDb({ taskId: t.id, dumpId: t.dump.id, image: taskImage(t), log: lg, signal });
         dbVolume = r.volume;
-        if (r.restored) t.dump.restored = { image: cfg.image, at: now() };
+        if (r.restored) t.dump.restored = { image: taskImage(t), at: now() };
       }
       t.dbVolume = !!dbVolume; saveTask(t, false);
-      const spec = tpl.buildSpec({ taskId: t.id, image: cfg.image, memoryMb: cfg.memoryMb, cpus: cfg.cpus, env: cfg.env, ...(dbVolume ? { dbVolume } : {}) });
+      // the sandbox's own variables (start dialog) win over the environment's of the same name
+      const own = t.setup?.env ?? [], env = [...cfg.env.filter(e => !own.some(v => e.startsWith(`${v.key}=`))), ...own.map(v => `${v.key}=${v.value}`)];
+      const spec = tpl.buildSpec({ taskId: t.id, image: taskImage(t), memoryMb: cfg.memoryMb, cpus: cfg.cpus, env, ...(dbVolume ? { dbVolume } : {}) });
       t.containerId = await runner.create(spec);
       t.mode = mode;
       saveTask(t, false);

@@ -120,7 +120,16 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
   'check-image': ctx => ctx.ensureImage(),
   clone: async ctx => { const { head } = await ctx.clone(); ctx.log(`Commit ${head.slice(0, 12)}`); },
   'detect-layout': async ctx => {
+    const mode = ctx.mode();
+    if (mode === 'custom') {
+      const target = ctx.targetPath(), name = (ctx.repo.split('/').pop() || 'projekt').slice(0, 100);
+      ctx.setLayout({ kind: 'custom', name, pluginDir: '', targetPath: target });
+      ctx.log(`Eigenes Setup: Das Repository kommt nach ${target}. Lotse installiert und kompiliert nichts – die Einrichtung liegt in deiner Hand (eigene Befehle, Umgebungsvariablen).`);
+      return;
+    }
     const l = detectLayout(ctx.worktree, { newPluginName: ctx.newPluginName, repo: ctx.repo });
+    if (mode === 'project' && l.kind !== 'project') throw new Error(`Gewählt ist „Ganzes Shopware-Projekt“, erkannt wurde aber ${l.isNew ? 'ein leeres Repository' : `ein einzelnes ${l.kind === 'theme' ? 'Theme' : 'Plugin'} (${l.name})`}. Sandbox abschließen und mit „Automatisch“ oder „Eigenes Setup“ neu starten.`);
+    if (mode === 'plugin' && l.kind === 'project') throw new Error('Gewählt ist „Plugin oder Theme“, erkannt wurde aber ein ganzes Shopware-Projekt. Sandbox abschließen und mit „Automatisch“ neu starten.');
     if (l.kind === 'project') return projectLayout(ctx, l);
     ctx.setLayout(l);
     ctx.log(l.isNew
@@ -131,6 +140,11 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
   'wait-ready': ctx => waitReady(ctx),
   'install-plugin': async ctx => {
     if (ctx.layout()?.kind === 'project') return installProject(ctx);
+    if (ctx.layout()?.kind === 'custom') {
+      await ctx.syncAll();
+      ctx.log('Eigenes Setup: Code übertragen. Installiert wird nur, was die eigenen Befehle tun (Umgebung, „Sandbox starten“ → Erweitert oder .lotse/sandbox.json).');
+      return;
+    }
     const l = pluginName(ctx);
     await ctx.syncAll();
     if (l.isNew) { ctx.log(`Neues Plugin: Es gibt noch nichts zu installieren. Sobald composer.json und die Plugin-Klasse angelegt sind, installiert die KI es mit bin/console plugin:install --activate ${l.name}.`); return 'skipped'; }
@@ -151,17 +165,25 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
   'db-snapshot': async ctx => { if ((await ctx.saveDbSnapshot()) === 'skipped') return 'skipped'; await waitReady(ctx); },
   // cosmetic for the preview (and screenshots taken by hand): a failure only skips the step (the preview proxy hides both by CSS as well)
   'preview-tidy': async ctx => {
+    if (ctx.layout()?.kind === 'custom') { ctx.log('Eigenes Setup: Lotse ändert am Shop nichts.'); return 'skipped'; }
     try { await ctx.run(TIDY_ARGV, { timeoutMs: 2 * MIN }); ctx.log('Debug-Leiste und Cookie-Hinweis in der Sandbox ausgeschaltet.'); }
     catch (e) { if (ctx.signal.aborted) throw e; ctx.log(`Übersprungen: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`); return 'skipped'; }
   },
   'theme-compile': async ctx => {
     // a new plugin changes nothing yet; an imported dump still needs its themes compiled and the warm cache cleared
+    if (ctx.layout()?.kind === 'custom') { ctx.log('Eigenes Setup: kein Theme-Kompilieren durch Lotse.'); return 'skipped'; }
     if (ctx.layout()?.isNew && !ctx.hasDump()) { ctx.log('Neues Plugin: Die Storefront bleibt vorerst unverändert; kompiliert wird, sobald das Plugin Styles oder Templates mitbringt.'); return 'skipped'; }
     await ctx.run(bin('theme:compile')); await ctx.run(bin('cache:clear'));
     // a project's changes (theme, apps, plugins at once): the HTTP cache kept serving the old start page after cache:clear alone
     if (ctx.layout()?.kind === 'project') await ctx.run(bin('cache:pool:clear', '--all'), { okCodes: [0, 1] });
   },
-  ready: async ctx => { const s = await ctx.httpStatus('/'); if (s !== 200) throw new Error(`Die Storefront antwortet mit HTTP ${s}.`); },
+  ready: async ctx => {
+    const custom = ctx.layout()?.kind === 'custom';
+    const s = await ctx.httpStatus('/').catch((e: unknown) => { if (custom) return 0; throw e; });
+    // an own setup decides itself what runs: the status is reported, not judged
+    if (custom) { ctx.log(`Die Startseite des Containers antwortet mit HTTP ${s || '–'}.`); return; }
+    if (s !== 200) throw new Error(`Die Storefront antwortet mit HTTP ${s}.`);
+  },
 };
 const step = (id: TemplateStep['id'], timeoutMs: number, extra: Partial<TemplateStep> = {}): TemplateStep => ({ id, labelKey: id, timeoutMs, run: RUNS[id], ...extra });
 const STEPS: TemplateStep[] = [
@@ -352,7 +374,7 @@ export const dockware: SandboxTemplate = {
   commands: COMMANDS,
   buildSpec,
   detectLayout,
-  syncTarget: l => (l.kind === 'project' ? '/var/www/html' : `/var/www/html/${l.pluginDir}`),
+  syncTarget: l => (l.kind === 'project' ? '/var/www/html' : l.kind === 'custom' ? l.targetPath ?? '' : `/var/www/html/${l.pluginDir}`),
   execUser: 'www-data',
   workdir: '/var/www/html',
   bootFile: { dir: '/var/www', name: 'boot_start.sh', content: BOOT_SCRIPT, mode: 0o755 },

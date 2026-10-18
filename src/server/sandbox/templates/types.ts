@@ -1,6 +1,6 @@
 // Sandbox templates: a fixed recipe per platform (image pattern, setup steps, allow-listed commands).
 // Templates are code, never configuration: neither the AI nor chat input can add steps or commands.
-import type { CommandPhase, SandboxStepKey, SandboxCommandKey, TaskLayout } from '@/lib/protocol';
+import type { CommandPhase, SandboxMode, SandboxStepKey, SandboxCommandKey, TaskLayout } from '@/lib/protocol';
 import type { ConfigPlan } from '../project';
 import type { ContainerSpec } from '../runner';
 
@@ -13,12 +13,16 @@ export interface StepCtx {
   /** detected by detect-layout; null before */
   layout: () => TaskLayout | null;
   setLayout: (l: TaskLayout) => void;
+  /** A20: how the code goes into the container (start dialog, else .lotse/sandbox.json, else detected = 'auto') */
+  mode: () => SandboxMode;
+  /** target folder of an own setup (mode 'custom') */
+  targetPath: () => string;
   /** technical name the user chose for a new plugin (used only if the cloned repository is empty) */
   newPluginName: string | null;
   /** a full project whose Shopware version differs from the image: the user chose "Trotzdem fortfahren" */
   ignoreProjectVersion: boolean;
   /** a fixed argv or the id of an allow-listed command; never a shell string from input. Throws on a non-zero exit (with the output's tail). */
-  run: (cmd: readonly string[] | { command: SandboxCommandKey; args?: Record<string, string> }, o?: { timeoutMs?: number; okCodes?: number[]; /** polling: neither the command nor its output go to the log */ quiet?: boolean }) => Promise<{ exitCode: number; output: string }>;
+  run: (cmd: readonly string[] | { command: SandboxCommandKey; args?: Record<string, string> }, o?: { timeoutMs?: number; okCodes?: number[]; /** another working directory (own commands of an own setup: its target) */ workdir?: string; /** polling: neither the command nor its output go to the log */ quiet?: boolean }) => Promise<{ exitCode: number; output: string }>;
   ensureImage: () => Promise<void>;
   /** fresh clone of repo@baseBranch into the task workspace (an old one is removed first) */
   clone: () => Promise<{ head: string }>;

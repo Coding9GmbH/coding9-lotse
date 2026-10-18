@@ -27,6 +27,7 @@ const schema = z.object({
   screenshots: z.boolean().optional(),
   screenshotPaths: z.array(z.string().max(300)).max(20).optional(),
   defaultDumpId: z.string().max(40).optional(),
+  aiNotes: z.string().max(8000).optional(),
 }).strict();
 
 async function view(): Promise<SandboxEnvView> {

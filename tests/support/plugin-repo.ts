@@ -47,6 +47,14 @@ export function makePluginRepo(root: string, o: { repo?: string; name?: string; 
   return { remoteBase, bare, repo, name };
 }
 
+/** An empty bare repository (no commit, no branch) – what GitHub creates without auto_init; a local history is pushed into it. */
+export function makeBareRepo(root: string, repo: string): PluginRepo {
+  const remoteBase = path.join(root, 'remote'), bare = path.join(remoteBase, `${repo}.git`);
+  fs.mkdirSync(bare, { recursive: true });
+  git(['init', '--bare', '-q', bare], root);
+  return { remoteBase, bare, repo, name: '' };
+}
+
 const pluginComposer = (vendor: string, name: string, o: { require?: Record<string, string>; version?: string } = {}) => JSON.stringify({
   name: `${vendor}/${name.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase()}`, type: 'shopware-platform-plugin', description: `${name} (Lotse-Test)`, version: o.version ?? '1.0.0', license: 'proprietary',
   autoload: { 'psr-4': { [`Acme\\${name}\\`]: 'src/' } }, extra: { 'shopware-plugin-class': `Acme\\${name}\\${name}`, label: { 'de-DE': name, 'en-GB': name } }, require: { 'shopware/core': '~6.7.0', ...o.require } }, null, 2);

@@ -57,11 +57,12 @@ export function shortPath(p: string, max = 44): string {
   return parts.length ? `${parts[0]}/…/${tail}` : file;
 }
 
-/** Why a pending step will be skipped anyway: no dump (version check, import) or a new plugin from an empty repository (nothing to
- *  install, nor to compile unless a dump was imported). Shown as "wird übersprungen" from the start; null = it runs. */
-export function skipReason(task: Pick<CodeTaskPublic, 'dump'> & { layout?: CodeTaskPublic['layout'] }, s: Pick<TaskStep, 'key' | 'state'>): 'noDump' | 'newPlugin' | null {
+/** Why a pending step will be skipped anyway: no dump (version check, import), a new plugin from an empty repository (nothing to
+ *  install, nor to compile unless a dump was imported) or an own setup (Lotse neither tidies the shop nor compiles its theme). Shown as "wird übersprungen" from the start; null = it runs. */
+export function skipReason(task: Pick<CodeTaskPublic, 'dump'> & { layout?: CodeTaskPublic['layout'] }, s: Pick<TaskStep, 'key' | 'state'>): 'noDump' | 'newPlugin' | 'custom' | null {
   if (s.state !== 'pending') return null;
   if (!task.dump && (s.key === 'version-check' || s.key === 'import-db')) return 'noDump';
+  if (task.layout?.kind === 'custom' && (s.key === 'preview-tidy' || s.key === 'theme-compile')) return 'custom';
   if (task.layout?.isNew && (s.key === 'install-plugin' || (s.key === 'theme-compile' && !task.dump))) return 'newPlugin';
   return null;
 }
@@ -119,3 +120,24 @@ export function publishSteps(p: CodeTaskPublic['publish']): Record<(typeof PUBLI
  *  stream says "ready"), so an older snapshot never replaces a newer one. */
 export const newerTask = (cur: CodeTaskPublic | null, next: CodeTaskPublic): CodeTaskPublic =>
   cur && cur.id === next.id && Date.parse(cur.updatedAt) > Date.parse(next.updatedAt) ? cur : next;
+
+// ---- "Eigenes Setup" (A20): where the code goes in the container ----
+/** Roots below which an own setup may place the code (a folder strictly below one of them) */
+export const TARGET_ROOTS = ['/var/www', '/opt', '/srv'] as const;
+/** Why a target path is not accepted ('absolute': not absolute or not normalized, 'chars': characters outside letters, digits . _ -,
+ *  'root': not below an allowed root), null = fine */
+export function targetPathProblem(p: string): 'absolute' | 'chars' | 'root' | null {
+  if (!p.startsWith('/') || p.length > 200 || p.endsWith('/') || p.includes('//')) return 'absolute';
+  const segs = p.slice(1).split('/');
+  if (segs.some(s => s === '.' || s === '..')) return 'absolute';
+  if (segs.some(s => !/^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/.test(s))) return 'chars';
+  if (segs.length > 8 || !TARGET_ROOTS.some(r => p.startsWith(`${r}/`))) return 'root';
+  return null;
+}
+/** Suggested target for an own setup: /opt/<repository name> (lower case, safe characters), /opt/app without one */
+export function suggestTargetPath(repo: string): string {
+  const name = (repo.split('/').pop() ?? '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[^a-z0-9_]+/, '').slice(0, 60);
+  return `/opt/${name || 'app'}`;
+}
+/** A preview start path (.lotse/sandbox.json "previewPath"): a storefront path beginning with "/", without host, spaces or backslashes */
+export const PREVIEW_PATH = /^\/(?!\/)[A-Za-z0-9._~!$&'()*+,;=:@%/?-]{0,299}$/;

@@ -154,13 +154,13 @@ export type CreateRepoError = 'name' | 'owner' | 'exists' | 'permission';
 /** Creates a private repository with a README on `main` (auto_init: the clone then has a branch to start from, and the README alone
  *  still counts as an empty repository, i.e. a new plugin). `owner` must be one of listRepoOwners(). Throws with `code` set for the
  *  cases the caller words itself (name invalid, owner unknown, name taken, token may not create repositories). */
-export async function createRepo(p: { owner: string; name: string; description?: string }): Promise<GithubRepo> {
+export async function createRepo(p: { owner: string; name: string; description?: string; /** false: no README, an empty repository (a local history is pushed into it) */ autoInit?: boolean }): Promise<GithubRepo> {
   const err = (code: CreateRepoError, m: string = code) => Object.assign(new Error(m), { code });
   if (typeof p.name !== 'string' || !REPO_NAME.test(p.name)) throw err('name');
   const owner = (await listRepoOwners()).find(o => o.login.toLowerCase() === String(p.owner).toLowerCase());
   if (!owner) throw err('owner');
   const path = owner.kind === 'user' ? '/user/repos' : `/orgs/${encodeURIComponent(owner.login)}/repos`;
-  const body = { name: p.name, private: true, auto_init: true, has_wiki: false, has_projects: false, ...(p.description ? { description: p.description.replace(/[\u0000-\u001f]/g, ' ').slice(0, 300) } : {}) };
+  const body = { name: p.name, private: true, auto_init: p.autoInit !== false, has_wiki: false, has_projects: false, ...(p.description ? { description: p.description.replace(/[\u0000-\u001f]/g, ' ').slice(0, 300) } : {}) };
   try { return toRepo((await ghFetch<RawRepo>(path, { method: 'POST', body })).data); }
   catch (e) {
     const { status, ghMessage } = e as { status?: number; ghMessage?: string };

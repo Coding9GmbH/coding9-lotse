@@ -131,6 +131,33 @@ export async function cloneRepo(repo: string, branch: string, worktree: string, 
   return { head: (await runGit(['rev-parse', 'HEAD'], { cwd: wt, gitDir: gd })).stdout.trim() };
 }
 
+/** "Ohne Projekt starten" (Sandbox Coding): an empty local repository in the same layout as a clone (worktree + separate git dir), with
+ *  one empty commit on `branch` that also stands for origin/<branch> – the base everything (diff, commits, publishing) compares to. */
+export async function initLocalRepo(branch: string, worktree: string, gitDir: string, author: GitIdentity): Promise<{ head: string }> {
+  await assertBaseBranch(branch);
+  const wt = assertAbs(worktree, 'Arbeitsordner'), gd = assertAbs(gitDir, 'Git-Ordner');
+  if (inside(gd, wt) || inside(wt, gd)) throw new Error('Git-Ordner und Arbeitsordner müssen getrennt liegen.');
+  if (fs.existsSync(gd)) throw new Error('Git-Ordner existiert bereits.');
+  fs.mkdirSync(wt, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(path.dirname(gd), { recursive: true, mode: 0o700 });
+  try {
+    await runGit(['init', '-q', '--template=', `--initial-branch=${branch}`, '--separate-git-dir', gd, wt], { cwd: path.dirname(wt) });
+    const o = { cwd: wt, gitDir: gd };
+    await runGit(['commit', '--no-verify', '--no-gpg-sign', '-q', '--allow-empty', '-m', 'Sandbox ohne Projekt gestartet'], { ...o, identity: assertIdentity(author, 'Autor') });
+    await runGit(['update-ref', `refs/remotes/origin/${branch}`, 'HEAD'], o);
+    return { head: (await runGit(['rev-parse', 'HEAD'], o)).stdout.trim() };
+  } catch (e) { fs.rmSync(gd, { recursive: true, force: true }); for (const f of fs.readdirSync(wt)) fs.rmSync(path.join(wt, f), { recursive: true, force: true }); throw e; }
+}
+
+/** "Als GitHub-Projekt anlegen": the local base (origin/<branch>, the empty start commit) becomes <branch> of the new, empty repository.
+ *  Never forced: an existing branch there makes it fail. */
+export async function pushBase(repo: string, branch: string, worktree: string, gitDir: string): Promise<void> {
+  const url = repoUrl(repo);
+  await assertBaseBranch(branch);
+  const g = { cwd: assertAbs(worktree, 'Arbeitsordner'), gitDir: assertAbs(gitDir, 'Git-Ordner') };
+  await runGit(['push', '--porcelain', '--no-verify', '--', url, `refs/remotes/origin/${branch}:refs/heads/${branch}`], { ...g, auth: true, timeoutMs: CLONE_TIMEOUT_MS });
+}
+
 const cleanMessage = (m: string) => m.replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').trim().slice(0, 5000);
 const assertIdentity = (p: GitIdentity, what: string): GitIdentity => {
   if (!p || !/^[^\n\r<>\x00]{1,100}$/.test(p.name ?? '') || !/^[^\s<>@]{1,64}@[^\s<>@]{1,190}$/.test(p.email ?? '')) throw new Error(`${what}: ungültiger Name oder E-Mail.`);

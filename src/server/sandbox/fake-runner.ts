@@ -10,7 +10,7 @@ import { COPY_FROM, COPY_TO, assertVolumeName } from './db-snapshot-spec';
 import { SHOT_DIR, SHOT_OUT, type ShotJob } from './screenshot-spec';
 import { readTar, readTarEntries, writeTar, type TarRecord } from './tar';
 
-export interface FakeCall { op: string; id?: string; argv?: string[]; user?: string; detail?: unknown }
+export interface FakeCall { op: string; id?: string; argv?: string[]; user?: string; /** exec: its working directory */ workdir?: string; detail?: unknown }
 /** A volume in the fake: `data` stands for MySQL's data directory (what was imported into it; [] = empty, as Docker creates it) */
 export interface FakeVolume { name: string; labels: Record<string, string>; data: string[] }
 type Mount = { Source: string; Target: string; ReadOnly?: boolean };
@@ -252,7 +252,7 @@ export class FakeRunner implements SandboxRunner {
     return [...this.containers.values()].filter(c => isManaged(c.spec.Labels) && Object.entries(want).every(([k, v]) => c.spec.Labels[k] === v)).map(c => this.info(c)!);
   }
   async exec(id: string, argv: readonly string[], o: ExecOpts): Promise<ExecResult> {
-    this.enter('exec', { id, argv: [...argv], user: o.user });
+    this.enter('exec', { id, argv: [...argv], user: o.user, ...(o.workdir ? { workdir: o.workdir } : {}) });
     const c = this.managed(id);
     if (!c.running) throw new Error('Container läuft nicht.');
     if (o.signal?.aborted) throw new Error('Abgebrochen.');
