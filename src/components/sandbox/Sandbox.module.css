@@ -360,3 +360,51 @@ a.iconBtn:hover { border-color: var(--dark); text-decoration: none; }
   .dbRow { grid-template-columns: minmax(0, 1fr); grid-template-areas: "title" "meta" "actions"; }
   .dbActions { justify-content: space-between; }
 }
+
+/* "Sandbox starten" in three steps (A20) */
+.wizSteps { list-style: none; margin: 0 0 4px; padding: 0; display: flex; gap: 6px; counter-reset: wiz; }
+.wizSteps li { flex: 1 1 0; min-width: 0; }
+.wizSteps button { width: 100%; display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--mute); font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+.wizSteps button:disabled { cursor: default; opacity: .6; }
+.wizSteps button[aria-current=step] { border-color: var(--green); color: var(--ink); font-weight: 600; }
+.wizSteps button span { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--line); font-size: 12px; }
+.wizSteps button[aria-current=step] span { background: var(--green); color: #fff; }
+.wizSteps button b { font-weight: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kindList { border: 0; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.kindList legend { padding: 0; margin-bottom: 6px; font-weight: 600; font-size: 14px; }
+.kindCard { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; background: var(--bg); }
+.kindCard:has(input:checked) { border-color: var(--green); background: var(--green-bg); }
+.kindCard:has(input:focus-visible) { outline: 2px solid var(--green); outline-offset: 2px; }
+.form .kindCard input { width: auto; flex: none; margin: 3px 0 0; padding: 0; }
+.kindCard b { display: block; font-size: 14px; color: var(--ink); }
+.kindCard small { display: block; font-size: 12px; color: var(--mute); margin-top: 2px; }
+.chip { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 4px 10px; border-radius: 99px; background: var(--green-bg); color: var(--green-d); font-size: 13px; font-weight: 600; align-self: flex-start; max-width: 100%; }
+.chip[data-tone=warn] { background: var(--coral-bg); color: var(--ink); }
+.chip small { font-weight: 500; color: var(--mute); }
+.chip button { border: 0; background: none; padding: 0; font: inherit; font-weight: 500; color: var(--green-d); text-decoration: underline; cursor: pointer; }
+.modeList { border: 1px solid var(--line); border-radius: 8px; margin: 8px 0 0; padding: 8px 12px; display: grid; gap: 6px; font-size: 13px; }
+.modeList legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
+.modeList label { display: flex; gap: 8px; align-items: flex-start; }
+.form .modeList input { width: auto; flex: none; margin-top: 2px; padding: 0; }
+.advanced { margin: 12px 0 0; font-size: 14px; }
+.advanced > summary { cursor: pointer; color: var(--green-d); font-weight: 600; }
+.ownRow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto auto; gap: 6px; align-items: center; margin-top: 6px; }
+.ownRow.varRow2 { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto; }
+@media (max-width: 560px) { .kindList { grid-template-columns: 1fr; } .ownRow, .ownRow.varRow2 { grid-template-columns: minmax(0, 1fr) auto; } .ownRow > :nth-child(2) { grid-column: 1 / -1; grid-row: 2; } }
+.dataList { border: 0; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.dataList legend { padding: 0; margin-bottom: 6px; font-weight: 600; font-size: 14px; }
+.dataOpt { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.dataOpt:has(> label input:checked) { border-color: var(--green); }
+.dataOpt > label { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.form .dataOpt > label input { width: auto; flex: none; margin: 3px 0 0; padding: 0; }
+.dataOpt b { display: block; font-size: 14px; }
+.dataOpt small { display: block; font-size: 12px; color: var(--mute); }
+.dataOpt > :not(label) { margin-top: 8px; }
+.wizSummary { margin: 12px 0 0; font-size: 13px; color: var(--mute); }
+/* .lotse/sandbox.json: the repository's setup commands before they run */
+.repoFile { margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--coral-d); border-radius: 8px; background: var(--bg); display: flex; flex-direction: column; gap: 6px; }
+.repoFile h3 { margin: 0; color: var(--ink); }
+.repoFile p { margin: 0; }
+.repoCmds { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 13px; }
+.repoCmds pre { margin: 4px 0 0; padding: 6px 8px; border-radius: 6px; background: var(--line); font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+.repoExtra { margin: 0; padding-left: 18px; font-size: 12px; color: var(--mute); }

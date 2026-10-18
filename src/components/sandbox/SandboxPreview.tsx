@@ -37,8 +37,9 @@ export interface PreviewShots { pages: string[]; onTaken: (task: CodeTaskPublic)
 export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, layout, shots }: { task: CodeTaskPublic; reload?: number; onSendNotes?: (text: string) => void; inTabs?: boolean; layout?: PreviewLayout; shots?: PreviewShots }) {
   const { locale, t: all } = useI18n();
   const t = all.sandbox.preview, tp = all.preview;
-  const [path, setPath] = useState('/');
-  const [typed, setTyped] = useState('/');
+  // the repository file may name the first page (.lotse/sandbox.json "previewPath")
+  const [path, setPath] = useState(task.startPath ?? '/');
+  const [typed, setTyped] = useState(task.startPath ?? '/');
   const [device, setDevice] = useState<'auto' | 'desktop' | 'mobile'>('auto'); // auto = by the frame's width
   const [reloads, setReloads] = useState(0);
   const [wake, setWake] = useState(false);

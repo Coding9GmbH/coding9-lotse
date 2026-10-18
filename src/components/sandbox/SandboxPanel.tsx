@@ -15,6 +15,7 @@ import pp from '@/components/preview/PreviewPane.module.css';
 import { ConsolePanel } from './ConsolePanel';
 import { DiffPanel } from './DiffPanel';
 import { DumpPicker } from './DumpPicker';
+import { GithubProjectCard } from './GithubProjectCard';
 import { PrCard } from './PrCard';
 import { ProjectSummary } from './ProjectSummary';
 import { PublishCard, type PrProposal } from './PublishCard';
@@ -107,6 +108,12 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
     setActing(action); setNotice(null);
     try { setTask((await api.sandbox.taskAction(task.id, action, extra)).task); } catch (e) { setNotice(t.actionFailed(errorText(e))); } finally { setActing(null); }
   }
+  /** the setup waits for the repository file's commands: allow them (remembered for this file content) or continue without */
+  async function repoFile(decision: 'approve' | 'skip', hash: string) {
+    if (!task) return;
+    setActing('start'); setNotice(null);
+    try { setTask((await api.sandbox.taskRepoFile(task.id, decision, hash)).task); } catch (e) { setNotice(t.actionFailed(errorText(e))); } finally { setActing(null); }
+  }
   async function toggleInternet(on: boolean) {
     if (!task || (on && !window.confirm(t.internet.confirm))) return;
     setActing('internet'); setNotice(null);
@@ -161,8 +168,8 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
             <h2 className={styles.headTitle} title={task.title}>{task.title}</h2>
             <TaskStatus task={task} pending={pending} />
           </div>
-          <p className={styles.headWhere} title={t.where(task.repo, task.branch, task.baseBranch)}>
-            <span className={styles.headRepo}>{middleTruncate(task.repo, 32)}</span>
+          <p className={styles.headWhere} title={t.where(task.repo || t.noRepo, task.branch, task.baseBranch)}>
+            <span className={styles.headRepo}>{task.repo ? middleTruncate(task.repo, 32) : t.noRepo}</span>
             <span className={styles.headBranch}>{task.branch}</span>
             <button type="button" className={styles.copyBtn} onClick={copyBranch} aria-label={t.copyBranch} title={copied ? t.copied : t.copyBranch}><IconCopy size={13} /></button>
             {copied && <span className={styles.copied} role="status">{t.copied}</span>}
@@ -203,12 +210,12 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
           <p className={styles.taskMeta}>
             {t.branchInfo(task.baseBranch, task.branch)} · {all.sandbox.templates[task.template] ?? task.template}
             {' · '}{task.container ? (task.container.running ? t.container.running : t.container.stopped) : t.container.none}
-            {task.layout && <> · {task.layout.kind === 'project' ? all.sandbox.project.kind(task.layout.project?.plugins.length ?? 0) : task.layout.pluginDir}</>}
+            {task.layout && <> · {task.layout.kind === 'project' ? all.sandbox.project.kind(task.layout.project?.plugins.length ?? 0) : task.layout.kind === 'custom' ? `${all.sandbox.start.detected.custom}: ${task.layout.targetPath ?? ''}` : task.layout.pluginDir}</>}
             {task.dump && <> · {(task.dump.library ? all.sandbox.dump.infoStored : all.sandbox.dump.info)(task.dump.name, task.dump.size)} ({task.dump.restored ? all.sandbox.dump.restored : task.dump.imported ? all.sandbox.dump.imported : task.dump.deleted ? all.sandbox.dump.deleted : all.sandbox.dump.waiting})</>}
           </p>
           {error && <p className={styles.muted}>{t.connection(error)}</p>}
           <ProjectSummary task={task} />
-          <StepTimeline task={task} busy={busyAct} onRetry={stepId => void act('start', { fromStep: stepId })} onIgnoreVersion={stepId => void act('start', { fromStep: stepId, ignoreVersion: true })} />
+          <StepTimeline task={task} busy={busyAct} onRepoFile={(decision, hash) => void repoFile(decision, hash)} onRetry={stepId => void act('start', { fromStep: stepId })} onIgnoreVersion={stepId => void act('start', { fromStep: stepId, ignoreVersion: true })} />
         </section>
         <section role="tabpanel" id="sbx-panel-changes" aria-labelledby="sbx-tab-changes" hidden={shown !== 'changes'} className={styles.tabBody}>
           {shown === 'changes' && <DiffPanel taskId={task.id} refresh={files + (busy ? 0 : 1)} />}
@@ -221,7 +228,8 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
             </div>
           )}
           {/* screenshots (only those the user took) sit inside the form, above its footer: the button stays at the bottom of the tab while scrolling */}
-          {shown === 'pr' && (s !== 'done'
+          {shown === 'pr' && s !== 'done' && !task.repo && <GithubProjectCard task={task} onCreated={setTask} />}
+          {shown === 'pr' && (task.repo || s === 'done') && (s !== 'done'
             ? <PublishCard task={task} proposal={proposal ?? null} onPublished={r => {
               setTask(r.task); setPrTick(n => n + 1); setPublished(r); onPublished?.(r);
               requestAnimationFrame(() => body.current?.scrollTo({ top: 0, behavior: 'smooth' }));

@@ -7,6 +7,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { canRetryFrom, errorSummary, formatSeconds, setupProgress, setupSeconds, skipReason, stepSeconds } from '@/lib/sandbox-task';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
+import { RepoFileCard } from './RepoFileCard';
 import styles from './Sandbox.module.css';
 
 const ICON: Record<TaskStep['state'], string> = { pending: '○', running: '', done: '✓', failed: '✗', skipped: '–', interrupted: '‖' };
@@ -16,7 +17,8 @@ const ICON: Record<TaskStep['state'], string> = { pending: '○', running: '', d
  * and a failed step (the others on click); a failed step shows one summary line (the full output stays in its log) and the one
  * "Ab hier erneut versuchen". Steps after a failure are folded. Once everything is done the list folds into "Eingerichtet in …".
  */
-export function StepTimeline({ task, onRetry, onIgnoreVersion, busy }: { task: CodeTaskPublic; onRetry: (stepId: string) => void; /** "Trotzdem fortfahren" from this step */ onIgnoreVersion: (stepId: string) => void; busy: boolean }) {
+export function StepTimeline({ task, onRetry, onIgnoreVersion, onRepoFile, busy }: { task: CodeTaskPublic; onRetry: (stepId: string) => void; /** "Trotzdem fortfahren" from this step */ onIgnoreVersion: (stepId: string) => void;
+  /** the setup waits at "Plugin erkennen" for a decision on the repository file's commands */ onRepoFile?: (decision: 'approve' | 'skip', hash: string) => void; busy: boolean }) {
   const { t: all } = useI18n();
   const t = all.sandbox.task, td = all.sandbox.dump;
   const running = task.steps.some(s => s.state === 'running');
@@ -52,8 +54,9 @@ export function StepTimeline({ task, onRetry, onIgnoreVersion, busy }: { task: C
       {took !== null && <div className={styles.tlDone}><b>{t.setupDone(formatSeconds(took))}</b><button type="button" className={styles.textBtn} aria-expanded onClick={() => setDetails(false)}>{t.hideDetails}</button></div>}
       <ol className={styles.timeline}>
         {shown.map(s => {
-          const project = task.layout?.kind === 'project';
-          const sec = stepSeconds(s), label = s.key === 'custom' ? s.label ?? s.id : (project && all.sandbox.projectSteps[s.key]) || all.sandbox.steps[s.key];
+          const project = task.layout?.kind === 'project', own = task.layout?.kind === 'custom';
+          const sec = stepSeconds(s), label = s.key === 'custom' ? s.label ?? s.id : (project && all.sandbox.projectSteps[s.key]) || (own && all.sandbox.customSteps[s.key]) || all.sandbox.steps[s.key];
+          const waitsForFile = s.key === 'detect-layout' && s.state === 'failed' && task.repoFile?.state === 'pending';
           const pmm = s.key === 'detect-layout' && s.state === 'failed' ? task.layout?.project?.versionMismatch : undefined;
           const skip = skipReason(task, s), state = skip ? 'skipped' : s.state;
           const autoLog = s.state === 'running' || s.state === 'failed';
@@ -67,11 +70,12 @@ export function StepTimeline({ task, onRetry, onIgnoreVersion, busy }: { task: C
                   <span className={styles.tlLabel}>{label}</span>
                   <span className={styles.muted}>{skip ? t.willSkip[skip] : t.stepState[s.state]}{sec !== null && s.state !== 'skipped' ? ` · ${formatSeconds(sec)}` : ''}</span>
                   {!autoLog && hasLog && <button type="button" className={styles.tlLogBtn} aria-expanded={logs.has(s.id)} onClick={() => toggleLog(s.id)}>{t.log} ({s.log.length})</button>}
-                  {canRetryFrom(task, s) && <Button size="sm" variant="primary" onClick={() => onRetry(s.id)} disabled={busy}>{t.retryFrom}</Button>}
+                  {canRetryFrom(task, s) && !waitsForFile && <Button size="sm" variant="primary" onClick={() => onRetry(s.id)} disabled={busy}>{t.retryFrom}</Button>}
                 </div>
                 {summary && <p className={styles.tlError}>{summary}</p>}
                 {s.error && summary !== s.error.trim() && !hasLog && <details className={styles.tlLog}><summary>{t.fullError}</summary><pre>{s.error}</pre></details>}
-                {s.key === 'custom' && s.state === 'failed' && <p className={styles.tlFix}><Link href="/sandbox-coding#sbx-env">{t.editCommand}</Link></p>}
+                {waitsForFile && task.repoFile && onRepoFile && <RepoFileCard file={task.repoFile} state="pending" busy={busy} onApprove={() => onRepoFile('approve', task.repoFile!.hash)} onSkip={() => onRepoFile('skip', task.repoFile!.hash)} />}
+                {s.key === 'custom' && s.state === 'failed' && (!s.source || s.source === 'env') && <p className={styles.tlFix}><Link href="/sandbox-coding#sbx-env">{t.editCommand}</Link></p>}
                 {s.key === 'version-check' && s.state === 'failed' && task.dump?.versionMismatch && !task.dump.deleted && (
                   <div className={styles.dumpWarn}>
                     <span>{td.mismatch(task.dump.versionMismatch.dump, task.dump.versionMismatch.image)}</span>
