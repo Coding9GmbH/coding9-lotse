@@ -21,6 +21,7 @@ import { redact } from '../settings';
 import { singleton } from '../state';
 import { errMsg, pool } from '../util';
 import { closeAllConsoles, closeTaskConsoles, endConsoleShells } from './console';
+import { captureBaseline } from './container-pull';
 import { prepareTaskDb, saveSnapshot } from './db-snapshots';
 import { taskDbVolume } from './db-snapshot-spec';
 import { assertAttachable, deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
@@ -226,6 +227,8 @@ async function execute(id: string, from: number, signal: AbortSignal) {
     step.endedAt = now();
     saveTask(t);
   }
+  // what this container has right after its setup is no change of the user's ("Aus dem Container übernehmen" leaves it out)
+  if (!signal.aborted) await captureBaseline(t, signal).catch(e => log.warn('Ausgangsstand des Containers nicht gespeichert', { task: id, error: errMsg(e) }));
   t.status = 'ready'; t.lastActiveAt = now();
   saveTask(t);
 }
@@ -489,7 +492,9 @@ async function wake(id: string, abort: AbortSignal) {
     await startTaskContainer(t, t.containerId);
     t.containerRunning = true; saveTask(t);
     await waitReady(ctx);
-    await ctx.syncAll();
+    // what the container already has is not mirrored again: files made only inside it (console, sandbox_bash) stay until taken over
+    const synced = await syncTaskAll(t, signal, { ifChanged: true });
+    ctx.log(synced.skipped ? 'Dateien im Container sind aktuell.' : `${synced.files} Dateien nach ${getTemplate(t.template).syncTarget(t.layout)} übertragen.`);
     // The sync replaced the plugin's files, so Shopware recompiles its templates on the next storefront request (several seconds on a
     // just started container). That request is made here: "ready" means the preview loads at once – until then /sbx answers with
     // "Umgebung startet …", which reloads itself; otherwise the first real load kept that page on screen for those seconds.

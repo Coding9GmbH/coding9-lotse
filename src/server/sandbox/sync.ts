@@ -336,3 +336,21 @@ export function projectStamp(worktree: string): string {
   for (const f of content.files) add(f);
   return h.digest('hex');
 }
+
+/** The same fingerprint for a plugin or an own setup: every transferable entry of the worktree (what collectAll would read). */
+export function treeStamp(worktree: string): string {
+  const h = createHash('sha256'), b = syncBudget();
+  const walk = (dir: string) => {
+    let names: fs.Dirent[] = [];
+    try { names = fs.readdirSync(path.join(worktree, dir), { withFileTypes: true }); } catch { return; }
+    for (const d of names.sort((x, y) => x.name.localeCompare(y.name))) {
+      const rel = dir ? `${dir}/${d.name}` : d.name;
+      if (isExcluded(rel)) continue;
+      const st = lstatOr(path.join(worktree, rel));
+      h.update(`${rel}\0${st ? `${st.mode}:${st.size}:${st.mtimeMs}` : '-'}\n`); charge(b, 0);
+      if (d.isDirectory()) walk(rel);
+    }
+  };
+  walk('');
+  return h.digest('hex');
+}

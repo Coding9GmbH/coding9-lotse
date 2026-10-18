@@ -338,6 +338,9 @@ a.iconBtn:hover { border-color: var(--dark); text-decoration: none; }
 .projectList { margin: 4px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
 .projectWarn { padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); overflow-wrap: anywhere; }
 .projectWarn ul { margin: 6px 0 0; padding-left: 18px; }
+.pullList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.pullList li { min-width: 0; overflow-wrap: anywhere; }
+.pullList .bad { margin: 2px 0 0 26px; }
 .zipMissing, .zipHints { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; font-size: 13px; }
 .zipMissing { padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); }
 .zipMissing p, .zipHints p { margin: 0; }

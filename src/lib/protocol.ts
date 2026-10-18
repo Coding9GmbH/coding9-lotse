@@ -418,6 +418,19 @@ export interface TaskDiff {
   /** local commits on top of the base branch (the AI's git_commit, earlier publishes), newest first */ commits?: TaskCommit[];
   /** changed paths not committed yet (publishing adds them as one last commit) */ uncommitted?: string[];
 }
+/** A file that differs between the task container and the worktree (A24 "Aus dem Container übernehmen"): made or changed in the console
+ *  or by sandbox_bash. `sha` is the container's version (sha256, null = deleted there): taking it over only succeeds while it is unchanged. */
+export interface ContainerChange { path: string; status: 'added' | 'modified' | 'deleted'; added: number; removed: number; size: number; sha: string | null;
+  binary?: boolean; /** why it cannot be taken over (the same checks as a commit: protected file, workflow, secret, size) */ blocked?: string }
+/** Seen in the container but never taken over: links, devices, protected files (.env, keys), too large, unreadable, an unusual name;
+ *  `more` = beyond the limit of one comparison */
+export type ContainerSkipReason = 'symlink' | 'special' | 'protected' | 'too-large' | 'unreadable' | 'name' | 'more';
+export interface ContainerChanges { changes: ContainerChange[]; skipped: { path: string; reason: ContainerSkipReason }[];
+  /** unified diff of the text files (redacted, capped) */ diff: string; truncated: boolean;
+  /** the sandbox was set up before Lotse kept what the container had after its setup: files of the image can appear as new */ noBaseline?: boolean;
+  /** what was compared in the container (absolute paths) */ roots: string[]; checkedAt: string }
+/** POST …/container-changes: what was taken over and what not (with the reason) */
+export interface ContainerTakeOver { taken: { path: string; status: ContainerChange['status']; added: number; removed: number }[]; refused: { path: string; reason: string }[] }
 /** What a plugin ZIP for the Shopware admin would contain (GET /api/sandbox/tasks/[id]/plugin-zip?check=1). problems block the download:
  *  what Shopware 6.7 needs to list an uploaded plugin at all (type, name, description, version, autoload, plugin class, label as an
  *  object – checked against a real shop) plus empty, too large, a key or token; warnings do not (no Shopware version required, class file

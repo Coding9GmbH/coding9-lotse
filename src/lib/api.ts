@@ -5,7 +5,7 @@ import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget 
 import { createLineSplitter } from './ndjson';
 import type { CodexLoginState, GithubBranch, GithubPublic, GithubRepo, GithubTestResult, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
-  CodeTaskPublic, ConsoleSessionPublic, DumpPublic, LibraryDumpPublic, NewSandboxRequest, QuickStartBroken, QuickStartPublic, QuickStartSetup, PluginZipCheck, RepoOwner, RepoProbe, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
+  CodeTaskPublic, ConsoleSessionPublic, ContainerChanges, ContainerTakeOver, DumpPublic, LibraryDumpPublic, NewSandboxRequest, QuickStartBroken, QuickStartPublic, QuickStartSetup, PluginZipCheck, RepoOwner, RepoProbe, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
   PrStatus, PublishRequest, PublishResult } from './protocol';
 
 export class ApiError extends Error {
@@ -111,6 +111,9 @@ export const api = {
     deleteTask: (id: string) => request<{ ok: true }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     /** "Änderungen": workspace against the base branch */
     diff: (id: string) => request<TaskDiff>(`/api/sandbox/tasks/${encodeURIComponent(id)}/diff`),
+    /** "Aus dem Container übernehmen": what differs between the task container and the project, and taking the chosen files over */
+    containerChanges: (id: string) => request<ContainerChanges>(`/api/sandbox/tasks/${encodeURIComponent(id)}/container-changes`),
+    takeOver: (id: string, items: { path: string; sha: string | null }[]) => request<ContainerTakeOver>(`/api/sandbox/tasks/${encodeURIComponent(id)}/container-changes`, json('POST', { items })),
     /** "Screenshot" in the preview: the configured pages of the running sandbox, desktop and mobile (only while switched on) */
     screenshot: (id: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/screenshots`, json('POST', {})),
     /** start | stop | pause | resume | finish; start takes the step to retry from */

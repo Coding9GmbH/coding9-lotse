@@ -3,7 +3,8 @@ import 'server-only';
 // Files are read and edited with the agent's own tools (Claude: Read/Edit/Write/Glob/Grep, see native-tools.ts; Codex: its patches),
 // confined to the task's worktree. Here only what those do not cover: sandbox_bash (any shell command INSIDE the task container,
 // never on the host), delete_file, git_diff, git_commit (a local commit in the worktree, like Claude Code does it), the task's own
-// storefront, the environment, questions, the PR proposal and request_internet (asks the human; only the click attaches the
+// storefront, the environment, questions, pull_from_container (files made inside the container taken into the worktree, container-pull.ts),
+// the PR proposal and request_internet (asks the human; only the click attaches the
 // container to the internet, internet.ts).
 // Codex has no file reading of its own without a shell, so it also gets list_files/read_file/search_files.
 // Nothing pushes, switches branches, rewrites history, calls GitHub or controls Docker beyond the container exec: git_commit only adds
@@ -20,6 +21,7 @@ import { decodeEntities } from '../html-sanitize';
 import { redact } from '../settings';
 import { fail, guard, ok, type AnyTool, type ToolResult } from '../tool-kit';
 import type { ApprovalReply, Question } from '../sessions';
+import { takeOver } from './container-pull';
 import { taskDiff } from './diff';
 import { sandboxPublic } from './env';
 import { grantInternet, internetBlocked, noteInternetDenied, noteInternetFailed } from './internet';
@@ -28,13 +30,13 @@ import { fetchUpstream, sandboxUpstream } from './preview';
 import { relOf } from './native-tools';
 import { LOTSE_AUTHOR, coAuthor, commitCheck, findSecret } from './publish';
 import { getRunner } from './runner';
-import { syncTaskAll, syncTaskPaths } from './task-sync';
+import { notePending, syncTaskAll, syncTaskPaths } from './task-sync';
 import { getTemplate } from './templates';
 import { mustTask, publishRunning, settleNewPlugin, taskPaths, type CodeTask } from './tasks';
 import { deleteText, listFiles, readText, searchFiles, type Change } from './workspace-fs';
 
 /** MCP tools of every sandbox chat */
-export const SANDBOX_TOOL_NAMES = ['sandbox_bash', 'delete_file', 'git_diff', 'git_commit', 'read_sandbox_page', 'get_environment', 'ask_user', 'request_internet', 'propose_publish'] as const;
+export const SANDBOX_TOOL_NAMES = ['sandbox_bash', 'pull_from_container', 'delete_file', 'git_diff', 'git_commit', 'read_sandbox_page', 'get_environment', 'ask_user', 'request_internet', 'propose_publish'] as const;
 /** Codex only: reading the worktree (Claude reads with its own Read/Glob/Grep) */
 export const CODEX_READ_TOOL_NAMES = ['list_files', 'read_file', 'search_files'] as const;
 export const sandboxToolNames = (provider: 'claude' | 'codex'): string[] => (provider === 'codex' ? [...CODEX_READ_TOOL_NAMES, ...SANDBOX_TOOL_NAMES] : [...SANDBOX_TOOL_NAMES]);
@@ -73,7 +75,7 @@ export function pageText(html: string): { title: string; text: string } {
 export async function syncChanged(taskId: string, rels: string[]): Promise<string> {
   return withTaskLock(taskId, async () => {
     const t = mustTask(taskId);
-    if (!t.containerId || !t.containerRunning || !t.layout) return ' (Container pausiert: wird beim Fortsetzen übertragen)';
+    if (!t.containerId || !t.containerRunning || !t.layout) { notePending(taskId, rels); return ' (Container pausiert: wird beim Fortsetzen übertragen)'; }
     const { note } = await syncTaskPaths(t, rels);
     return ` und in den Container übertragen${note}`;
   }).catch(e => ` – Übertragung in den Container fehlgeschlagen: ${redact(e instanceof Error ? e.message : e).slice(0, 300)}`);
@@ -123,7 +125,7 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
 
   return [
     ...reads,
-    tool('sandbox_bash', `Führt einen Shell-Befehl IM Container der Aufgabe aus (bash -lc, als www-data in /var/www/html – bei einem eigenen Setup im Zielordner; der Container ist ein Wegwerf-Shopware, normalerweise ohne Internet; braucht ein Befehl Internet, erst request_internet). Vorher wird das Repository in den Container übertragen (ein ganzes Projekt nur, wenn sich seit dem letzten Übertragen etwas geändert hat). Für bin/console (z. B. theme:compile, cache:clear, plugin:refresh), Logs (var/log), mysql -uroot -proot -h127.0.0.1 shopware, curl -H 'Host: localhost' http://127.0.0.1/…, php -l usw. Nach theme:compile/cache:clear lädt die Vorschau neu; zeigt sie nach cache:clear noch den alten Stand, hält ihn der Template- bzw. HTTP-Cache fest – dann bin/console cache:pool:clear --all. Dateien des Repositorys änderst du NICHT hier (Änderungen im Container gehen beim nächsten Übertragen verloren), sondern mit den Datei-Werkzeugen. Zeitlimit Standard ${BASH_TIMEOUT.def} s, höchstens ${BASH_TIMEOUT.max} s; die Ausgabe wird gekürzt (Ende) und geschwärzt.`,
+    tool('sandbox_bash', `Führt einen Shell-Befehl IM Container der Aufgabe aus (bash -lc, als www-data in /var/www/html – bei einem eigenen Setup im Zielordner; der Container ist ein Wegwerf-Shopware, normalerweise ohne Internet; braucht ein Befehl Internet, erst request_internet). Vorher wird das Repository in den Container übertragen (ein ganzes Projekt nur, wenn sich seit dem letzten Übertragen etwas geändert hat). Für bin/console (z. B. theme:compile, cache:clear, plugin:refresh), Logs (var/log), mysql -uroot -proot -h127.0.0.1 shopware, curl -H 'Host: localhost' http://127.0.0.1/…, php -l usw. Nach theme:compile/cache:clear lädt die Vorschau neu; zeigt sie nach cache:clear noch den alten Stand, hält ihn der Template- bzw. HTTP-Cache fest – dann bin/console cache:pool:clear --all. Dateien des Repositorys änderst du mit den Datei-Werkzeugen, nicht hier. Erzeugt ein Befehl Dateien, die ins Repository gehören (bin/console plugin:create, composer require in einem Plugin, eine generierte Migration), danach pull_from_container. Zeitlimit Standard ${BASH_TIMEOUT.def} s, höchstens ${BASH_TIMEOUT.max} s; die Ausgabe wird gekürzt (Ende) und geschwärzt.`,
       { command: z.string().min(1).max(10_000).describe('Befehlszeile für bash -lc'), timeout_sec: z.number().int().min(1).max(BASH_TIMEOUT.max).optional().describe(`Zeitlimit in Sekunden (Standard ${BASH_TIMEOUT.def})`) },
       act('sandbox_bash', async ({ command, timeout_sec }) => {
         if (command.includes('\0')) return fail('Ungültiger Befehl.');
@@ -153,6 +155,26 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
         if (reload) host.emit({ t: 'preview_reload' });
         const body = `Exit-Code ${res.exitCode} nach ${(ms / 1000).toFixed(1)} s${reload ? ' – die Vorschau lädt neu' : ''}\n${tail(out, COMMAND_OUTPUT) || '(keine Ausgabe)'}`;
         return good ? ok(body) : fail(body);
+      })),
+
+    tool('pull_from_container', `Übernimmt Dateien, die IM Container neu entstanden oder geändert/gelöscht wurden (durch sandbox_bash oder in der Konsole des Nutzers, z. B. bin/console plugin:create, composer require in einem Plugin, generierte Migrationen), ins Repository – nur aus den Ordnern, die Lotse überträgt (Plugin-Ordner, beim ganzen Projekt custom/plugins|static-plugins|apps, config/packages, config/services*.yaml, src/, beim eigenen Setup der Zielordner). vendor/, node_modules/, var/ und public/ nur, wenn das Repository dort schon Dateien hat. Symlinks, Geheimnisse (.env, Schlüssel), GitHub-Workflows und zu große Dateien werden nicht übernommen – dieselben Prüfungen wie bei git_commit. Ohne paths alles, sonst nur diese Dateien/Ordner (relativ zur Repository-Wurzel). Danach wie gewohnt prüfen und mit git_commit speichern.`,
+      { paths: z.array(z.string().min(1).max(500)).min(1).max(COMMIT_LIMITS.paths).optional().describe('nur diese Dateien/Ordner; leer = alle Unterschiede') },
+      act('pull_from_container', async ({ paths }) => {
+        if (!task().layout) return fail('Die Einrichtung ist noch nicht fertig.');
+        if (publishRunning(taskId)) return fail('Gerade wird veröffentlicht – später erneut übernehmen.');
+        const under = paths?.map(p => assertCommitPath(relOf(worktree(), p)));
+        await ensureAwake(taskId);
+        const r = await withTaskLock(taskId, () => takeOver(task(), { all: true, under }, { signal: host.abort?.signal, via: 'ai' }));
+        for (const f of r.taken) host.emit({ t: 'file_change', path: f.path, kind: f.status === 'added' ? 'create' : f.status === 'deleted' ? 'delete' : 'edit', added: f.added, removed: f.removed });
+        const label: Record<string, string> = { added: 'neu', modified: 'geändert', deleted: 'gelöscht' };
+        const skipText: Record<string, string> = { symlink: 'Symlink', special: 'Gerätedatei/FIFO', protected: 'geschützt (.env, Schlüssel, .git)', 'too-large': 'zu groß', unreadable: 'nicht lesbar', name: 'ungewöhnlicher Dateiname', more: 'über dem Limit dieses Vergleichs' };
+        const lines = [
+          r.taken.length ? `Übernommen (${r.taken.length}):\n${r.taken.map(f => `${label[f.status]} ${f.path} (+${f.added} −${f.removed})`).join('\n')}` : 'Nichts übernommen – Container und Repository stimmen in den übertragenen Ordnern überein.',
+          ...(r.refused.length ? [`Nicht übernommen:\n${r.refused.map(f => `${f.path}: ${f.reason}`).join('\n')}`] : []),
+          ...(r.skipped.length ? [`Übersprungen: ${r.skipped.slice(0, 30).map(f => `${f.path} (${skipText[f.reason] ?? f.reason})`).join(', ')}${r.skipped.length > 30 ? ' …' : ''}`] : []),
+          ...(r.taken.length ? ['Noch nicht committet – prüfen und mit git_commit speichern.'] : []),
+        ];
+        return ok(redact(lines.join('\n\n')));
       })),
 
     tool('delete_file', 'Löscht eine Datei des Repositorys (keine Ordner); auch im Container.',

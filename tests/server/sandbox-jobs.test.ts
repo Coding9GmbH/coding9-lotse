@@ -52,6 +52,8 @@ after(async () => { R.resetReconcile(); await fake.close(); await gh.close(); fs
 const until = async (fn: () => boolean, ms = 10_000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw new Error('timeout'); await new Promise(r => setTimeout(r, 10)); } };
 const settled = (id: string) => until(() => !J.setupRunning(id) && T.getTask(id)!.status !== 'setting_up');
 const execs = (id?: string) => fake.calls.filter(c => c.op === 'exec' && (!id || c.id === id)).map(c => c.argv!);
+/** the listing of what a fresh container has after its setup (container-pull.ts: not offered as the user's changes later) */
+const BASELINE = (a: string[]) => (a[0] === 'bash' && a[3] === 'lotse-list' ? 'BASELINE' : a);
 const newTask = (title = 'Footer-Farbe anpassen') => T.createTask({ chatId: crypto.randomUUID(), title, goal: 'Der Footer soll grün werden.', repo: 'acme/shop-theme', baseBranch: 'main' });
 const post = (h: (req: Request, ctx: any) => Promise<Response>, url: string, body: unknown, id?: string) =>
   h(new Request(`http://127.0.0.1${url}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
@@ -70,6 +72,7 @@ const SETUP_ARGV = [
   ['bin/console', 'theme:compile'],
   ['bin/console', 'cache:clear'],
   ['bash', '-lc', 'echo fertig'],
+  'BASELINE',
 ];
 
 test('happy path: all steps in order, plugin synced as www-data without .git/secrets, task ready', async () => {
@@ -84,7 +87,7 @@ test('happy path: all steps in order, plugin synced as www-data without .git/sec
   assert.deepEqual(done.steps.map(s => s.state), ['done', 'done', 'done', 'done', 'done', 'skipped', 'skipped', 'done', 'skipped', 'done', 'done', 'done', 'done', 'done', 'done']); // no stored database: no snapshot
   assert.deepEqual(done.layout, { kind: 'theme', name: 'AcmeTheme', pluginDir: 'custom/plugins/AcmeTheme' });
   assert.equal(done.steps.find(s => s.key === 'custom' && s.phase === 'after-db')?.label, 'Demodaten');
-  const argv = execs(done.containerId!).map(a => (a[0] === 'mysql' ? (a.at(-1)!.includes('installed_at') ? 'PLUGIN_STATE' : 'SET_DOMAIN') : a));
+  const argv = execs(done.containerId!).map(a => (a[0] === 'mysql' ? (a.at(-1)!.includes('installed_at') ? 'PLUGIN_STATE' : 'SET_DOMAIN') : BASELINE(a)));
   assert.deepEqual(argv, SETUP_ARGV);
   assert.ok(fake.calls.filter(c => c.op === 'exec').every(c => c.user === 'www-data'), 'every exec as www-data');
   // container spec: server-built, only the internal network (also on bare metal), no published port, limits, no privileges
@@ -136,7 +139,7 @@ test('theme-compile fails: step failed with the SCSS tail, later steps pending; 
   await settled(t.id);
   cur = T.getTask(t.id)!;
   assert.equal(cur.status, 'ready');
-  assert.deepEqual(execs(cur.containerId!).slice(before), [['bin/console', 'theme:compile'], ['bin/console', 'cache:clear'], ['bash', '-lc', 'echo fertig']]);
+  assert.deepEqual(execs(cur.containerId!).slice(before).map(BASELINE), [['bin/console', 'theme:compile'], ['bin/console', 'cache:clear'], ['bash', '-lc', 'echo fertig'], 'BASELINE']);
   assert.throws(() => J.runSteps(t.id), /bereits fertig/);
 });
 
@@ -178,7 +181,7 @@ test('LOTSE_SANDBOX_MAX: a new task pauses the least recently used ready one; wi
     await settled(b.id);
     assert.equal(T.getTask(b.id)!.status, 'ready');
     assert.equal(fake.containers.get(T.getTask(a.id)!.containerId!)!.running, false, 'paused = stopped, not removed');
-    // pause / wake: docker start + full sync, no new setup
+    // pause / wake: docker start, no new setup; the container still has the unchanged worktree, so nothing is mirrored again
     await J.pauseTask(b.id);
     assert.equal(T.getTask(b.id)!.status, 'paused');
     const n = fake.calls.length;
@@ -188,7 +191,7 @@ test('LOTSE_SANDBOX_MAX: a new task pauses the least recently used ready one; wi
     const woke = T.getTask(a.id)!;
     assert.equal(woke.status, 'ready');
     const ops = fake.calls.slice(n).filter(c => c.id === woke.containerId).map(c => c.op);
-    assert.deepEqual(ops.filter(o => o !== 'inspect'), ['disconnectEgress', 'putArchive', 'start', 'exec', 'exec', 'putArchive'], 'offline first, boot file, start, wait (mysqladmin), rm -rf + archive');
+    assert.deepEqual(ops.filter(o => o !== 'inspect'), ['disconnectEgress', 'putArchive', 'start', 'exec'], 'offline first, boot file, start, wait (mysqladmin) – no rm -rf of the plugin folder');
     assert.ok(!fake.calls.slice(n).some(c => c.op === 'create' || c.argv?.includes('plugin:install')));
     for (const t of [a, b, c]) await J.finishTask(t.id);
   } finally { delete process.env.LOTSE_SANDBOX_MAX; }

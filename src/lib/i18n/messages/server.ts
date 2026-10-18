@@ -92,6 +92,9 @@ export const de = {
   zipBadPlugin: 'Ungültiges Plugin.',
   zipUnknownPlugin: 'Dieses Plugin gibt es im Projekt nicht.',
   zipSecret: (file: string) => `Kein ZIP: ${file} enthält einen Schlüssel, Token oder Zugangsdaten. Bitte aus dem Code entfernen.`,
+  // Taking files over from the container ("Aus dem Container übernehmen")
+  pullNotReady: 'Die Sandbox ist noch nicht eingerichtet (oder abgeschlossen) – es gibt nichts zu vergleichen.',
+  pullBusy: 'Gerade läuft eine Einrichtung oder ein Veröffentlichen in dieser Sandbox – danach erneut versuchen.',
 };
 
 export const en: typeof de = {
@@ -180,4 +183,6 @@ export const en: typeof de = {
   zipBadPlugin: 'Invalid plugin.',
   zipUnknownPlugin: 'The project has no such plugin.',
   zipSecret: file => `No ZIP: ${file} contains a key, token or credentials. Please remove it from the code.`,
+  pullNotReady: 'The sandbox is not set up yet (or finished) – there is nothing to compare.',
+  pullBusy: 'A setup or a publish is running in this sandbox – please try again afterwards.',
 };

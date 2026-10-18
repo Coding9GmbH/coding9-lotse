@@ -1,6 +1,7 @@
 import 'server-only';
 // In-memory runner for tests and e2e (LOTSE_SANDBOX_RUNNER=fake): no Docker, records every call.
 // Exec results are scripted; each started container gets a small node:http "storefront" that serves the synced files.
+import { createHash } from 'node:crypto';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { assertTtySize, ttyEmitter, type ArchiveStream, type ContainerInfo, type ContainerSpec, type ExecOpts, type ExecResult, type NetworkInfo, type NetworkOpts, type PullProgress, type SandboxRunner, type TtyOpts, type TtySession, type VolumeInfo } from './runner';
@@ -101,6 +102,52 @@ function dockwareAnswers(argv: readonly string[], c: FakeContainer): Partial<Exe
   return undefined;
 }
 
+/** A tiny shell for files in the container (tests that make or change files there, like the console or sandbox_bash would):
+ *  `echo <text> > <file>`, `echo <text> >> <file>`, `rm -f <file>`, `mkdir -p <dir>` (no-op), joined with `&&`; paths relative to `cwd`.
+ *  false = not such a command line. */
+export function fakeFileCommand(files: Map<string, Buffer>, cwd: string, line: string): boolean {
+  const parts = line.trim().split(/\s+&&\s+/);
+  const ops = parts.map(p => /^echo (.*?) (>>?) ([^\s;&|<>]+)$/.exec(p) ?? /^(rm) -f ([^\s;&|<>]+)$/.exec(p) ?? /^(mkdir) -p ([^\s;&|<>]+)$/.exec(p));
+  if (!parts.length || ops.some(m => !m)) return false;
+  const abs = (f: string) => (f.startsWith('/') ? f : `${cwd.replace(/\/$/, '')}/${f}`).split('/').reduce<string[]>((a, x) => (x === '..' ? a.slice(0, -1) : x && x !== '.' ? [...a, x] : a), []).join('/');
+  for (const m of ops as RegExpExecArray[]) {
+    if (m[1] === 'rm') { files.delete(`/${abs(m[2])}`); continue; }
+    if (m[1] === 'mkdir') continue;
+    const file = `/${abs(m[3])}`, text = m[1].replace(/^(['"])(.*)\1$/, '$2');
+    files.set(file, Buffer.concat([m[2] === '>>' ? files.get(file) ?? Buffer.alloc(0) : Buffer.alloc(0), Buffer.from(`${text}\n`)]));
+  }
+  return true;
+}
+const FAKE_SKIP = ['.git', 'node_modules', 'vendor', 'var', 'public'];
+/** container-pull.ts LIST_SH over the fake's files (every file 0644; folders only where files are) */
+function fakeListing(files: Map<string, Buffer>, max: number, roots: string[]): string {
+  const out: string[] = [];
+  for (const root of roots) {
+    out.push('R', root);
+    const rels = [...files.keys()].filter(k => k.startsWith(`${root}/`)).map(k => k.slice(root.length + 1)).sort();
+    if (!rels.length) continue;
+    const dirs = new Set<string>(), hashed: string[] = [];
+    for (const rel of rels) {
+      const segs = rel.split('/');
+      const cut = segs.slice(0, -1).findIndex(x => FAKE_SKIP.includes(x));
+      const upto = cut < 0 ? segs.length - 1 : cut + 1;
+      for (let i = 1; i <= upto; i++) {
+        const d = segs.slice(0, i).join('/');
+        if (dirs.has(d)) continue;
+        dirs.add(d);
+        out.push(i === cut + 1 ? 'P' : 'D', d);
+      }
+      if (cut >= 0) continue;
+      const data = files.get(`${root}/${rel}`)!;
+      out.push('F', String(data.length), '644', rel);
+      if (data.length < max) hashed.push(`${createHash('sha256').update(data).digest('hex')}  ${rel}`);
+    }
+    out.push('H', ...hashed);
+  }
+  out.push('E');
+  return `${out.join('\0')}\0`;
+}
+
 /** A valid 1×1 PNG: what the fake screenshot container "captures". */
 export const FAKE_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
 
@@ -119,6 +166,8 @@ export class FakeRunner implements SandboxRunner {
   storefront: ((req: http.IncomingMessage, res: http.ServerResponse, containerId: string) => boolean) | null = null;
   /** screenshot container: which file each shot gets (null = that shot fails); default FAKE_PNG for every shot. Throwing = exit code 1 without output */
   shooter: ((job: ShotJob) => Record<string, Buffer | null>) | null = null;
+  /** tests: getArchive answers with these bytes instead (a hostile container's archive); undefined = the files as usual */
+  archive: ((id: string, path: string) => Buffer | undefined) | null = null;
   /** every uploaded archive, decoded (tests check owner and paths) */
   archives: { id: string; dir: string; entries: TarRecord[] }[] = [];
   /** every console opened (tests: argv, user, size, whether it is still open) */
@@ -206,6 +255,8 @@ export class FakeRunner implements SandboxRunner {
   }
   async getArchive(id: string, dir: string, o: { maxBytes: number }) {
     this.enter('getArchive', { id, detail: dir });
+    const forged = this.archive?.(id, dir);
+    if (forged) { if (forged.length > o.maxBytes) throw new Error('Antwort von Docker ist zu groß.'); return forged; }
     const c = this.managed(id), root = assertContainerPath(dir).replace(/\/$/, ''), base = root.split('/').pop()!;
     const entries = [...c.files].filter(([k]) => k.startsWith(`${root}/`)).map(([k, data]) => ({ path: `${base}/${k.slice(root.length + 1)}`, type: 'file' as const, data }));
     if (!entries.length) throw new Error(`Dateien abholen: Docker meldet HTTP 404 – Could not find the file ${root} in container`);
@@ -284,7 +335,16 @@ export class FakeRunner implements SandboxRunner {
       }
     }
     if (argv[0] === 'rm' && argv.includes('--')) for (const target of argv.slice(argv.indexOf('--') + 1)) for (const k of [...c.files.keys()]) if (k === target || k.startsWith(`${target}/`)) c.files.delete(k);
-    const r = this.script(argv, id) ?? dockwareAnswers(argv, c) ?? {};
+    // container-pull.ts STAGE_SH: the files copied to <dir>/0, <dir>/1 …
+    if (argv[0] === 'bash' && argv[3] === 'lotse-stage') {
+      const dir = argv[4];
+      for (const k of [...c.files.keys()]) if (k.startsWith(`${dir}/`)) c.files.delete(k);
+      argv.slice(5).forEach((f, i) => { const b = c.files.get(f); if (b) c.files.set(`${dir}/${i}`, b); });
+    }
+    // sandbox_bash: a few file commands change the container's files (fakeFileCommand)
+    if (argv[0] === 'bash' && argv[1] === '-lc') fakeFileCommand(c.files, o.workdir ?? '/', argv[2] ?? '');
+    const listing: Partial<ExecResult> | undefined = argv[0] === 'bash' && argv[3] === 'lotse-list' ? { output: fakeListing(c.files, Number(argv[4]), argv.slice(5)) } : undefined;
+    const r = this.script(argv, id) ?? listing ?? dockwareAnswers(argv, c) ?? {};
     return { exitCode: r.exitCode ?? 0, output: r.output ?? '', truncated: r.truncated ?? false };
   }
   /** Echo shell: prompt, line editing (backspace, Ctrl-C), a few commands (whoami, pwd, stty size, plugin:list, echo), exit ends it. */
@@ -307,7 +367,7 @@ export class FakeRunner implements SandboxRunner {
         const text = d.toString();
         t.input += text;
         for (const ch of text) {
-          if (ch === '\r' || ch === '\n') { emit('\r\n'); const reply = fakeShell(t, line); line = ''; if (reply === null) { emit('logout\r\n'); t.end(); return; } emit(reply); prompt(); }
+          if (ch === '\r' || ch === '\n') { emit('\r\n'); const reply = fakeFileCommand(c.files, o.workdir, line) ? '' : fakeShell(t, line); line = ''; if (reply === null) { emit('logout\r\n'); t.end(); return; } emit(reply); prompt(); }
           else if (ch === '\x7f') { if (line) { line = line.slice(0, -1); emit('\b \b'); } }
           else if (ch === '\x03') { line = ''; emit('^C\r\n'); prompt(); }
           else if (ch === '\x04' && !line) { emit('logout\r\n'); t.end(); return; }

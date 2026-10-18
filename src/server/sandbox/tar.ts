@@ -108,3 +108,81 @@ export function readTarEntries(tar: Buffer): TarRecord[] {
 }
 /** Regular files only. */
 export const readTar = (tar: Buffer): { path: string; data: Buffer }[] => readTarEntries(tar).filter(e => e.type === 'file').map(({ path, data }) => ({ path, data }));
+
+// ---- Untrusted archives (container → host) ----
+export interface StrictLimits { /** entries (directories included) */ entries: number; /** bytes of one file */ fileBytes: number; /** bytes of all files */ totalBytes: number }
+/** One entry of an untrusted archive: a regular file or a directory with a clean relative path; anything else is `refused` with its type. */
+export interface StrictEntry { path: string; type: 'file' | 'dir'; data: Buffer; mode: number }
+export interface StrictRefused { path: string; type: 'symlink' | 'hardlink' | 'device' | 'fifo' | 'other' }
+export class TarError extends Error {}
+/** A clean relative archive path: no absolute path, no "..", no empty or "." segments inside, no NUL/control characters, no backslash. */
+export function archivePath(raw: string): string | null {
+  const p = raw.replace(/^\.\//, '').replace(/\/+$/, '');
+  if (!p || p.length > 4096 || p.startsWith('/') || p.includes('\\') || /[\x00-\x1f\x7f]/.test(p) || p.includes('�')) return null;
+  return p.split('/').some(s => !s || s === '.' || s === '..') ? null : p;
+}
+const KINDS: Record<string, StrictRefused['type']> = { 1: 'hardlink', 2: 'symlink', 3: 'device', 4: 'device', 6: 'fifo' };
+/**
+ * Reader for archives whose content the other side controls (getArchive of a task container: code running as www-data there can create
+ * anything). Every header's checksum is verified, sizes are plain octal (no base-256), the counts and sizes are capped before data is
+ * copied, PAX records only for path/linkpath (size, uid … in PAX are refused), GNU long names, global headers and sparse files are refused.
+ * Paths must be clean and relative (archivePath); links, devices and FIFOs are never returned as content, only listed as refused.
+ */
+export function readTarStrict(tar: Buffer, lim: StrictLimits): { entries: StrictEntry[]; refused: StrictRefused[] } {
+  const entries: StrictEntry[] = [], refused: StrictRefused[] = [];
+  let pax: Record<string, string> = {}, total = 0, count = 0, off = 0, ended = false;
+  const octal = (h: Buffer, a: number, b: number, what: string) => {
+    if (h[a] & 0x80) throw new TarError(`Archiv: ${what} im Binärformat wird nicht gelesen.`);
+    const s = h.subarray(a, b).toString('latin1').replace(/\0.*$/s, '').trim();
+    if (!/^[0-7]*$/.test(s) || s.length > 12) throw new TarError(`Archiv: ungültiges Feld ${what}.`);
+    return s ? parseInt(s, 8) : 0;
+  };
+  while (off + BLOCK <= tar.length) {
+    const h = tar.subarray(off, off + BLOCK);
+    if (h.every(b => b === 0)) { ended = true; break; }
+    let sum = 0;
+    for (let i = 0; i < BLOCK; i++) sum += i >= 148 && i < 156 ? 32 : h[i];
+    if (octal(h, 148, 156, 'Prüfsumme') !== sum) throw new TarError('Archiv: Prüfsumme eines Eintrags stimmt nicht.');
+    const type = String.fromCharCode(h[156] || 48), size = octal(h, 124, 136, 'Größe');
+    if (++count > lim.entries * 2 + 4) throw new TarError(`Archiv: zu viele Einträge (höchstens ${lim.entries}).`);
+    const end = off + BLOCK + size;
+    if (end > tar.length) throw new TarError('Archiv ist abgeschnitten.');
+    const str = (a: number, b: number) => h.subarray(a, b).toString('utf8').replace(/\0.*$/s, '');
+    if (type === 'x') {
+      if (size > 64 * 1024) throw new TarError('Archiv: PAX-Kopf zu groß.');
+      pax = {};
+      const text = tar.subarray(off + BLOCK, end).toString('utf8');
+      for (let i = 0; i < text.length;) {
+        const sp = text.indexOf(' ', i), len = Number(text.slice(i, sp));
+        if (sp < 0 || !Number.isInteger(len) || len <= 0 || i + len > text.length) throw new TarError('Archiv: ungültiger PAX-Kopf.');
+        const rec = text.slice(sp + 1, i + len - 1), eq = rec.indexOf('=');
+        const k = rec.slice(0, eq), v = rec.slice(eq + 1);
+        if (eq < 0) throw new TarError('Archiv: ungültiger PAX-Kopf.');
+        if (k === 'path' || k === 'linkpath') pax[k] = v;
+        else if (!/^(mtime|atime|ctime|uname|gname|uid|gid|comment|SCHILY\.[a-z.]+|LIBARCHIVE\.[a-z.]+)$/.test(k)) throw new TarError(`Archiv: PAX-Feld „${k.slice(0, 40)}“ wird nicht unterstützt.`);
+        i += len;
+      }
+      off += BLOCK + Math.ceil(size / BLOCK) * BLOCK;
+      continue;
+    }
+    const name = str(0, 100), prefix = str(345, 500);
+    const raw = pax.path ?? (prefix ? `${prefix}/${name}` : name);
+    pax = {};
+    off += BLOCK + Math.ceil(size / BLOCK) * BLOCK;
+    const p = archivePath(raw);
+    if (!p) throw new TarError(`Archiv: unsicherer Pfad „${raw.slice(0, 120).replace(/[\x00-\x1f\x7f]/g, '?')}“.`);
+    if (entries.length + refused.length >= lim.entries) throw new TarError(`Archiv: zu viele Einträge (höchstens ${lim.entries}).`);
+    if (type === '0' || type === '7') {
+      if (size > lim.fileBytes) throw new TarError(`Archiv: „${p.slice(0, 120)}“ ist zu groß.`);
+      total += size;
+      if (total > lim.totalBytes) throw new TarError('Archiv: Inhalt zu groß.');
+      entries.push({ path: p, type: 'file', data: Buffer.from(tar.subarray(end - size, end)), mode: octal(h, 100, 108, 'Modus') & 0o7777 });
+    } else if (type === '5') {
+      if (size) throw new TarError('Archiv: Ordner mit Inhalt.');
+      entries.push({ path: p, type: 'dir', data: Buffer.alloc(0), mode: octal(h, 100, 108, 'Modus') & 0o7777 });
+    } else if (KINDS[type]) refused.push({ path: p, type: KINDS[type] });
+    else throw new TarError(`Archiv: Eintragstyp „${type.replace(/[^\x20-\x7e]/g, '?')}“ wird nicht gelesen.`);
+  }
+  if (!ended && off < tar.length) throw new TarError('Archiv ist abgeschnitten.');
+  return { entries, refused };
+}
