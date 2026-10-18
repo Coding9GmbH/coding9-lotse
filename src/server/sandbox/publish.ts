@@ -18,11 +18,11 @@ import type { PrStatus, PublishStep, SecretFinding, TaskPr } from '@/lib/protoco
 import { currentActor } from '../actor';
 import { auditAdd } from '../db';
 import { DEFAULT_LOCALE, messages, type Locale } from '@/lib/i18n';
-import { GitError, commitAll, diffAgainstBase, pushBranch, readBaseBlob, runGit, type GitIdentity } from '../git';
+import { GitError, commitAll, diffAgainstBase, pushBranch, readBaseBlob, runGit, unpublishedMessages, type GitIdentity, type StagedReader } from '../git';
 import { checkSummary, createPull, findOpenPull, getPull, githubConnected, updatePull, type Pull } from '../github';
 import { log } from '../log';
-import { knownSecrets, redact } from '../settings';
-import { findToken, plausibleSecret } from '../secret-values';
+import { redact, scanSecrets } from '../settings';
+import { findToken, plausibleSecret, weakCredentialIn } from '../secret-values';
 import { noteChatEvent } from '../sessions';
 import { singleton } from '../state';
 import { errMsg } from '../util';
@@ -56,19 +56,25 @@ const SECRET_PATTERNS: [RegExp, string, boolean][] = [
   [/\b[a-z][a-z0-9+.-]*:\/\/[^\s/@:'"]+:[^\s/@'"]{3,}@[^\s/]+/i, 'Adresse mit Zugangsdaten', true],
 ];
 export const STORED_SECRET = 'ein in Lotse gespeichertes Geheimnis';
-/** What a text contains that must not be published (kind of secret, and whether the user may publish it anyway), or null. */
-export function secretIn(text: string, known: string[] = knownSecrets()): { what: string; overridable: boolean } | null {
+/**
+ * What a text contains that must not be published (kind of secret, and whether the user may publish it anyway), or null.
+ * `known`: the stored secrets (scanSecrets()). Plausible ones count as a token of their own anywhere; weak ones ("sommer2024",
+ * "shopware") only as the value of a credential key ("password => 'sommer2024'", "DB_PW=…") – "shopware/core" in every composer.json
+ * stays clean.
+ */
+export function secretIn(text: string, known: string[] = scanSecrets()): { what: string; overridable: boolean } | null {
   for (const [re, what, overridable] of SECRET_PATTERNS) if (re.test(text)) return { what, overridable };
-  // only plausible secrets, as a token of their own: a shop password "shopware" must not hit "shopware/core" in every composer.json.
-  // Files are read as latin1 (byte for byte): a non-ASCII secret appears there as its UTF-8 bytes
+  // files are read as latin1 (byte for byte): a non-ASCII secret appears there as its UTF-8 bytes
   for (const v of known) {
-    if (!plausibleSecret(v)) continue;
-    if (findToken(text, v) !== -1 || findToken(text, Buffer.from(v, 'utf8').toString('latin1')) !== -1) return { what: STORED_SECRET, overridable: true };
+    const variants = [v, Buffer.from(v, 'utf8').toString('latin1')];
+    const strong: boolean = plausibleSecret(v);
+    const hit = strong ? variants.some(x => findToken(text, x) !== -1) : v.length > 3 && variants.some(x => weakCredentialIn(text, x));
+    if (hit) return { what: STORED_SECRET, overridable: true };
   }
   return null;
 }
 /** What a text contains that must not be published (kind of secret), or null. */
-export const findSecret = (text: string, known: string[] = knownSecrets()): string | null => secretIn(text, known)?.what ?? null;
+export const findSecret = (text: string, known: string[] = scanSecrets()): string | null => secretIn(text, known)?.what ?? null;
 
 export interface Changed { path: string; status: string }
 /** Paths of git's --name-status output (renames/copies: both). */
@@ -99,7 +105,7 @@ const FINDINGS_MAX = 20;
  * Secret scan of one file: every line that is new against the base version (removing a leaked key must stay possible). A stored
  * value that the base version of the file already contains is no new leak (e.g. a word that is also someone's password).
  */
-export function scanFindings(file: string, content: string, baseLines: Set<string>, known: string[] = knownSecrets(), baseText = ''): SecretFinding[] {
+export function scanFindings(file: string, content: string, baseLines: Set<string>, known: string[] = scanSecrets(), baseText = ''): SecretFinding[] {
   const fresh = baseText ? known.filter(v => !baseText.includes(v) && !baseText.includes(Buffer.from(v, 'utf8').toString('latin1'))) : known;
   const out: SecretFinding[] = [];
   content.split('\n').forEach((line, i) => {
@@ -115,13 +121,14 @@ export function findingsText(found: SecretFinding[]): string {
   return `Veröffentlichen blockiert: In „${f.file.slice(0, 120)}“ (Zeile ${f.line}) steht etwas, das wie ein Geheimnis aussieht (${f.kind})${more ? ` – dazu ${more === 1 ? 'eine weitere Stelle' : `${more} weitere Stellen`}` : ''}. Bitte entfernen und erneut versuchen${found.every(x => x.overridable) ? ' – oder nach Prüfung „Trotzdem veröffentlichen“' : ''}.`;
 }
 /** Secret scan of one file as a message (first finding), or null. */
-export function scanFile(file: string, content: string, baseLines: Set<string>, known: string[] = knownSecrets(), baseText = ''): string | null {
+export function scanFile(file: string, content: string, baseLines: Set<string>, known: string[] = scanSecrets(), baseText = ''): string | null {
   const found = scanFindings(file, content, baseLines, known, baseText);
   return found.length ? findingsText(found) : null;
 }
 
-/** Sizes, symlinks and the secret scan on the files as they are on disk (git's own output is redacted, so it cannot be scanned). */
-async function checkOnDisk(t: CodeTask, files: Changed[], known: string[], head?: string): Promise<{ why: string | null; findings: SecretFinding[] }> {
+/** Sizes, symlinks and the secret scan on the files as they are on disk (git's own output is redacted, so it cannot be scanned) –
+ *  or, with `read` (git_commit), on the staged bytes the commit will hold. */
+async function checkOnDisk(t: CodeTask, files: Changed[], known: string[], head?: string, read?: StagedReader): Promise<{ why: string | null; findings: SecretFinding[] }> {
   const { worktree, gitDir } = taskPaths(t.id), realRoot = fs.realpathSync(worktree);
   const findings: SecretFinding[] = [];
   let total = 0;
@@ -129,17 +136,21 @@ async function checkOnDisk(t: CodeTask, files: Changed[], known: string[], head?
   for (const f of files) {
     if (f.status === 'D') continue;
     const abs = path.join(worktree, f.path);
-    let st: fs.Stats;
-    try { st = fs.lstatSync(abs); } catch { continue; } // the old path of a rename
-    if (st.isSymbolicLink()) {
+    let st: fs.Stats | null = null;
+    try { st = fs.lstatSync(abs); } catch { if (!read) continue; } // the old path of a rename (staged: gone from disk since, the blob counts)
+    if (st?.isSymbolicLink()) {
       let real = '';
       try { real = fs.realpathSync(abs); } catch { /* dangling */ }
       if (!real || !(real === realRoot || real.startsWith(realRoot + path.sep))) return stop(`„${f.path.slice(0, 120)}“ ist ein Symlink aus dem Repository heraus und wird nicht veröffentlicht.`);
-      continue;
+      if (!read) continue;
     }
-    if (!st.isFile()) continue;
-    if (st.size > PUBLISH_LIMITS.fileBytes) return stop(`„${f.path.slice(0, 120)}“ ist zu groß (${Math.round(st.size / 1024 / 1024)} MB, höchstens ${PUBLISH_LIMITS.fileBytes / 1024 / 1024} MB je Datei).`);
-    total += st.size;
+    if (st && !st.isFile() && !read) continue;
+    const tooBig = (n: number) => `„${f.path.slice(0, 120)}“ ist zu groß (${Math.round(n / 1024 / 1024)} MB, höchstens ${PUBLISH_LIMITS.fileBytes / 1024 / 1024} MB je Datei).`;
+    if (st && !read && st.size > PUBLISH_LIMITS.fileBytes) return stop(tooBig(st.size)); // before reading it
+    const data = read ? await read(f.path) : fs.readFileSync(abs);
+    if (!data) return stop(`„${f.path.slice(0, 120)}“ konnte nicht geprüft werden (zu groß oder nicht lesbar).`);
+    if (data.length > PUBLISH_LIMITS.fileBytes) return stop(tooBig(data.length));
+    total += data.length;
     if (total > PUBLISH_LIMITS.totalBytes) return stop(`Die Änderungen sind zu groß (höchstens ${PUBLISH_LIMITS.totalBytes / 1024 / 1024} MB).`);
     if (findings.length >= FINDINGS_MAX) continue;
     const base = await readBaseBlob(worktree, gitDir, t.baseBranch, f.path); // unredacted: same bytes as on disk
@@ -149,7 +160,7 @@ async function checkOnDisk(t: CodeTask, files: Changed[], known: string[], head?
     // a commit check (git_commit): lines already committed were checked when they were committed
     const committed = head && head !== t.pushedSha ? await readBaseBlob(worktree, gitDir, t.baseBranch, f.path, head) : null;
     const lines = new Set([...(baseText ? baseText.split('\n') : []), ...(pushed ? pushed.toString('latin1').split('\n') : []), ...(committed ? committed.toString('latin1').split('\n') : [])]);
-    findings.push(...scanFindings(f.path, fs.readFileSync(abs).toString('latin1'), lines, known, baseText));
+    findings.push(...scanFindings(f.path, data.toString('latin1'), lines, known, baseText));
   }
   return { why: null, findings: findings.slice(0, FINDINGS_MAX) };
 }
@@ -164,22 +175,25 @@ export async function preflight(t: CodeTask, allow: readonly string[] = []): Pro
   const files = changedPaths(raw.status);
   const early = blockReason(files);
   if (early) throw new PublishBlocked(early);
-  const { why, findings } = await checkOnDisk(t, files, knownSecrets());
+  const { why, findings } = await checkOnDisk(t, files, scanSecrets());
   if (why) throw new PublishBlocked(why);
+  // the local commits are pushed as they are: a secret in one of their messages would reach GitHub (git_commit refuses them already)
+  const inMessage = findSecret(await unpublishedMessages(p.worktree, p.gitDir, t.baseBranch, t.pushedSha));
+  if (inMessage) throw new PublishBlocked(`Veröffentlichen blockiert: Eine lokale Commit-Nachricht enthält etwas, das wie ein Geheimnis aussieht (${inMessage}). Lotse schreibt die Historie nicht um – diese Commits werden nicht veröffentlicht.`);
   const ok = new Set(allow), open = findings.filter(f => !(f.overridable && ok.has(f.id)));
   if (open.length) throw new PublishBlocked(findingsText(open), open);
   return { files, overridden: findings };
 }
 
 /**
- * Before the AI's local commit (git_commit): the same rules as publishing for exactly the files to be committed – every commit is
+ * Before the AI's local commit (git_commit): the same rules as publishing for exactly the files to be committed (with `read`: their staged bytes) – every commit is
  * pushed later, and history is never rewritten, so a secret must not get into a commit at all. Unlike publishing nothing can be
  * overridden here (a possible false positive stays uncommitted; the user decides at publishing). Returns the reason, or null.
  */
-export async function commitCheck(t: CodeTask, files: Changed[], head: string): Promise<string | null> {
+export async function commitCheck(t: CodeTask, files: Changed[], head: string, read?: StagedReader): Promise<string | null> {
   const early = blockReason(files);
   if (early) return early;
-  const { why, findings } = await checkOnDisk(t, files.filter(f => f.status !== 'D'), knownSecrets(), head);
+  const { why, findings } = await checkOnDisk(t, files.filter(f => f.status !== 'D'), scanSecrets(), head, read);
   if (why) return why;
   if (!findings.length) return null;
   const [f] = findings;

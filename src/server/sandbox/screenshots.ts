@@ -134,5 +134,5 @@ export function shotNote(t: Pick<CodeTask, 'shots'>): string {
   const items = shotSets(t).flatMap(s => s.items);
   if (!items.length) return '';
   const pages = [...new Set(items.map(i => i.path))].map(p => `\`${p}\``).join(', ');
-  return `\n\n**Screenshots:** ${items.length === 1 ? '1 Screenshot' : `${items.length} Screenshots`} der Sandbox-Storefront (${pages}) liegen in Lotse bei dieser Aufgabe (Reiter „Pull Request“). Sie werden nicht auf GitHub hochgeladen.`;
+  return `\n\n**Screenshots:** ${items.length === 1 ? '1 Screenshot' : `${items.length} Screenshots`} der Sandbox-Storefront (${pages}) liegen in Lotse bei dieser Aufgabe (Reiter „Freigabe“). Sie werden nicht auf GitHub hochgeladen.`;
 }

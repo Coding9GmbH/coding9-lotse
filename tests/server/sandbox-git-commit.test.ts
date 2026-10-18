@@ -14,7 +14,8 @@ import { GITHUB_TOKEN, sandboxForTests } from '../support/sandbox-task';
 // tab lists the commits and what is not committed yet; publishing pushes the commits as they are and adds a last commit only for
 // what is still uncommitted.
 const SECRET = 'mein-sandbox-passwort-2024';
-const S = await sandboxForTests({ env: [{ key: 'SHOP_PASSWORD', value: SECRET, secret: true }] });
+const WEAK = 'sommer2024'; // 10 characters, two classes: too weak to search for everywhere, still a password
+const S = await sandboxForTests({ env: [{ key: 'SHOP_PASSWORD', value: SECRET, secret: true }, { key: 'DB_PW', value: WEAK, secret: true }] });
 const { theme, T } = S;
 const W = await import('../../src/server/sandbox/workspace-tools');
 const P = await import('../../src/server/sandbox/publish');
@@ -115,7 +116,55 @@ test('safety: message limits, path tricks, .git, protected files, workflows and 
   write('src/Resources/config/shop.php', `<?php return ['pw' => '${SECRET}'];\n`);
   await refused('Passwort', ['src/Resources/config/shop.php'], /gespeichertes Geheimnis[\s\S]*der Nutzer entscheidet beim Veröffentlichen/);
   remove('src/Resources/config/shop.php');
+  // a weak secret sandbox variable as a credential value: refused too (where it is just a word, it is none)
+  write('src/Resources/config/conf.php', `<?php return ['db_password' => '${WEAK}'];\n`);
+  await refused('DB', ['src/Resources/config/conf.php'], /gespeichertes Geheimnis/);
+  remove('src/Resources/config/conf.php');
+  // the message is pushed as it is: a token or stored secret in it is refused, never shown back
+  write('src/Resources/config/ok.txt', 'ok\n');
+  for (const message of [`Token ergänzt\n\nToken: ${GITHUB_TOKEN}`, `Zugang\n\nDB_PW=${WEAK}`, `Passwort ${SECRET}`]) {
+    const r = await commit(message, ['src/Resources/config/ok.txt']);
+    assert.equal(r.error, true, r.text);
+    assert.match(r.text, /Commit-Nachricht enthält etwas, das wie ein Geheimnis aussieht/);
+    assert.ok(![GITHUB_TOKEN, WEAK, SECRET].some(v => r.text.includes(v)));
+    assert.equal(git('rev-parse', 'HEAD'), head);
+  }
+  remove('src/Resources/config/ok.txt');
   assert.equal(git('status', '--porcelain'), 'M README.md', 'only the earlier uncommitted change is left');
+});
+
+test('the check sees exactly what is committed: a file changed during the check goes in as checked, a refusal leaves the index clean', async () => {
+  const head = git('rev-parse', 'HEAD'), t = T.getTask(task.id)!;
+  const F = 'src/Resources/config/race.txt';
+  write(F, 'sauber\n');
+  // another tool call of the same turn writes a token while the check runs: the commit holds the staged (checked) bytes
+  const r = await G.commitChanges(wt, gd, 'Race', P.LOTSE_AUTHOR, undefined, [F], async (staged, h, read) => { write(F, `${GITHUB_TOKEN}\n`); write('src/Resources/config/late.txt', `${GITHUB_TOKEN}\n`); return P.commitCheck(t, staged, h, read); });
+  assert.ok(r && 'sha' in r, JSON.stringify(r));
+  assert.equal(git('show', `HEAD:${F}`), 'sauber');
+  assert.equal(git('show', '--name-only', '--format=', 'HEAD'), F, 'the file written during the check is not in the commit');
+  git('reset', '--soft', head); // test only: undo
+  git('reset', '-q');
+  // staged content with a token is refused even if the file on disk is clean again by then
+  write(F, `${GITHUB_TOKEN}\n`);
+  const b = await G.commitChanges(wt, gd, 'Race 2', P.LOTSE_AUTHOR, undefined, undefined, async (staged, h, read) => { write(F, 'sauber\n'); return P.commitCheck(t, staged, h, read); });
+  assert.ok(b && 'blocked' in b && /GitHub-Token/.test(b.blocked), JSON.stringify(b));
+  assert.equal(git('rev-parse', 'HEAD'), head);
+  assert.equal(git('diff', '--cached', '--name-only'), '', 'index reset to HEAD');
+  remove(F); remove('src/Resources/config/late.txt');
+  assert.equal(git('status', '--porcelain'), 'M README.md');
+});
+
+test('defense in depth: publishing refuses local commits whose message holds a secret (history is pushed as it is)', async () => {
+  const head = git('rev-parse', 'HEAD');
+  write('src/Resources/config/note.txt', 'Hinweis\n');
+  const r = await G.commitChanges(wt, gd, `Hinweis\n\nToken: ${GITHUB_TOKEN}`, P.LOTSE_AUTHOR, undefined, ['src/Resources/config/note.txt']); // past the tool's check
+  assert.ok(r && 'sha' in r);
+  const e = await P.preflight(T.getTask(task.id)!).then(() => null, (x: Error) => x);
+  assert.match(e?.message ?? '', /lokale Commit-Nachricht .*GitHub-Token/);
+  assert.ok(!e!.message.includes(GITHUB_TOKEN));
+  git('reset', '-q', '--hard', head); // test only: undo (README.md is restored below)
+  write('README.md', '# Acme Theme\n\nMit Versandhinweis.\n');
+  assert.equal(git('status', '--porcelain'), 'M README.md');
 });
 
 test('git.ts itself: messages cleaned and capped, literal pathspecs (a "*" is a file name, not a glob)', async () => {

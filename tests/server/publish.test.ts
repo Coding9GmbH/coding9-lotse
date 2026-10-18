@@ -316,6 +316,16 @@ test('preflight secret scan: plausible values only, as a token of their own; a v
   assert.notEqual(found[0].id, found[1].id, 'the id follows the line content');
 });
 
+test('a weak stored password counts where it stands as a credential value (overridable), not as a word ("platform=shopware")', () => {
+  const none = new Set<string>(), weak = ['sommer2024', 'shopware'];
+  for (const line of ["'db_password' => 'sommer2024',", 'DB_PW=sommer2024', 'SHOP_ADMIN_PW: sommer2024', 'mysql -usw -psommer2024 shop', 'Kennwort: sommer2024']) {
+    const hit = P.secretIn(line, weak);
+    assert.deepEqual(hit, { what: P.STORED_SECRET, overridable: true }, line);
+  }
+  for (const line of ['"shopware/core": "~6.7.0"', 'platform=shopware', 'Sommer 2024: sommer2024 Rabatt', 'upward sommer2024', 'mapping: sommer2024']) assert.equal(P.secretIn(line, weak), null, line);
+  assert.match(P.scanFile('conf.php', "<?php return ['db_password' => 'sommer2024'];\n", none, weak)!, /gespeichertes Geheimnis.*Trotzdem veröffentlichen/);
+});
+
 test('diff route: after a push it says whether anything changed since ("Pull Request aktualisieren" only then)', async () => {
   const diffRoute = await import('../../src/app/api/sandbox/tasks/[id]/diff/route');
   const get = async (id: string) => (await diffRoute.GET(new Request(`http://127.0.0.1/api/sandbox/tasks/${id}/diff`), ctx(id))).json() as Promise<{ unpublished?: boolean; files: unknown[] }>;

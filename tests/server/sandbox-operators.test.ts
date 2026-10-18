@@ -242,9 +242,26 @@ test('plugin ZIP: composer.json is checked first (what is missing), keys refuse 
   assert.equal(c.secretFile, 'src/Service/Client.php');
   const secret = await zipReq(t.id);
   assert.equal(secret.status, 422);
-  assert.match(((await secret.json()) as any).error, /src\/Service\/Client\.php enthält einen Schlüssel oder Token/);
+  assert.match(((await secret.json()) as any).error, /src\/Service\/Client\.php enthält einen Schlüssel, Token oder Zugangsdaten/);
   fs.rmSync(path.join(T.taskPaths(t.id).worktree, 'src/Service/Client.php'));
   assert.equal(Z.checkPluginZip(T.getTask(t.id)!).ok, true);
+  // no override here: stored secrets (also weak ones as a credential value) and URLs with credentials refuse the ZIP as well
+  E.saveSandbox({ envVars: [{ key: 'SHOP_API_SECRET', secret: true, value: 'Qm7vR2xT9kLp4sWz8nYc' }, { key: 'DB_PW', secret: true, value: 'sommer2024' }] });
+  try {
+    for (const content of ['<config><input-field>Qm7vR2xT9kLp4sWz8nYc</input-field></config>\n', "<?php return ['db_password' => 'sommer2024'];\n", 'DATABASE_URL=mysql://app:geheim1@db/shop\n']) {
+      put(t, { 'src/Resources/config/config.xml': content });
+      c = Z.checkPluginZip(T.getTask(t.id)!);
+      assert.deepEqual(c.problems, ['secret'], content);
+      assert.equal(c.secretFile, 'src/Resources/config/config.xml');
+    }
+  } finally { E.saveSandbox({ envVars: [] }); }
+  put(t, { 'src/Resources/config/config.xml': '<config/>\n' });
+  // a file changed between the check and the download breaks the download instead of going out unchecked
+  const late = Z.pluginZip(T.getTask(t.id)!);
+  assert.ok(late.stream);
+  put(t, { 'src/Resources/config/config.xml': `<config>ghp_${'a'.repeat(36)}</config>\n` });
+  await assert.rejects(readAll(late.stream!), /seit der Prüfung geändert/);
+  fs.rmSync(path.join(T.taskPaths(t.id).worktree, 'src/Resources/config/config.xml'));
   await J.finishTask(t.id);
   const gone = await zipReq(t.id, true);
   assert.equal(gone.status, 409);

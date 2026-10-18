@@ -1,7 +1,6 @@
 // Minimal ZIP writer (no dependencies): directories and files, deflated (or stored when that is not smaller), UTF-8 names,
 // Unix permissions. Produced entry by entry as a web stream, so a route can send it while it is built. No ZIP64: callers keep
 // archives far below 4 GB (and below 65,535 entries).
-import fs from 'node:fs';
 import zlib from 'node:zlib';
 
 export interface ZipEntry {
@@ -57,6 +56,3 @@ export function zipStream(entries: ZipEntry[]): ReadableStream<Uint8Array> {
     },
   });
 }
-
-/** A file entry read from disk when it is written. */
-export const fileEntry = (name: string, abs: string, mtime?: Date): ZipEntry => ({ name, data: () => fs.readFileSync(abs), mtime });

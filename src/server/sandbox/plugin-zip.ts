@@ -2,18 +2,22 @@ import 'server-only';
 // "Plugin als ZIP herunterladen" (A15): the task's working copy as a ZIP the Shopware admin accepts (Erweiterungen → Meine
 // Erweiterungen → Erweiterung hochladen). Top folder = the plugin's technical name (Shopware reads <Name>/composer.json from the
 // first entry's folder). Left out: .git, node_modules, tests, CI and IDE folders, .env*, keys and other secret files, symlinks;
-// vendor/ only when composer.json requires packages besides Shopware/PHP and the working copy has it. Files with keys or tokens
-// block the ZIP (like publishing). Built from disk as it is now, including what the AI has not committed yet.
+// vendor/ only when composer.json requires packages besides Shopware/PHP and the working copy has it. Text files with keys, tokens,
+// stored secrets or URLs with credentials block the ZIP (publishing's scan, without an override: the ZIP goes into a shop). Built
+// from disk as it is now, including what the AI has not committed yet; a file that changes between the check and the download breaks
+// the download instead of going out unchecked.
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { PluginZipCheck, PluginZipProblem, PluginZipWarning } from '@/lib/protocol';
 import { PLUGIN_NAME } from '@/lib/sandbox-task';
-import { fileEntry, zipStream, type ZipEntry } from '../zip-write';
+import { scanSecrets } from '../settings';
+import { zipStream, type ZipEntry } from '../zip-write';
 import { secretIn } from './publish';
 import { taskPaths, type CodeTask } from './tasks';
 import { isBinary, isDenied } from './workspace-fs';
 
-export const PLUGIN_ZIP_LIMITS = { files: 5000, bytes: 100 * 1024 * 1024, scanBytes: 2 * 1024 * 1024 } as const;
+export const PLUGIN_ZIP_LIMITS = { files: 5000, bytes: 100 * 1024 * 1024 } as const;
 
 /** Folders that never go into the plugin ZIP (any depth). */
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'tests', 'Tests', '.github', '.gitlab', '.idea', '.vscode', '.devcontainer', '.ddev']);
@@ -33,7 +37,8 @@ interface Composer { name?: unknown; type?: unknown; version?: unknown; descript
 const COMPOSER_NAME = /^[a-z0-9]([_.-]?[a-z0-9]+)*\/[a-z0-9](([_.]|-{1,2})?[a-z0-9]+)*$/;
 const COMPOSER_VERSION = /^[vV]?\d+(?:[.-]\d+){0,3}[._-]?(?:(?:[sS][tT][aA][bB][lL][eE]|beta|b|RC|rc|alpha|a|patch|pl|p)(?:(?:[.-]?\d+)+)?)?(?:[.-]?[dD][eE][vV]|\.x-dev)?(?:\+.*)?$|^dev-.*$/;
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-interface Plan { check: PluginZipCheck; files: { rel: string; abs: string; mtime: Date }[]; dirs: string[] }
+interface Plan { check: PluginZipCheck; files: { rel: string; abs: string; mtime: Date; hash: string }[]; dirs: string[] }
+const digest = (buf: Buffer) => createHash('sha256').update(buf).digest('hex');
 
 /** composer.json of the working copy against what Shopware needs to install an uploaded plugin. Checked against Shopware 6.7.15.1:
  *  without name, description, autoload, extra.label or with a name/version composer rejects, the upload succeeds but "plugin:refresh"
@@ -80,6 +85,7 @@ function plan(t: CodeTask): Plan {
   if (needsVendor && !vendor) warnings.push('vendorMissing');
   const files: Plan['files'] = [], dirs: string[] = [];
   let bytes = 0, tooLarge = false, secretFile: string | undefined;
+  const known = scanSecrets();
   const walk = (dir: string) => {
     let names: string[];
     try { names = fs.readdirSync(path.join(root, dir)).sort(); } catch { return; }
@@ -95,11 +101,11 @@ function plan(t: CodeTask): Plan {
       if (!st.isFile()) continue;
       bytes += st.size;
       if (files.length >= PLUGIN_ZIP_LIMITS.files || bytes > PLUGIN_ZIP_LIMITS.bytes) { tooLarge = true; return; }
-      files.push({ rel, abs, mtime: st.mtime });
-      // keys and tokens (not the overridable hints of publishing): the ZIP goes into a shop, often not by a developer
-      if (!secretFile && st.size <= PLUGIN_ZIP_LIMITS.scanBytes) {
-        try { const buf = fs.readFileSync(abs); if (!isBinary(buf)) { const hit = secretIn(buf.toString('latin1'), []); if (hit && !hit.overridable) secretFile = rel; } } catch { /* vanished */ }
-      }
+      let buf: Buffer;
+      try { buf = fs.readFileSync(abs); } catch { continue; } // vanished
+      files.push({ rel, abs, mtime: st.mtime, hash: digest(buf) });
+      // every hit counts, also stored secrets and URLs with credentials (no "publish anyway" here): the ZIP goes into a shop, often not by a developer
+      if (!secretFile && !isBinary(buf) && secretIn(buf.toString('latin1'), known)) secretFile = rel;
     }
   };
   if (fs.existsSync(root)) walk('');
@@ -119,6 +125,12 @@ export function pluginZip(t: CodeTask): { check: PluginZipCheck; stream: Readabl
   const p = plan(t);
   if (!p.check.ok || !p.check.name) return { check: p.check, stream: null };
   const top = p.check.name;
-  const entries: ZipEntry[] = [{ name: `${top}/` }, ...p.dirs.map(d => ({ name: `${top}/${d}/` })), ...p.files.map(f => fileEntry(`${top}/${f.rel}`, f.abs, f.mtime))];
+  // each file exactly as checked: changed since (the AI writes meanwhile) breaks the download instead of shipping unchecked content
+  const entry = (f: Plan['files'][number]): ZipEntry => ({ name: `${top}/${f.rel}`, mtime: f.mtime, data: () => {
+    const buf = fs.readFileSync(f.abs);
+    if (digest(buf) !== f.hash) throw new Error(`${f.rel} wurde seit der Prüfung geändert – ZIP bitte neu herunterladen.`);
+    return buf;
+  } });
+  const entries: ZipEntry[] = [{ name: `${top}/` }, ...p.dirs.map(d => ({ name: `${top}/${d}/` })), ...p.files.map(entry)];
   return { check: p.check, stream: zipStream(entries) };
 }

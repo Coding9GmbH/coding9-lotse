@@ -45,12 +45,19 @@ export function findToken(text: string, value: string): number {
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-/** "password: x", "secret=x", "PASSWORD='x'", "token" => "x", "--password x": the value stands as a credential. */
-const CREDENTIAL_KEY = String.raw`(?:pass(?:word|wort|wd|phrase)?|pwd|kennwort|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|auth)`;
+/** "password: x", "secret=x", "PASSWORD='x'", "token" => "x", "--password x", "DB_PW=x", "mysql -px": the value stands as a credential.
+ *  "pw" and "pin" only as a word part of their own ("DB_PW", "admin-pin"), not inside "upward" or "mapping". */
+const CREDENTIAL_KEY = String.raw`(?:pass(?:word|wort|wd|phrase)?|pwd|(?<![a-z])(?:pw|pin)(?![a-z])|kennwort|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|auth)`;
+/** The prefix before a credential value: a key and its separator, or mysql's attached "-p". */
+const CREDENTIAL_PREFIX = String.raw`(\b[\w.-]*${CREDENTIAL_KEY}[\w.-]*["']?\s*(?:[:=]>?|=>|\s)\s*["']?|(?<![\w-])-p["']?)`;
+const credentialRe = (value: string, flags: string) => new RegExp(String.raw`${CREDENTIAL_PREFIX}${escapeRe(value)}(?![\p{L}\p{N}_])`, flags);
 
 /** Removes a weak stored value (not plausibleSecret) only where it stands as the value of a credential key, keeping the key. */
 export function redactWeak(text: string, value: string, mask = '•••'): string {
   if (!value) return text;
-  const re = new RegExp(String.raw`(\b[\w.-]*${CREDENTIAL_KEY}[\w.-]*["']?\s*(?:[:=]>?|=>|\s)\s*["']?)${escapeRe(value)}(?![\p{L}\p{N}_])`, 'giu');
-  return text.replace(re, `$1${mask}`);
+  return text.replace(credentialRe(value, 'giu'), `$1${mask}`);
+}
+/** Whether a weak stored value stands as the value of a credential key in `text` (the secret scan's counterpart of redactWeak). */
+export function weakCredentialIn(text: string, value: string): boolean {
+  return !!value && credentialRe(value, 'iu').test(text);
 }
