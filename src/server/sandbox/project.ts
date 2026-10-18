@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ConfigHold, ProjectInfo, ProjectPart, ProjectPlugin, QuarantineCode } from '@/lib/protocol';
 import { PLUGIN_NAME } from '@/lib/sandbox-task';
+import { DEFAULT_LOCALE, messages, type Locale } from '@/lib/i18n';
 import { isExcluded } from './sync';
 
 const MAX_PLUGINS = 300, MAX_CONFIG = 500, JSON_MAX = 20 * 1024 * 1024;
@@ -507,9 +508,9 @@ const PROJECT_ROOT_FILES = /^(composer\.(json|lock)|symfony\.lock|package(-lock)
 /** Why a changed path of a project is not published, or null: dependencies and build output (vendor/, node_modules/, var/, public/)
  *  never, and only the parts of a project that belong to its code (custom/, config/, src/ …, composer files). Secrets, .env*, keys and
  *  workflows are refused by the general rules before. */
-export function projectPathBlock(p: string): string | null {
-  const segs = p.split('/');
-  if (segs.some(s => s === 'vendor' || s === 'node_modules') || ['var', 'public'].includes(segs[0])) return `„${p.slice(0, 120)}“ ist eine Abhängigkeit oder Build-Ausgabe (vendor/, node_modules/, var/, public/) und wird nicht veröffentlicht.`;
+export function projectPathBlock(p: string, locale: Locale = DEFAULT_LOCALE): string | null {
+  const segs = p.split('/'), L = messages(locale).server.check;
+  if (segs.some(s => s === 'vendor' || s === 'node_modules') || ['var', 'public'].includes(segs[0])) return L.dependency(p.slice(0, 120));
   if (segs.length === 1 ? PROJECT_ROOT_FILES.test(segs[0]) : PROJECT_DIRS.has(segs[0])) return null;
-  return `„${p.slice(0, 120)}“ liegt außerhalb der Bereiche, die Lotse in einem Shopware-Projekt veröffentlicht (custom/, config/, src/, tests/, composer.json/composer.lock …).`;
+  return L.outsideProject(p.slice(0, 120));
 }

@@ -9,7 +9,7 @@ import { redact } from '../settings';
 import { singleton } from '../state';
 import { reasonText, type ConfigPlan, type ProjectRuntime } from './project';
 import { getRunner } from './runner';
-import { projectStamp, syncAll, syncPaths, treeStamp, type SyncTarget } from './sync';
+import { projectManifest, syncAll, syncPaths, treeManifest, type SyncTarget, type TreeManifest } from './sync';
 import { getTemplate } from './templates';
 import { saveTask, taskPaths, type CodeTask } from './tasks';
 
@@ -39,23 +39,25 @@ function note(t: CodeTask, plan: ConfigPlan | null | undefined) {
 }
 
 // ---- What the container already has ----
-// Per task: the container and project settings of the last full sync and the worktree's fingerprint the container matches (updated by
-// every successful path sync and by taking files over from the container, container-pull.ts), plus the paths changed while the container
-// was paused (null = too many to track). Kept in the task's workspace folder, so a Lotse restart does not mirror everything again:
-// a full mirror removes what was made only inside the container (e.g. composer require, bin/console plugin:create) before the user
-// could take it over.
-interface SyncState { container: string; project: string; stamp: string; pending: string[] | null }
+// Per task: the container and project settings of the last full sync and the manifest of the worktree the container matches (sync.ts
+// TreeManifest; patched for exactly the paths a path sync transferred or that were taken over from the container, container-pull.ts),
+// plus the paths changed while the container was paused (null = too many to track). Kept in the task's workspace folder, so a Lotse
+// restart does not mirror everything again: a full mirror removes what was made only inside the container (e.g. composer require,
+// bin/console plugin:create) before the user could take it over. A change that did not come through the tools (made on the host, a
+// crash between writing and syncing) differs from the manifest and is transferred on the next sync – never masked.
+interface SyncState { container: string; project: string; files: TreeManifest; pending: string[] | null }
 const PENDING_MAX = 2000;
 const stateFile = (id: string) => path.join(taskPaths(id).workspace, 'sync-state.json');
 const memo = () => singleton<Map<string, SyncState | null>>('sandboxSyncState', () => new Map());
+const isManifest = (v: unknown): v is TreeManifest => !!v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).every(x => typeof x === 'string');
 function readState(id: string): SyncState | null {
   const m = memo();
   if (m.has(id)) return m.get(id) ?? null;
   let s: SyncState | null = null;
   try {
     const v = JSON.parse(fs.readFileSync(stateFile(id), 'utf8')) as Partial<SyncState>;
-    if (typeof v.container === 'string' && typeof v.project === 'string' && typeof v.stamp === 'string' && (v.pending === null || (Array.isArray(v.pending) && v.pending.every(p => typeof p === 'string'))))
-      s = { container: v.container, project: v.project, stamp: v.stamp, pending: v.pending };
+    if (typeof v.container === 'string' && typeof v.project === 'string' && isManifest(v.files) && (v.pending === null || (Array.isArray(v.pending) && v.pending.every(p => typeof p === 'string'))))
+      s = { container: v.container, project: v.project, files: v.files, pending: v.pending };
   } catch { /* none yet */ }
   m.set(id, s);
   return s;
@@ -68,39 +70,60 @@ function writeState(id: string, s: SyncState | null) {
   } catch { /* memory still has it */ }
 }
 const projectKey = (tg: SyncTarget) => JSON.stringify(tg.project ?? null);
-const stampOf = (tg: SyncTarget) => (tg.project ? projectStamp(tg.worktree) : treeStamp(tg.worktree));
+const manifestOf = (tg: SyncTarget) => (tg.project ? projectManifest(tg.worktree) : treeManifest(tg.worktree));
 const current = (t: CodeTask, tg: SyncTarget): SyncState | null => { const s = readState(t.id); return s && s.container === t.containerId && s.project === projectKey(tg) ? s : null; };
+/** Paths whose entry differs between what the container got and the worktree now (a folder that only appeared: its entries count) */
+export function manifestChanges(had: TreeManifest, now: TreeManifest): string[] {
+  const out: string[] = [];
+  for (const [rel, v] of Object.entries(now)) if (had[rel] !== v && !(v === 'd' && had[rel] === undefined)) out.push(rel);
+  for (const rel of Object.keys(had)) if (!(rel in now)) out.push(rel);
+  return out.sort();
+}
+const under = (rel: string, p: string) => rel === p || rel.startsWith(`${p}/`);
 
 /**
  * Full sync (setup, wake-up, before sandbox_bash). Returns the number of files and, for a project, the config plan. `ifChanged`
  * (wake-up, sandbox_bash, taking files over): when the worktree did not change since the container got it, nothing is mirrored again;
- * when only paths edited while the container was paused changed, just those are synced. Everything else mirrors in full.
+ * otherwise just the changed paths (and the ones edited while the container was paused) are synced. A full mirror only without a
+ * record of what the container has, or with too many changes.
  */
 export async function syncTaskAll(t: CodeTask, signal?: AbortSignal, o: { ifChanged?: boolean } = {}): Promise<{ files: number; config: ConfigPlan | null; skipped?: boolean }> {
   const tg = target(t, signal);
   const s = o.ifChanged ? current(t, tg) : null;
-  if (s) {
-    const stamp = stampOf(tg);
-    if (s.stamp === stamp && !s.pending?.length) return { files: 0, config: null, skipped: true };
-    if (s.pending?.length) {
+  if (s?.pending) {
+    // read before the transfer: a change while it runs differs next time instead of being taken as transferred
+    const now = manifestOf(tg), paths = [...new Set([...s.pending, ...manifestChanges(s.files, now)])];
+    if (!paths.length) return { files: 0, config: null, skipped: true };
+    if (paths.length <= PENDING_MAX) {
       writeState(t.id, null); // a failure below leaves the next call a full sync
-      const r = await syncPaths(tg, s.pending);
+      const r = await syncPaths(tg, paths);
       note(t, r.config);
-      writeState(t.id, { ...s, stamp: stampOf(tg), pending: [] });
+      writeState(t.id, { ...s, files: now, pending: [] });
       return { files: r.put, config: r.config ?? null };
     }
   }
   writeState(t.id, null);
+  const now = manifestOf(tg);
   const r = await syncAll(tg);
   note(t, r.config);
-  writeState(t.id, { container: t.containerId ?? '', project: projectKey(tg), stamp: stampOf(tg), pending: [] });
+  writeState(t.id, { container: t.containerId ?? '', project: projectKey(tg), files: now, pending: [] });
   return { files: r.files, config: r.config ?? null };
 }
-/** The container now has exactly the worktree's state for the synced parts (after a path sync or after taking files over from it). */
-export function noteInSync(t: CodeTask) {
-  if (!t.layout || !t.containerId) return;
+/** The container now has the worktree's state of exactly `rels` (files or folders; after a path sync or after taking files over from
+ *  it): only their entries (and their parent folders) are updated, so any other change still differs and is transferred later.
+ *  `now`: the worktree's manifest read before that transfer. */
+export function noteInSync(t: CodeTask, rels: string[], now?: TreeManifest) {
+  if (!t.layout || !t.containerId || !rels.length) return;
   const tg = target(t), s = current(t, tg);
-  if (s && !s.pending?.length) writeState(t.id, { ...s, stamp: stampOf(tg) });
+  if (!s?.pending) return;
+  const m = now ?? manifestOf(tg), files = { ...s.files };
+  for (const r of rels) {
+    for (const k of Object.keys(files)) if (under(k, r)) delete files[k];
+    for (const [k, v] of Object.entries(m)) if (under(k, r)) files[k] = v;
+    const segs = r.split('/');
+    for (let i = 1; i < segs.length; i++) { const d = segs.slice(0, i).join('/'); if (m[d]) files[d] = m[d]; }
+  }
+  writeState(t.id, { ...s, files, pending: s.pending.filter(p => !rels.some(r => under(p, r))) });
 }
 /** Paths changed while the container is paused: synced alone when it wakes (too many: a full sync). */
 export function notePending(id: string, rels: string[]) {
@@ -114,10 +137,11 @@ export const forgetSync = (id: string) => writeState(id, null);
 /** Changed paths only (the agent's edits). For a project: quarantined config files newly found are named in `note` for the agent. */
 export async function syncTaskPaths(t: CodeTask, rels: string[]): Promise<{ note: string }> {
   const before = new Set((t.layout?.project?.quarantined ?? []).map(q => q.file));
+  const tg = target(t), now = manifestOf(tg);
   let r: Awaited<ReturnType<typeof syncPaths>>;
-  try { r = await syncPaths(target(t), rels); } catch (e) { forgetSync(t.id); throw e; }
+  try { r = await syncPaths(tg, rels); } catch (e) { forgetSync(t.id); throw e; }
   note(t, r.config);
-  noteInSync(t);
+  noteInSync(t, rels, now);
   const fresh = r.config ? [...r.config.quarantine].filter(([f]) => rels.includes(f) && !before.has(f)) : [];
   return { note: fresh.length ? ` – in der Sandbox NICHT geladen: ${fresh.map(([f, q]) => `${f} (${redact(reasonText(q))})`).join('; ')}` : '' };
 }

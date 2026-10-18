@@ -86,16 +86,17 @@ export function changedPaths(nameStatus: string): Changed[] {
   });
 }
 
-/** The reason a set of changed paths must not be published, in plain German, or null. A full project (`kind` 'project') publishes
- *  only its own parts (projectPathBlock). */
-export function blockReason(files: Changed[], kind?: TaskLayout['kind'] | null): string | null {
-  if (!files.length) return 'Nichts zu veröffentlichen: keine Änderungen gegenüber dem Basis-Branch.';
-  if (files.length > PUBLISH_LIMITS.files) return `Zu viele geänderte Dateien (${files.length}, höchstens ${PUBLISH_LIMITS.files}).`;
+/** The reason a set of changed paths must not be published (in `locale`, German by default), or null. A full project (`kind`
+ *  'project') publishes only its own parts (projectPathBlock). */
+export function blockReason(files: Changed[], kind?: TaskLayout['kind'] | null, locale: Locale = DEFAULT_LOCALE): string | null {
+  const L = messages(locale).server.check;
+  if (!files.length) return L.nothing;
+  if (files.length > PUBLISH_LIMITS.files) return L.tooMany(files.length, PUBLISH_LIMITS.files);
   for (const { path: p } of files) {
-    if (!p || p.startsWith('/') || p.split('/').includes('..') || p.includes('\\') || /[\x00-\x1f]/.test(p)) return `Ungültiger Pfad „${p.slice(0, 120)}“.`;
-    if (/^\.github\/(workflows|actions)(\/|$)/i.test(p) || /(^|\/)action\.ya?ml$/i.test(p)) return `Änderungen an GitHub-Workflows oder -Actions (${p.slice(0, 120)}) veröffentlicht Lotse nicht – sie liefen mit den Rechten des Repositorys.`;
-    if (isDenied(p)) return `„${p.slice(0, 120)}“ ist eine geschützte Datei (.git, Geheimnis oder Schlüssel) und wird nicht veröffentlicht.`;
-    const outside = kind === 'project' ? projectPathBlock(p) : null;
+    if (!p || p.startsWith('/') || p.split('/').includes('..') || p.includes('\\') || /[\x00-\x1f]/.test(p)) return L.badPath(p.slice(0, 120));
+    if (/^\.github\/(workflows|actions)(\/|$)/i.test(p) || /(^|\/)action\.ya?ml$/i.test(p)) return L.workflow(p.slice(0, 120));
+    if (isDenied(p)) return L.protectedFile(p.slice(0, 120));
+    const outside = kind === 'project' ? projectPathBlock(p, locale) : null;
     if (outside) return outside;
   }
   return null;
@@ -132,8 +133,8 @@ export function scanFile(file: string, content: string, baseLines: Set<string>, 
 
 /** Sizes, symlinks and the secret scan on the files as they are on disk (git's own output is redacted, so it cannot be scanned) –
  *  or, with `read` (git_commit), on the staged bytes the commit will hold. */
-async function checkOnDisk(t: CodeTask, files: Changed[], known: string[], head?: string, read?: StagedReader): Promise<{ why: string | null; findings: SecretFinding[] }> {
-  const { worktree, gitDir } = taskPaths(t.id), realRoot = fs.realpathSync(worktree);
+async function checkOnDisk(t: CodeTask, files: Changed[], known: string[], head?: string, read?: StagedReader, locale: Locale = DEFAULT_LOCALE): Promise<{ why: string | null; findings: SecretFinding[] }> {
+  const { worktree, gitDir } = taskPaths(t.id), realRoot = fs.realpathSync(worktree), L = messages(locale).server.check;
   const findings: SecretFinding[] = [];
   let total = 0;
   const stop = (why: string) => ({ why, findings: [] });
@@ -145,17 +146,17 @@ async function checkOnDisk(t: CodeTask, files: Changed[], known: string[], head?
     if (st?.isSymbolicLink()) {
       let real = '';
       try { real = fs.realpathSync(abs); } catch { /* dangling */ }
-      if (!real || !(real === realRoot || real.startsWith(realRoot + path.sep))) return stop(`„${f.path.slice(0, 120)}“ ist ein Symlink aus dem Repository heraus und wird nicht veröffentlicht.`);
+      if (!real || !(real === realRoot || real.startsWith(realRoot + path.sep))) return stop(L.linkOut(f.path.slice(0, 120)));
       if (!read) continue;
     }
     if (st && !st.isFile() && !read) continue;
-    const tooBig = (n: number) => `„${f.path.slice(0, 120)}“ ist zu groß (${Math.round(n / 1024 / 1024)} MB, höchstens ${PUBLISH_LIMITS.fileBytes / 1024 / 1024} MB je Datei).`;
+    const tooBig = (n: number) => L.tooBig(f.path.slice(0, 120), Math.round(n / 1024 / 1024), PUBLISH_LIMITS.fileBytes / 1024 / 1024);
     if (st && !read && st.size > PUBLISH_LIMITS.fileBytes) return stop(tooBig(st.size)); // before reading it
     const data = read ? await read(f.path) : fs.readFileSync(abs);
-    if (!data) return stop(`„${f.path.slice(0, 120)}“ konnte nicht geprüft werden (zu groß oder nicht lesbar).`);
+    if (!data) return stop(L.unchecked(f.path.slice(0, 120)));
     if (data.length > PUBLISH_LIMITS.fileBytes) return stop(tooBig(data.length));
     total += data.length;
-    if (total > PUBLISH_LIMITS.totalBytes) return stop(`Die Änderungen sind zu groß (höchstens ${PUBLISH_LIMITS.totalBytes / 1024 / 1024} MB).`);
+    if (total > PUBLISH_LIMITS.totalBytes) return stop(L.tooBigTotal(PUBLISH_LIMITS.totalBytes / 1024 / 1024));
     if (findings.length >= FINDINGS_MAX) continue;
     const base = await readBaseBlob(worktree, gitDir, t.baseBranch, f.path); // unredacted: same bytes as on disk
     const baseText = base ? base.toString('latin1') : '';
@@ -195,13 +196,18 @@ export async function preflight(t: CodeTask, allow: readonly string[] = []): Pro
  * overridden here (a possible false positive stays uncommitted; the user decides at publishing). Returns the reason, or null.
  */
 export async function commitCheck(t: CodeTask, files: Changed[], head: string, read?: StagedReader): Promise<string | null> {
-  const early = blockReason(files, t.layout?.kind);
-  if (early) return early;
-  const { why, findings } = await checkOnDisk(t, files.filter(f => f.status !== 'D'), scanSecrets(), head, read);
-  if (why) return why;
-  if (!findings.length) return null;
-  const [f] = findings;
-  return `Nicht committet: In „${f.file.slice(0, 120)}“ (Zeile ${f.line}) steht etwas, das wie ein Geheimnis aussieht (${f.kind})${findings.length > 1 ? ` – dazu ${findings.length - 1} weitere Stelle(n)` : ''}. Entfernen und erneut committen; ist es sicher kein Geheimnis, die Datei nicht committen – der Nutzer entscheidet beim Veröffentlichen.`;
+  const v = await commitVerdict(t, files, head, read);
+  if (!v?.findings) return v?.why ?? null;
+  const [f] = v.findings;
+  return `Nicht committet: In „${f.file.slice(0, 120)}“ (Zeile ${f.line}) steht etwas, das wie ein Geheimnis aussieht (${f.kind})${v.findings.length > 1 ? ` – dazu ${v.findings.length - 1} weitere Stelle(n)` : ''}. Entfernen und erneut committen; ist es sicher kein Geheimnis, die Datei nicht committen – der Nutzer entscheidet beim Veröffentlichen.`;
+}
+/** commitCheck's verdict for showing it to the user: the reason in `locale`, or the secret findings, or null (taking files over from the container). */
+export async function commitVerdict(t: CodeTask, files: Changed[], head: string, read?: StagedReader, locale: Locale = DEFAULT_LOCALE): Promise<{ why: string; findings?: never } | { why?: never; findings: SecretFinding[] } | null> {
+  const early = blockReason(files, t.layout?.kind, locale);
+  if (early) return { why: early };
+  const { why, findings } = await checkOnDisk(t, files.filter(f => f.status !== 'D'), scanSecrets(), head, read, locale);
+  if (why) return { why };
+  return findings.length ? { findings } : null;
 }
 
 // ---- Errors in plain language ----

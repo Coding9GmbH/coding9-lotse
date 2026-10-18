@@ -26,7 +26,7 @@ export function GET(req: Request, { params }: { params: Promise<{ id: string }> 
   return taskRoute(req, async () => {
     const id = (await params).id, t = await ready(req, id, false);
     if (t instanceof Response) return t;
-    return Response.json(await withTaskLock(id, () => containerChanges(mustTask(id), req.signal)) satisfies ContainerChanges);
+    return Response.json(await withTaskLock(id, () => containerChanges(mustTask(id), req.signal, requestLocale(req))) satisfies ContainerChanges);
   });
 }
 
@@ -41,7 +41,7 @@ export function POST(req: Request, { params }: { params: Promise<{ id: string }>
     if (!body.ok) return body.res;
     const t = await ready(req, id, true);
     if (t instanceof Response) return t;
-    const r = await withTaskLock(id, () => takeOver(mustTask(id), { items: body.data.items }, { via: 'panel' }));
+    const r = await withTaskLock(id, () => takeOver(mustTask(id), { items: body.data.items }, { via: 'panel', locale: requestLocale(req) }));
     return Response.json({ taken: r.taken, refused: r.refused } satisfies ContainerTakeOver);
   });
 }
