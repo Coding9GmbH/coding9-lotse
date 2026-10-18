@@ -271,6 +271,18 @@ export class FakeRunner implements SandboxRunner {
       const dump = [...c.files].find(([k]) => k.endsWith('/lotse-import/dump'))?.[1];
       for (const m of mountsOf(c.spec)) { const v = this.volumes.get(m.Source); if (v) v.data = [`import:${dump?.length ?? 0}`]; }
     }
+    // sync.ts RESTORE_SH: the image's config/ and src/ kept once, each path removed and the image's version put back
+    if (argv[0] === 'bash' && argv[3] === 'lotse-restore') {
+      const root = '/var/www/html', b = `${root}/var/lotse-image`;
+      if (!c.files.has(`${b}/.complete`)) {
+        for (const [k, v] of [...c.files]) if (k.startsWith(`${root}/config/`) || k.startsWith(`${root}/src/`)) c.files.set(`${b}/${k.slice(root.length + 1)}`, v);
+        c.files.set(`${b}/.complete`, Buffer.alloc(0));
+      }
+      for (const rel of argv.slice(4)) {
+        for (const k of [...c.files.keys()]) if (k === `${root}/${rel}` || k.startsWith(`${root}/${rel}/`)) c.files.delete(k);
+        for (const [k, v] of [...c.files]) if (k === `${b}/${rel}` || k.startsWith(`${b}/${rel}/`)) c.files.set(`${root}/${k.slice(b.length + 1)}`, v);
+      }
+    }
     if (argv[0] === 'rm' && argv.includes('--')) for (const target of argv.slice(argv.indexOf('--') + 1)) for (const k of [...c.files.keys()]) if (k === target || k.startsWith(`${target}/`)) c.files.delete(k);
     const r = this.script(argv, id) ?? dockwareAnswers(argv, c) ?? {};
     return { exitCode: r.exitCode ?? 0, output: r.output ?? '', truncated: r.truncated ?? false };

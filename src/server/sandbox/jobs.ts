@@ -176,7 +176,7 @@ async function execute(id: string, from: number, signal: AbortSignal) {
   for (let i = from; i < t.steps.length; i++) {
     const step = t.steps[i];
     const def = step.key === 'custom' ? null : tpl.steps.find(s => s.id === step.key);
-    const limit = step.key === 'custom' ? (step.timeoutSec ?? 600) * 1000 : def?.timeoutMs ?? 60_000;
+    const limit = step.key === 'custom' ? (step.timeoutSec ?? 600) * 1000 : def?.timeoutFor?.(t.layout) ?? def?.timeoutMs ?? 60_000;
     const stepSignal = AbortSignal.any([signal, AbortSignal.timeout(limit)]);
     step.state = 'running'; step.startedAt = now(); step.log = []; delete step.endedAt; delete step.error;
     saveTask(t);

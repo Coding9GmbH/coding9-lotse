@@ -624,6 +624,8 @@ test('Sandbox Coding: a whole Shopware project – plugins, apps and config brou
   await expect(box.getByText('Apps: AcmeHelloApp')).toBeVisible();
   await box.getByText('1 Konfigurationsdatei wird in der Sandbox nicht geladen').click();
   await expect(box.getByText(/config\/packages\/sentry\.yaml/)).toBeVisible();
+  await expect(box.getByText(/braucht eine Erweiterung, die das Image nicht hat \(sentry\)/)).toBeVisible();
+  await expect(box.getByText(/^Umgebungsvariablen ohne Wert in der Sandbox: .*S3_PUBLIC_BUCKET/)).toBeVisible();
   await box.getByText(/^In der Sandbox umgestellt \(externe Dienste → lokal\)/).click();
   await expect(box.getByText('shopware.cart.storage.type: redis → mysql')).toBeVisible();
   await steps.getByRole('button', { name: 'Details anzeigen' }).click();

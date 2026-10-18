@@ -15,7 +15,7 @@ import type { ProjectInfo, TaskLayout } from '@/lib/protocol';
 import { PLUGIN_NAME } from '@/lib/sandbox-task';
 import {
   COMPOSER_NAME, ENV_NAMES_ARGV, bootError, bootFinding, detectProject, missingPsr4, parseAppEnv, parseEnvNames, parseExtensions, pickTheme,
-  readComposerJson, requiredPackages, type ConfigPlan,
+  overrideFile, readComposerJson, reasonText, requiredPackages, type ConfigPlan,
 } from '../project';
 import type { StepCtx } from './types';
 
@@ -72,10 +72,10 @@ async function readRuntime(ctx: StepCtx, p: ProjectInfo): Promise<ProjectInfo> {
 }
 
 /** What the sync's config plan did, for the setup log */
-function logPlan(ctx: StepCtx, plan: ConfigPlan | null) {
+function logPlan(ctx: StepCtx, plan: ConfigPlan | null, appEnv: string) {
   if (!plan) return;
-  for (const [f, why] of plan.quarantine) ctx.log(`Nicht geladen: ${f} – ${why}`);
-  if (plan.notes.length) ctx.log(`Sandbox-Anpassungen (config/packages/…/zz_lotse_sandbox.yaml): ${plan.notes.join('; ')}`);
+  for (const [f, q] of plan.quarantine) ctx.log(`Nicht geladen: ${f} – ${reasonText(q)}`);
+  if (plan.notes.length) ctx.log(`Sandbox-Anpassungen (${overrideFile(appEnv)}): ${plan.notes.join('; ')}`);
   if (plan.envDefaults.length) ctx.log(`Umgebungsvariablen ohne Wert in der Sandbox: ${plan.envDefaults.join(', ')}`);
 }
 
@@ -124,7 +124,7 @@ async function bootCheck(ctx: StepCtx, l: TaskLayout, p: ProjectInfo, plan: Conf
       p = { ...p, extraEnv: [...(p.extraEnv ?? []), found.env] };
     } else if (found && 'file' in found && !(p.held ?? []).some(h => h.file === found.file)) {
       ctx.log(`Shopware startet nicht (${why}) – ${found.file} wird in der Sandbox nicht geladen.`);
-      p = { ...p, held: [...(p.held ?? []), { file: found.file, reason: found.reason }] };
+      p = { ...p, held: [...(p.held ?? []), found] };
     } else {
       const quoted = [...why.matchAll(/"([^"]{3,80})"/g)].map(m => m[1]);
       const likely = (plan?.files ?? []).find(f => quoted.some(q => f.raw.includes(q)))?.rel;
@@ -133,7 +133,7 @@ async function bootCheck(ctx: StepCtx, l: TaskLayout, p: ProjectInfo, plan: Conf
     save(ctx, l, p);
     plan = await ctx.syncAll();
     p = project(ctx).p; // the sync keeps what it quarantined on the layout
-    logPlan(ctx, plan);
+    logPlan(ctx, plan, p.appEnv ?? 'dev');
   }
 }
 
@@ -167,7 +167,7 @@ export async function installProject(ctx: StepCtx): Promise<void> {
 
   let plan = await ctx.syncAll();
   p = project(ctx).p;
-  logPlan(ctx, plan);
+  logPlan(ctx, plan, p.appEnv ?? 'dev');
   await composerParts(ctx, p, skip);
   p = await bootCheck(ctx, l, p, plan);
   save(ctx, l, p);

@@ -92,6 +92,8 @@ export interface TemplateStep {
   /** slot where the user's own setup commands of this phase run (each one as its own step) */
   custom?: CommandPhase;
   optional?: boolean;
+  /** a different time limit for a layout (e.g. a whole project installs much more than one plugin); default timeoutMs */
+  timeoutFor?: (layout: TaskLayout | null) => number;
   /** 'skipped' = nothing to do (e.g. no dump uploaded) */
   run?: (ctx: StepCtx) => Promise<void | 'skipped'>;
 }

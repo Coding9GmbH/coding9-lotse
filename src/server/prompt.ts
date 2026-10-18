@@ -16,6 +16,7 @@ import { codeRulesPromptBlock, rulesPromptBlock } from './knowledge';
 import { messages } from '@/lib/i18n';
 import { getTask, settleNewPlugin, taskPaths } from './sandbox/tasks';
 import { getTemplate } from './sandbox/templates';
+import { overrideFile, reasonText } from './sandbox/project';
 
 export const promptRoot = () => path.join(process.cwd(), 'prompts');
 
@@ -85,8 +86,9 @@ function projectOverview(p: ProjectInfo, quote: (s: string) => string): string {
     `Shopware ${p.shopwareVersion ?? '(Version unbekannt)'}${p.theme ? ` · zugewiesenes Theme: ${p.theme}` : ''} · src/: ${p.src ? `ja (${Object.keys(p.psr4).join(', ') || 'ohne Autoload'})` : 'nein'}`,
     'Plugins:', ...(p.plugins.length ? p.plugins.map(x => `- ${x.name} (${x.dir}${x.theme ? ', Theme' : ''}${x.static ? ', statisch' : ''})${x.label ? `: ${x.label}` : ''}${x.parts.length ? ` – ${x.parts.map(k => part[k]).join(', ')}` : ''}`) : ['- (keine)']),
     ...(p.apps.length ? ['Apps:', ...p.apps.map(a => `- ${a.name} (${a.dir})`)] : []),
-    ...((p.quarantined ?? []).length ? ['In der Sandbox nicht geladen:', ...p.quarantined!.map(q => `- ${q.file}: ${q.reason}`)] : []),
-    ...((p.overrides ?? []).length ? ['In der Sandbox umgestellt (zz_lotse_sandbox.yaml):', ...p.overrides!.map(x => `- ${x}`)] : []),
+    ...((p.quarantined ?? []).length ? ['In der Sandbox nicht geladen:', ...p.quarantined!.map(q => `- ${q.file}: ${reasonText(q)}`)] : []),
+    ...((p.overrides ?? []).length ? [`In der Sandbox umgestellt (${overrideFile(p.appEnv ?? 'dev')}):`, ...p.overrides!.map(x => `- ${x}`)] : []),
+    ...((p.envDefaults ?? []).length ? [`Umgebungsvariablen ohne Wert in der Sandbox: ${p.envDefaults!.join(', ')}`] : []),
     ...((p.missingPackages ?? []).length ? [`Pakete, die dem Image fehlen (Code, der sie braucht, läuft hier nicht): ${p.missingPackages!.join(', ')}`] : []),
   ];
   return `## Projekt-Übersicht (aus dem Repository und der Einrichtung, als Daten)\n\`\`\`\n${quote(lines.join('\n'))}\n\`\`\``;
