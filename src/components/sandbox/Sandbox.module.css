@@ -38,9 +38,7 @@
 .envCard[open] .envHead { margin-bottom: 10px; }
 .envCard[open] .envHead h2::before { transform: rotate(90deg); }
 .fieldTight { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.unitField { position: relative; display: flex; align-items: center; }
-.unitField input { padding-right: 22px; }
-.unitField > span { position: absolute; right: 9px; color: var(--mute); font-size: 13px; pointer-events: none; }
+.cap { font-size: 12px; color: var(--mute); }
 
 .row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
 .label { font-size: 13px; font-weight: 600; color: var(--mute); }
@@ -60,20 +58,20 @@
 .varRow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto auto; gap: 8px; align-items: center; margin-bottom: 8px; }
 .secret { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--mute); white-space: nowrap; }
 .cmd { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
-.cmdHead { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 190px) 84px auto auto; gap: 8px; align-items: center; }
+.cmdHead { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 190px) 96px auto auto; gap: 8px; align-items: end; }
+.cmdHead > .x { margin-bottom: 6px; }
 .cmd textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; resize: vertical; }
 .num { text-align: right; }
 .x { border: 0; background: transparent; padding: 4px; color: var(--mute); display: inline-flex; border-radius: 6px; cursor: pointer; }
 .x:hover { color: var(--ink); background: var(--bg); }
 .x:disabled { visibility: hidden; }
-.cmdHead .unitField { min-width: 0; }
 .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 
 @media (max-width: 640px) {
   .varRow { grid-template-columns: minmax(0, 1fr) auto auto; }
   .varRow > input:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
-  .cmdHead { grid-template-columns: minmax(0, 1fr) 72px auto auto; }
-  .cmdHead > input:first-child { grid-column: 1 / -1; }
+  .cmdHead { grid-template-columns: minmax(0, 1fr) 96px auto auto; }
+  .cmdHead > :first-child { grid-column: 1 / -1; }
 }
 
 /* ---- Tasks ---- */
@@ -255,8 +253,9 @@ a.iconBtn:hover { border-color: var(--dark); text-decoration: none; }
 .dfRowNote td { color: var(--mute); font-style: italic; }
 .prBox { margin-bottom: 14px; }
 
-/* "Pull Request" tab: sticky footer with the button and the publish steps */
-.stickyFoot { position: sticky; bottom: -18px; margin: 16px -16px -18px; padding: 12px 16px 14px; background: var(--panel); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; z-index: 1; }
+/* "Pull Request" tab: footer with the button and the publish steps, stuck to the bottom of the tab (fully visible: bottom 0; the negative
+   bottom margin only takes the tab padding at the end of the scroll) */
+.stickyFoot { position: sticky; bottom: 0; margin: 16px -16px -18px; padding: 12px 16px 14px; background: var(--panel); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; z-index: 1; }
 .footRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .stepper { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
 .stepper li { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 99px; border: 1px solid var(--line); color: var(--mute); }
@@ -264,6 +263,10 @@ a.iconBtn:hover { border-color: var(--dark); text-decoration: none; }
 .stepper li[data-state=done] { border-color: var(--green); color: var(--green-d); }
 .stepper li[data-state=failed] { border-color: var(--coral-d); background: var(--coral-bg); color: var(--warn); font-weight: 600; }
 .badHead { margin: 0; }
+/* secret scan findings (file:line, kind) and "Trotzdem veröffentlichen" */
+.findings { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.findings ul { margin: 0; padding-left: 18px; max-height: 120px; overflow: auto; }
+.findings p { margin: 0; }
 .bad .tlLog { color: var(--ink); }
 
 /* before/after screenshots ("Pull Request" tab) */

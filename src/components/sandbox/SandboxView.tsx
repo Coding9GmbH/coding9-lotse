@@ -259,15 +259,19 @@ function Environment({ view, onSaved, onChecked }: { view: SandboxEnvView; onSav
       {form.cmds.map((c, i) => (
         <div key={c.id ?? `new-${i}`} className={styles.cmd}>
           <div className={styles.cmdHead}>
-            <input aria-label={t.commandLabel} placeholder={t.commandLabel} value={c.label} onChange={e => setCmd(i, { label: e.target.value })} />
-            <select aria-label={t.phase} value={c.phase} onChange={e => setCmd(i, { phase: e.target.value as CommandPhase })}>
-              {(['after-db', 'final'] as const).map(p => <option key={p} value={p}>{t.phases[p]}</option>)}
-            </select>
-            <span className={styles.unitField}><input aria-label={t.timeout} title={t.timeout} className={styles.num} inputMode="numeric" value={c.timeoutSec} onChange={e => setCmd(i, { timeoutSec: e.target.value })} /><span aria-hidden="true">{t.timeoutUnit}</span></span>
+            <label className={styles.fieldTight}><span className={styles.cap}>{t.commandLabel}</span>
+              <input placeholder={t.commandLabelPlaceholder} value={c.label} onChange={e => setCmd(i, { label: e.target.value })} /></label>
+            <label className={styles.fieldTight}><span className={styles.cap}>{t.phase}</span>
+              <select value={c.phase} onChange={e => setCmd(i, { phase: e.target.value as CommandPhase })}>
+                {(['after-db', 'final'] as const).map(p => <option key={p} value={p}>{t.phases[p]}</option>)}
+              </select></label>
+            <label className={styles.fieldTight}><span className={styles.cap}>{t.timeout}</span>
+              <input className={styles.num} inputMode="numeric" value={c.timeoutSec} onChange={e => setCmd(i, { timeoutSec: e.target.value })} /></label>
             <button type="button" className={styles.x} disabled={i === 0} aria-label={t.moveUp(c.label)} title={t.moveUp(c.label)} onClick={() => set(f => { const cmds = [...f.cmds]; [cmds[i - 1], cmds[i]] = [cmds[i], cmds[i - 1]]; return { ...f, cmds }; })}><IconArrowUp size={16} /></button>
             <button type="button" className={styles.x} aria-label={t.removeCommand(c.label)} onClick={() => set(f => ({ ...f, cmds: f.cmds.filter((_, j) => j !== i) }))}><IconClose size={16} /></button>
           </div>
-          <textarea aria-label={`${t.command} ${c.label}`} placeholder="bin/console …" rows={2} spellCheck={false} value={c.command} onChange={e => setCmd(i, { command: e.target.value })} />
+          <label className={styles.fieldTight}><span className={styles.cap}>{t.command}</span>
+            <textarea aria-label={`${t.command} ${c.label}`} placeholder="bin/console …" rows={2} spellCheck={false} value={c.command} onChange={e => setCmd(i, { command: e.target.value })} /></label>
         </div>
       ))}
       <Button size="sm" variant="ghost" onClick={() => set(f => ({ ...f, cmds: [...f.cmds, { label: '', command: '', phase: 'after-db', timeoutSec: '600' }] }))}><IconPlus size={14} /> {t.addCommand}</Button>

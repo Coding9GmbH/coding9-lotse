@@ -123,11 +123,15 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
   if (off) return frame(<><div className={pp.bar}><span className={pp.ttl}>{tc.heading}</span>{close}</div><div className={styles.panelBody}><SandboxOff status={off} /></div></>);
   if (gone || !task) return frame(<><div className={pp.bar}><span className={pp.ttl}>{tc.heading}</span>{close}</div><div className={styles.panelBody}><p className={styles.muted}>{gone ? t.gone : error ? t.connection(error) : t.loading}</p></div></>);
 
-  const s = task.status, hint = t.hints[s], busyAct = acting !== null;
-  const pending = acting && acting !== 'internet' && acting !== 'db' ? t.pending[acting] : null;
+  const s = task.status, busyAct = acting !== null;
+  // "paused" is stored before the container is stopped: until it is, header and body say "Pausiere …" and offer no "Fortsetzen"
+  const stopping = s === 'paused' && !!task.stopping;
+  const hint = stopping ? t.pending.pause : t.hints[s];
+  const pending = acting && acting !== 'internet' && acting !== 'db' ? t.pending[acting] : stopping ? t.pending.pause : null;
   // the one lifecycle action of the header; a failed or interrupted setup is retried at its step ("Ab hier erneut versuchen")
   const stepRetry = task.steps.some(x => canRetryFrom(task, x));
-  const life: Action | null = s === 'setting_up' ? 'stop' : s === 'ready' ? 'pause' : s === 'paused' ? 'resume' : (s === 'failed' || s === 'interrupted') && !stepRetry ? 'start' : null;
+  const life: Action | null = pending ? null // an action is running: its spinner in the status is enough, no button that contradicts it
+    : s === 'setting_up' ? 'stop' : s === 'ready' ? 'pause' : s === 'paused' ? 'resume' : (s === 'failed' || s === 'interrupted') && !stepRetry ? 'start' : null;
   const lifeLabel = life === 'start' ? t.actions.retry : life ? t.actions[life] : '';
   const primary = life && !phone && <Button size="sm" variant={life === 'resume' || life === 'start' ? 'primary' : 'default'} onClick={() => void act(life)} disabled={busyAct}>{lifeLabel}</Button>;
   const canReplace = !!task.container && ['ready', 'paused', 'failed', 'interrupted'].includes(s);
@@ -206,11 +210,13 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
               <PrCard taskId={task.id} pr={task.pr} refresh={prTick} />
             </div>
           )}
-          {shown === 'pr' && s !== 'done' && <PublishCard task={task} proposal={proposal ?? null} onPublished={r => {
-            setTask(r.task); setPrTick(n => n + 1); setPublished(r); onPublished?.(r);
-            requestAnimationFrame(() => body.current?.scrollTo({ top: 0, behavior: 'smooth' }));
-          }} />}
-          {shown === 'pr' && <ShotCompare task={task} enabled={shotPages} />}
+          {/* the screenshots sit inside the form, above its footer: the button stays at the bottom of the tab while scrolling */}
+          {shown === 'pr' && (s !== 'done'
+            ? <PublishCard task={task} proposal={proposal ?? null} onPublished={r => {
+              setTask(r.task); setPrTick(n => n + 1); setPublished(r); onPublished?.(r);
+              requestAnimationFrame(() => body.current?.scrollTo({ top: 0, behavior: 'smooth' }));
+            }}><ShotCompare task={task} enabled={shotPages} /></PublishCard>
+            : <ShotCompare task={task} enabled={shotPages} />)}
         </section>
       </div>
       <Dialog open={replacing} onClose={() => { setReplacing(false); setNewDump(null); }} title={all.sandbox.dump.replaceTitle} wide footer={

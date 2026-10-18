@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import type { CodeTaskPublic } from '@/lib/protocol';
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
+import type { CodeTaskPublic, PrStatus, TaskPr } from '@/lib/protocol';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { middleTruncate, statusTone } from '@/lib/sandbox-task';
 import { useShell } from '@/components/shell/ShellProvider';
@@ -19,11 +21,26 @@ export function TaskStatus({ task, pending }: { task: Pick<CodeTaskPublic, 'stat
   );
 }
 
-/** Sandboxes with status, repository and pull request (#number, links to GitHub). A row opens the chat the sandbox is attached to (the workspace shows it on the right);
+/** "PR #n · offen/gemergt/geschlossen": the state the PR watcher recorded (merged, closed), else GitHub's live state (cached on the
+ *  server; the watcher stops when a sandbox is finished, so a finished one may have been merged later). Unknown: the number only. */
+function PrLink({ taskId, pr }: { taskId: string; pr: TaskPr }) {
+  const prState = useI18n().t.sandbox.code.pr.state;
+  const [live, setLive] = useState<PrStatus['state'] | null>(null);
+  useEffect(() => {
+    if (pr.state) return;
+    let off = false;
+    api.sandbox.prStatus(taskId).then(r => { if (!off && r.pr) setLive(r.pr.state); }, () => {});
+    return () => { off = true; };
+  }, [taskId, pr.number, pr.state]);
+  const state = pr.state ?? live;
+  return <a className={styles.taskPr} href={pr.url} target="_blank" rel="noopener noreferrer" title={pr.title}>PR #{pr.number}{state ? ` · ${prState[state]}` : ''}</a>;
+}
+
+/** Sandboxes with status, repository and pull request (#number and its state, links to GitHub). A row opens the chat the sandbox is attached to (the workspace shows it on the right);
  *  a finished one without its chat opens the task's overview. */
 export function TaskList({ tasks }: { tasks: CodeTaskPublic[] }) {
   const { t: all } = useI18n();
-  const t = all.sandbox.tasks, prState = all.sandbox.code.pr.state;
+  const t = all.sandbox.tasks;
   const { nav } = useShell();
   if (!tasks.length) return <p className={styles.empty}>{t.empty}</p>;
   return (
@@ -41,7 +58,7 @@ export function TaskList({ tasks }: { tasks: CodeTaskPublic[] }) {
             {task.chatId
               ? <Link href="/" className={styles.taskRow} title={t.openChat} onClick={e => { e.preventDefault(); nav.openChat(task.chatId!); }}>{inner}</Link>
               : <Link href={`/sandbox-coding/${task.id}`} className={styles.taskRow}>{inner}</Link>}
-            {task.pr && <a className={styles.taskPr} href={task.pr.url} target="_blank" rel="noopener noreferrer" title={task.pr.title}>PR #{task.pr.number}{task.pr.state ? ` · ${prState[task.pr.state]}` : ''}</a>}
+            {task.pr && <PrLink taskId={task.id} pr={task.pr} />}
           </li>
         );
       })}

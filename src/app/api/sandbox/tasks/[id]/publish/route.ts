@@ -8,8 +8,12 @@ import { publicTask } from '@/server/sandbox/tasks';
 
 export const dynamic = 'force-dynamic';
 
-// Title and description only: branch (lotse/…) and base come from the task, whatever else a client sends is refused
-const schema = z.object({ title: z.string().max(PUBLISH_LIMITS.title), body: z.string().max(PUBLISH_LIMITS.body).default('') }).strict();
+// Title and description only: branch (lotse/…) and base come from the task, whatever else a client sends is refused.
+// allowFindings: ids of secret findings the user publishes anyway (only overridable ones count, audited)
+const schema = z.object({
+  title: z.string().max(PUBLISH_LIMITS.title), body: z.string().max(PUBLISH_LIMITS.body).default(''),
+  allowFindings: z.array(z.string().regex(/^[0-9a-f]{16}$/)).max(20).optional(),
+}).strict();
 
 /** "Pull Request erstellen/aktualisieren": commit, push to the task's lotse/… branch, open or update the PR. 409 while the AI works or another publish runs. */
 export function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {

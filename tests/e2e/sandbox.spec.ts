@@ -310,8 +310,13 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   expect(posted[0].body.body).toMatch(/\*\*Screenshots:\*\* Vorher-\/Nachher-Screenshots .* Sie werden nicht auf GitHub hochgeladen\./);
   await expect(shots.getByRole('img', { name: 'Nachher, Mobil: /' })).toBeVisible();
   await expect(panel.getByRole('tab', { name: /Pull Request\s*#\d+/ })).toBeVisible();
-  await expect(form.getByRole('button', { name: 'Pull Request aktualisieren' })).toBeVisible();
   await expect(panel.getByRole('status').filter({ hasText: /✓ Pull Request #\d+ angelegt\./ })).toBeVisible(); // success at the top of the tab
+  // nothing new since the push: no button that would only send the same state again; editing the title offers the update
+  await expect(form.getByText('Alles veröffentlicht – seit dem letzten Push gibt es keine neuen Änderungen.')).toBeVisible();
+  await expect(form.getByRole('button', { name: 'Pull Request aktualisieren' })).toHaveCount(0);
+  await form.getByLabel('Titel').fill('Header: Gratis Versand ab 50 € (neu)');
+  await expect(form.getByRole('button', { name: 'Pull Request aktualisieren' })).toBeVisible();
+  await form.getByLabel('Titel').fill('Header: Gratis Versand ab 50 €');
   // the proposal card now says where it went instead of offering to publish again
   await expect(proposal.getByRole('link', { name: /^Veröffentlicht als #\d+$/ })).toBeVisible();
   await expect(proposal.getByRole('button', { name: 'Prüfen und veröffentlichen' })).toHaveCount(0);
@@ -321,7 +326,7 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await expect(page.getByRole('log').getByRole('region', { name: /^Pull Request #\d+:/ })).toBeVisible();
   await page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Weitere Aktionen' }).click();
   await page.getByRole('menuitem', { name: 'Alle Sandboxes' }).click();
-  await expect(page.locator('section[aria-labelledby="sbx-tasks"]').getByRole('link', { name: /^PR #\d+/ }).first()).toBeVisible();
+  await expect(page.locator('section[aria-labelledby="sbx-tasks"]').getByRole('link', { name: /^PR #\d+ · offen$/ }).first()).toBeVisible();
   await page.locator('section[aria-labelledby="sbx-tasks"]').getByRole('link', { name: /Gratis Versand/ }).first().click();
   await expect(page.getByRole('region', { name: 'Sandbox' })).toBeVisible();
 

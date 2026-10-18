@@ -24,8 +24,9 @@ export const previewBust = (task: CodeTaskPublic) => task.steps.filter(s => s.ke
  *  `reload` changes when the chat compiled the theme or cleared the cache: the frame loads again.
  *  The frame fills the tab; narrower than Shopware's desktop breakpoint, "Desktop" scales a 1280 px viewport into it, so the storefront
  *  really shows its desktop layout. `layout`: collapse the chat and full screen (the workspace and the panel own that state). */
-/** Shopware's storefront switches to its desktop layout at 992 px; narrower frames get a scaled 1280 px viewport. */
-const DESKTOP_WIDTH = 1280, DESKTOP_BREAK = 992;
+/** Shopware's storefront switches to its desktop layout at 992 px; narrower frames get a scaled 1280 px viewport. Below MOBILE_BELOW
+ *  the scaled desktop would be unreadable (about a third of its size): the frame starts in mobile width there, "Desktop" still scales. */
+const DESKTOP_WIDTH = 1280, DESKTOP_BREAK = 992, MOBILE_BELOW = 700;
 
 export interface PreviewLayout { full: boolean; onFull: () => void; chatHidden?: boolean; onToggleChat?: () => void }
 
@@ -34,7 +35,7 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
   const t = all.sandbox.preview, tp = all.preview;
   const [path, setPath] = useState('/');
   const [typed, setTyped] = useState('/');
-  const [mobile, setMobile] = useState(false);
+  const [device, setDevice] = useState<'auto' | 'desktop' | 'mobile'>('auto'); // auto = by the frame's width
   const [reloads, setReloads] = useState(0);
   const [wake, setWake] = useState(false);
   const [seen, setSeen] = useState(task.status);
@@ -45,7 +46,9 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
   const show = s === 'ready' || s === 'waking' || (running && (s === 'failed' || s === 'interrupted')) || (wake && s === 'paused');
   const src = sandboxSrc(task.preview, path);
   const frameKey = `${src}|${previewBust(task)}|${reloads}|${reload}`;
-  const scale = !mobile && box.w > 0 && box.w < DESKTOP_BREAK ? box.w / DESKTOP_WIDTH : 1;
+  const mobile = device === 'mobile' || (device === 'auto' && box.w > 0 && box.w < MOBILE_BELOW);
+  // Lotse's status pages ("Umgebung startet …") stay unscaled: only the running storefront gets the desktop viewport
+  const scale = !mobile && s === 'ready' && box.w > 0 && box.w < DESKTOP_BREAK ? box.w / DESKTOP_WIDTH : 1;
 
   const [marking, setMarking] = useState(false);
   const [pick, setPick] = useState<(Pick & { left: number; top: number }) | null>(null);
@@ -107,8 +110,8 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
         <Button size="sm" type="submit" disabled={!show}>{t.go}</Button>
         <button type="button" className={`${styles.iconBtn} ${styles.pvWide}`} onClick={() => setReloads(n => n + 1)} disabled={!show} aria-label={t.reload} title={t.reload}><IconRefresh size={16} /></button>
         <div className={`${styles.seg} ${styles.pvWide}`} role="group" aria-label={t.device}>
-          <button type="button" aria-pressed={!mobile} onClick={() => setMobile(false)} aria-label={t.desktop} title={scale < 1 ? t.scaled(Math.round(scale * 100)) : t.desktop}><IconMonitor size={16} /></button>
-          <button type="button" aria-pressed={mobile} onClick={() => setMobile(true)} aria-label={t.mobile} title={t.mobile}><IconPhone size={16} /></button>
+          <button type="button" aria-pressed={!mobile} onClick={() => setDevice('desktop')} aria-label={t.desktop} title={scale < 1 ? t.scaled(Math.round(scale * 100)) : t.desktop}><IconMonitor size={16} /></button>
+          <button type="button" aria-pressed={mobile} onClick={() => setDevice('mobile')} aria-label={t.mobile} title={t.mobile}><IconPhone size={16} /></button>
         </div>
         <Button size="sm" className={`${styles.pvMark} ${marking ? styles.pvMarkOn : ''}`} aria-pressed={marking} disabled={!show && !marking} title={t.markTitle} onClick={toggleMark}>
           <IconPin size={15} /><span>{marking ? t.markStop : t.mark}</span>
@@ -121,7 +124,7 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
         )}
         <Menu className={styles.pvNarrow} label={t.tools} items={[
           { key: 'reload', label: t.reload, onSelect: () => setReloads(n => n + 1), disabled: !show },
-          { key: 'device', label: mobile ? t.desktop : t.mobile, onSelect: () => setMobile(m => !m) },
+          { key: 'device', label: mobile ? t.desktop : t.mobile, onSelect: () => setDevice(mobile ? 'desktop' : 'mobile') },
           ...(show ? [{ key: 'tab', label: t.newTab, href: src, external: true }, { key: 'admin', label: t.admin, href: sandboxSrc(task.preview, '/admin'), external: true }] : []),
           ...(layout ? [{ key: 'full', label: layout.full ? t.exitFull : t.full, onSelect: layout.onFull }] : []),
         ]} />
@@ -173,8 +176,10 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
         )}
         {show
           ? <iframe key={frameKey} className={styles.pvFrame} style={frameStyle} src={src} title={t.frame} sandbox={PREVIEW_SANDBOX} data-kind="live" />
-          : s === 'paused'
-            ? <div className={styles.pvEmpty}><p>{t.loadHint}</p><Button onClick={() => setWake(true)}>{t.load}</Button></div>
+          : s === 'paused' && task.stopping // stored as paused, the container is still being stopped
+            ? <div className={styles.pvEmpty}><p role="status">{t.pausing}</p></div>
+            : s === 'paused'
+              ? <div className={styles.pvEmpty}><p>{t.loadHint}</p><Button onClick={() => setWake(true)}>{t.load}</Button></div>
             : <div className={styles.pvEmpty}><p>{t.none}</p></div>}
       </div>
     </section>

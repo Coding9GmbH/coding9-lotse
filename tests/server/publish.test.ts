@@ -260,3 +260,73 @@ test('the lotse branch was deleted on GitHub (after a merge): the next publish c
   const sha = remoteSha(task.branch);
   assert.ok(sha && sha === T.getTask(task.id)!.pushedSha);
 });
+
+test('a weak stored password ("shopware") is no secret for the scan: composer.json with shopware/core publishes', async () => {
+  const { updateSettings } = await import('../../src/server/settings');
+  updateSettings({ shopware: { url: 'http://shop', user: 'admin', password: 'shopware' } });
+  try {
+    const t5 = await S.readyTask('Composer');
+    write(t5.id, 'composer.json', '{\n  "name": "acme/shop-theme",\n  "require": { "shopware/core": "~6.7.0", "shopware/storefront": "~6.7.0" }\n}\n');
+    write(t5.id, 'src/Resources/config/config.xml', '<label>Shopware Passwort-Hinweis</label>\n');
+    const r = await P.preflight(T.getTask(t5.id)!);
+    assert.deepEqual(r.overridden, []);
+  } finally { updateSettings({ shopware: { password: null } }); }
+});
+
+test('findings name file and line; a stored secret can be published anyway by its id (audited without the value), a token cannot', async () => {
+  const SECRET = 'Kx7!pQ3z-Lm9w';
+  S.E.saveSandbox({ envVars: [{ key: 'SHOP_API_SECRET', secret: true, value: SECRET }] });
+  try {
+    const t6 = await S.readyTask('Gefunden');
+    write(t6.id, 'src/Resources/config/services.xml', `<services>\n  <!-- example -->\n  <argument>${SECRET}</argument>\n</services>\n`);
+    write(t6.id, 'src/x.txt', `prefix${SECRET.replace('!', '')}suffix\n`); // no token of its own (and another value): no finding
+    const blocked = await publish(t6.id).then(() => null, (e: Error & { findings?: { id: string; file: string; line: number; kind: string; overridable: boolean }[] }) => e);
+    assert.ok(blocked, 'blocked');
+    assert.match(blocked.message, /„src\/Resources\/config\/services\.xml“ \(Zeile 3\).*gespeichertes Geheimnis.*Trotzdem veröffentlichen/);
+    assert.ok(!blocked.message.includes(SECRET));
+    const stored = T.getTask(t6.id)!.publish!;
+    assert.equal(stored.state, 'failed');
+    assert.deepEqual(stored.findings!.map(f => [f.file, f.line, f.overridable]), [['src/Resources/config/services.xml', 3, true]]);
+    assert.ok(!JSON.stringify(stored).includes(SECRET), 'the value is nowhere in the task');
+    const ids = stored.findings!.map(f => f.id);
+    // an approval of a different line content does not count
+    assert.equal((await post(t6.id, { title: 'x', allowFindings: ['0123456789abcdef'] })).status, 422);
+    const r = await post(t6.id, { title: 'Konfiguration', body: 'Beispielwert', allowFindings: ids });
+    assert.equal(r.status, 200, await r.clone().text());
+    const started = auditList(20).find(x => x.kind === 'code-pr' && x.taskId === t6.id && x.status === 'started')!;
+    assert.deepEqual(started.secretOverride, [{ file: 'src/Resources/config/services.xml', line: 3, kind: 'ein in Lotse gespeichertes Geheimnis' }]);
+    assert.ok(!JSON.stringify(auditList(20)).includes(SECRET));
+    // keys and tokens: no override, even with their id; the line published anyway before does not block again
+    write(t6.id, 'src/token.txt', `${'ghp_' + 'b'.repeat(36)}\n`);
+    const tokenBlock = await publish(t6.id).then(() => null, (e: Error & { findings?: { id: string; file: string; overridable: boolean }[] }) => e);
+    assert.deepEqual(tokenBlock!.findings!.map(f => [f.file, f.overridable]), [['src/token.txt', false]]);
+    assert.doesNotMatch(tokenBlock!.message, /Trotzdem/);
+    assert.equal((await post(t6.id, { title: 'x', allowFindings: tokenBlock!.findings!.map(f => f.id) })).status, 422);
+  } finally { S.E.saveSandbox({ envVars: [] }); }
+});
+
+test('preflight secret scan: plausible values only, as a token of their own; a value already in the base file is no new leak', () => {
+  const none = new Set<string>();
+  assert.equal(P.scanFile('composer.json', '"shopware/core": "*"\n', none, ['shopware']), null, 'too weak to search for');
+  assert.equal(P.scanFile('a.php', '$x = "abcKx7pQ3zLm9wdef";\n', none, ['Kx7pQ3zLm9w']), null, 'inside a longer word');
+  assert.match(P.scanFile('a.php', '$x = "Kx7pQ3zLm9w";\n', none, ['Kx7pQ3zLm9w'])!, /\(Zeile 1\)/);
+  assert.equal(P.scanFile('a.php', '$y = "Kx7pQ3zLm9w";\n', none, ['Kx7pQ3zLm9w'], '$x = "Kx7pQ3zLm9w";\n'), null, 'the base version already has it');
+  const found = P.scanFindings('b.php', 'a\nb Kx7pQ3zLm9w\nc\nd Kx7pQ3zLm9w\n', none, ['Kx7pQ3zLm9w']);
+  assert.deepEqual(found.map(f => f.line), [2, 4]);
+  assert.notEqual(found[0].id, found[1].id, 'the id follows the line content');
+});
+
+test('diff route: after a push it says whether anything changed since ("Pull Request aktualisieren" only then)', async () => {
+  const diffRoute = await import('../../src/app/api/sandbox/tasks/[id]/diff/route');
+  const get = async (id: string) => (await diffRoute.GET(new Request(`http://127.0.0.1/api/sandbox/tasks/${id}/diff`), ctx(id))).json() as Promise<{ unpublished?: boolean; files: unknown[] }>;
+  const t7 = await S.readyTask('Seit dem Push');
+  write(t7.id, 'README.md', '# AcmeTheme\n\nErste Fassung\n');
+  assert.equal((await get(t7.id)).unpublished, undefined, 'never pushed');
+  await publish(t7.id, 'Erste Fassung');
+  assert.equal((await get(t7.id)).unpublished, false);
+  write(t7.id, 'README.md', '# AcmeTheme\n\nZweite Fassung\n');
+  assert.equal((await get(t7.id)).unpublished, true);
+  write(t7.id, 'neu.txt', 'neu\n');
+  write(t7.id, 'README.md', '# AcmeTheme\n\nErste Fassung\n');
+  assert.equal((await get(t7.id)).unpublished, true, 'a new file counts');
+});
