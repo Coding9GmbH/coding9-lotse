@@ -26,7 +26,9 @@ const themeRepo = makePluginRepo(remoteRoot, { repo: 'acme/shop-theme', name: 'A
 
 const shop = await startFakeShopify({ port: E2E.shopPort, log: false });
 const ai = await startFakeAnthropic({ port: E2E.aiPort, quiet: process.env.E2E_VERBOSE !== '1' });
-const gh = await startFakeGithub({ token: E2E_GITHUB_TOKEN, login: 'octo-lotse', port: E2E.githubPort, repos: [{ fullName: 'acme/shop-theme' }, { fullName: 'acme/legacy-plugin', push: false }] });
+// "Neues Projekt anlegen" creates a repository in the fake; it becomes a README-only clone source, as GitHub's auto_init does
+const gh = await startFakeGithub({ token: E2E_GITHUB_TOKEN, login: 'octo-lotse', port: E2E.githubPort, orgs: ['acme'], repos: [{ fullName: 'acme/shop-theme' }, { fullName: 'acme/legacy-plugin', push: false }],
+  onCreateRepo: r => { makePluginRepo(remoteRoot, { repo: r.fullName, empty: true }); } });
 console.log(`[e2e] Shopify-Fake ${shop.url} · Anthropic-Fake ${ai.url} · Daten ${E2E.dataDir}`);
 
 const next = path.join(process.cwd(), 'node_modules', 'next', 'dist', 'bin', 'next');

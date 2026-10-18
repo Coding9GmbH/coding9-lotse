@@ -2,6 +2,8 @@
 // Endpoints: /user, /user/repos, /repos/:o/:r, /repos/:o/:r/branches, /repos/:o/:r/contents (root names from FakeRepo.files), GET (head/state filter) + POST /repos/:o/:r/pulls,
 // GET + PATCH /repos/:o/:r/pulls/:n, GET /repos/:o/:r/commits/:sha/check-runs, GET /repos/:o/:r/pulls/:n/reviews, …/pulls/:n/comments
 // and …/issues/:n/comments (feedback, keyed "owner/repo#n"). Every GET answers with an ETag and 304 on a matching If-None-Match.
+// GET /user/orgs, POST /user/repos and /orgs/:org/repos (create a repository: 403 while `createDenied`, 422 for a taken name; `onCreateRepo`
+// lets a test add the clone source).
 // GET /__fake/calls (no auth): the calls so far; POST /__fake/feedback: add feedback to a pull request or merge it (E2E).
 import crypto from 'node:crypto';
 import http from 'node:http';
@@ -30,13 +32,17 @@ export interface FakeGithub {
   failOn?: { path: string; status: number; message: string };
   /** requests whose path contains `path` wait for `until` before they are answered (once each, while set) */
   holdOn?: { path: string; until: Promise<void> };
+  /** organisations of the token's user (GET /user/orgs) */
+  orgs: string[];
+  /** POST …/repos answers 403 like a token without the "Administration" permission */
+  createDenied?: boolean;
   close: () => Promise<void>;
 }
 
 const read = (req: http.IncomingMessage) => new Promise<string>(res => { let b = ''; req.on('data', c => (b += c)); req.on('end', () => res(b)); });
 
-export async function startFakeGithub(o: { token: string; login?: string; repos?: FakeRepo[]; port?: number }): Promise<FakeGithub> {
-  const f = { calls: [], repos: o.repos ?? [], pulls: {}, checkRuns: {}, reviews: {}, reviewComments: {}, issueComments: {} } as unknown as FakeGithub;
+export async function startFakeGithub(o: { token: string; login?: string; repos?: FakeRepo[]; orgs?: string[]; port?: number; onCreateRepo?: (repo: FakeRepo) => void }): Promise<FakeGithub> {
+  const f = { calls: [], repos: o.repos ?? [], orgs: o.orgs ?? [], pulls: {}, checkRuns: {}, reviews: {}, reviewComments: {}, issueComments: {} } as unknown as FakeGithub;
   const pullJson = (pr: FakePull) => ({ ...pr, head: { ref: pr.head, sha: pr.headSha ?? 'f'.repeat(40) }, base: { ref: pr.base }, merged: pr.merged ?? false, draft: pr.draft ?? false });
   const repoJson = (r: FakeRepo) => ({ full_name: r.fullName, name: r.fullName.split('/')[1], private: r.private ?? true, default_branch: r.defaultBranch ?? 'main', pushed_at: '2026-10-01T10:00:00Z', archived: false, permissions: { admin: false, push: r.push ?? true, pull: true } });
   const server = http.createServer(async (req, res) => {
@@ -70,6 +76,20 @@ export async function startFakeGithub(o: { token: string; login?: string; repos?
     if (f.failOn && p.includes(f.failOn.path)) { const e = f.failOn; f.failOn = undefined; return send(e.status, { message: e.message }); }
     if (f.holdOn && p.includes(f.holdOn.path)) await f.holdOn.until;
     if (p === '/user') return send(200, { login: o.login ?? 'octo-lotse', id: 1 });
+    if (p === '/user/orgs') return send(200, f.orgs.map((login, i) => ({ login, id: 100 + i })));
+    const create = req.method === 'POST' ? p === '/user/repos' ? (o.login ?? 'octo-lotse') : /^\/orgs\/([^/]+)\/repos$/.exec(p)?.[1] : undefined;
+    if (create !== undefined) {
+      const owner = decodeURIComponent(create), b = (body ?? {}) as { name?: unknown; private?: unknown; auto_init?: unknown };
+      if (owner !== (o.login ?? 'octo-lotse') && !f.orgs.includes(owner)) return send(404, { message: 'Not Found' });
+      if (f.createDenied) return send(403, { message: 'Resource not accessible by personal access token' });
+      if (typeof b.name !== 'string' || !/^[A-Za-z0-9._-]{1,100}$/.test(b.name)) return send(422, { message: 'Repository creation failed.', errors: [{ resource: 'Repository', code: 'custom', field: 'name', message: 'name is invalid' }] });
+      const fullName = `${owner}/${b.name}`;
+      if (f.repos.some(r => r.fullName.toLowerCase() === fullName.toLowerCase())) return send(422, { message: 'Repository creation failed.', errors: [{ resource: 'Repository', code: 'custom', field: 'name', message: 'name already exists on this account' }] });
+      const repo: FakeRepo = { fullName, private: b.private === true, defaultBranch: 'main', branches: b.auto_init === true ? ['main'] : [], files: b.auto_init === true ? ['README.md'] : [] };
+      f.repos.unshift(repo);
+      o.onCreateRepo?.(repo);
+      return send(201, repoJson(repo));
+    }
     if (p === '/user/repos') {
       const per = Number(url.searchParams.get('per_page') ?? 30), page = Number(url.searchParams.get('page') ?? 1);
       return send(200, f.repos.slice((page - 1) * per, page * per).map(repoJson));

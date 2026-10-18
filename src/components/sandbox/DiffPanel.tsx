@@ -6,6 +6,7 @@ import { parseDiff, type DiffFile } from '@/lib/diff-parse';
 import type { TaskDiff } from '@/lib/protocol';
 import { useI18n, useT } from '@/lib/i18n/I18nProvider';
 import { IconChevron, IconRefresh } from '@/components/ui/icons';
+import { Term } from './Term';
 import styles from './Sandbox.module.css';
 
 const anchor = (i: number) => `sbx-diff-${i}`;
@@ -14,7 +15,7 @@ const anchor = (i: number) => `sbx-diff-${i}`;
  *  the base branch (redacted on the server), per file with +/− counts and line numbers.
  *  Reloads by itself when `refresh` changes (a file card arrived, a turn ended); the icon reloads by hand. */
 export function DiffPanel({ taskId, refresh }: { taskId: string; refresh: number }) {
-  const t = useT().sandbox.code.diff;
+  const tc = useT().sandbox.code, t = tc.diff, tech = tc.tech;
   const [diff, setDiff] = useState<TaskDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,7 +45,7 @@ export function DiffPanel({ taskId, refresh }: { taskId: string; refresh: number
       {error && <p className={styles.bad} role="alert">{t.failed(error)}</p>}
       {commits.length > 0 && (
         <section className={styles.dfCommits} aria-labelledby="sbx-commits-h">
-          <h3 id="sbx-commits-h" className={styles.label}>{t.commits} <small className={styles.muted}>(Commits)</small></h3>
+          <h3 id="sbx-commits-h" className={styles.label}><Term tech={tech.commits}>{t.commits}</Term></h3>
           <p className={styles.fieldHint}>{t.commitsHint}</p>
           <ol>
             {commits.map(c => (

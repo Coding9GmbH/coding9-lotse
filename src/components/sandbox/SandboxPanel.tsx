@@ -21,6 +21,7 @@ import { SandboxPreview } from './SandboxPreview';
 import { ShotList } from './ShotList';
 import { StepTimeline } from './StepTimeline';
 import { TaskStatus } from './TaskList';
+import { ZipCard, zipAvailable } from './ZipCard';
 import styles from './Sandbox.module.css';
 
 type Tab = 'preview' | 'setup' | 'changes' | 'pr';
@@ -33,8 +34,8 @@ const SETUP = new Set(['setting_up', 'failed', 'interrupted']);
  * repository (shortened in the middle, full in the tooltip) with the working branch and a copy button; on the right the internet state,
  * the one lifecycle action that fits the status and a "⋯" menu (finish, replace the database, all sandboxes).
  * Tabs: Vorschau (the task's storefront, full width, full screen; "Screenshot" while switched on), Einrichtung (step timeline),
- * Änderungen (the AI's commits, what is not committed yet, diff per file) and Pull Request (status, form with a sticky button, the
- * screenshots the user took). During the setup it shows "Einrichtung" and switches to
+ * Änderungen (the AI's commits, what is not committed yet, diff per file) and Freigabe (= pull request: status, form with a sticky
+ * button, the screenshots the user took, "Plugin als ZIP" for the Shopware admin). Plain words first, technical terms as tooltip. During the setup it shows "Einrichtung" and switches to
  * "Vorschau" once the sandbox is ready. `files`: file cards so far (refreshes the diff); `openPr` changing opens the PR tab.
  */
 export function SandboxPanel({ taskId, className, reload, files, busy, proposal, openPr = 0, feedbackOpen = 0, chatHidden, onToggleChat, onPublished, onSendNotes, onClose, onTask, onChatEvent }: {
@@ -176,7 +177,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
       </header>
       <div className={styles.panelTabs} role="tablist" aria-label={tc.tabs.label}>
         {(['preview', 'setup', 'changes', 'pr'] as Tab[]).map(k => (
-          <button key={k} type="button" role="tab" id={`sbx-tab-${k}`} aria-selected={shown === k} aria-controls={`sbx-panel-${k}`} onClick={() => setTab(k)}>
+          <button key={k} type="button" role="tab" id={`sbx-tab-${k}`} aria-selected={shown === k} aria-controls={`sbx-panel-${k}`} onClick={() => setTab(k)} title={k === 'pr' ? tc.tech.pr : undefined}>
             {tc.tabs[k]}
             {k === 'changes' && files > 0 && <span className={styles.tabCount}>{files}</span>}
             {k === 'pr' && task.pr && <span className={styles.tabCount}>#{task.pr.number}</span>}
@@ -219,6 +220,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
               requestAnimationFrame(() => body.current?.scrollTo({ top: 0, behavior: 'smooth' }));
             }}><ShotList task={task} /></PublishCard>
             : <ShotList task={task} />)}
+          {shown === 'pr' && zipAvailable(task) && <ZipCard task={task} refresh={files + (busy ? 0 : 1)} onAskAi={onSendNotes} />}
         </section>
       </div>
       <Dialog open={replacing} onClose={() => { setReplacing(false); setNewDump(null); }} title={all.sandbox.dump.replaceTitle} wide footer={

@@ -47,6 +47,9 @@
 .newPlugin { padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--green); border-radius: 8px; background: var(--green-bg); }
 .newPluginNote { margin: 0 0 4px; font-size: 13px; color: var(--ink); }
 .fieldNote { font-size: 12px; color: var(--mute); }
+/* technical term next to the plain words (Term.tsx) */
+.tech { font-size: 11px; font-weight: 500; color: var(--mute); letter-spacing: .01em; }
+.tech::before { content: "· "; }
 .fieldBad { color: var(--warn); }
 .fieldHint { color: var(--mute); font-size: 12px; }
 .card input:not([type=checkbox]), .card select, .card textarea { width: 100%; min-width: 0; padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; outline: none; }
@@ -78,7 +81,8 @@
 /* ---- Tasks ---- */
 .headBtn { margin-left: auto; }
 .taskList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.taskList li { display: flex; gap: 8px; align-items: center; }
+.taskList li { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.taskNote { flex-basis: 100%; margin: 0; }
 .taskList li > .taskRow { flex: 1; min-width: 0; }
 .taskPr { font-size: 13px; font-weight: 600; flex: none; }
 .defaultsRow { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 8px; margin-bottom: 8px; }
@@ -293,3 +297,17 @@ a.iconBtn:hover { border-color: var(--dark); text-decoration: none; }
 .shotMobile { max-width: 200px; }
 .shot figcaption { font-size: 12px; font-weight: 600; color: var(--mute); overflow-wrap: anywhere; }
 .shot img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+
+/* "Plugin als ZIP" ("Freigabe" tab): what is missing in composer.json, notes, download, where to upload it */
+.zipBox { margin: 22px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); display: flex; flex-direction: column; gap: 8px; }
+.zipBox > * { margin: 0; }
+.zipMissing, .zipHints { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; font-size: 13px; }
+.zipMissing { padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); }
+.zipMissing p, .zipHints p { margin: 0; }
+.zipMissing ul, .zipHints ul { margin: 0; padding-left: 18px; }
+.zipLink { font-size: 13px; font-weight: 600; flex: none; }
+/* "Neues Projekt anlegen" in the start dialog */
+.newRepo { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); display: flex; flex-direction: column; gap: 8px; }
+.newRepo p { margin: 0; }
+.newRepoRow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 8px; }
+@media (max-width: 520px) { .newRepoRow { grid-template-columns: 1fr; } }

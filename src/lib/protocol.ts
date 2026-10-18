@@ -279,6 +279,8 @@ export interface SandboxEnvPatch {
 /** NDJSON lines of POST /api/sandbox/env/check */
 export type SandboxCheckEvent = { t: 'progress'; text: string; pct?: number } | { t: 'result'; ok: boolean; message: string; docker: SandboxDocker; imagePresent: boolean; pulled?: boolean };
 /** GET /api/sandbox/repo-probe: an (almost) empty repository becomes a new plugin; null = unknown */
+/** An account the GitHub token may create a repository under ("Neues Projekt") */
+export interface RepoOwner { login: string; kind: 'user' | 'org' }
 export interface RepoProbe { empty: boolean | null; suggestedName: string }
 /** Code task lifecycle: setting_up → ready ⇄ paused (waking in between) → done; failed/interrupted stop the setup (retry possible) */
 export type CodeTaskStatus = 'setting_up' | 'ready' | 'waking' | 'paused' | 'failed' | 'interrupted' | 'done';
@@ -327,6 +329,17 @@ export interface TaskDiff {
   /** pushed before: changes since that push exist (missing = never pushed) */ unpublished?: boolean;
   /** local commits on top of the base branch (the AI's git_commit, earlier publishes), newest first */ commits?: TaskCommit[];
   /** changed paths not committed yet (publishing adds them as one last commit) */ uncommitted?: string[];
+}
+/** What a plugin ZIP for the Shopware admin would contain (GET /api/sandbox/tasks/[id]/plugin-zip?check=1). problems block the download:
+ *  what Shopware 6.7 needs to list an uploaded plugin at all (type, name, description, version, autoload, plugin class, label as an
+ *  object – checked against a real shop) plus empty, too large, a key or token; warnings do not (no Shopware version required, class file
+ *  not found, dependencies without vendor/). */
+export type PluginZipProblem = 'noComposer' | 'badJson' | 'type' | 'name' | 'description' | 'version' | 'autoload' | 'pluginClass' | 'pluginName' | 'label' | 'empty' | 'tooLarge' | 'secret';
+export type PluginZipWarning = 'requireCore' | 'classFile' | 'vendorMissing';
+export interface PluginZipCheck {
+  ok: boolean; /** technical name = top folder and file name */ name: string | null; version: string | null;
+  problems: PluginZipProblem[]; warnings: PluginZipWarning[]; files: number; bytes: number; /** vendor/ included (dependencies besides Shopware) */ vendor: boolean;
+  /** for 'secret': the file (no content) */ secretFile?: string;
 }
 /** A local commit of the task's worktree; published = contained in the last push */
 export interface TaskCommit { sha: string; at: string; subject: string; published: boolean }

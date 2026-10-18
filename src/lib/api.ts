@@ -5,7 +5,7 @@ import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget 
 import { createLineSplitter } from './ndjson';
 import type { CodexLoginState, GithubBranch, GithubPublic, GithubRepo, GithubTestResult, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
-  CodeTaskPublic, DumpPublic, RepoProbe, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
+  CodeTaskPublic, DumpPublic, PluginZipCheck, RepoOwner, RepoProbe, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
   PrStatus, PublishRequest, PublishResult } from './protocol';
 
 export class ApiError extends Error {
@@ -86,6 +86,21 @@ export const api = {
     createTask: (t: { chatId: string; title?: string; repo: string; baseBranch: string; dumpId?: string; pluginName?: string }) => request<{ task: CodeTaskPublic }>('/api/sandbox/tasks', json('POST', t)),
     /** is repo@branch still empty (new plugin)? with a suggested technical name */
     repoProbe: (repo: string, branch: string) => request<RepoProbe>(`/api/sandbox/repo-probe?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}`),
+    /** "Neues Projekt": accounts the token may create a repository under, and creating a private one for a new plugin */
+    repoOwners: () => request<{ owners: RepoOwner[] }>('/api/sandbox/repos'),
+    createRepo: (p: { owner: string; name: string; description?: string }) => request<{ repo: GithubRepo }>('/api/sandbox/repos', json('POST', p)),
+    /** "Plugin als ZIP herunterladen": what the ZIP would contain (problems, warnings) */
+    zipCheck: (id: string) => request<PluginZipCheck>(`/api/sandbox/tasks/${encodeURIComponent(id)}/plugin-zip?check=1`),
+    /** the ZIP itself (streamed by the server); saved by the browser under the name the server gives */
+    zipDownload: async (id: string) => {
+      const r = await fetch(`/api/sandbox/tasks/${encodeURIComponent(id)}/plugin-zip`, withHeader());
+      if (!r.ok) { const j = await r.json().catch(() => null) as { error?: string } | null; throw new ApiError(j?.error ?? `HTTP ${r.status}`, r.status); }
+      const name = /filename="([^"]+)"/.exec(r.headers.get('content-disposition') ?? '')?.[1] ?? 'plugin.zip';
+      const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');
+      a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      return name;
+    },
     task: (id: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`),
     deleteTask: (id: string) => request<{ ok: true }>(`/api/sandbox/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     /** "Änderungen": workspace against the base branch */

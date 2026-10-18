@@ -7,6 +7,7 @@ import type { CodeTaskPublic, PublishResult, TaskDiff } from '@/lib/protocol';
 import { PUBLISH_STEPS, publishSteps } from '@/lib/sandbox-task';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
+import { Term } from './Term';
 import styles from './Sandbox.module.css';
 
 export interface PrProposal { key: string; title: string; body: string }
@@ -23,13 +24,13 @@ export function ErrorText({ text, details }: { text: string; details: string }) 
   );
 }
 
-/** "Pull Request" tab: the changed files, branch → base, title and description (the AI's proposal prefilled, editable), `children`
+/** "Freigabe" tab (zur Prüfung freigeben = pull request; plain words first, the technical terms small or as tooltip): the changed files, branch → base, title and description (the AI's proposal prefilled, editable), `children`
  *  (the screenshots the user took, if any) and a footer that sticks to the bottom of the tab with the button and the steps Commit (only
  *  what is not committed yet; the AI's commits are pushed as they are) → Push → Pull Request. Only this click publishes; progress and errors come with the task (task.publish), so a reload shows them too.
  *  Published already: "aktualisieren" only when something changed since the last push (or title/description were edited).
  *  Blocked by the secret scan: the findings with file and line; when all may be false positives, "Trotzdem veröffentlichen" (audited). */
 export function PublishCard({ task, proposal, onPublished, children }: { task: CodeTaskPublic; proposal: PrProposal | null; onPublished: (r: PublishResult) => void; children?: React.ReactNode }) {
-  const t = useI18n().t.sandbox.code.pr;
+  const tc = useI18n().t.sandbox.code, t = tc.pr;
   const [title, setTitle] = useState(proposal?.title ?? task.pr?.title ?? task.title);
   const [body, setBody] = useState(proposal?.body ?? task.goal);
   const [taken, setTaken] = useState(proposal?.key ?? null);
@@ -68,7 +69,7 @@ export function PublishCard({ task, proposal, onPublished, children }: { task: C
   return (
     <form className={styles.form} aria-label={t.heading} onSubmit={e => { e.preventDefault(); void publish(); }}>
       <p className={styles.hint}>{t.lead}</p>
-      <p className={styles.taskMeta}><code>{t.branch(task.branch, task.baseBranch)}</code></p>
+      <p className={styles.taskMeta}><code>{t.branch(task.branch, task.baseBranch)}</code> <small className={styles.tech}>{tc.tech.branch}</small></p>
       <div className={styles.field}>
         <span className={styles.label}>{t.files}</span>
         {files === null ? <p className={styles.muted}>{t.filesLoading}</p> : !files.length ? <p className={styles.muted}>{t.noFiles}</p> : (
@@ -91,7 +92,7 @@ export function PublishCard({ task, proposal, onPublished, children }: { task: C
             {PUBLISH_STEPS.map(k => (
               <li key={k} data-state={steps[k]}>
                 <span aria-hidden="true">{steps[k] === 'running' ? <Spinner size={12} /> : steps[k] === 'done' ? '✓' : steps[k] === 'failed' ? '✗' : '○'}</span>
-                {t.stepper[k]}
+                <Term tech={tc.tech[k]}>{t.stepper[k]}</Term>
               </li>
             ))}
           </ol>
@@ -99,7 +100,7 @@ export function PublishCard({ task, proposal, onPublished, children }: { task: C
         <div className={styles.footRow}>
           {upToDate
             ? <span className={styles.muted} role="status">{t.upToDate}</span>
-            : <Button variant="primary" type="submit" busy={running} disabled={running || !title.trim() || (files !== null && !files.length && !task.pr)}>{task.pr ? t.update : t.create}</Button>}
+            : <Button variant="primary" type="submit" busy={running} title={task.pr ? t.updateTech : t.createTech} disabled={running || !title.trim() || (files !== null && !files.length && !task.pr)}>{task.pr ? t.update : t.create}</Button>}
           {progress && <span className={styles.muted} role="status">{progress}</span>}
         </div>
         {(error ?? last) && <ErrorText text={(error ?? last)!} details={t.details} />}

@@ -70,6 +70,8 @@ export const willSkip = (task: Parameters<typeof skipReason>[0], s: Pick<TaskSte
 // ---- New plugins from an (almost) empty repository ----
 /** Technical name of a Shopware plugin (its class name and folder below custom/plugins), e.g. CoNineHeaderBanner. */
 export const PLUGIN_NAME = /^[A-Z][A-Za-z0-9]{1,60}$/;
+/** Name of a new repository (without the owner) as GitHub accepts it: letters, digits, . _ -, at most 100, not "." or "..", not ending in .git. */
+export const REPO_NAME = /^(?!\.{1,2}$)(?!.*\.git$)[A-Za-z0-9._-]{1,100}$/i;
 /** Files an "empty" repository may contain: what GitHub creates with a new repository (README, LICENSE, .gitignore) and similar. */
 const SCAFFOLD_ONLY = /^(readme(\.[a-z]{1,8})?|licen[cs]e(\.[a-z]{1,8})?|copying|\.gitignore|\.gitattributes|\.editorconfig)$/i;
 /** The names in a repository's root say "nothing to install yet": only the files above (and the worktree's .git). */

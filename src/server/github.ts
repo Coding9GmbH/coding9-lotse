@@ -2,7 +2,8 @@ import 'server-only';
 // GitHub: fine-grained personal access token (encrypted in the DB), REST calls only from the server.
 // The token never leaves the server: not to the AI, the browser, logs, the workspace or a command line.
 // Base URL can be overridden via environment (tests with a local fake, GitHub Enterprise): LOTSE_GITHUB_API_BASE.
-import type { GithubBranch, GithubPublic, GithubRepo, GithubTestResult } from '@/lib/protocol';
+import type { GithubBranch, GithubPublic, GithubRepo, GithubTestResult, RepoOwner } from '@/lib/protocol';
+import { REPO_NAME } from '@/lib/sandbox-task';
 import { kvGet, kvSet, seal, unseal } from './db';
 import { fetchWithRetry } from './retry';
 import { errMsg } from './util';
@@ -77,11 +78,13 @@ export async function ghFetch<T = unknown>(path: string, init: { method?: string
     // 422 carries the reason in errors[] ("A pull request already exists for …", "No commits between …")
     const detail = Array.isArray(j.errors) ? j.errors.map(e => (typeof e?.message === 'string' ? e.message : '')).filter(Boolean).join('; ') : '';
     const msg = [typeof j.message === 'string' ? j.message : '', detail].filter(Boolean).join(': ');
-    if (r.status >= 300 && r.status < 400) throw new Error('GitHub leitet um: Repository wurde umbenannt oder verschoben, bitte neu auswählen.');
-    if (r.status === 401) throw new Error('GitHub lehnt den Token ab (ungültig, abgelaufen oder widerrufen).');
-    if (r.status === 404) throw new Error('Nicht gefunden oder kein Zugriff: Ist das Repository für den Token freigegeben?');
-    if (r.status === 403 || r.status === 429) throw new Error(scrub(r.headers.get('x-ratelimit-remaining') === '0' ? 'GitHub-Anfragelimit erreicht, bitte später erneut versuchen.' : `GitHub verweigert den Zugriff (${r.status})${msg ? `: ${msg}` : ''}. Token-Berechtigungen prüfen.`, token));
-    throw new Error(scrub(`GitHub: HTTP ${r.status}${msg ? ` – ${msg}` : ''}`, token));
+    // status for callers that tell cases apart (creating a repository: 403/404 = no permission, 422 = name taken)
+    const fail = (m: string) => Object.assign(new Error(m), { status: r.status, ghMessage: scrub(msg, token) });
+    if (r.status >= 300 && r.status < 400) throw fail('GitHub leitet um: Repository wurde umbenannt oder verschoben, bitte neu auswählen.');
+    if (r.status === 401) throw fail('GitHub lehnt den Token ab (ungültig, abgelaufen oder widerrufen).');
+    if (r.status === 404) throw fail('Nicht gefunden oder kein Zugriff: Ist das Repository für den Token freigegeben?');
+    if (r.status === 403 || r.status === 429) throw fail(scrub(r.headers.get('x-ratelimit-remaining') === '0' ? 'GitHub-Anfragelimit erreicht, bitte später erneut versuchen.' : `GitHub verweigert den Zugriff (${r.status})${msg ? `: ${msg}` : ''}. Token-Berechtigungen prüfen.`, token));
+    throw fail(scrub(`GitHub: HTTP ${r.status}${msg ? ` – ${msg}` : ''}`, token));
   }
   if (json === null && text) throw new Error('GitHub: unerwartete Antwort (kein JSON).');
   return { data: json as T, headers: r.headers };
@@ -133,6 +136,38 @@ export async function listRootNames(repo: string, ref: string): Promise<string[]
 export async function checkRepoAccess(repo: string): Promise<GithubRepo> {
   try { return toRepo((await ghFetch<RawRepo>(repoPath(repo))).data); }
   catch (e) { throw new Error(/Nicht gefunden/.test(errMsg(e)) ? `Kein Zugriff auf ${repo}: Repository fehlt oder ist für den Token nicht freigegeben.` : errMsg(e)); }
+}
+
+// ---- New project for a new plugin (Sandbox Coding, A15): a private repository created with the stored token ----
+/** Where the token may create a repository: its user and the organisations it can see (a fine-grained token sees only its resource
+ *  owner's; /user/orgs failing just leaves the user). */
+export async function listRepoOwners(): Promise<RepoOwner[]> {
+  const { login } = await getUser();
+  let orgs: RepoOwner[] = [];
+  try {
+    orgs = (await ghList<{ login?: unknown }>('/user/orgs')).map(o => o.login)
+      .filter((l): l is string => typeof l === 'string' && /^[A-Za-z0-9-]{1,39}$/.test(l) && l !== login).map(l => ({ login: l, kind: 'org' as const }));
+  } catch { /* orgs unknown: the user only */ }
+  return [{ login, kind: 'user' }, ...orgs];
+}
+export type CreateRepoError = 'name' | 'owner' | 'exists' | 'permission';
+/** Creates a private repository with a README on `main` (auto_init: the clone then has a branch to start from, and the README alone
+ *  still counts as an empty repository, i.e. a new plugin). `owner` must be one of listRepoOwners(). Throws with `code` set for the
+ *  cases the caller words itself (name invalid, owner unknown, name taken, token may not create repositories). */
+export async function createRepo(p: { owner: string; name: string; description?: string }): Promise<GithubRepo> {
+  const err = (code: CreateRepoError, m: string = code) => Object.assign(new Error(m), { code });
+  if (typeof p.name !== 'string' || !REPO_NAME.test(p.name)) throw err('name');
+  const owner = (await listRepoOwners()).find(o => o.login.toLowerCase() === String(p.owner).toLowerCase());
+  if (!owner) throw err('owner');
+  const path = owner.kind === 'user' ? '/user/repos' : `/orgs/${encodeURIComponent(owner.login)}/repos`;
+  const body = { name: p.name, private: true, auto_init: true, has_wiki: false, has_projects: false, ...(p.description ? { description: p.description.replace(/[\u0000-\u001f]/g, ' ').slice(0, 300) } : {}) };
+  try { return toRepo((await ghFetch<RawRepo>(path, { method: 'POST', body })).data); }
+  catch (e) {
+    const { status, ghMessage } = e as { status?: number; ghMessage?: string };
+    if (status === 422 && /already exists/i.test(ghMessage ?? '')) throw err('exists');
+    if (status === 403 || status === 404) throw err('permission', errMsg(e));
+    throw e;
+  }
 }
 
 export const PERMISSION_HINT = 'Token braucht Contents + Pull requests: Lesen & Schreiben.';
