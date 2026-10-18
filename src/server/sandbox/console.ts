@@ -2,7 +2,10 @@ import 'server-only';
 // Console of a sandbox (tab "Konsole"): an interactive shell in the task container for the user – never for the AI (no tool, no MCP).
 // Next.js route handlers have no WebSockets, so the server holds the hijacked exec stream per console session: the browser reads the
 // output as NDJSON (numbered base64 chunks, the last ones buffered for a reconnect after a reload) and sends input and resizes by POST.
-// - session ids are random and bound to the task and the actor (the login name; null without LOTSE_PASSWORD)
+// - session ids are random and kept per task and actor (the login name; null without LOTSE_PASSWORD) – a convenience, not an access
+//   boundary: everyone with the password has the same rights
+// - output is capped at OUT_RATE per session (the Docker socket is paused for the rest of the second), encoded only while someone
+//   watches; at most VIEWERS_MAX streams per session, a view that falls behind is dropped by its route and reconnects (console/[session])
 // - at most CONSOLE_MAX open per task; closed after CONSOLE_IDLE_MINUTES without input, and with pause, finish, a new setup and when
 //   Sandbox Coding is switched off; a Lotse restart ends the shells it no longer holds (killOrphanConsoles)
 // - only containers Lotse manages (the runner checks the label), only the template's own shell; audit: opened/closed, never keystrokes
@@ -24,22 +27,30 @@ export const CONSOLE_IDLE_MS = CONSOLE_IDLE_MINUTES * 60_000;
 export const INPUT_MAX = 64 * 1024;
 /** output kept per session for a reconnect (the end of it) */
 const BUFFER_BYTES = 256 * 1024;
+/** output read from the shell per second at most (`yes`, `cat` of a big log): the socket pauses for the rest of the second */
+export const OUT_RATE = 1024 * 1024;
+/** output streams attached to one session at once (two tabs, or a reload before the old stream noticed) */
+export const VIEWERS_MAX = 2;
 /** an ended session still tells a reconnecting view why, for this long */
 const ENDED_MS = 10 * 60_000;
 const SID = /^[a-f0-9]{24}$/;
 const COLS = { min: 10, max: 500 }, ROWS = { min: 4, max: 200 };
 
 interface Session {
-  id: string; taskId: string; actor: string | null; containerId: string; spec: ConsoleSpec; pidFile: string; tty: TtySession;
+  id: string; taskId: string; actor: string | null; containerId: string; spec: ConsoleSpec; tty: TtySession;
   openedAt: string; lastInput: number; cols: number; rows: number;
+  /** output rate cap: bytes in the current second, its start, the timer that resumes the paused socket */ win: number; winStart: number; resumeTimer?: NodeJS.Timeout;
   seq: number; chunks: { seq: number; data: Buffer }[]; size: number; listeners: Set<(ev: ConsoleEvent) => void>;
   /** why it is being closed (set before the stream ends); unset when the shell ended by itself */ closing?: ConsoleCloseReason;
 }
-interface Registry { open: Map<string, Session>; ended: Map<string, { taskId: string; actor: string | null; reason: ConsoleCloseReason; at: number }>; opening: Map<string, number> }
-const reg = () => singleton<Registry>('sandboxConsoles', () => ({ open: new Map(), ended: new Map(), opening: new Map() }));
+interface Registry {
+  open: Map<string, Session>; ended: Map<string, { taskId: string; actor: string | null; reason: ConsoleCloseReason; at: number }>; opening: Map<string, number>;
+  /** per task: how often its consoles were closed by the lifecycle, and the last reason – a console that was still starting then is closed too */
+  closes: Map<string, { n: number; reason: ConsoleCloseReason }>;
+}
+const reg = () => singleton<Registry>('sandboxConsoles', () => ({ open: new Map(), ended: new Map(), opening: new Map(), closes: new Map() }));
 
 const fail = (status: number, message: string) => Object.assign(new Error(message), { status });
-const pidFileOf = (sid: string) => `/tmp/.lotse-console-${sid}.pid`;
 const publicOf = (s: Session): ConsoleSessionPublic => ({ id: s.id, openedAt: s.openedAt, cols: s.cols, rows: s.rows });
 const ofTask = (taskId: string) => [...reg().open.values()].filter(s => s.taskId === taskId);
 /** The template's console, or null (a template without one, e.g. a containerless one). */
@@ -63,6 +74,7 @@ function ended(s: Session) {
   const R = reg();
   if (R.open.get(s.id) !== s) return;
   R.open.delete(s.id);
+  clearTimeout(s.resumeTimer);
   const reason = s.closing ?? 'exit';
   R.ended.set(s.id, { taskId: s.taskId, actor: s.actor, reason, at: Date.now() });
   for (const fn of s.listeners) { try { fn({ t: 'end', reason }); } catch { /* view gone */ } }
@@ -84,24 +96,43 @@ export async function openConsole(taskId: string, actor: string | null, want: { 
     if (!running) await ensureAwake(taskId);
     const cur = mustTask(taskId);
     if (!cur.containerId || !cur.containerRunning || cur.status === 'paused' || cur.status === 'done') throw fail(409, cur.error ?? 'Der Container läuft nicht – die Konsole braucht eine laufende Sandbox.');
-    const id = crypto.randomBytes(12).toString('hex'), pidFile = pidFileOf(id);
-    const tty = await getRunner().openTty(cur.containerId, spec.shell(pidFile), { user: spec.user, workdir: spec.workdir, env: spec.env, ...dims });
-    const s: Session = { id, taskId, actor, containerId: cur.containerId, spec, pidFile, tty, openedAt: new Date().toISOString(), lastInput: Date.now(), ...dims, seq: 0, chunks: [], size: 0, listeners: new Set() };
+    const id = crypto.randomBytes(12).toString('hex'), start = spec.start(id), closes = R.closes.get(taskId)?.n ?? 0;
+    const tty = await getRunner().openTty(cur.containerId, start.argv, { user: start.user, workdir: spec.workdir, env: spec.env, ...dims });
+    const s: Session = { id, taskId, actor, containerId: cur.containerId, spec, tty, openedAt: new Date().toISOString(), lastInput: Date.now(), ...dims, win: 0, winStart: Date.now(), seq: 0, chunks: [], size: 0, listeners: new Set() };
     R.open.set(id, s);
-    tty.onData(data => {
-      const ev: ConsoleEvent = { t: 'out', seq: s.seq, data: data.toString('base64') };
-      s.chunks.push({ seq: s.seq++, data }); s.size += data.length;
-      while (s.size > BUFFER_BYTES && s.chunks.length > 1) s.size -= s.chunks.shift()!.data.length;
-      for (const fn of s.listeners) { try { fn(ev); } catch { /* view gone */ } }
-    });
+    tty.onData(data => output(s, data));
     tty.onEnd(() => ended(s));
     audit(s, 'open', { user: spec.user });
+    // paused, finished or switched off while the shell was starting: closeTaskConsoles did not see it yet
+    const late = R.closes.get(taskId);
+    if (late && late.n !== closes) {
+      await close(s, late.reason, true);
+      throw fail(409, 'Die Sandbox wurde gerade pausiert oder geschlossen – die Konsole ist wieder zu.');
+    }
     touchTask(taskId);
     return publicOf(s);
   } finally {
     const n = (R.opening.get(taskId) ?? 1) - 1;
     if (n > 0) R.opening.set(taskId, n); else R.opening.delete(taskId);
   }
+}
+
+/** A chunk of the shell's output: buffered for a reconnect, sent to the views (encoded only if there are any), rate-capped. */
+function output(s: Session, data: Buffer) {
+  const seq = s.seq++;
+  s.chunks.push({ seq, data }); s.size += data.length;
+  while (s.size > BUFFER_BYTES && s.chunks.length > 1) s.size -= s.chunks.shift()!.data.length;
+  if (s.listeners.size) {
+    const ev: ConsoleEvent = { t: 'out', seq, data: data.toString('base64') };
+    for (const fn of s.listeners) { try { fn(ev); } catch { /* view gone */ } }
+  }
+  const now = Date.now();
+  if (now - s.winStart >= 1000) { s.winStart = now; s.win = 0; }
+  s.win += data.length;
+  if (s.win < OUT_RATE || s.resumeTimer || s.closing) return;
+  s.tty.pause(); // the shell blocks on its next writes, like a terminal that cannot keep up
+  s.resumeTimer = setTimeout(() => { s.resumeTimer = undefined; s.winStart = Date.now(); s.win = 0; s.tty.resume(); }, Math.max(1, 1000 - (now - s.winStart)));
+  s.resumeTimer.unref?.();
 }
 
 /** The actor's open consoles of a task (a reloaded view reattaches to them). */
@@ -121,6 +152,7 @@ export function attachConsole(taskId: string, sid: string, actor: string | null,
   const gone = SID.test(sid) ? reg().ended.get(sid) : undefined;
   if (gone && gone.taskId === taskId && gone.actor === actor) { send({ t: 'end', reason: gone.reason }); return () => {}; }
   const s = owned(taskId, sid, actor);
+  if (s.listeners.size >= VIEWERS_MAX) throw fail(409, `Diese Konsole ist schon in ${VIEWERS_MAX} Fenstern offen – schließe eines davon.`);
   for (const c of s.chunks) if (c.seq >= from) send({ t: 'out', seq: c.seq, data: c.data.toString('base64') });
   s.listeners.add(send);
   return () => { s.listeners.delete(send); };
@@ -149,7 +181,7 @@ async function close(s: Session, reason: ConsoleCloseReason, kill: boolean): Pro
   if (s.closing) return;
   s.closing = reason;
   if (kill) {
-    const stop = s.spec.stop(s.pidFile);
+    const stop = s.spec.stop(s.id);
     await getRunner().exec(s.containerId, stop.argv, { user: stop.user, workdir: '/', timeoutMs: 15_000 })
       .catch(e => log.warn('Konsole im Container nicht beendet', { task: s.taskId, error: e }));
   }
@@ -160,14 +192,20 @@ export async function closeConsole(taskId: string, sid: string, actor: string | 
   await close(owned(taskId, sid, actor), 'user', true);
 }
 /** Lifecycle: every console of the task. `kill`: end the shells first (the container keeps running, e.g. a new setup). */
+function noteClose(taskId: string, reason: ConsoleCloseReason) {
+  const R = reg();
+  R.closes.set(taskId, { n: (R.closes.get(taskId)?.n ?? 0) + 1, reason });
+}
 export async function closeTaskConsoles(taskId: string, reason: ConsoleCloseReason, kill = false): Promise<number> {
+  noteClose(taskId, reason);
   const list = ofTask(taskId);
   await Promise.all(list.map(s => close(s, reason, kill)));
   return list.length;
 }
 /** Sandbox Coding switched off: every console (the containers are stopped right after). */
 export async function closeAllConsoles(reason: ConsoleCloseReason): Promise<number> {
-  const list = [...reg().open.values()];
+  const R = reg(), list = [...R.open.values()];
+  for (const taskId of new Set([...list.map(s => s.taskId), ...R.opening.keys()])) noteClose(taskId, reason);
   await Promise.all(list.map(s => close(s, reason, false)));
   return list.length;
 }
@@ -180,22 +218,36 @@ export async function sweepConsoles(now = Date.now()): Promise<string[]> {
   return idle.map(s => s.id);
 }
 
+/** Ends every console shell in the task's container (the template's stopAll); how many. Errors are thrown. */
+async function endShells(t: CodeTask): Promise<number> {
+  const spec = consoleSpec(t);
+  if (!spec || !t.containerId) return 0;
+  const r = await getRunner().exec(t.containerId, spec.stopAll.argv, { user: spec.stopAll.user, workdir: '/', timeoutMs: 15_000 });
+  return Number.parseInt(r.output.trim(), 10) || 0;
+}
+
 /** After a Lotse restart: shells of consoles nobody holds any more are ended in every running task container (best effort);
  *  returns how many. */
 export async function killOrphanConsoles(): Promise<number> {
   const open = new Set([...reg().open.values()].map(s => s.containerId));
   let n = 0;
   for (const t of listTasks()) {
-    const spec = consoleSpec(t);
-    if (!spec || !t.containerId || !t.containerRunning || t.status === 'done' || open.has(t.containerId)) continue;
-    await getRunner().exec(t.containerId, spec.stopAll.argv, { user: spec.stopAll.user, workdir: '/', timeoutMs: 15_000 }).then(r => {
-      const ended = Number.parseInt(r.output.trim(), 10) || 0;
+    if (!consoleSpec(t) || !t.containerId || !t.containerRunning || t.status === 'done' || open.has(t.containerId)) continue;
+    await endShells(t).then(ended => {
       if (!ended) return;
       n += ended; // who had opened them is gone with the restart: audited without a user
       audit({ id: 'orphaned', taskId: t.id, actor: null }, 'close', { reason: 'lotse-restart', shells: ended });
     }, e => log.warn('Verwaiste Konsolen nicht beendet', { task: t.id, error: e }));
   }
   return n;
+}
+
+/** The container did not stop (docker stop failed) after its consoles were closed without ending their shells: end them now (best
+ *  effort), so nothing keeps running in it that nobody holds. */
+export async function endConsoleShells(taskId: string): Promise<void> {
+  const t = getTask(taskId);
+  if (!t || ofTask(taskId).length) return; // a console opened in between belongs to someone again
+  await endShells(t).catch(e => log.warn('Konsolen im Container nicht beendet', { task: taskId, error: e }));
 }
 
 /** Tests: open consoles of a task (also other actors'). */

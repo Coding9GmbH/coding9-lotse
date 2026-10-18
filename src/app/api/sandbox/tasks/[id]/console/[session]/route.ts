@@ -9,6 +9,10 @@ export const dynamic = 'force-dynamic';
 
 type Ctx = { params: Promise<{ id: string; session: string }> };
 
+/** queued for one view at most; a view that falls further behind (slow connection, a flood of output) is dropped and reconnects
+ *  from its last chunk – the server keeps the end of the output, the view marks the gap */
+const VIEW_QUEUE_BYTES = 1024 * 1024;
+
 /** NDJSON: the console's output from chunk ?from= on (buffered chunks first, e.g. after a reload), live, then its end. */
 export function GET(req: Request, { params }: Ctx) {
   return taskRoute(req, async () => {
@@ -22,14 +26,14 @@ export function GET(req: Request, { params }: Ctx) {
         const send = (ev: ConsoleEvent) => {
           if (closed) return;
           try { controller.enqueue(enc.encode(`${JSON.stringify(ev)}\n`)); } catch { stop(); return; }
-          if (ev.t === 'end') queueMicrotask(stop);
+          if (ev.t === 'end' || (controller.desiredSize ?? 0) <= 0) queueMicrotask(stop);
         };
         detach = attachConsole(id, session, actorFromRequest(req), from, send); // throws 404 before the stream exists
         if (closed) detach();
         req.signal.addEventListener('abort', stop, { once: true });
       },
       cancel() { closed = true; detach?.(); detach = null; },
-    });
+    }, new ByteLengthQueuingStrategy({ highWaterMark: VIEW_QUEUE_BYTES }));
     return new Response(stream, { headers: { 'content-type': 'application/x-ndjson', 'cache-control': 'no-cache, no-store', 'x-accel-buffering': 'no' } });
   });
 }

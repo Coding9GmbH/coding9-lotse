@@ -50,16 +50,17 @@ export interface BootFile { dir: string; name: string; content: string; mode: nu
 /** Shutting the container's services down cleanly before `docker stop` (whose signal the image may ignore). */
 export interface GracefulStop { argv: string[]; user: string; timeoutMs: number; /** docker stop's grace period afterwards */ stopTimeoutSec: number }
 
-/** The user's interactive console (console.ts): user, directory, environment and the commands that start and end its shell.
- *  Template code, never input; the AI never gets a console. */
+/** The user's interactive console (console.ts): the shell's user, directory, environment and the commands that start and end it.
+ *  Template code, never input; the AI never gets a console tool. `sid` is the console session id (24 hex characters, from Lotse). */
 export interface ConsoleSpec {
+  /** the shell's user (shown and audited; the wrapper may start as another user and drop to it) */
   user: string;
   workdir: string;
   env: string[];
-  /** argv of the shell; it writes its pid (with a TTY also its session id) to pidFile first, so the session can be ended later */
-  shell: (pidFile: string) => string[];
+  /** the shell's wrapper (exec with a TTY): it records the shell's pid (with a TTY also its session id) for sid, so it can be ended later */
+  start: (sid: string) => { argv: string[]; user: string };
   /** ends that shell's session: all its processes, also ones started with sudo (hence its own user) */
-  stop: (pidFile: string) => { argv: string[]; user: string };
+  stop: (sid: string) => { argv: string[]; user: string };
   /** ends every console session of the container (after a Lotse restart nobody holds them any more); its output is the number ended */
   stopAll: { argv: string[]; user: string };
 }
