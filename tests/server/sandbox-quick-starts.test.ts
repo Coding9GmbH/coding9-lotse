@@ -143,6 +143,34 @@ test('secret values are never stored: a secret variable of the environment, or a
   assert.deepEqual(fromTask.body.quickStart.setup, { kind: 'existing', repo: 'acme/qs-plugin', baseBranch: 'main', env: [{ key: 'SHOP_MODE', value: 'dev' }] });
 });
 
+test('a secret in any other text of the setup is refused, naming the field; references survive editing', async () => {
+  const before = JSON.stringify(db.kvGet('sandbox-quick-starts'));
+  const refused = async (setup: Record<string, unknown>, re: RegExp, lang = 'de') => {
+    const r = await create({ name: `Geheim ${crypto.randomUUID().slice(0, 6)}`, setup }, lang);
+    assert.equal(r.status, 400, JSON.stringify(setup));
+    assert.match(r.body.error, re);
+    assert.ok(!JSON.stringify(r.body).includes(SECRET), 'the answer does not repeat it');
+  };
+  await refused({ ...PLUGIN, commands: [{ label: 'Zahlung', command: `echo ${SECRET}`, phase: 'final' }] }, /Im Feld „Befehl 1“ steht der geheime Wert von STRIPE_KEY.*\$STRIPE_KEY/);
+  await refused({ ...PLUGIN, commands: [{ label: `k ${SECRET}`, command: 'make', phase: 'final' }] }, /„Befehl 1: Bezeichnung“/);
+  await refused({ ...PLUGIN, notes: `Stripe-Key: ${SECRET}` }, /„Hinweise für die KI“.*STRIPE_KEY/);
+  await refused({ ...PLUGIN, previewPath: `/?k=${SECRET}` }, /„Startseite der Vorschau“/);
+  await refused({ ...PLUGIN, kind: 'custom', targetPath: `/opt/${SECRET}` }, /„Zielordner“/);
+  await refused({ ...PLUGIN, notes: `Token ${TOKEN}` }, /The field “Notes for the AI” contains a stored secret value/, 'en'); // Lotse's other secrets too
+  assert.equal(JSON.stringify(db.kvGet('sandbox-quick-starts')), before, 'nothing stored');
+  // the name ($STRIPE_KEY) is fine
+  const ok = await create({ name: 'Mit Namen', setup: { ...PLUGIN, commands: [{ label: 'Zahlung', command: 'echo $STRIPE_KEY', phase: 'final' }], env: [{ key: 'STRIPE_KEY', value: SECRET }] } });
+  assert.equal(ok.status, 201, JSON.stringify(ok.body));
+  assert.deepEqual(ok.body.quickStart.setup.envRefs, ['STRIPE_KEY']);
+  const id = ok.body.quickStart.id, patch = async (body: unknown) => ((await (await oneRoute.PATCH(req('PATCH', body), params(id))).json()) as any);
+  // an editor that does not send envRefs keeps them; [] removes them on purpose; a plain value replaces a reference
+  assert.deepEqual((await patch({ setup: { ...PLUGIN, baseBranch: 'develop' } })).quickStart.setup.envRefs, ['STRIPE_KEY']);
+  assert.deepEqual((await patch({ setup: { ...PLUGIN, envRefs: ['STRIPE_KEY', 'API_URL'] } })).quickStart.setup.envRefs, ['STRIPE_KEY', 'API_URL']);
+  assert.deepEqual((await patch({ setup: { ...PLUGIN, env: [{ key: 'API_URL', value: 'https://x.test' }] } })).quickStart.setup.envRefs, ['STRIPE_KEY']);
+  assert.equal((await patch({ setup: { ...PLUGIN, envRefs: [] } })).quickStart.setup.envRefs, undefined);
+  assert.ok(!JSON.stringify(db.kvGet('sandbox-quick-starts')).includes(SECRET));
+});
+
 test('one click starts it like the dialog: title = its name, all choices on the task, last use and audit recorded', async () => {
   const lib = await storedDb('klick.sql');
   const q = (await create({ name: 'Klickstart', setup: { ...PLUGIN, commands: [{ label: 'Hallo', command: 'echo hallo', phase: 'final' }], dumpId: lib.id, image: '6.7.13.0', previewPath: '/checkout/cart', notes: 'Nur Test' } })).body.quickStart;
@@ -194,6 +222,11 @@ test('checked on every use: project, branch, stored database, image, GitHub – 
   const rb = await start(b.id);
   assert.equal(rb.status, 422);
   assert.deepEqual(rb.body.problems, [{ field: 'branch', message: 'Den Branch „feature/alt“ gibt es in acme/qs-plugin nicht (mehr).' }]);
+  // the branch is asked for on its own: found in a repository with more branches than a list returns (5 pages of 100)
+  gh.repos.push({ fullName: 'acme/qs-many', branches: [...Array.from({ length: 600 }, (_, i) => `b${String(i).padStart(3, '0')}`), 'zz/release'] });
+  const many = await Q.checkQuickStart({ ...Q.getQuickStart(b.id), setup: { kind: 'existing', repo: 'acme/qs-many', baseBranch: 'zz/release' } });
+  assert.deepEqual(many.problems, []);
+  assert.deepEqual((await Q.checkQuickStart({ ...Q.getQuickStart(b.id), setup: { kind: 'existing', repo: 'acme/qs-many', baseBranch: 'zz/gone' } })).problems.map(p => p.field), ['branch']);
   // GitHub disconnected
   saveGithub({ token: null });
   try {

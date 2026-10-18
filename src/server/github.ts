@@ -125,6 +125,12 @@ export async function listBranches(repo: string): Promise<GithubBranch[]> {
     .filter(b => typeof b.name === 'string').map(b => ({ name: b.name as string, protected: b.protected === true }));
 }
 
+/** Whether one branch exists (a single request, unlike listBranches which stops after MAX_PAGES). 404 = gone; other errors are thrown. */
+export async function branchExists(repo: string, branch: string): Promise<boolean> {
+  try { await ghFetch(`${repoPath(repo)}/branches/${branch.split('/').map(encodeURIComponent).join('/')}`); return true; }
+  catch (e) { if ((e as { status?: number }).status === 404) return false; throw e; }
+}
+
 /** Names in the root of a branch (files and folders), for "is this repository still empty?". At most one page (1000 entries). */
 export async function listRootNames(repo: string, ref: string): Promise<string[]> {
   const { data } = await ghFetch<{ name?: unknown }[]>(`${repoPath(repo)}/contents?ref=${encodeURIComponent(ref)}`);

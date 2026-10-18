@@ -863,6 +863,32 @@ test('Sandbox Coding: quick starts – save in the dialog, one click in the Sand
   await editor.getByRole('button', { name: 'Schnellstart speichern' }).click();
   await expect(editor).toHaveCount(0);
   await expect(row.getByText(/Bestehendes Projekt · acme\/shop-theme @ main · Demo-Daten · zuletzt/)).toBeVisible();
+  // a variable whose value holds a secret of the environment is kept by name: shown in the editor, kept when saving; a secret in
+  // another field is refused with the field's name
+  const SECRET = 'sk_live_e2e_quickstart_4711';
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { envVars: [{ key: 'STRIPE_KEY', secret: true, value: SECRET }] } })).ok()).toBeTruthy();
+  const refRes = await request.post('/api/sandbox/quick-starts', { headers: lotse, data: { name: 'Mit Referenz', setup: { kind: 'existing', repo: 'acme/shop-theme', baseBranch: 'main', env: [{ key: 'API_URL', value: `https://pay.test/?key=${SECRET}` }] } } });
+  expect(refRes.ok()).toBeTruthy();
+  const refId = ((await refRes.json()) as { quickStart: { id: string } }).quickStart.id;
+  await page.reload();
+  await quick.getByRole('listitem').filter({ hasText: 'Mit Referenz' }).getByRole('button', { name: 'Bearbeiten' }).click();
+  const refEditor = page.getByRole('dialog', { name: 'Schnellstart bearbeiten: Mit Referenz' });
+  await next(refEditor);
+  await expect(refEditor.getByText('Aus der Umgebung (nur der Name, den Wert setzt die Sandbox-Umgebung):')).toBeVisible();
+  await expect(refEditor.getByRole('button', { name: 'API_URL nicht mehr aus der Umgebung übernehmen' })).toBeVisible();
+  await refEditor.getByLabel('Hinweise für die KI (nur diese Sandbox)').fill(`Zahlung mit ${SECRET}`);
+  await next(refEditor);
+  await refEditor.getByRole('button', { name: 'Schnellstart speichern' }).click();
+  await expect(refEditor.getByRole('alert')).toContainText('Im Feld „Hinweise für die KI“ steht der geheime Wert von STRIPE_KEY.');
+  await refEditor.getByRole('button', { name: /^Schritt 2 von 3/ }).click();
+  await refEditor.getByLabel('Hinweise für die KI (nur diese Sandbox)').fill('Zahlung mit $STRIPE_KEY');
+  await next(refEditor);
+  await refEditor.getByRole('button', { name: 'Schnellstart speichern' }).click();
+  await expect(refEditor).toHaveCount(0);
+  await expect(quick.getByRole('status').filter({ hasText: 'Als Schnellstart „Mit Referenz“ gespeichert. Nur als Name gemerkt (der Wert kommt beim Start aus der Sandbox-Umgebung): API_URL' })).toBeVisible();
+  const refSaved = (await (await request.get(`/api/sandbox/quick-starts/${refId}`, { headers: lotse })).json()) as { quickStart: { setup: { envRefs?: string[]; notes?: string } } };
+  expect(refSaved.quickStart.setup).toMatchObject({ envRefs: ['API_URL'], notes: 'Zahlung mit $STRIPE_KEY' });
+  expect(JSON.stringify(refSaved)).not.toContain(SECRET);
   await row.getByRole('button', { name: 'Aktionen für Theme Demo' }).click();
   await page.getByRole('menuitem', { name: 'Umbenennen' }).click();
   await quick.getByLabel('Neuer Name für Theme Demo').fill('Theme Basis');
@@ -872,12 +898,12 @@ test('Sandbox Coding: quick starts – save in the dialog, one click in the Sand
   await renamed.getByRole('button', { name: 'Aktionen für Theme Basis' }).click();
   await page.getByRole('menuitem', { name: 'Duplizieren' }).click();
   await expect(quick.getByRole('listitem').filter({ hasText: 'Theme Basis (Kopie)' })).toBeVisible();
-  for (const name of ['Kaputt', 'Theme Basis (Kopie)', 'Aus der Sandbox', 'Theme Basis']) {
+  for (const name of ['Kaputt', 'Mit Referenz', 'Theme Basis (Kopie)', 'Aus der Sandbox', 'Theme Basis']) {
     page.once('dialog', d => void d.accept());
     await quick.getByRole('button', { name: `Aktionen für ${name}`, exact: true }).click();
     await page.getByRole('menuitem', { name: 'Löschen' }).click();
     await expect(quick.getByRole('status').filter({ hasText: `„${name}“ gelöscht.` })).toBeVisible();
   }
   await expect(quick.getByText('Noch keine Schnellstarts.')).toBeVisible();
-  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, envVars: [] } })).ok()).toBeTruthy();
 });

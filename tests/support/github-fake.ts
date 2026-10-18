@@ -1,5 +1,5 @@
 // For tests and local checks only: tiny fake of the GitHub REST API (Bearer token, JSON, 404 for repositories without access).
-// Endpoints: /user, /user/repos, /repos/:o/:r, /repos/:o/:r/branches, /repos/:o/:r/contents (root names from FakeRepo.files), GET (head/state filter) + POST /repos/:o/:r/pulls,
+// Endpoints: /user, /user/repos, /repos/:o/:r, /repos/:o/:r/branches(/:name), /repos/:o/:r/contents (root names from FakeRepo.files), GET (head/state filter) + POST /repos/:o/:r/pulls,
 // GET + PATCH /repos/:o/:r/pulls/:n, GET /repos/:o/:r/commits/:sha/check-runs, GET /repos/:o/:r/pulls/:n/reviews, …/pulls/:n/comments
 // and …/issues/:n/comments (feedback, keyed "owner/repo#n"). Every GET answers with an ETag and 304 on a matching If-None-Match.
 // GET /user/orgs, POST /user/repos and /orgs/:org/repos (create a repository: 403 while `createDenied`, 422 for a taken name; `onCreateRepo`
@@ -93,6 +93,12 @@ export async function startFakeGithub(o: { token: string; login?: string; repos?
     if (p === '/user/repos') {
       const per = Number(url.searchParams.get('per_page') ?? 30), page = Number(url.searchParams.get('page') ?? 1);
       return send(200, f.repos.slice((page - 1) * per, page * per).map(repoJson));
+    }
+    const one = /^\/repos\/([^/]+)\/([^/]+)\/branches\/(.+)$/.exec(p);
+    if (one) {
+      const r = f.repos.find(x => x.fullName === `${decodeURIComponent(one[1])}/${decodeURIComponent(one[2])}`), name = one[3].split('/').map(decodeURIComponent).join('/');
+      if (!r || !(r.branches ?? [r.defaultBranch ?? 'main']).includes(name)) return send(404, { message: 'Branch not found' });
+      return send(200, { name, protected: name === (r.defaultBranch ?? 'main'), commit: { sha: '0'.repeat(40) } });
     }
     const m = /^\/repos\/([^/]+)\/([^/]+)(\/branches|\/contents|\/pulls(?:\/(\d+))?|\/commits\/([0-9a-f]{40})\/check-runs|\/(pulls|issues)\/(\d+)\/(reviews|comments))?$/.exec(p);
     const repo = m && f.repos.find(r => r.fullName === `${decodeURIComponent(m[1])}/${decodeURIComponent(m[2])}`);

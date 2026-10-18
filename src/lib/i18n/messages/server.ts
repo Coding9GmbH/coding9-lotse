@@ -48,6 +48,13 @@ export const de = {
     dump: 'Die gespeicherte Datenbank dieses Schnellstarts gibt es nicht mehr.',
     image: (why: string) => `Image: ${why}`,
     envMissing: (names: string) => `Diese Umgebungsvariablen fehlen in der Umgebung: ${names}`,
+    secret: (field: string, key: string | null) => key
+      ? `Im Feld „${field}“ steht der geheime Wert von ${key}. Ein Schnellstart speichert keine geheimen Werte – stattdessen den Namen verwenden (in Befehlen $${key}, die Sandbox setzt ihn).`
+      : `Im Feld „${field}“ steht ein gespeicherter geheimer Wert (Zugangsdaten). Ein Schnellstart speichert keine geheimen Werte – bitte entfernen.`,
+    field: {
+      repo: 'Projekt', branch: 'Branch', pluginName: 'Plugin-Name', targetPath: 'Zielordner', image: 'Image', previewPath: 'Startseite der Vorschau', notes: 'Hinweise für die KI',
+      commandLabel: (n: number) => `Befehl ${n}: Bezeichnung`, command: (n: number) => `Befehl ${n}`, varKey: (n: number) => `Variable ${n}: Name`,
+    },
   },
   noRepoTitle: 'Sandbox ohne Projekt',
   noRepo: 'Diese Sandbox hat noch kein GitHub-Projekt – erst „Als GitHub-Projekt anlegen“.',
@@ -133,6 +140,13 @@ export const en: typeof de = {
     dump: 'The stored database of this quick start no longer exists.',
     image: why => `Image: ${why}`,
     envMissing: names => `These variables are missing in the environment: ${names}`,
+    secret: (field, key) => key
+      ? `The field “${field}” contains the secret value of ${key}. A quick start does not store secret values – use the name instead (in commands $${key}, the sandbox sets it).`
+      : `The field “${field}” contains a stored secret value (credentials). A quick start does not store secret values – please remove it.`,
+    field: {
+      repo: 'Project', branch: 'Branch', pluginName: 'Plugin name', targetPath: 'Target folder', image: 'Image', previewPath: 'Preview start page', notes: 'Notes for the AI',
+      commandLabel: n => `Command ${n}: label`, command: n => `Command ${n}`, varKey: n => `Variable ${n}: name`,
+    },
   },
   noRepoTitle: 'Sandbox without a project',
   noRepo: 'This sandbox has no GitHub project yet – use “Create as GitHub project” first.',

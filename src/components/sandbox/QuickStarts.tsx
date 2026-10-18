@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { Messages } from '@/lib/i18n';
 import type { LibraryDumpPublic, QuickStartPublic, QuickStartSetup } from '@/lib/protocol';
+import { savedText } from '@/lib/sandbox-task';
 import { INTL_LOCALE } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { Button } from '@/components/ui/Button';
@@ -83,7 +84,7 @@ export function QuickStarts({ list, dumps, error, onChanged }: { list: QuickStar
         </ul>
       )}
       {notice && <p className={notice.ok ? styles.ok : styles.bad} role="status">{notice.text}</p>}
-      <AttachSandboxDialog open={!!editing} onClose={() => setEditing(null)} editing={editing?.editing ?? null} quick={editing?.quick ?? null} onSaved={() => onChanged()} />
+      <AttachSandboxDialog open={!!editing} onClose={() => setEditing(null)} editing={editing?.editing ?? null} quick={editing?.quick ?? null} onSaved={q => { onChanged(); setNotice({ ok: true, text: savedText(q, all) }); }} />
     </section>
   );
 }

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { CodeTaskPublic, CommandPhase, GithubBranch, GithubRepo, LibraryDumpPublic, NewSandboxRequest, QuickStartPublic, QuickStartSetup, RepoOwner, RepoProbe, StartKind } from '@/lib/protocol';
 import { useI18n } from '@/lib/i18n/I18nProvider';
-import { PLUGIN_NAME, PREVIEW_PATH, REPO_NAME, SANDBOX_DOCS, draftOf, pluginNameFromRepo, quickSetupOf, suggestTargetPath, targetPathProblem, type StartDraft } from '@/lib/sandbox-task';
+import { PLUGIN_NAME, PREVIEW_PATH, REPO_NAME, SANDBOX_DOCS, draftOf, pluginNameFromRepo, quickSetupOf, savedText, suggestTargetPath, targetPathProblem, type StartDraft } from '@/lib/sandbox-task';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { DumpUpload } from './DumpUpload';
@@ -63,6 +63,8 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
   const [target, setTarget] = useState({ value: '', edited: false });
   const [commands, setCommands] = useState<{ label: string; command: string; phase: CommandPhase }[]>([]);
   const [vars, setVars] = useState<{ key: string; value: string }[]>([]);
+  // a quick start's variables kept by name only (their value comes from the environment): shown, removable, saved along
+  const [envRefs, setEnvRefs] = useState<string[]>([]);
   const [advanced, setAdvanced] = useState(false);
   // A22: another image tag, the preview's first page and notes for the AI of this sandbox ('' = the environment's / none)
   const [extra, setExtra] = useState({ image: '', previewPath: '', notes: '' });
@@ -93,7 +95,7 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
     setShown({ open, initial, quick });
     if (open) {
       setStep(quick?.step ?? (initial?.repo ? 1 : 0)); setKind('existing'); setName({ value: '', editedFor: '' }); setForm(f => ({ ...f, title: initial?.title?.slice(0, 120) ?? '' }));
-      setNewRepo(null); setRepoNote(null); setError(null); setModeOpen(false); setCustom(false); setTarget({ value: '', edited: false }); setCommands([]); setVars([]); setAdvanced(false); setExtra({ image: '', previewPath: '', notes: '' });
+      setNewRepo(null); setRepoNote(null); setError(null); setModeOpen(false); setCustom(false); setTarget({ value: '', edited: false }); setCommands([]); setVars([]); setEnvRefs([]); setAdvanced(false); setExtra({ image: '', previewPath: '', notes: '' });
       setSkipHash(null); setData('demo'); setStoredId(''); setUploadId(null); setUploadKept(false); setStored(null);
       setPicked(quick?.id ?? ''); setSave(null); setSaved(null); setQsName(editing?.name ?? '');
     }
@@ -124,7 +126,7 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
   function applyDraft(d: StartDraft, list: GithubRepo[] | null, dumps: LibraryDumpPublic[] | null) {
     setKind(d.kind); setError(null); setNewRepo(null); setRepoNote(null); setSkipHash(null);
     setCustom(d.custom); setModeOpen(d.custom); setTarget(d.targetPath ? { value: d.targetPath, edited: true } : { value: '', edited: false });
-    setCommands(d.commands); setVars(d.vars); setExtra({ image: d.image, previewPath: d.previewPath, notes: d.notes }); setAdvanced(d.advanced);
+    setCommands(d.commands); setVars(d.vars); setEnvRefs(d.envRefs); setExtra({ image: d.image, previewPath: d.previewPath, notes: d.notes }); setAdvanced(d.advanced);
     // a saved name survives the probe of its own repo@branch, like a typed one
     setName(d.pluginName ? { value: d.pluginName, editedFor: d.kind === 'none' ? 'none' : `${d.repo}@${d.baseBranch}` } : { value: '', editedFor: '' });
     if (d.kind !== 'none') { setBranches(null); setWant(d.baseBranch); setBranchTick(n => n + 1); setForm(f => ({ ...f, repo: list?.some(r => r.fullName === d.repo) ? d.repo : '', baseBranch: '' })); }
@@ -252,7 +254,7 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
     };
   }
   /** What a quick start keeps of this choice; a one-off upload cannot be kept (null: say so) */
-  const quickSetup = (): QuickStartSetup | null => (data === 'upload' && !uploadKept ? null : quickSetupOf(kind, request(), data !== 'demo'));
+  const quickSetup = (): QuickStartSetup | null => (data === 'upload' && !uploadKept ? null : quickSetupOf(kind, request(), data !== 'demo', envRefs));
 
   /** "Als Schnellstart speichern" (start dialog) and "Schnellstart speichern" (editing one) */
   async function saveQuick(name: string, isDefault = false) {
@@ -265,7 +267,9 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
       setQuicks(l => [...(l ?? []).filter(q => q.id !== quickStart.id), quickStart]);
       onSaved?.(quickStart);
       if (isEdit) { onClose(); return; }
-      setPicked(quickStart.id); setSave(null); setSaved(tq.saved(quickStart.name));
+      // the server may have turned a variable into a reference (its value was secret): say which, and show them from now on
+      setEnvRefs(quickStart.setup.envRefs ?? []);
+      setPicked(quickStart.id); setSave(null); setSaved(savedText(quickStart, all));
     } catch (err) { setError(tq.saveFailed(errorText(err))); }
     finally { setSaving(false); }
   }
@@ -477,6 +481,12 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
                   <button type="button" className={styles.x} aria-label={ts.removeVar(v.key)} onClick={() => setVars(l => l.filter((_, j) => j !== i))}>×</button>
                 </div>
               ))}
+              {!!envRefs.length && (
+                <p className={`${styles.fieldNote} ${styles.qsRefs}`}>
+                  <span>{tq.envRefs}</span>
+                  {envRefs.map(k => <span key={k} className={styles.qsRef}><code>{k}</code><button type="button" className={styles.x} aria-label={tq.removeRef(k)} onClick={() => setEnvRefs(l => l.filter(x => x !== k))}>×</button></span>)}
+                </p>
+              )}
               {!varsOk && <span className={`${styles.fieldNote} ${styles.fieldBad}`}>{ts.varInvalid}</span>}
               {vars.length < 20 && <p className={styles.fieldNote}><button type="button" className={styles.textBtn} onClick={() => setVars(l => [...l, { key: '', value: '' }])}>{ts.addVar}</button></p>}
             </div>

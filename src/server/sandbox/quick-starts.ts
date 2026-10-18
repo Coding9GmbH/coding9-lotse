@@ -1,7 +1,8 @@
 import 'server-only';
 // Quick starts ("Schnellstarts", A22): saved setups of "Sandbox starten". A quick start is the dialog's request without the chat
 // (start.ts checks and starts it like the dialog's own), kept in kv 'sandbox-quick-starts' (at most 50, one of them the default).
-// - secret values never get in: a variable whose name is a secret of the environment, or whose value contains one, is kept by name only
+// - secret values never get in: a variable whose name is a secret of the environment, or whose value contains one, is kept by name only;
+//   a secret in any other text (command, notes, start page, …) is refused with the field's name
 // - the stored database is referenced by id; a one-off dump cannot be kept
 // - on every use: GitHub access, the base branch, the stored database and the image are checked again; a problem opens the dialog
 // - the approval of a repository's .lotse/sandbox.json is not part of it: the setup asks as usual (per repository + file content)
@@ -13,9 +14,11 @@ import type { QuickStartProblem, QuickStartPublic, QuickStartSetup, StartKind } 
 import { auditAdd, codeDumpGet, kvGet, kvSet } from '../db';
 import { currentActor } from '../actor';
 import { assertBaseBranch } from '../git';
-import { assertRepoName, checkRepoAccess, githubConnected, listBranches } from '../github';
+import { assertRepoName, branchExists, checkRepoAccess, githubConnected } from '../github';
+import { plausibleSecret, weakCredentialIn } from '../secret-values';
+import { knownSecrets, weakSecrets } from '../settings';
 import { errMsg } from '../util';
-import { ENV_KEY, getSandboxConfig, imageTag, sandboxSecretValues } from './env';
+import { ENV_KEY, getSandboxConfig, imageTag } from './env';
 import { setupFields, startSandbox } from './start';
 import { checkSetup, type CodeTask } from './tasks';
 
@@ -32,6 +35,21 @@ const newId = () => `qs_${Array.from(crypto.randomBytes(10), b => 'abcdefghijklm
 const fail = (status: number, message: string) => Object.assign(new Error(message), { status });
 const M = (locale: Locale) => messages(locale).server.quickStart;
 
+/** Finds a stored secret in a text: the environment's secret variables (with their name) and Lotse's other stored secrets (GitHub token,
+ *  AI key, shop access …; name null). Like the secret scan, a plausible secret counts anywhere, a weak one ("admin123") only where it
+ *  stands as a credential's value; a variable's value (`asValue`) holds an environment secret as soon as it contains it. Values of 3
+ *  characters or less are not searched (they would match almost any text), as in redact(). */
+function secretFinder(): (text: string, asValue?: boolean) => { key: string | null } | null {
+  const cfg = getSandboxConfig(), secretKeys = new Set(cfg.envVars.filter(x => x.secret).map(x => x.key));
+  const named = cfg.env.map(e => { const i = e.indexOf('='); return { key: e.slice(0, i), value: e.slice(i + 1) }; }).filter(e => secretKeys.has(e.key) && e.value.length > 3);
+  const plain = knownSecrets(), weak = weakSecrets();
+  return (text, asValue = false) => {
+    const n = named.find(e => (asValue || plausibleSecret(e.value) ? text.includes(e.value) : weakCredentialIn(text, e.value)));
+    if (n) return { key: n.key };
+    return plain.some(x => text.includes(x)) || weak.some(x => (asValue && text === x) || weakCredentialIn(text, x)) ? { key: null } : null;
+  };
+}
+
 /** The dialog's request as a quick start keeps it: the start fields without the title, plus the dialog's first step */
 const setupSchema = z.object(setupFields).omit({ title: true }).extend({
   kind: z.enum(['existing', 'new', 'none', 'custom']),
@@ -46,11 +64,22 @@ export function normalizeSetup(raw: unknown, locale: Locale = DEFAULT_LOCALE): Q
   const v = r.data, kind: StartKind = v.kind;
   const none = kind === 'none' || v.source === 'none';
   // the environment's secrets stay in the environment: such a variable is remembered by its name only
-  const cfg = getSandboxConfig(), secretKeys = new Set(cfg.envVars.filter(x => x.secret).map(x => x.key)), secrets = sandboxSecretValues().filter(x => x.length >= 4);
-  const refs = new Set(v.envRefs ?? []), env: { key: string; value: string }[] = [];
+  const cfg = getSandboxConfig(), secretKeys = new Set(cfg.envVars.filter(x => x.secret).map(x => x.key)), find = secretFinder();
+  const refs = new Set(none ? [] : v.envRefs ?? []), env: { key: string; value: string }[] = [];
   for (const e of none ? [] : v.env ?? []) {
     const key = e.key.trim();
-    if (secretKeys.has(key) || secrets.some(x => e.value.includes(x))) { if (ENV_KEY.test(key)) refs.add(key); } else env.push({ key, value: e.value });
+    if (secretKeys.has(key) || find(e.value, true)) { if (ENV_KEY.test(key)) refs.add(key); } else env.push({ key, value: e.value });
+  }
+  for (const e of env) refs.delete(e.key); // a plain value given for it replaces the reference
+  // every other text of the setup must not hold a secret either (it is stored, listed and given to the AI): refused, naming the field
+  const f = M(locale).field, texts: [string, string | undefined][] = [
+    [f.repo, v.repo], [f.branch, v.baseBranch], [f.pluginName, v.pluginName], [f.targetPath, v.targetPath], [f.image, v.image], [f.previewPath, v.previewPath], [f.notes, v.notes],
+    ...(none ? [] : v.commands ?? []).flatMap((c, i): [string, string][] => [[f.commandLabel(i + 1), c.label], [f.command(i + 1), c.command]]),
+    ...(none ? [] : v.env ?? []).map((e, i): [string, string] => [f.varKey(i + 1), e.key]),
+  ];
+  for (const [field, text] of texts) {
+    const hit = text ? find(text) : null;
+    if (hit) throw fail(400, M(locale).secret(field, hit.key));
   }
   const mode = kind === 'custom' ? 'custom' : none ? 'auto' : v.mode;
   const s = checkSetup({ ...v, source: none ? 'none' : 'repo', mode, env, commands: none ? [] : v.commands }, locale);
@@ -136,7 +165,11 @@ export function updateQuickStart(id: string, p: { name?: string; setup?: unknown
   if (!q || !QUICK_ID.test(id)) throw fail(404, M(locale).gone);
   const changed: string[] = [];
   if (p.name !== undefined) { const name = checkName(p.name, s.items, id, locale); if (name !== q.name) { q.name = name; changed.push('name'); } }
-  if (p.setup !== undefined) { const setup = normalizeSetup(p.setup, locale); if (JSON.stringify(setup) !== JSON.stringify(q.setup)) { q.setup = setup; changed.push('setup'); } }
+  if (p.setup !== undefined) {
+    // a setup without "envRefs" keeps the saved references (an older editor did not send them); [] removes them on purpose
+    const raw = p.setup && typeof p.setup === 'object' && !Array.isArray(p.setup) && !('envRefs' in p.setup) && q.setup.envRefs ? { ...p.setup, envRefs: q.setup.envRefs } : p.setup;
+    const setup = normalizeSetup(raw, locale); if (JSON.stringify(setup) !== JSON.stringify(q.setup)) { q.setup = setup; changed.push('setup'); }
+  }
   if (p.isDefault !== undefined && p.isDefault !== (s.defaultId === id)) { s.defaultId = p.isDefault ? id : null; changed.push('default'); }
   if (!changed.length) return pub(q, s.defaultId);
   q.updatedAt = now();
@@ -163,11 +196,12 @@ export async function checkQuickStart(q: QuickStartPublic, locale: Locale = DEFA
   if (s.kind !== 'none' && s.source !== 'none') {
     if (!githubConnected()) problems.push({ field: 'github', message: m.github });
     else {
+      // the branch on its own (one request; a list of all branches stops after 500)
+      let branchOk = true;
+      try { await assertBaseBranch(s.baseBranch); } catch (e) { branchOk = false; problems.push({ field: 'branch', message: errMsg(e) }); }
       try {
-        await assertBaseBranch(s.baseBranch);
         await checkRepoAccess(s.repo);
-        const branches = await listBranches(s.repo);
-        if (!branches.some(b => b.name === s.baseBranch)) problems.push({ field: 'branch', message: m.branch(s.baseBranch, s.repo) });
+        if (branchOk && !(await branchExists(s.repo, s.baseBranch))) problems.push({ field: 'branch', message: m.branch(s.baseBranch, s.repo) });
       } catch (e) { problems.push({ field: 'repo', message: m.repo(errMsg(e)) }); }
     }
   }
