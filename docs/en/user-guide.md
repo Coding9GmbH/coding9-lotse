@@ -208,7 +208,7 @@ The “Start sandbox” dialog has three short steps; each has a sensible defaul
 
 **Own setup.** For anything that is not a Shopware plugin or project (or when you want to be in control): Lotse clones the repository, puts it into the target folder in the container and only runs your commands – it installs, activates and compiles nothing and assumes nothing about Shopware. The target must be an absolute folder below `/var/www`, `/opt` or `/srv` (e.g. `/opt/app` or `/var/www/html`); the default is `/opt/<project name>`. The sandbox’s own commands and those from `.lotse/sandbox.json` run in that folder (the environment’s commands still in `/var/www/html`), and so do the AI’s commands. The container is still a Dockware Shopware; your commands decide what of it you use. Lotse only overwrites files from the repository in the target folder and, on the next full sync, only removes what it put there itself. The setup is in your hands here: if a command fails, its output is in the “Setup” tab.
 
-**Start without a project.** A test shop with demo data and no GitHub at all: the working copy is a local git (its base is an empty start commit), the AI creates a new plugin in it (technical name suggested from the title) and saves its steps as usual. The **Review** tab then offers **Create as GitHub project**: Lotse creates a private repository (account and name of your choice), uploads the starting point as `main`, and from then on you submit the changes for review like with any project. Downloading the plugin as a ZIP works without GitHub, too.
+**Start without a project.** A test shop with demo data and no GitHub at all: the working copy is a local git (its base is an empty start commit), the AI creates a new plugin in it (technical name suggested from the title) and saves its steps as usual. The **Review** tab then offers **Create as GitHub project**: Lotse creates a private repository (account and name of your choice), uploads the starting point as `main`, and from then on you submit the changes for review like with any project. If the upload fails (e.g. the token lacks write access), the empty repository stays; a second click with the same name uses it again. As long as there is no GitHub project, the AI’s commits and changes exist only in the sandbox – Lotse then refuses “Retry from here” from “Clone repository” (or earlier), because it would delete them. Downloading the plugin as a ZIP works without GitHub, too.
 
 **Settings in the project: `.lotse/sandbox.json`.** A repository can say itself how its sandbox is set up – similar to a devcontainer file:
 
@@ -218,7 +218,7 @@ The “Start sandbox” dialog has three short steps; each has a sensible defaul
   "targetPath": "/opt/app",
   "commands": [
     { "label": "Dependencies", "command": "composer install --no-interaction", "phase": "after-db" },
-    { "label": "Demo data", "command": "bin/console framework:demodata", "phase": "final" }
+    { "label": "Demo data", "command": "/var/www/html/bin/console framework:demodata", "phase": "final" }
   ],
   "env": ["STRIPE_KEY"],
   "image": "6.7.14.0",
@@ -228,7 +228,7 @@ The “Start sandbox” dialog has three short steps; each has a sensible defaul
 ```
 
 - `mode` – `plugin`, `project` or `custom` (own setup); `targetPath` only with `custom`. If `plugin` or `project` does not match what Lotse detects, the setup stops at “Detect plugin” with a hint.
-- `commands` – setup commands with `label`, `command`, `phase` (`after-db` or `final`, default `final`) and optionally `timeoutSec` (10–3600). **They never run without you:** the dialog shows them before the start (“This project wants to run the following commands during the setup …”) with **Allow commands** and **Without these commands**. Lotse remembers the approval for this repository and exactly this content of the file; if the file changes (also through the AI in the working copy), Lotse asks again – the setup then stops at “Detect plugin” and shows the same card. Like all own commands they only run inside the container.
+- `commands` – setup commands with `label`, `command`, `phase` (`after-db` or `final`, default `final`) and optionally `timeoutSec` (10–3600). With `custom` they run in `targetPath` (so Shopware’s `bin/console` needs its full path `/var/www/html/bin/console`), otherwise in `/var/www/html`. **They never run without you:** the dialog shows them before the start (“This project wants to run the following commands during the setup …”) with **Allow commands** and **Without these commands**. Lotse remembers the approval for this repository and exactly this content of the file; if the file changes (also through the AI in the working copy), Lotse asks again – the setup then stops at “Detect plugin” and shows the same card. Like all own commands they only run inside the container.
 - `env` – only the **names** of environment variables the project needs; the values always come from the environment in Lotse. A missing one is named by the dialog and the log.
 - `image` – another tag of the configured image (e.g. `6.7.14.0`), only with a fixed version and only from where the environment’s image comes from.
 - `previewPath` – the page the preview starts with.

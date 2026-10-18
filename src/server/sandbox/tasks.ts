@@ -53,6 +53,7 @@ export interface CodeTask extends CodeTaskRow {
   /** the repository's .lotse/sandbox.json as the setup read it (repo-config.ts) */ repoFile?: TaskRepoFile | null;
   /** another image tag the repository file asked for (allowed by the template); null = the environment's */ image?: string | null;
   /** first page of the preview (repository file) */ previewPath?: string | null;
+  /** "Als GitHub-Projekt anlegen": repository created but its base not pushed yet (the next try reuses it); null once bound to repo */ createdRepo?: string | null;
 }
 const setupOf = (t: Pick<CodeTask, 'setup'>): StoredSetup => t.setup ?? { source: 'repo', mode: 'auto', commands: [], env: [] };
 /** The image this task runs: the repository file's tag, else the environment's */
