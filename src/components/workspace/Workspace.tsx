@@ -453,7 +453,9 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const fixFinding = (f: CheckFinding) => fixTask({ id: f.id, title: f.title, prompt: f.fixPrompt });
   const fixLink = !home ? fixForChat(fixes, chatId) : null;
   const placeholder = locked ? t.lockedPlaceholder : question ? t.answerPlaceholder : taskId ? (sandboxSetup ? tsb.setupPlaceholder : tsb.placeholder) : target ? placeholderFor(target.kind, target.name, locale) : defaultPlaceholder(locale);
-  const chips = !busy && target && !taskId ? suggestions(target.kind, locale) : [];
+  // an empty sandbox chat: examples of what a shop operator can ask for (a banner, a checkout field, an own plugin)
+  const sandboxEmpty = !!taskId && !state.items.some(i => i.kind === 'user');
+  const chips = busy ? [] : taskId ? (sandboxEmpty && !locked ? tsb.examples : []) : target ? suggestions(target.kind, locale) : [];
   const mode = home ? 'home' : pv ? 'pv' : 'work';
   const overlay = pv && previewOpen; // narrow viewport: preview above the chat (desktop shows it on the right anyway)
 

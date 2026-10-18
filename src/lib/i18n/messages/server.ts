@@ -40,6 +40,17 @@ export const de = {
   prNoPermission: (repo: string) => `Keine Schreibrechte für Pull Requests in ${repo}: Der GitHub-Token braucht „Pull requests“ mit Lesen & Schreiben.`,
   prNothing: 'Nichts zu veröffentlichen: Der Branch unterscheidet sich nicht vom Basis-Branch.',
   prFailed: (e: string) => `Pull Request nicht angelegt: ${e}`,
+  // New project (repository) for a new plugin, created with the stored token
+  repoNameInvalid: 'Ungültiger Projektname: Buchstaben, Ziffern, Punkt, Binde- und Unterstrich, höchstens 100 Zeichen (z. B. versandhinweis-plugin).',
+  repoOwnerUnknown: 'Dieses Konto bzw. diese Organisation gehört nicht zum gespeicherten GitHub-Token.',
+  repoExists: (repo: string) => `Ein Projekt ${repo} gibt es auf GitHub schon – bitte einen anderen Namen wählen.`,
+  repoNoPermission: (owner: string) => `Der GitHub-Token darf unter ${owner} keine Repositorys anlegen. Nötig ist bei einem Fine-grained-Token die Berechtigung „Administration: Lesen & Schreiben“ für ${owner} (Repository-Zugriff „All repositories“), bei einem klassischen Token der Scope „repo“. Token in den Einstellungen → Integrationen ersetzen oder das Repository auf GitHub selbst anlegen.`,
+  repoNotVisible: (repo: string) => `${repo} wurde angelegt, aber der Token sieht es nicht: Beim Fine-grained-Token „All repositories“ wählen oder das neue Repository dort freigeben.`,
+  repoCreateFailed: (e: string) => `Projekt nicht angelegt: ${e}`,
+  // Plugin as ZIP for the Shopware admin
+  zipNotReady: 'Für diese Sandbox gibt es keine Arbeitskopie (mehr) – ein ZIP geht nur, solange sie nicht abgeschlossen ist.',
+  zipInvalid: (problems: string) => `Kein ZIP möglich: ${problems}`,
+  zipSecret: (file: string) => `Kein ZIP: ${file} enthält einen Schlüssel oder Token. Bitte aus dem Code entfernen.`,
 };
 
 export const en: typeof de = {
@@ -80,4 +91,13 @@ export const en: typeof de = {
   prNoPermission: repo => `No write access to pull requests in ${repo}: the GitHub token needs “Pull requests” with read & write.`,
   prNothing: 'Nothing to publish: the branch does not differ from the base branch.',
   prFailed: e => `Pull request not created: ${e}`,
+  repoNameInvalid: 'Invalid project name: letters, digits, dot, hyphen and underscore, at most 100 characters (e.g. shipping-note-plugin).',
+  repoOwnerUnknown: 'This account or organisation does not belong to the stored GitHub token.',
+  repoExists: repo => `A project ${repo} already exists on GitHub – please choose another name.`,
+  repoNoPermission: owner => `The GitHub token may not create repositories under ${owner}. A fine-grained token needs the permission “Administration: Read and write” for ${owner} (repository access “All repositories”), a classic token the scope “repo”. Replace the token in Settings → Integrations or create the repository on GitHub yourself.`,
+  repoNotVisible: repo => `${repo} was created, but the token cannot see it: choose “All repositories” for the fine-grained token or grant it the new repository.`,
+  repoCreateFailed: e => `Project not created: ${e}`,
+  zipNotReady: 'This sandbox has no working copy (any more) – a ZIP is only possible while it is not finished.',
+  zipInvalid: problems => `No ZIP possible: ${problems}`,
+  zipSecret: file => `No ZIP: ${file} contains a key or token. Please remove it from the code.`,
 };

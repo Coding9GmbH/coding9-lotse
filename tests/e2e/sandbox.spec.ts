@@ -228,11 +228,17 @@ test('Sandbox Coding: the agent edits the header template natively, compiles the
 
   const header = 'src/Resources/views/storefront/layout/header/header.html.twig';
   const input = page.getByRole('textbox', { name: 'Nachricht an Lotse' });
+  // an empty sandbox chat suggests what a shop operator can ask for; a chip only fills the input
+  const examples = page.getByRole('group', { name: 'Vorschläge' });
+  await expect(examples.getByRole('button')).toHaveCount(3);
+  await examples.getByRole('button', { name: /eigenes Plugin, das auf der Produktseite einen Versandhinweis/ }).click();
+  await expect(input).toHaveValue(/^Baue ein eigenes Plugin/);
   await input.fill(`Bitte umsetzen. [e2e:replace ${header} Lotse Test-Header|Gratis Versand ab 50 €] [e2e:bash bin/console theme:compile]`);
   await page.getByRole('button', { name: 'Senden' }).click();
   await expect(page.getByRole('group', { name: `Geändert: ${header}, 1 Zeilen hinzu, 1 entfernt` })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByRole('status').filter({ hasText: /Theme kompilieren ✓ [\d,]+ s/ })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText('Fertig: 3 Schritte.')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('group', { name: 'Vorschläge' })).toHaveCount(0); // examples only while the chat is empty
 
   // the preview reloaded after the compile: the fake storefront now renders the changed header template
   await expect(preview.getByText('Gratis Versand ab 50 €')).toBeVisible({ timeout: 15_000 });
@@ -257,9 +263,9 @@ test('Sandbox Coding: the agent edits the header template natively, compiles the
 });
 
 // Publishing (scripted model): the AI edits the header, commits it locally ([e2e:commit], shown in "Änderungen") and proposes a
-// pull request ([e2e:pr]); the proposal card opens the "Pull Request" tab prefilled (no screenshots: nobody took one), only the
+// pull request ([e2e:pr]); the proposal card opens the "Freigabe" (pull request) tab prefilled (no screenshots: nobody took one), only the
 // click there pushes the commit to lotse/… and opens the PR (GitHub fake); the PR card shows number and link in the chat and the
-// tab, the task list shows the number. With "Screenshots" switched on, the preview's "Screenshot" adds one to the tab.
+// tab, the task list shows the number; the plugin downloads as ZIP. With "Screenshots" switched on, the preview's "Screenshot" adds one to the tab.
 test('Sandbox Coding: the AI proposes a pull request, the click publishes it, the PR card shows the link', async ({ page, request }) => {
   test.setTimeout(150_000);
   const lotse = { 'x-lotse': '1' };
@@ -282,15 +288,18 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   const commits = panel.getByRole('region', { name: /Gespeicherte Schritte/ });
   await expect(commits.getByRole('listitem').filter({ hasText: 'Gratis Versand im Header anzeigen' })).toContainText('lokal');
   await expect(panel.getByText(/Noch nicht gespeichert/)).toHaveCount(0);
-  const proposal = page.getByRole('region', { name: 'Vorschlag für den Pull Request' });
+  const proposal = page.getByRole('region', { name: 'Vorschlag: zur Prüfung freigeben' });
   await expect(proposal.getByText('Header: Gratis Versand')).toBeVisible();
   const pulls = async () => ((await (await request.get(`${githubUrl}/__fake/calls`)).json()) as { method: string; path: string; body: { head?: string; base?: string; body?: string } }[])
     .filter(c => c.method === 'POST' && c.path === '/repos/acme/shop-theme/pulls');
   const before = (await pulls()).length;
-  await proposal.getByRole('button', { name: 'Prüfen und veröffentlichen' }).click();
+  await proposal.getByRole('button', { name: 'Ansehen und freigeben' }).click();
 
-  await expect(panel.getByRole('tab', { name: 'Pull Request' })).toHaveAttribute('aria-selected', 'true');
-  const form = panel.getByRole('form', { name: 'Pull Request' });
+  // plain words in the tab, the technical term as its tooltip
+  const prTab = panel.getByRole('tab', { name: 'Freigabe' });
+  await expect(prTab).toHaveAttribute('aria-selected', 'true');
+  await expect(prTab).toHaveAttribute('title', 'Pull Request');
+  const form = panel.getByRole('form', { name: 'Zur Prüfung freigeben' });
   await expect(form.getByLabel('Titel')).toHaveValue('Header: Gratis Versand');
   await expect(form.getByLabel('Beschreibung')).toHaveValue('Im Header steht jetzt Gratis Versand.');
   await expect(form.getByText(header)).toBeVisible();
@@ -299,11 +308,12 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await expect(panel.getByRole('region', { name: 'Screenshots' })).toHaveCount(0);
   expect((await pulls()).length).toBe(before); // nothing published before the click
   await form.getByLabel('Titel').fill('Header: Gratis Versand ab 50 €');
-  await form.getByRole('button', { name: 'Pull Request erstellen' }).click();
+  await expect(form.getByRole('button', { name: 'Zur Prüfung freigeben' })).toHaveAttribute('title', 'Legt einen Pull Request an');
+  await form.getByRole('button', { name: 'Zur Prüfung freigeben' }).click();
 
   const card = page.getByRole('log').getByRole('region', { name: /^Pull Request #\d+: Header: Gratis Versand ab 50 €$/ });
   await expect(card).toBeVisible({ timeout: 30_000 });
-  await expect(card.getByText(/Pull Request angelegt · 1 Datei/)).toBeVisible();
+  await expect(card.getByText(/Zur Prüfung freigegeben · 1 Datei/)).toBeVisible();
   await expect(card.getByRole('link', { name: 'Auf GitHub öffnen' })).toHaveAttribute('href', /^https:\/\/github\.com\/acme\/shop-theme\/pull\/\d+$/);
   await expect(card.getByText('offen')).toBeVisible();
   const posted = (await pulls()).slice(before);
@@ -312,19 +322,28 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   expect(posted[0].body.base).toBe('main');
   expect(posted[0].body.body).not.toMatch(/Screenshot/);
   await expect(panel.getByRole('region', { name: 'Screenshots' })).toHaveCount(0);
-  await expect(panel.getByRole('tab', { name: /Pull Request\s*#\d+/ })).toBeVisible();
-  await expect(panel.getByRole('status').filter({ hasText: /✓ Pull Request #\d+ angelegt\./ })).toBeVisible(); // success at the top of the tab
+  await expect(panel.getByRole('tab', { name: /Freigabe\s*#\d+/ })).toBeVisible();
+  await expect(panel.getByRole('status').filter({ hasText: /✓ Zur Prüfung freigegeben: Pull Request #\d+ angelegt\./ })).toBeVisible(); // success at the top of the tab
   // nothing new since the push: no button that would only send the same state again; editing the title offers the update
-  await expect(form.getByText('Alles veröffentlicht – seit dem letzten Push gibt es keine neuen Änderungen.')).toBeVisible();
-  await expect(form.getByRole('button', { name: 'Pull Request aktualisieren' })).toHaveCount(0);
+  await expect(form.getByText('Alles freigegeben – seit dem letzten Hochladen gibt es keine neuen Änderungen.')).toBeVisible();
+  await expect(form.getByRole('button', { name: 'Freigabe aktualisieren' })).toHaveCount(0);
   await form.getByLabel('Titel').fill('Header: Gratis Versand ab 50 € (neu)');
-  await expect(form.getByRole('button', { name: 'Pull Request aktualisieren' })).toBeVisible();
+  await expect(form.getByRole('button', { name: 'Freigabe aktualisieren' })).toBeVisible();
   await form.getByLabel('Titel').fill('Header: Gratis Versand ab 50 €');
   // the proposal card now says where it went instead of offering to publish again
-  await expect(proposal.getByRole('link', { name: /^Veröffentlicht als #\d+$/ })).toBeVisible();
-  await expect(proposal.getByRole('button', { name: 'Prüfen und veröffentlichen' })).toHaveCount(0);
+  await expect(proposal.getByRole('link', { name: /^Freigegeben als Pull Request #\d+$/ })).toBeVisible();
+  await expect(proposal.getByRole('button', { name: 'Ansehen und freigeben' })).toHaveCount(0);
 
-  // after a reload the card is replayed; "Screenshots" switched on: the preview's button adds a set to the "Pull Request" tab
+  // "Plugin als ZIP" below the form: name, version and size, the download and where to upload it in the Shopware admin
+  const zip = panel.getByRole('region', { name: 'Plugin als ZIP' });
+  await expect(zip.getByText(/^AcmeShopTheme 1\.0\.0 · \d+ Dateien · [\d.,]+ (KB|MB)$/)).toBeVisible();
+  await expect(zip.getByText(/Erweiterungen → Meine Erweiterungen → „Erweiterung hochladen“/)).toBeVisible();
+  const download = page.waitForEvent('download');
+  await zip.getByRole('button', { name: 'Plugin als ZIP herunterladen' }).click();
+  expect((await download).suggestedFilename()).toBe('AcmeShopTheme-1.0.0.zip');
+  await expect(zip.getByRole('status').filter({ hasText: 'AcmeShopTheme-1.0.0.zip gespeichert.' })).toBeVisible();
+
+  // after a reload the card is replayed; "Screenshots" switched on: the preview's button adds a set to the "Freigabe" tab
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { screenshots: true } })).ok()).toBeTruthy();
   await page.reload();
   await expect(page.getByRole('log').getByRole('region', { name: /^Pull Request #\d+:/ })).toBeVisible();
@@ -332,7 +351,7 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await sbx.getByRole('tab', { name: 'Vorschau' }).click();
   await sbx.getByRole('button', { name: 'Screenshot', exact: true }).click();
   await expect(sbx.getByRole('status').filter({ hasText: 'Screenshot gespeichert' })).toBeVisible({ timeout: 30_000 });
-  await sbx.getByRole('tab', { name: /Pull Request/ }).click();
+  await sbx.getByRole('tab', { name: /Freigabe/ }).click();
   const shots = sbx.getByRole('region', { name: 'Screenshots' });
   await expect(shots.getByRole('img', { name: /^Screenshot Desktop: \/ / })).toBeVisible();
   await expect(shots.getByRole('img', { name: /^Screenshot Mobil: \/ / })).toBeVisible();
@@ -369,4 +388,60 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await expect(page.getByRole('region', { name: 'Sandbox' })).toHaveCount(0);
   await expect(merged.getByText(/Die Sandbox ist abgeschlossen/)).toBeVisible();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
+});
+
+// Shop operators without developers: "Neues Projekt anlegen" in the start dialog creates a private repository (GitHub fake) and
+// selects it; the empty project becomes a new plugin (technical name suggested from the project name). Plain words with the technical
+// term small ("Projekt · GitHub-Repository"). Before the plugin skeleton exists, "Plugin als ZIP" says what is missing and can ask
+// the AI; the task list offers "ZIP" too.
+test('Sandbox Coding: a new project for a new plugin, the ZIP says what is missing', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const lotse = { 'x-lotse': '1' };
+  expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
+  await expect(dialog.getByText('GitHub-Repository', { exact: true })).toBeVisible(); // the technical term next to "Projekt"
+  await dialog.getByRole('button', { name: 'Neues Projekt anlegen' }).click();
+  const group = dialog.getByRole('group', { name: 'Neues Projekt anlegen' });
+  await expect(group.getByText(/„Administration: Lesen & Schreiben“/)).toBeVisible();
+  await expect(group.getByLabel('Konto')).toHaveValue('octo-lotse');
+  await expect(group.getByLabel('Konto').locator('option')).toHaveText(['octo-lotse (persönlich)', 'acme (Organisation)']);
+  await group.getByLabel('Name des Projekts').fill('versand hinweis');
+  await expect(group.getByLabel('Name des Projekts')).toHaveValue('versand-hinweis'); // spaces become hyphens
+  await expect(dialog.getByRole('button', { name: 'Sandbox starten' })).toBeDisabled(); // not while the project form is open
+  await group.getByRole('button', { name: 'Projekt anlegen' }).click();
+  await expect(dialog.getByRole('status').filter({ hasText: 'Projekt octo-lotse/versand-hinweis angelegt (privat).' })).toBeVisible();
+  const created = ((await (await request.get(`${githubUrl}/__fake/calls`)).json()) as { method: string; path: string; body: { name?: string; private?: boolean; auto_init?: boolean } }[])
+    .find(c => c.method === 'POST' && c.path === '/user/repos');
+  expect(created?.body).toMatchObject({ name: 'versand-hinweis', private: true, auto_init: true });
+  await expect(dialog.getByLabel('Repository')).toHaveValue('octo-lotse/versand-hinweis');
+  await expect(dialog.getByText('Das Projekt ist noch leer: Die KI baut darin ein neues Shopware-Plugin.')).toBeVisible();
+  await expect(dialog.getByLabel('Technischer Name des Plugins')).toHaveValue('VersandHinweis');
+  await dialog.getByLabel('Technischer Name des Plugins').fill('OctoVersandHinweis');
+  await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
+
+  const panel = page.getByRole('region', { name: 'Sandbox' });
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+  await panel.getByRole('tab', { name: 'Freigabe' }).click();
+  const zip = panel.getByRole('region', { name: 'Plugin als ZIP' });
+  await expect(zip.getByText('Für ein ZIP fehlt noch:')).toBeVisible();
+  await expect(zip.getByText(/composer\.json fehlt/)).toBeVisible();
+  await expect(zip.getByRole('button', { name: 'KI bitten, das zu ergänzen' })).toBeVisible();
+  await expect(zip.getByRole('button', { name: 'Plugin als ZIP herunterladen' })).toHaveCount(0);
+
+  // the task list: "ZIP" checks first and says what is missing below the row
+  await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Alle Sandboxes' }).click();
+  const tasks = page.locator('section[aria-labelledby="sbx-tasks"]');
+  const row = tasks.getByRole('listitem').filter({ hasText: 'octo-lotse/versand-hinweis' });
+  await row.getByRole('button', { name: 'Plugin als ZIP herunterladen' }).click();
+  await expect(row.getByRole('alert')).toContainText('Kein ZIP: composer.json fehlt');
+  await tasks.getByRole('link', { name: /Sandbox versand-hinweis/ }).click();
+  page.once('dialog', d => void d.accept());
+  await page.getByRole('region', { name: 'Sandbox' }).getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
+  await expect(page.getByRole('region', { name: 'Sandbox' })).toHaveCount(0);
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
 });
