@@ -15,7 +15,7 @@ import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatEvent } from '@/lib/protocol';
 import { currentActor } from '../actor';
 import { accessAdd } from '../db';
-import { COMMIT_LIMITS, assertCommitPath, commitChanges, pendingChanges, runGit } from '../git';
+import { COMMIT_LIMITS, assertCommitPath, commitChanges, pendingChanges } from '../git';
 import { decodeEntities } from '../html-sanitize';
 import { redact } from '../settings';
 import { fail, guard, ok, type AnyTool, type ToolResult } from '../tool-kit';
@@ -26,7 +26,7 @@ import { grantInternet, internetBlocked, noteInternetDenied, noteInternetFailed 
 import { ensureAwake, touchTask, withTaskLock } from './jobs';
 import { fetchUpstream, sandboxUpstream } from './preview';
 import { relOf } from './native-tools';
-import { LOTSE_AUTHOR, coAuthor, commitCheck } from './publish';
+import { LOTSE_AUTHOR, coAuthor, commitCheck, findSecret } from './publish';
 import { getRunner } from './runner';
 import { syncAll, syncPaths } from './sync';
 import { getTemplate } from './templates';
@@ -172,16 +172,18 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
         const t = task(), { worktree: wt, gitDir } = taskPaths(taskId);
         if (!t.steps.some(s => s.key === 'clone' && s.state === 'done') || !fs.existsSync(wt)) return fail('Das Repository ist noch nicht geklont.');
         if (publishRunning(taskId)) return fail('Gerade wird veröffentlicht – später erneut committen.');
+        // the message is pushed as it is, too (history is never rewritten): no secret in it, nothing to override
+        const inMessage = findSecret(message);
+        if (inMessage) return fail(`Nicht committet: Die Commit-Nachricht enthält etwas, das wie ein Geheimnis aussieht (${inMessage}). Ohne den Wert erneut committen.`);
         const rels = paths?.map(p => assertCommitPath(relOf(wt, p)));
         const pending = await pendingChanges(wt, gitDir, rels);
         if (!pending.length) return ok(rels ? `Keine Änderungen an ${rels.join(', ')} – nichts committet.` : 'Keine Änderungen – nichts committet.');
-        const head = (await runGit(['rev-parse', 'HEAD'], { cwd: wt, gitDir })).stdout.trim();
-        const why = await commitCheck(t, pending, head);
-        if (why) return fail(`${why}${rels ? '' : ' Mit paths nur die übrigen Dateien committen.'}`);
-        const r = await commitChanges(wt, gitDir, message, LOTSE_AUTHOR, coAuthor(currentActor(t.chatId)), rels);
+        // checked are the staged bytes, in the same step as the commit: a file written meanwhile by a parallel tool call is not committed unchecked
+        const r = await commitChanges(wt, gitDir, message, LOTSE_AUTHOR, coAuthor(currentActor(t.chatId)), rels, (staged, head, read) => commitCheck(t, staged, head, read));
         if (!r) return ok('Keine Änderungen – nichts committet.');
+        if ('blocked' in r) return fail(`${r.blocked}${rels ? '' : ' Mit paths nur die übrigen Dateien committen.'}`);
         const subject = redact(message.trim().split('\n')[0]);
-        return ok(`Commit ${r.sha.slice(0, 7)} (${r.files === 1 ? '1 Datei' : `${r.files} Dateien`}): ${subject}. Nur lokal gespeichert – veröffentlicht wird erst mit dem Klick des Nutzers im Reiter „Pull Request“.`);
+        return ok(`Commit ${r.sha.slice(0, 7)} (${r.files === 1 ? '1 Datei' : `${r.files} Dateien`}): ${subject}. Nur lokal gespeichert – veröffentlicht wird erst mit dem Klick des Nutzers im Reiter „Freigabe“ (Pull Request).`);
       })),
     tool('read_sandbox_page', 'Ruft eine Seite der Sandbox-Storefront dieser Aufgabe ab (nur diese, z. B. "/" oder "/checkout/cart") und liefert Status, Titel und sichtbaren Text – mit format "html" den HTML-Quelltext (gekürzt). Zum Prüfen, ob eine Änderung wirkt.',
       { path: z.string().min(1).max(500).describe('Pfad der Storefront, beginnt mit /'), format: z.enum(['text', 'html']).optional() },
@@ -242,7 +244,7 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
       { title: z.string().min(1).max(120).describe('Titel des Pull Requests (kurz, Deutsch)'), body: z.string().max(5000).describe('Beschreibung: was, warum, wie geprüft (Markdown)') },
       act('propose_publish', async ({ title, body }) => {
         host.emit({ t: 'publish_proposal', title: title.trim(), body: redact(body).trim() });
-        return ok('Vorschlag angezeigt. Der Nutzer prüft ihn im Reiter „Pull Request“ und veröffentlicht selbst (oder nicht).');
+        return ok('Vorschlag angezeigt. Der Nutzer prüft ihn im Reiter „Freigabe“ (Pull Request) und veröffentlicht selbst (oder nicht).');
       })),
   ] as AnyTool[];
 }

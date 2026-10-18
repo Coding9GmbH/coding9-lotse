@@ -194,7 +194,7 @@ try {
   await shots.scrollIntoViewIfNeeded();
   const tabShot = path.join(shotDir, 'pr-tab.png');
   await panel.screenshot({ path: tabShot });
-  console.log(`Zweiter Screenshot zeigt die Änderung; beide im Reiter „Pull Request“ (${tabShot}), im PR-Text nur erwähnt ✓`);
+  console.log(`Zweiter Screenshot zeigt die Änderung; beide im Reiter „Freigabe“ (${tabShot}), im PR-Text nur erwähnt ✓`);
   assert.deepEqual(fresh.pr, { number: 1, url: 'https://github.com/acme/pub-theme/pull/1', title: `Header: ${TEXT}` });
   const gitConfig = fs.readFileSync(path.join(tmp, 'data', 'git', taskId, 'config'), 'utf8');
   assert.ok(!gitConfig.includes(TOKEN) && !gitConfig.includes(expected.slice(6)), 'no token in .git/config');

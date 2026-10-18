@@ -50,7 +50,7 @@ export const de = {
   // Plugin as ZIP for the Shopware admin
   zipNotReady: 'Für diese Sandbox gibt es keine Arbeitskopie (mehr) – ein ZIP geht nur, solange sie nicht abgeschlossen ist.',
   zipInvalid: (problems: string) => `Kein ZIP möglich: ${problems}`,
-  zipSecret: (file: string) => `Kein ZIP: ${file} enthält einen Schlüssel oder Token. Bitte aus dem Code entfernen.`,
+  zipSecret: (file: string) => `Kein ZIP: ${file} enthält einen Schlüssel, Token oder Zugangsdaten. Bitte aus dem Code entfernen.`,
 };
 
 export const en: typeof de = {
@@ -99,5 +99,5 @@ export const en: typeof de = {
   repoCreateFailed: e => `Project not created: ${e}`,
   zipNotReady: 'This sandbox has no working copy (any more) – a ZIP is only possible while it is not finished.',
   zipInvalid: problems => `No ZIP possible: ${problems}`,
-  zipSecret: file => `No ZIP: ${file} contains a key or token. Please remove it from the code.`,
+  zipSecret: file => `No ZIP: ${file} contains a key, token or credentials. Please remove it from the code.`,
 };

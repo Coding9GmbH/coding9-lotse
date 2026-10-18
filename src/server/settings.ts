@@ -199,6 +199,8 @@ function secretSets(): { plain: string[]; weak: string[] } {
 export const knownSecrets = (): string[] => secretSets().plain;
 /** Stored secrets too weak or common to search for everywhere ("shopware", "admin123"): redact() removes them only as a credential value. */
 export const weakSecrets = (): string[] => secretSets().weak;
+/** Everything the secret scan (publishing, git_commit, plugin ZIP) looks for: plausible values everywhere, weak ones as a credential value. */
+export const scanSecrets = (): string[] => { const { plain, weak } = secretSets(); return [...plain, ...weak]; };
 
 export function redact(text: unknown): string {
   let t = String(text ?? '');

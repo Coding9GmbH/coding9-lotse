@@ -37,6 +37,9 @@ export function PublishCard({ task, proposal, onPublished, children }: { task: C
   const [diff, setDiff] = useState<TaskDiff | null>(null);
   const [edited, setEdited] = useState(false);
   const [tick, setTick] = useState(0);
+  // the tick the shown diff belongs to (also after a failed fetch: then the button stays usable), and "just published" until it is fresh
+  const [diffTick, setDiffTick] = useState(-1);
+  const [published, setPublished] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,7 +47,7 @@ export function PublishCard({ task, proposal, onPublished, children }: { task: C
   if (proposal && proposal.key !== taken) { setTaken(proposal.key); setTitle(proposal.title); setBody(proposal.body); setEdited(true); }
   useEffect(() => {
     let off = false;
-    api.sandbox.diff(task.id).then(d => { if (!off) setDiff(d); }, e => { if (!off) setError(errorText(e)); });
+    api.sandbox.diff(task.id).then(d => { if (!off) { setDiff(d); setDiffTick(tick); setPublished(false); } }, e => { if (!off) { setError(errorText(e)); setDiffTick(tick); } });
     return () => { off = true; };
   }, [task.id, tick]);
 
@@ -56,11 +59,14 @@ export function PublishCard({ task, proposal, onPublished, children }: { task: C
   const files = diff?.files ?? null;
   const findings = failed ? task.publish?.findings ?? [] : [];
   const canOverride = findings.length > 0 && findings.every(f => f.overridable);
-  // published and nothing new since the last push: no button that would only re-send the same state
-  const upToDate = !!task.pr && diff?.unpublished === false && !edited && !failed;
+  // published and nothing new since the last push: no button that would only re-send the same state. Right after publishing that
+  // holds until the fresh diff arrives; while the diff of this tick is still loading the button waits (disabled)
+  const settled = !!task.pr && !edited && !failed;
+  const upToDate = settled && (published || (diffTick === tick && diff?.unpublished === false));
+  const checking = settled && !upToDate && diffTick !== tick;
   async function publish(allowFindings?: string[]) {
     setSending(true); setError(null);
-    try { onPublished(await api.sandbox.publish(task.id, { title, body, ...(allowFindings ? { allowFindings } : {}) })); setEdited(false); setTick(n => n + 1); }
+    try { onPublished(await api.sandbox.publish(task.id, { title, body, ...(allowFindings ? { allowFindings } : {}) })); setEdited(false); setPublished(true); setTick(n => n + 1); }
     catch (e) { setError(t.failed(errorText(e))); }
     finally { setSending(false); }
   }
@@ -100,7 +106,7 @@ export function PublishCard({ task, proposal, onPublished, children }: { task: C
         <div className={styles.footRow}>
           {upToDate
             ? <span className={styles.muted} role="status">{t.upToDate}</span>
-            : <Button variant="primary" type="submit" busy={running} title={task.pr ? t.updateTech : t.createTech} disabled={running || !title.trim() || (files !== null && !files.length && !task.pr)}>{task.pr ? t.update : t.create}</Button>}
+            : <Button variant="primary" type="submit" busy={running} title={task.pr ? t.updateTech : t.createTech} disabled={running || checking || !title.trim() || (files !== null && !files.length && !task.pr)}>{task.pr ? t.update : t.create}</Button>}
           {progress && <span className={styles.muted} role="status">{progress}</span>}
         </div>
         {(error ?? last) && <ErrorText text={(error ?? last)!} details={t.details} />}

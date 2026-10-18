@@ -204,11 +204,18 @@ function parsePorcelain(out: string): { path: string; status: string }[] {
   return res;
 }
 
+/** A staged file as the commit check sees it: path, git's status letter (A, M, D, T) and its staged bytes (null = deleted). */
+export type StagedReader = (path: string) => Promise<Buffer | null>;
+/** Checks what is staged before it is committed; returns the reason to refuse, or null. `head`: the commit the new one goes on top of. */
+export type CommitVerifier = (staged: { path: string; status: string }[], head: string, read: StagedReader) => Promise<string | null>;
+
 /**
  * The agent's commit in a sandbox worktree (git_commit): stages all changes or only `paths` and adds ONE commit on top of HEAD.
  * Nothing else: no push, no amend, no branch switch, no hooks, no signing. Author and co-author like publishing. null = nothing to commit.
+ * `verify` checks exactly the staged blobs – what the commit will hold, not the files on disk, which another tool call of the same
+ * turn may change meanwhile – all in one step of the index queue; a refusal resets the index to HEAD and returns `{ blocked }`.
  */
-export async function commitChanges(worktree: string, gitDir: string, message: string, author: GitIdentity, coAuthor?: GitIdentity, paths?: string[]): Promise<{ sha: string; files: number } | null> {
+export async function commitChanges(worktree: string, gitDir: string, message: string, author: GitIdentity, coAuthor?: GitIdentity, paths?: string[], verify?: CommitVerifier): Promise<{ sha: string; files: number } | { blocked: string } | null> {
   const o = { cwd: assertAbs(worktree, 'Arbeitsordner'), gitDir: assertAbs(gitDir, 'Git-Ordner') };
   const id = assertIdentity(author, 'Autor'), co = coAuthor ? assertIdentity(coAuthor, 'Co-Autor') : null;
   const msg = commitMessage(message);
@@ -220,10 +227,20 @@ export async function commitChanges(worktree: string, gitDir: string, message: s
     const idle = spec.filter(x => !pending.some(c => c.path === x || c.path.startsWith(`${x}/`)));
     if (idle.length) throw new Error(`Keine Änderungen an: ${idle.slice(0, 5).join(', ')}.`); // git add would fail on a path that matches nothing
     const lit = ['--literal-pathspecs'];
+    const head = (await runGit(['rev-parse', 'HEAD'], o)).stdout.trim();
     await runGit([...lit, 'add', '-A', '--', ...(spec.length ? spec : ['.'])], o);
-    // with paths: --only those (whatever else the index holds); without: everything just staged
-    await runGit([...lit, 'commit', '--no-verify', '--no-gpg-sign', '-q', '-m', co ? `${msg}\n\nCo-Authored-By: ${co.name} <${co.email}>` : msg, ...(spec.length ? ['--', ...spec] : [])], { ...o, identity: id });
-    return { sha: (await runGit(['rev-parse', 'HEAD'], o)).stdout.trim(), files: new Set(pending.map(p => p.path)).size };
+    // the whole index against HEAD is what `git commit` (without paths) records; intent-to-add entries (diffAgainstBase) are neither listed nor committed
+    const out = (await runGit(['-c', 'core.quotePath=false', 'diff', '--cached', '--name-status', '-z', '--no-renames', '--no-ext-diff', 'HEAD', '--'], o)).stdout.split('\0');
+    const staged: { path: string; status: string }[] = [];
+    for (let i = 0; i + 1 < out.length; i += 2) if (out[i]) staged.push({ status: out[i][0], path: out[i + 1] });
+    if (!staged.length) return null;
+    const reset = () => runGit(['reset', '-q'], o).catch(() => {});
+    try {
+      const why = verify ? await verify(staged, head, p => (/^[^\x00-\x1f]+$/.test(p) ? rawGit(['cat-file', 'blob', `:0:${p}`], o.cwd, o.gitDir) : Promise.resolve(null))) : null;
+      if (why) { await reset(); return { blocked: why }; }
+    } catch (e) { await reset(); throw e; }
+    await runGit(['commit', '--no-verify', '--no-gpg-sign', '-q', '-m', co ? `${msg}\n\nCo-Authored-By: ${co.name} <${co.email}>` : msg], { ...o, identity: id });
+    return { sha: (await runGit(['rev-parse', 'HEAD'], o)).stdout.trim(), files: staged.length };
   });
 }
 
@@ -254,17 +271,33 @@ export async function pushBranch(t: PushTarget, o: { signal?: AbortSignal } = {}
   return { sha: (await runGit(['rev-parse', 'HEAD'], g)).stdout.trim() };
 }
 
+/** stdout of a local git call as raw bytes, NOT redacted (null on any error): only for checks on the server, never returned to a
+ *  client or the AI. No auth, no network. */
+function rawGit(args: string[], worktree: string, gitDir: string): Promise<Buffer | null> {
+  const cwd = assertAbs(worktree, 'Arbeitsordner'), gd = assertAbs(gitDir, 'Git-Ordner');
+  const env = gitEnv({ gitDir: gd, workTree: cwd });
+  return new Promise(resolve => {
+    execFile('git', args, { cwd, env: env as NodeJS.ProcessEnv, shell: false, timeout: TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: MAX_OUTPUT, encoding: 'buffer', windowsHide: true },
+      (err, stdout) => resolve(err ? null : stdout));
+  });
+}
+
 /** Raw bytes of a file in the cloned base branch (null if it is not there). Local, no auth; NOT redacted: only for checks on the
  *  server (the secret scan compares lines byte for byte), never returned to a client or the AI. */
 export function readBaseBlob(worktree: string, gitDir: string, baseBranch: string, file: string, at?: string): Promise<Buffer | null> {
-  const cwd = assertAbs(worktree, 'Arbeitsordner'), gd = assertAbs(gitDir, 'Git-Ordner');
   if (!/^[^\x00-\x1f]+$/.test(file) || file.startsWith('/') || file.split('/').includes('..')) return Promise.resolve(null);
-  const env = gitEnv({ gitDir: gd, workTree: cwd });
   // `at`: a commit (e.g. the last pushed one) instead of the base branch
-  return (at ? Promise.resolve(assertSha(at)) : assertBaseBranch(baseBranch).then(b => `refs/remotes/origin/${b}`)).then(ref => new Promise(resolve => {
-    execFile('git', ['cat-file', 'blob', `${ref}:${file}`], { cwd, env: env as NodeJS.ProcessEnv, shell: false, timeout: TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: MAX_OUTPUT, encoding: 'buffer', windowsHide: true },
-      (err, stdout) => resolve(err ? null : stdout));
-  }));
+  return (at ? Promise.resolve(assertSha(at)) : assertBaseBranch(baseBranch).then(b => `refs/remotes/origin/${b}`))
+    .then(ref => rawGit(['cat-file', 'blob', `${ref}:${file}`], worktree, gitDir));
+}
+
+/** Full messages (subject and body) of the local commits not pushed yet – since `pushedSha`, else since the cloned base branch –
+ *  as one text, NOT redacted: for the publish secret scan only. */
+export async function unpublishedMessages(worktree: string, gitDir: string, baseBranch: string, pushedSha?: string | null): Promise<string> {
+  const from = pushedSha ? assertSha(pushedSha) : `refs/remotes/origin/${await assertBaseBranch(baseBranch)}`;
+  const out = await rawGit(['log', '--no-color', '--max-count=500', '--format=%B%x00', `${from}..HEAD`, '--'], worktree, gitDir);
+  if (!out) throw new Error('Die Commit-Nachrichten konnten nicht gelesen werden.');
+  return out.toString('utf8');
 }
 
 /** Whether the worktree differs from the last pushed commit: uncommitted changes (also new files) or a HEAD other than `sha`. */
