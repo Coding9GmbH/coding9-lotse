@@ -155,7 +155,7 @@ export function suggestTargetPath(repo: string): string {
 /** A preview start path (.lotse/sandbox.json "previewPath"): a storefront path beginning with "/", without host, spaces or backslashes */
 export const PREVIEW_PATH = /^\/(?!\/)[A-Za-z0-9._~!$&'()*+,;=:@%/?-]{0,299}$/;
 
-// ---- Quick starts (A22): a quick start is a saved request of the start dialog ----
+// ---- Saved environments (A22/A23, internally quick starts): a saved request of the start dialog ----
 /** The dialog's request → what a quick start keeps: no chat, title or decision on the repository file's commands; a one-off upload is not
  *  kept (keepDump false: demo data). The server checks it again like a start. */
 export function quickSetupOf(kind: StartKind, req: Omit<NewSandboxRequest, 'chatId'>, keepDump: boolean, envRefs: string[] = []): QuickStartSetup {
@@ -185,6 +185,39 @@ export function draftOf(s: QuickStartSetup): StartDraft {
   return { ...d, advanced: kind === 'custom' || d.custom || !!(d.commands.length || d.vars.length || d.envRefs.length || d.image || d.previewPath || d.notes) };
 }
 
-/** "Als Schnellstart „X“ gespeichert." plus the variables kept by name only (the server turned a secret value into a reference) */
+/** "Als Umgebung „X“ gespeichert." plus the variables kept by name only (the server turned a secret value into a reference) */
 export const savedText = (q: QuickStartPublic, all: Messages) =>
   `${all.sandbox.quick.saved(q.name)}${q.setup.envRefs?.length ? ` ${all.sandbox.quick.savedRefs(q.setup.envRefs.join(', '))}` : ''}`;
+
+/** What a saved environment will use, in one line: "Bestehendes Projekt · acme/shop @ main · Demo-Daten · Image 6.7.14.0" (the stored
+ *  database by its name, if known) */
+export function quickSummary(s: QuickStartSetup, all: Messages, dumpName: (id: string) => string | null | undefined = () => null): string {
+  const ts = all.sandbox.start;
+  const source = s.kind === 'none' ? ts.localSource(s.pluginName || 'SandboxPlugin') : `${s.repo} @ ${s.baseBranch}`;
+  const data = s.dumpId ? dumpName(s.dumpId) ?? ts.dataStored : ts.dataDemo;
+  const line = ts.summary(ts.kinds[s.kind].title, source, data);
+  return s.image ? `${line} · ${all.sandbox.quick.image(s.image.slice(s.image.lastIndexOf(':') + 1))}` : line;
+}
+
+// ---- A23: one choice list at every entry point (the "Sandbox starten" menu, the AI's card, the Sandbox Coding page) ----
+/** What starts a sandbox: a saved environment, the demo shop without a project (one click) or "Neu einrichten …" (the start dialog) */
+export type StartChoice = { type: 'env'; id: string } | { type: 'demo' } | { type: 'new' };
+export const choiceKey = (c: StartChoice) => (c.type === 'env' ? c.id : c.type);
+/** Saved environments in the order every list shows them: the default first, then by name */
+export function orderedEnvironments<T extends { name: string; default: boolean }>(list: readonly T[]): T[] {
+  return [...list].sort((a, b) => Number(b.default) - Number(a.default) || a.name.localeCompare(b.name, 'de'));
+}
+/** The choices top to bottom: saved environments (default first) → "Demo-Shop ohne Projekt" → "Neu einrichten …" */
+export function startChoices(list: readonly QuickStartPublic[]): StartChoice[] {
+  return [...orderedEnvironments(list).map((q): StartChoice => ({ type: 'env', id: q.id })), { type: 'demo' }, { type: 'new' }];
+}
+/** "Demo-Shop ohne Projekt": dockware's demo data, no repository (the changes stay in the local git), started with one click */
+export const demoRequest = (chatId: string, title: string): NewSandboxRequest => ({ chatId, repo: '', baseBranch: '', source: 'none', title });
+/** The choice the AI's card starts with: the environment it suggested (if still saved); else "Neu einrichten …" for a repository it
+ *  proposed; else the default environment; else the demo shop */
+export function offerChoice(offer: { quickStartId?: string; repo: string }, list: readonly QuickStartPublic[]): StartChoice {
+  if (offer.quickStartId && list.some(q => q.id === offer.quickStartId)) return { type: 'env', id: offer.quickStartId };
+  if (offer.repo) return { type: 'new' };
+  const def = list.find(q => q.default);
+  return def ? { type: 'env', id: def.id } : { type: 'demo' };
+}

@@ -124,7 +124,7 @@ export const api = {
     deleteDump: (id: string) => request<{ ok: true }>(`/api/sandbox/dumps/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     /** "Gespeicherte Datenbanken": complete stored databases (metadata only) */
     storedDbs: () => request<{ dumps: LibraryDumpPublic[] }>('/api/sandbox/dumps'),
-    /** "Schnellstarts" (A22): saved setups of the start dialog */
+    /** "Gespeicherte Umgebungen" (A22/A23, internally quick starts): saved setups of the start dialog */
     quickStarts: () => request<{ quickStarts: QuickStartPublic[] }>('/api/sandbox/quick-starts'),
     /** save the dialog's choice, a sandbox's setup (fromTask) or a copy (duplicateOf) */
     createQuickStart: (p: { name?: string; setup?: QuickStartSetup; fromTask?: string; duplicateOf?: string; isDefault?: boolean }) =>
@@ -133,8 +133,8 @@ export const api = {
       request<{ quickStart: QuickStartPublic }>(`/api/sandbox/quick-starts/${encodeURIComponent(id)}`, json('PATCH', p)),
     deleteQuickStart: (id: string) => request<{ ok: true }>(`/api/sandbox/quick-starts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     /** one click: started in this chat, or (422) why it cannot start as saved – the dialog then opens prefilled */
-    startQuickStart: async (id: string, chatId: string): Promise<{ task: CodeTaskPublic; warnings: string[] } | { broken: QuickStartBroken }> => {
-      const r = await fetch(`/api/sandbox/quick-starts/${encodeURIComponent(id)}/start`, withHeader(json('POST', { chatId })));
+    startQuickStart: async (id: string, chatId: string, title?: string): Promise<{ task: CodeTaskPublic; warnings: string[] } | { broken: QuickStartBroken }> => {
+      const r = await fetch(`/api/sandbox/quick-starts/${encodeURIComponent(id)}/start`, withHeader(json('POST', { chatId, ...(title ? { title } : {}) })));
       const body = await r.json().catch(() => null) as ({ task: CodeTaskPublic; warnings: string[] } & QuickStartBroken) | null;
       if (r.status === 422 && body?.problems) return { broken: body };
       if (!r.ok || !body?.task) throw new ApiError(body?.error ?? `HTTP ${r.status}`, r.status);

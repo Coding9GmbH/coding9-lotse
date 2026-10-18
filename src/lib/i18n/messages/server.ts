@@ -31,26 +31,26 @@ export const de = {
   pluginNameInvalid: 'Ungültiger Plugin-Name: Buchstaben und Ziffern, beginnt mit einem Großbuchstaben, 2 bis 61 Zeichen (z. B. CoNineHeaderBanner).',
   targetPathInvalid: 'Ungültiger Zielordner: ein absoluter Ordner unter /var/www, /opt oder /srv, z. B. /opt/app (Buchstaben, Ziffern, . _ -).',
   previewPathInvalid: 'Ungültige Startseite der Vorschau: ein Pfad des Shops, der mit / beginnt (z. B. /de/), ohne Leerzeichen.',
-  /** A22: saved setups ("Schnellstarts") */
+  /** A22/A23: saved setups ("Gespeicherte Umgebungen", internally quick starts) */
   quickStart: {
     name: 'Name fehlt oder ist zu lang (höchstens 80 Zeichen).',
-    nameTaken: (name: string) => `Es gibt schon einen Schnellstart „${name}“.`,
-    limit: (max: number) => `Höchstens ${max} Schnellstarts – erst einen löschen.`,
-    gone: 'Diesen Schnellstart gibt es nicht (mehr).',
-    dumpOnly: 'Ein Schnellstart merkt sich nur gespeicherte Datenbanken – einen Dump beim Hochladen „Für weitere Sandboxes speichern“ oder Demo-Daten wählen.',
-    invalid: (detail: string) => `Ungültiger Schnellstart: ${detail}`,
-    taskNoSetup: 'Diese Sandbox ist zu alt für einen Schnellstart (ihre Auswahl im Startdialog ist nicht gespeichert).',
+    nameTaken: (name: string) => `Es gibt schon eine gespeicherte Umgebung „${name}“.`,
+    limit: (max: number) => `Höchstens ${max} gespeicherte Umgebungen – erst eine löschen.`,
+    gone: 'Diese gespeicherte Umgebung gibt es nicht (mehr).',
+    dumpOnly: 'Eine gespeicherte Umgebung merkt sich nur gespeicherte Datenbanken – einen Dump beim Hochladen „Für weitere Sandboxes speichern“ oder Demo-Daten wählen.',
+    invalid: (detail: string) => `Ungültige gespeicherte Umgebung: ${detail}`,
+    taskNoSetup: 'Diese Sandbox ist zu alt, um sie als Umgebung zu speichern (ihre Auswahl im Startdialog ist nicht gespeichert).',
     copy: (name: string) => `${name} (Kopie)`,
-    broken: (name: string) => `Der Schnellstart „${name}“ lässt sich so nicht starten – bitte prüfen und anpassen:`,
+    broken: (name: string) => `Die gespeicherte Umgebung „${name}“ lässt sich so nicht starten – bitte prüfen und anpassen:`,
     github: 'GitHub ist nicht verbunden (Einstellungen → Integrationen).',
     repo: (why: string) => `Projekt: ${why}`,
     branch: (branch: string, repo: string) => `Den Branch „${branch}“ gibt es in ${repo} nicht (mehr).`,
-    dump: 'Die gespeicherte Datenbank dieses Schnellstarts gibt es nicht mehr.',
+    dump: 'Die gespeicherte Datenbank dieser Umgebung gibt es nicht mehr – bitte Daten neu wählen.',
     image: (why: string) => `Image: ${why}`,
-    envMissing: (names: string) => `Diese Umgebungsvariablen fehlen in der Umgebung: ${names}`,
+    envMissing: (names: string) => `Diese Variablen fehlen in der Sandbox-Umgebung: ${names}`,
     secret: (field: string, key: string | null) => key
-      ? `Im Feld „${field}“ steht der geheime Wert von ${key}. Ein Schnellstart speichert keine geheimen Werte – stattdessen den Namen verwenden (in Befehlen $${key}, die Sandbox setzt ihn).`
-      : `Im Feld „${field}“ steht ein gespeicherter geheimer Wert (Zugangsdaten). Ein Schnellstart speichert keine geheimen Werte – bitte entfernen.`,
+      ? `Im Feld „${field}“ steht der geheime Wert von ${key}. Eine gespeicherte Umgebung enthält keine geheimen Werte – stattdessen den Namen verwenden (in Befehlen $${key}, die Sandbox setzt ihn).`
+      : `Im Feld „${field}“ steht ein gespeicherter geheimer Wert (Zugangsdaten). Eine gespeicherte Umgebung enthält keine geheimen Werte – bitte entfernen.`,
     field: {
       repo: 'Projekt', branch: 'Branch', pluginName: 'Plugin-Name', targetPath: 'Zielordner', image: 'Image', previewPath: 'Startseite der Vorschau', notes: 'Hinweise für die KI',
       commandLabel: (n: number) => `Befehl ${n}: Bezeichnung`, command: (n: number) => `Befehl ${n}`, varKey: (n: number) => `Variable ${n}: Name`,
@@ -126,23 +126,23 @@ export const en: typeof de = {
   previewPathInvalid: 'Invalid preview start page: a path of the shop starting with / (e.g. /en/), without spaces.',
   quickStart: {
     name: 'The name is missing or too long (at most 80 characters).',
-    nameTaken: name => `There already is a quick start “${name}”.`,
-    limit: max => `At most ${max} quick starts – delete one first.`,
-    gone: 'This quick start does not exist (any more).',
-    dumpOnly: 'A quick start only keeps stored databases – tick “Store for further sandboxes” when uploading a dump, or choose demo data.',
-    invalid: detail => `Invalid quick start: ${detail}`,
-    taskNoSetup: 'This sandbox is too old for a quick start (its choices in the start dialog were not stored).',
+    nameTaken: name => `There already is a saved environment “${name}”.`,
+    limit: max => `At most ${max} saved environments – delete one first.`,
+    gone: 'This saved environment does not exist (any more).',
+    dumpOnly: 'A saved environment only keeps stored databases – tick “Store for further sandboxes” when uploading a dump, or choose demo data.',
+    invalid: detail => `Invalid saved environment: ${detail}`,
+    taskNoSetup: 'This sandbox is too old to be saved as an environment (its choices in the start dialog were not stored).',
     copy: name => `${name} (copy)`,
-    broken: name => `The quick start “${name}” cannot start like this – please check and adjust:`,
+    broken: name => `The saved environment “${name}” cannot start like this – please check and adjust:`,
     github: 'GitHub is not connected (Settings → Integrations).',
     repo: why => `Project: ${why}`,
     branch: (branch, repo) => `The branch “${branch}” does not exist in ${repo} (any more).`,
-    dump: 'The stored database of this quick start no longer exists.',
+    dump: 'The stored database of this environment no longer exists – please choose the data again.',
     image: why => `Image: ${why}`,
-    envMissing: names => `These variables are missing in the environment: ${names}`,
+    envMissing: names => `These variables are missing in the sandbox environment: ${names}`,
     secret: (field, key) => key
-      ? `The field “${field}” contains the secret value of ${key}. A quick start does not store secret values – use the name instead (in commands $${key}, the sandbox sets it).`
-      : `The field “${field}” contains a stored secret value (credentials). A quick start does not store secret values – please remove it.`,
+      ? `The field “${field}” contains the secret value of ${key}. A saved environment holds no secret values – use the name instead (in commands $${key}, the sandbox sets it).`
+      : `The field “${field}” contains a stored secret value (credentials). A saved environment holds no secret values – please remove it.`,
     field: {
       repo: 'Project', branch: 'Branch', pluginName: 'Plugin name', targetPath: 'Target folder', image: 'Image', previewPath: 'Preview start page', notes: 'Notes for the AI',
       commandLabel: n => `Command ${n}: label`, command: n => `Command ${n}`, varKey: n => `Variable ${n}: name`,
