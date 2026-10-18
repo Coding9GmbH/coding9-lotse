@@ -13,7 +13,8 @@ import { Term } from './Term';
 import styles from './Sandbox.module.css';
 
 export type { StartKind };
-type Data = 'demo' | 'stored' | 'upload';
+/** null: nothing chosen yet (a saved environment's stored database is gone – the user decides, A23) */
+type Data = 'demo' | 'stored' | 'upload' | null;
 const ENV_KEY = /^[A-Z_][A-Z0-9_]{0,63}$/;
 const KINDS: StartKind[] = ['existing', 'new', 'none', 'custom'];
 
@@ -25,8 +26,8 @@ const KINDS: StartKind[] = ['existing', 'new', 'none', 'custom'];
  *     shows them with "Befehle erlauben" / "Ohne diese Befehle". A new plugin: an empty project or "Neues Projekt anlegen", plus its
  *     technical name. Without a project: only the plugin's name. "Erweitert" (folded; open for an own setup): target folder, own
  *     commands and variables of this sandbox.
- *  3. Daten – demo data (default), a stored database (the environment's default preselected) or a dump upload; "Als Schnellstart
- *     speichern" keeps the choice (A22).
+ *  3. Daten – demo data (default), a stored database (the environment's default preselected) or a dump upload; "Als Umgebung
+ *     speichern" keeps the choice (A22/A23).
  * Plain words first, the technical term small. Errors say what to do next. Creating attaches the sandbox to `chatId` and starts it.
  * Quick starts (A22) are this dialog's saved request: one is picked at the top of step 1 (the default one preselected), `quick` prefills
  * the dialog (a quick start that cannot start as saved, with its problems), and `editing` turns the dialog into the quick start's editor
@@ -78,8 +79,10 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
   const [stored, setStored] = useState<LibraryDumpPublic[] | null>(null);
   const [storedId, setStoredId] = useState('');
   const [uploadId, setUploadId] = useState<string | null>(null);
-  const [uploadKept, setUploadKept] = useState(false); // the upload is stored for further sandboxes (a quick start may keep it)
-  // quick starts (A22): the list, the one picked at the top, "Als Schnellstart speichern" (name, default), the environment's presets
+  const [uploadKept, setUploadKept] = useState(false); // the upload is stored for further sandboxes (a saved environment may keep it)
+  const [dumpGone, setDumpGone] = useState(false); // the prefilled environment's stored database no longer exists
+  // saved environments (A22/A23, internally quick starts): the list, the one picked at the top, "Als Umgebung speichern" (name,
+  // default), the sandbox environment's presets
   const [quicks, setQuicks] = useState<QuickStartPublic[] | null>(null);
   const [picked, setPicked] = useState('');
   const [save, setSave] = useState<{ name: string; isDefault: boolean } | null>(null);
@@ -96,7 +99,7 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
     if (open) {
       setStep(quick?.step ?? (initial?.repo ? 1 : 0)); setKind('existing'); setName({ value: '', editedFor: '' }); setForm(f => ({ ...f, title: initial?.title?.slice(0, 120) ?? '' }));
       setNewRepo(null); setRepoNote(null); setError(null); setModeOpen(false); setCustom(false); setTarget({ value: '', edited: false }); setCommands([]); setVars([]); setEnvRefs([]); setAdvanced(false); setExtra({ image: '', previewPath: '', notes: '' });
-      setSkipHash(null); setData('demo'); setStoredId(''); setUploadId(null); setUploadKept(false); setStored(null);
+      setSkipHash(null); setData('demo'); setDumpGone(false); setStoredId(''); setUploadId(null); setUploadKept(false); setStored(null);
       setPicked(quick?.id ?? ''); setSave(null); setSaved(null); setQsName(editing?.name ?? '');
     }
   }
@@ -121,8 +124,9 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
     finally { setCreatingRepo(false); }
   }
 
-  /** Prefill from a quick start: its first step, project and branch (once the branches are known), plugin name, own setup, "Erweitert"
-   *  and the data (a stored database only while it is still stored) */
+  /** Prefill from a saved environment: its first step, project and branch (once the branches are known), plugin name, own setup,
+   *  "Erweitert" and the data: a stored database only while it is still stored – if it is gone, no data is chosen (not quietly the demo
+   *  data): the user decides in step 3, which says why */
   function applyDraft(d: StartDraft, list: GithubRepo[] | null, dumps: LibraryDumpPublic[] | null) {
     setKind(d.kind); setError(null); setNewRepo(null); setRepoNote(null); setSkipHash(null);
     setCustom(d.custom); setModeOpen(d.custom); setTarget(d.targetPath ? { value: d.targetPath, edited: true } : { value: '', edited: false });
@@ -130,11 +134,11 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
     // a saved name survives the probe of its own repo@branch, like a typed one
     setName(d.pluginName ? { value: d.pluginName, editedFor: d.kind === 'none' ? 'none' : `${d.repo}@${d.baseBranch}` } : { value: '', editedFor: '' });
     if (d.kind !== 'none') { setBranches(null); setWant(d.baseBranch); setBranchTick(n => n + 1); setForm(f => ({ ...f, repo: list?.some(r => r.fullName === d.repo) ? d.repo : '', baseBranch: '' })); }
-    const keep = !!d.dumpId && !!dumps?.some(x => x.id === d.dumpId);
-    setData(keep ? 'stored' : 'demo'); setUploadId(null);
+    const keep = !!d.dumpId && !!dumps?.some(x => x.id === d.dumpId), gone = !!d.dumpId && !keep;
+    setData(keep ? 'stored' : gone ? null : 'demo'); setDumpGone(gone); setUploadId(null);
     if (keep) setStoredId(d.dumpId!); else if (dumps?.[0]) setStoredId(dumps[0].id);
   }
-  /** "Schnellstart" at the top of step 1: its setup, or back to the environment's presets */
+  /** "Gespeicherte Umgebung" at the top of step 1: its setup, or back to the sandbox environment's presets */
   function pick(id: string) {
     setPicked(id); setSaved(null);
     const q = quicks?.find(x => x.id === id);
@@ -256,7 +260,7 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
   /** What a quick start keeps of this choice; a one-off upload cannot be kept (null: say so) */
   const quickSetup = (): QuickStartSetup | null => (data === 'upload' && !uploadKept ? null : quickSetupOf(kind, request(), data !== 'demo', envRefs));
 
-  /** "Als Schnellstart speichern" (start dialog) and "Schnellstart speichern" (editing one) */
+  /** "Als Umgebung speichern" (start dialog) and "Umgebung speichern" (editing one) */
   async function saveQuick(name: string, isDefault = false) {
     const setup = quickSetup();
     if (!setup) { setError(tq.uploadOnce); return; }
@@ -297,7 +301,7 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
   const ready = !busy && !uploading && !saving && (isEdit || !dockerDown);
   const nameFor = () => form.title.trim() || (kind === 'none' ? pluginName.trim() : form.repo.split('/').pop() ?? '') || tq.defaultName;
   const last = step === 2;
-  const dataName = data === 'demo' ? ts.dataDemo : data === 'stored' ? stored?.find(d => d.id === storedId)?.name ?? ts.dataStored : ts.dataUpload;
+  const dataName = data === 'demo' ? ts.dataDemo : data === 'stored' ? stored?.find(d => d.id === storedId)?.name ?? ts.dataStored : data === 'upload' ? ts.dataUpload : '–';
   const sourceName = kind === 'none' ? ts.localSource(pluginName.trim()) : form.repo ? `${form.repo}${form.baseBranch ? ` @ ${form.baseBranch}` : ''}` : '–';
 
   return (
@@ -510,6 +514,7 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
         </>}
 
         {step === 2 && <>
+          {dumpGone && data === null && <p className={styles.alert} role="status">{tq.dumpGone}</p>}
           <fieldset className={styles.dataList}>
             <legend>{ts.data}</legend>
             <div className={styles.dataOpt}>

@@ -59,7 +59,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
   const [seen, setSeen] = useState<string | null>(null);
   const [acting, setActing] = useState<Action | 'internet' | 'db' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // "Setup als Schnellstart speichern" (A22): name and default while the small dialog is open, then the confirmation
+  // "Setup als Umgebung speichern" (A22/A23): name and default while the small dialog is open, then the confirmation
   const [saveQuick, setSaveQuick] = useState<{ name: string; isDefault: boolean } | null>(null);
   const [quickSaved, setQuickSaved] = useState<string | null>(null);
   const [quickError, setQuickError] = useState<string | null>(null);

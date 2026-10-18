@@ -14,7 +14,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { CHAT_COOKIE, setupReady } from '@/lib/nav';
 import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, CheckFinding, CodeTaskPublic, Health, LibraryDumpPublic, PublishResult, QuickStartPublic, QuickStartSetup, Target } from '@/lib/protocol';
 import { liveSrc, withBust } from '@/lib/urls';
-import { PLUGIN_NAME, displayStatus, statusTone } from '@/lib/sandbox-task';
+import { demoRequest, displayStatus, statusTone, type StartChoice } from '@/lib/sandbox-task';
 import { INTL_LOCALE } from '@/lib/i18n';
 import Link from 'next/link';
 import { useShell, type WorkspaceBridge } from '@/components/shell/ShellProvider';
@@ -24,8 +24,8 @@ import { ChatLog } from '@/components/chat/ChatLog';
 import { Chips } from '@/components/chat/Chips';
 import { Composer } from '@/components/chat/Composer';
 import { Button } from '@/components/ui/Button';
-import { IconChevron, IconClose, IconCode } from '@/components/ui/icons';
-import { Menu, type MenuItem } from '@/components/ui/Menu';
+import { IconClose, IconCode } from '@/components/ui/icons';
+import { Menu } from '@/components/ui/Menu';
 import { HomeContent, HomeHead } from '@/components/chat/Home';
 import { StatusLine } from '@/components/chat/StatusLine';
 import { TargetCard } from '@/components/chat/TargetCard';
@@ -34,8 +34,8 @@ import { AuditDialog } from '@/components/dialogs/AuditDialog';
 import { StyleguideDialog } from '@/components/dialogs/StyleguideDialog';
 import { AttachSandboxDialog } from '@/components/sandbox/AttachSandboxDialog';
 import { SandboxPanel } from '@/components/sandbox/SandboxPanel';
-import { quickSummary } from '@/components/sandbox/QuickStarts';
-import sbStyles from '@/components/sandbox/Sandbox.module.css';
+import { envSummary, startChoiceItems } from '@/components/sandbox/StartChoices';
+import btnStyles from '@/components/ui/Button.module.css';
 import { offerTitle, type SandboxOfferActions } from '@/components/sandbox/CommandCard';
 import type { PrFeedbackActions } from '@/components/sandbox/PrFeedbackCard';
 import type { PrProposal } from '@/components/sandbox/PublishCard';
@@ -88,7 +88,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const [sbxTask, setSbxTask] = useState<CodeTaskPublic | null>(null);
   const [sbxDialog, setSbxDialog] = useState<{ repo: string; baseBranch: string; title?: string; pluginName?: string } | null | false>(false);
   const [sbxBusy, setSbxBusy] = useState(false);
-  // quick starts (A22): the "Sandbox" button's menu, and a quick start that could not start as saved (the dialog opens prefilled)
+  // saved environments (A22/A23): the choice list of "Sandbox starten" and the AI's card, and one that could not start as saved (the
+  // dialog opens prefilled with why)
   const [quicks, setQuicks] = useState<{ list: QuickStartPublic[]; dumps: LibraryDumpPublic[] } | null>(null);
   const [sbxQuick, setSbxQuick] = useState<{ id: string; name: string; setup: QuickStartSetup; message: string; problems: string[]; step: number } | null>(null);
   // "Prüfen und veröffentlichen" on a proposal card: that proposal (otherwise the latest) in the "Pull Request" tab, opened
@@ -332,63 +333,6 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     if (t) inputRef.current?.focus();
   };
 
-  // Bridge for the navigation: always the current handlers, registered stably
-  const handlers = useRef<WorkspaceBridge | null>(null);
-  useEffect(() => {
-    handlers.current = {
-      newChat,
-      openChat: id => void openChat(id),
-      deleteChat: id => void deleteChat(id),
-      openContext: () => setContextOpen(true),
-      openStyleguide: () => { if (sg) setSgOpen(true); else if (sgLoaded && !busy) onboard(); },
-      openRules: () => setSgOpen(true),
-      prefill: (text, fix) => { pendingFix.current = fix ? { ...fix, prompt: text } : null; setInput(text); inputRef.current?.focus(); },
-      openSandbox: () => { if (shell.sandbox && !taskId) setSbxDialog(null); },
-    };
-  });
-  useEffect(() => {
-    shell.registerWorkspace({
-      newChat: () => handlers.current?.newChat(),
-      openChat: id => handlers.current?.openChat(id),
-      deleteChat: id => handlers.current?.deleteChat(id),
-      openContext: () => handlers.current?.openContext(),
-      openStyleguide: () => handlers.current?.openStyleguide(),
-      openRules: () => handlers.current?.openRules(),
-      prefill: (text, fix) => handlers.current?.prefill(text, fix),
-      openSandbox: () => handlers.current?.openSandbox(),
-    });
-    return () => shell.registerWorkspace(null);
-  }, [shell.registerWorkspace]); // eslint-disable-line react-hooks/exhaustive-deps -- only on mount/unmount
-
-  // Run a task from another page's navigation (e.g. "Neuer Chat" (new chat) in settings) after loading
-  useEffect(() => {
-    const intent = shell.takeIntent();
-    if (!intent) return;
-    const h = handlers.current;
-    if (!h) return;
-    if (intent.type === 'new') h.newChat();
-    else if (intent.type === 'new-context') { h.newChat(); h.openContext(); }
-    else if (intent.type === 'open') h.openChat(intent.id);
-    else if (intent.type === 'context') h.openContext();
-    else if (intent.type === 'rules') h.openRules();
-    else if (intent.type === 'prompt') { h.newChat(); h.prefill(intent.text, intent.fix); }
-    else if (intent.type === 'sandbox') { h.newChat(); h.openSandbox(); }
-    else h.openStyleguide();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once on start
-
-  // Self-healing: the history reports the open chat as running, but the view is not attached to any run
-  // (e.g. reload right while sending) → reconnect. Not right after the run ends: a fetch from the
-  // window between `done` and the run's cleanup still reports "running" although nothing more comes.
-  const activeStatus = chats?.find(c => c.id === chatId)?.status;
-  useEffect(() => {
-    if (activeStatus && !busyRef.current && chatId && Date.now() - lastRunEnd.current > 2500) handlers.current?.openChat(chatId);
-  }, [activeStatus, chatId]);
-
-  // Stored chat is still running (e.g. after reload) → keep following live
-  useEffect(() => {
-    if (initialChat?.running) handlers.current?.openChat(initialChatId);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once on start
-
   const onDrop = (e: React.DragEvent) => {
     if (!Array.from(e.dataTransfer?.types ?? []).includes('Files')) return;
     e.preventDefault();
@@ -409,45 +353,115 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       loadHistory();
     }
   };
-  const loadQuicks = () => {
-    void Promise.all([api.sandbox.quickStarts(), api.sandbox.storedDbs().catch(() => ({ dumps: [] as LibraryDumpPublic[] }))])
-      .then(([q, d]) => setQuicks({ list: q.quickStarts, dumps: d.dumps }), e => reportError(errorText(e)));
-  };
-  /** One click in the menu: starts the quick start in this chat; if it cannot start as saved, the dialog opens prefilled with why */
-  const startQuick = (q: QuickStartPublic) => {
-    if (!chatId) return;
+  const loadQuicks = () => Promise.all([api.sandbox.quickStarts(), api.sandbox.storedDbs().catch(() => ({ dumps: [] as LibraryDumpPublic[] }))])
+    .then(([q, d]) => { const v = { list: q.quickStarts, dumps: d.dumps }; setQuicks(v); return v; }, e => { reportError(errorText(e)); return null; });
+  // the AI's card shows the same choices: load them once a card is waiting for a decision
+  const offerOpen = !!shell.sandbox && !taskId && state.items.some(i => i.kind === 'sandbox_offer');
+  useEffect(() => { if (offerOpen) void loadQuicks(); }, [offerOpen, chatId]); // eslint-disable-line react-hooks/exhaustive-deps -- once per chat with a card
+  /** One click on a saved environment: a NEW sandbox from it in this chat; if it cannot start as saved, the dialog opens prefilled */
+  const startEnv = async (id: string, cid: string, title?: string) => {
+    const known = quicks?.list.find(q => q.id === id) ? quicks : await loadQuicks();
+    const q = known?.list.find(x => x.id === id);
+    const name = q?.name ?? id;
     setSbxBusy(true);
-    dispatch({ type: 'status', text: tsq.starting(q.name) });
-    api.sandbox.startQuickStart(q.id, chatId).then(r => {
+    dispatch({ type: 'status', text: tsq.starting(name) });
+    try {
+      const r = await api.sandbox.startQuickStart(id, cid, title);
       if ('broken' in r) {
         dispatch({ type: 'status', text: null });
         const fields = r.broken.problems.map(p => p.field);
-        setSbxQuick({ id: q.id, name: q.name, setup: r.broken.quickStart.setup, message: r.broken.lead, problems: r.broken.problems.map(p => p.message), step: fields.every(f => f === 'dump') ? 2 : 1 });
+        setSbxQuick({ id, name: r.broken.quickStart.name, setup: r.broken.quickStart.setup, message: r.broken.lead, problems: r.broken.problems.map(p => p.message), step: fields.every(f => f === 'dump') ? 2 : 1 });
         setSbxDialog(null);
         return;
       }
       attached(r.task);
-      dispatch({ type: 'status', text: tsq.started(q.name, quickSummary(q.setup, all, quicks?.dumps ?? null)) });
+      dispatch({ type: 'status', text: tsq.started(name, q ? envSummary(q, all, known?.dumps ?? null) : r.task.title) });
       for (const w of r.warnings) reportError(w);
-    }).catch(e => { dispatch({ type: 'status', text: null }); reportError(errorText(e)); }).finally(() => setSbxBusy(false));
+    } catch (e) { dispatch({ type: 'status', text: null }); reportError(errorText(e)); }
+    finally { setSbxBusy(false); }
+  };
+  /** "Demo-Shop ohne Projekt": dockware's demo data, no repository, one click */
+  const startDemo = (cid: string, title?: string) => {
+    setSbxBusy(true);
+    dispatch({ type: 'status', text: tsq.demoStarting });
+    api.sandbox.createTask(demoRequest(cid, title || tsq.demoTitle)).then(r => { dispatch({ type: 'status', text: null }); attached(r.task); },
+      e => { dispatch({ type: 'status', text: null }); reportError(errorText(e)); }).finally(() => setSbxBusy(false));
+  };
+  /** The choice list's click (menu, the AI's card, the Sandbox Coding page): every start from a saved environment is a fresh sandbox */
+  const startChoice = (c: StartChoice, o: { chatId?: string; title?: string; initial?: { repo: string; baseBranch: string; title?: string; pluginName?: string } } = {}) => {
+    const cid = o.chatId ?? chatId;
+    if (c.type === 'new' || !cid) { setSbxQuick(null); setSbxDialog(o.initial ?? null); return; }
+    if (c.type === 'env') void startEnv(c.id, cid, o.title);
+    else startDemo(cid, o.title);
   };
   // Docker known to be down: starting a sandbox would fail at its first step
   const sbxBlocked = shell.health?.sandbox?.docker === false ? tsb.buttonDockerDown : null;
   const sandboxActions: SandboxOfferActions | undefined = shell.sandbox ? {
-    attached: !!taskId, busy: sbxBusy, blocked: sbxBlocked,
-    start: (o, direct) => {
+    attached: !!taskId, busy: sbxBusy, blocked: sbxBlocked, environments: quicks?.list ?? null, dumps: quicks?.dumps ?? null,
+    start: (o, c) => {
       const title = o.reason ? offerTitle(o.reason) : undefined;
-      const dialog = () => setSbxDialog({ repo: o.repo, baseBranch: o.baseBranch, title, ...(o.pluginName ? { pluginName: o.pluginName } : {}) });
-      if (!direct || !chatId) { dialog(); return; }
-      setSbxBusy(true);
-      // an empty repository needs the new plugin's name: started directly only with a valid one from the card, else the dialog asks
-      api.sandbox.repoProbe(o.repo, o.baseBranch).catch(() => null).then(p => {
-        const pluginName = p?.empty ? o.pluginName ?? '' : '';
-        if (p?.empty && !PLUGIN_NAME.test(pluginName)) { dialog(); return; }
-        return api.sandbox.createTask({ chatId, repo: o.repo, baseBranch: o.baseBranch, ...(title ? { title } : {}), ...(pluginName ? { pluginName } : {}) }).then(r => attached(r.task));
-      }).catch(e => reportError(errorText(e))).finally(() => setSbxBusy(false));
+      startChoice(c, { title, initial: { repo: o.repo, baseBranch: o.baseBranch, title, ...(o.pluginName ? { pluginName: o.pluginName } : {}) } });
     },
   } : undefined;
+  // Bridge for the navigation: always the current handlers, registered stably
+  const handlers = useRef<WorkspaceBridge | null>(null);
+  useEffect(() => {
+    handlers.current = {
+      newChat,
+      openChat: id => void openChat(id),
+      deleteChat: id => void deleteChat(id),
+      openContext: () => setContextOpen(true),
+      openStyleguide: () => { if (sg) setSgOpen(true); else if (sgLoaded && !busy) onboard(); },
+      openRules: () => setSgOpen(true),
+      prefill: (text, fix) => { pendingFix.current = fix ? { ...fix, prompt: text } : null; setInput(text); inputRef.current?.focus(); },
+      openSandbox: () => { if (shell.sandbox && !taskId) setSbxDialog(null); },
+      sandboxFrom: choice => { if (!shell.sandbox) return; const id = newChat(); startChoice(choice, { chatId: id }); },
+    };
+  });
+  useEffect(() => {
+    shell.registerWorkspace({
+      newChat: () => handlers.current?.newChat(),
+      openChat: id => handlers.current?.openChat(id),
+      deleteChat: id => handlers.current?.deleteChat(id),
+      openContext: () => handlers.current?.openContext(),
+      openStyleguide: () => handlers.current?.openStyleguide(),
+      openRules: () => handlers.current?.openRules(),
+      prefill: (text, fix) => handlers.current?.prefill(text, fix),
+      openSandbox: () => handlers.current?.openSandbox(),
+      sandboxFrom: choice => handlers.current?.sandboxFrom(choice),
+    });
+    return () => shell.registerWorkspace(null);
+  }, [shell.registerWorkspace]); // eslint-disable-line react-hooks/exhaustive-deps -- only on mount/unmount
+
+  // Run a task from another page's navigation (e.g. "Neuer Chat" (new chat) in settings) after loading
+  useEffect(() => {
+    const intent = shell.takeIntent();
+    if (!intent) return;
+    const h = handlers.current;
+    if (!h) return;
+    if (intent.type === 'new') h.newChat();
+    else if (intent.type === 'new-context') { h.newChat(); h.openContext(); }
+    else if (intent.type === 'open') h.openChat(intent.id);
+    else if (intent.type === 'context') h.openContext();
+    else if (intent.type === 'rules') h.openRules();
+    else if (intent.type === 'prompt') { h.newChat(); h.prefill(intent.text, intent.fix); }
+    else if (intent.type === 'sandbox') { if (intent.choice && intent.choice.type !== 'new') h.sandboxFrom(intent.choice); else { h.newChat(); h.openSandbox(); } }
+    else h.openStyleguide();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once on start
+
+  // Self-healing: the history reports the open chat as running, but the view is not attached to any run
+  // (e.g. reload right while sending) → reconnect. Not right after the run ends: a fetch from the
+  // window between `done` and the run's cleanup still reports "running" although nothing more comes.
+  const activeStatus = chats?.find(c => c.id === chatId)?.status;
+  useEffect(() => {
+    if (activeStatus && !busyRef.current && chatId && Date.now() - lastRunEnd.current > 2500) handlers.current?.openChat(chatId);
+  }, [activeStatus, chatId]);
+
+  // Stored chat is still running (e.g. after reload) → keep following live
+  useEffect(() => {
+    if (initialChat?.running) handlers.current?.openChat(initialChatId);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once on start
+
   // PR feedback of the attached sandbox not handed to the AI yet (a dot on the "Pull Request" tab, a warning when finishing)
   const feedbackOpen = taskId ? state.items.filter(i => i.kind === 'pr_feedback' && i.taskId === taskId && i.items.length > 0 && !i.handedOver).length : 0;
   // PR feedback (pr-watch.ts): hand it to the AI (the server wraps it as data), or finish the task once the PR is merged/closed
@@ -489,19 +503,11 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const overlay = pv && previewOpen; // narrow viewport: preview above the chat (desktop shows it on the right anyway)
 
   const contextChip = <ContextChip target={target} onPick={() => setContextOpen(true)} onClear={() => selectTarget(null)} />;
-  const quickItems: MenuItem[] = [
-    ...(quicks ? quicks.list.map(q => ({ key: q.id, onSelect: () => startQuick(q), disabled: sbxBusy,
-      label: <span className={sbStyles.qsItem}><b>{q.name}{q.default ? ` (${tsq.isDefault})` : ''}</b><small>{quickSummary(q.setup, all, quicks.dumps)}</small></span> })) : []),
-    ...(quicks && !quicks.list.length ? [{ key: 'empty', label: tsq.menuEmpty, disabled: true }] : []),
-    ...(!quicks ? [{ key: 'loading', label: '…', disabled: true }] : []),
-    { key: 'manage', label: tsq.manage, href: '/sandbox-coding#sbx-quick' },
-  ];
+  // A23: "Sandbox starten" opens the choice list – saved environments (default first), "Demo-Shop ohne Projekt", "Neu einrichten …"
   const sandboxButton = shell.sandbox && !taskId && (
-    <span className={styles.sbxSplit}>
-      <Button size="sm" className={styles.sbxBtn} title={sbxBlocked ?? tsb.buttonTitle} onClick={() => { setSbxQuick(null); setSbxDialog(null); }} disabled={!chatId || !!sbxBlocked}><IconCode size={15} />{tsb.button}</Button>
-      <Menu label={tsq.menu} title={sbxBlocked ?? tsq.menuTitle} items={quickItems} up align="start" onOpen={loadQuicks} disabled={!chatId || !!sbxBlocked || sbxBusy}
-        trigger={<IconChevron size={14} />} triggerClassName={styles.sbxCaret} />
-    </span>
+    <Menu label={tsb.button} title={sbxBlocked ?? tsq.menuTitle} up align="start" onOpen={() => void loadQuicks()} disabled={!chatId || !!sbxBlocked || sbxBusy}
+      triggerClassName={`${btnStyles.sm} ${styles.sbxBtn}`} trigger={<><IconCode size={15} />{tsb.button}</>}
+      items={startChoiceItems({ list: quicks?.list ?? null, dumps: quicks?.dumps ?? null, all, disabled: sbxBusy, onPick: c => startChoice(c), manage: '/sandbox-coding#sbx-quick' })} />
   );
   const hideSbxHint = () => { setSbxHint(false); store(SBX_HINT_KEY, '1'); };
   const sandboxHint = home && shell.sandbox && sbxHint && !locked && (

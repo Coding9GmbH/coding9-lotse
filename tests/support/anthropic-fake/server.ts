@@ -11,6 +11,8 @@
  *    line "Arbeitsverzeichnis (Repository-Wurzel): …"): `[e2e:replace <path> <old>|<new>]` = Read, then Edit; `[e2e:write <path> <text>]`
  *    = Write (a .html.twig becomes a template that extends Shopware's and puts <text> into the outer block); `[e2e:bash <command line>]`
  *    = sandbox_bash; `[e2e:commit <message>]` = git_commit (all changes); `[e2e:pr <title>|<description>]` = propose_publish (the card for the pull request). Several markers run in order, one tool call per model request, then it replies "Fertig: <n> Schritte."
+ *  - in a chat without a sandbox, `[e2e:offer <environment>|<reason>]` = start_sandbox with that saved environment (id or name; empty:
+ *    none) and reason – the card with the choices (A23)
  *  - otherwise it replies with a short text ("Hallo aus dem Test-Modell.")
  *
  * Control endpoints: GET /__fake/requests (received requests: last message as JSON, truncated, and the text of the user messages, the end of it), POST /__fake/reset, GET /__fake/health.
@@ -25,6 +27,7 @@ interface MessagesBody { model?: string; system?: string | { type: string; text?
 
 export const GREETING = 'Hallo aus dem Test-Modell.';
 const PROPOSE = /\[e2e:propose (\S+) (\w+)=([^\]]+)\]/;
+const OFFER = /\[e2e:offer ([^|\]]*)\|([^\]]+)\]/;
 const CODE_STEP = /\[e2e:(replace|write|bash|commit|pr) ([^\]]+)\]/g;
 const WORKDIR = /Arbeitsverzeichnis \(Repository-Wurzel\): (\S+)/;
 /** Outer block of a few Shopware storefront templates (the scripted edit extends it) */
@@ -85,6 +88,8 @@ export function nextTurn(body: MessagesBody): { text?: string; tool?: { name: st
     const status = resultText(toolResult).match(/"status"\s*:\s*"(\w+)"/)?.[1] ?? 'unbekannt';
     return { text: `Erledigt: ${status}` };
   }
+  const offer = textOf(last).match(OFFER), offerTool = body.tools?.find(t => t.name.endsWith('start_sandbox'));
+  if (offer && offerTool) return { tool: { name: offerTool.name, input: { reason: offer[2].trim(), ...(offer[1].trim() ? { environment: offer[1].trim() } : {}) } } };
   const m = textOf(last).match(PROPOSE);
   const tool = body.tools?.find(t => t.name.endsWith('propose_product_changes'));
   if (m && tool) {

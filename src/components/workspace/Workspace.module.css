@@ -68,8 +68,3 @@
 .sbxHintX { flex: none; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; background: none; color: var(--mute); border-radius: 6px; }
 .sbxHintX:hover { background: var(--bg); color: var(--ink); }
 @media (max-width: 640px) { .sbxHint { flex-wrap: wrap; } }
-/* "Sandbox starten" with the quick starts (A22) as a split button: the arrow opens their menu above the composer */
-.sbxSplit { flex: none; display: inline-flex; align-items: stretch; }
-.sbxSplit > button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.sbxCaret { display: grid; place-items: center; padding: 0 6px; margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
-.sbxCaret svg { transform: rotate(-90deg); }

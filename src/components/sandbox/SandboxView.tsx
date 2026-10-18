@@ -8,9 +8,12 @@ import { SANDBOX_DOCS, isBusy } from '@/lib/sandbox-task';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useShell } from '@/components/shell/ShellProvider';
 import { Button } from '@/components/ui/Button';
+import btnStyles from '@/components/ui/Button.module.css';
 import { IconArrowUp, IconClose, IconPlus } from '@/components/ui/icons';
+import { Menu } from '@/components/ui/Menu';
 import { SandboxOff } from './SandboxOff';
 import { QuickStarts } from './QuickStarts';
+import { startChoiceItems } from './StartChoices';
 import { StoredDbs } from './StoredDbs';
 import { TaskList } from './TaskList';
 import styles from './Sandbox.module.css';
@@ -50,7 +53,7 @@ export function SandboxView() {
   const on = view?.env.status.enabled;
   const reloadDbs = useCallback(() => { void api.sandbox.storedDbs().then(r => setDbs({ list: r.dumps, error: null }), e => setDbs(d => ({ ...d, error: errorText(e) }))); }, []);
   useEffect(() => { if (on) reloadDbs(); }, [on, reloadDbs]);
-  // quick starts (A22): saved setups of the start dialog
+  // saved environments (A22/A23, internally quick starts): saved setups of the start dialog
   const [quick, setQuick] = useState<{ list: QuickStartPublic[] | null; error: string | null }>({ list: null, error: null });
   const reloadQuick = useCallback(() => { void api.sandbox.quickStarts().then(r => setQuick({ list: r.quickStarts, error: null }), e => setQuick(q => ({ ...q, error: errorText(e) }))); }, []);
   useEffect(() => { if (on) reloadQuick(); }, [on, reloadQuick]);
@@ -79,7 +82,7 @@ export function SandboxView() {
               { key: 'image', ok: view.imagePresent, label: t.ready.image, fix: <a href="#sbx-env" onClick={() => openEnv()}>{t.ready.fixImage}</a> },
             ]} />
 
-            <Tasks />
+            <Tasks environments={quick.list} dumps={dbs.list} />
 
             <QuickStarts list={quick.list} dumps={dbs.list} error={quick.error} onChanged={reloadQuick} />
 
@@ -93,9 +96,11 @@ export function SandboxView() {
   );
 }
 
-/** Sandbox list (polled while one starts); a new sandbox is started in a new chat of the workspace. */
-function Tasks() {
-  const t = useI18n().t.sandbox.tasks;
+/** Sandbox list (polled while one starts). "Neue Sandbox" offers the choice list of every entry point (A23: saved environments, the
+ *  demo shop, "Neu einrichten …"); the sandbox starts in a new chat of the workspace. */
+function Tasks({ environments, dumps }: { environments: QuickStartPublic[] | null; dumps: LibraryDumpPublic[] | null }) {
+  const { t: all } = useI18n();
+  const t = all.sandbox.tasks;
   const { nav } = useShell();
   const [tasks, setTasks] = useState<CodeTaskPublic[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +116,8 @@ function Tasks() {
     <section className={styles.card} aria-labelledby="sbx-tasks">
       <div className={styles.cardHead}>
         <h2 id="sbx-tasks">{t.heading}</h2>
-        <Button size="sm" variant="primary" className={styles.headBtn} onClick={() => nav.sandboxChat()}><IconPlus size={14} /> {t.add}</Button>
+        <Menu label={t.add} title={t.addTitle} align="end" className={styles.headBtn} triggerClassName={`${btnStyles.primary} ${btnStyles.sm} ${styles.addBtn}`}
+          trigger={<><IconPlus size={14} /> {t.add}</>} items={startChoiceItems({ list: environments, dumps, all, onPick: c => nav.sandboxChat(c) })} />
       </div>
       {error && <p className={styles.alert} role="alert">{t.loadFailed(error)}</p>}
       {tasks && <TaskList tasks={tasks} />}

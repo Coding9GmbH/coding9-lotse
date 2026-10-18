@@ -7,6 +7,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api, errorText } from '@/lib/api';
 import { NAV_COOKIE, mergeChatPages, pageFull, rollChatPages } from '@/lib/nav';
 import type { ChatSummary, Health, Styleguide } from '@/lib/protocol';
+import type { StartChoice } from '@/lib/sandbox-task';
 import type { ShellInitial } from '@/server/initial';
 
 /** What the workspace offers the navigation while it is displayed. */
@@ -22,9 +23,11 @@ export interface WorkspaceBridge {
   prefill: (text: string, fix?: PromptFix) => void;
   /** "Sandbox starten" dialog for the current chat (Sandbox Coding on, no sandbox attached yet) */
   openSandbox: () => void;
+  /** A23: a new chat with a sandbox from this choice (a saved environment, the demo shop; "Neu einrichten …" opens the dialog) */
+  sandboxFrom: (choice: StartChoice) => void;
 }
 /** Task for the workspace when the navigation is used from another page. */
-export type WorkspaceIntent = { type: 'new' } | { type: 'new-context' } | { type: 'open'; id: string } | { type: 'context' } | { type: 'styleguide' } | { type: 'rules' } | { type: 'prompt'; text: string; fix?: PromptFix } | { type: 'sandbox' };
+export type WorkspaceIntent = { type: 'new' } | { type: 'new-context' } | { type: 'open'; id: string } | { type: 'context' } | { type: 'styleguide' } | { type: 'rules' } | { type: 'prompt'; text: string; fix?: PromptFix } | { type: 'sandbox'; choice?: StartChoice };
 /** Task belongs to a finding/lever: "in progress" after sending (shop check and SEO share this) */
 export interface PromptFix { id: string; title: string }
 
@@ -63,7 +66,7 @@ interface Shell {
   registerWorkspace: (bridge: WorkspaceBridge | null) => void;
   /** Fetches (and clears) a queued task; the workspace calls this on start. */
   takeIntent: () => WorkspaceIntent | null;
-  nav: { newChat: () => void; newChatWithContext: () => void; openChat: (id: string) => void; deleteChat: (id: string) => void; openContext: () => void; openStyleguide: () => void; openRules: () => void; /** New chat with a prepared task (e.g. from the SEO overview) */ promptChat: (text: string, fix?: PromptFix) => void; /** New chat with the "Sandbox starten" dialog open */ sandboxChat: () => void };
+  nav: { newChat: () => void; newChatWithContext: () => void; openChat: (id: string) => void; deleteChat: (id: string) => void; openContext: () => void; openStyleguide: () => void; openRules: () => void; /** New chat with a prepared task (e.g. from the SEO overview) */ promptChat: (text: string, fix?: PromptFix) => void; /** New chat with a sandbox from this choice (A23; none or "new": the "Sandbox starten" dialog open) */ sandboxChat: (choice?: StartChoice) => void };
 }
 
 const ShellContext = createContext<Shell | null>(null);
@@ -183,7 +186,7 @@ export function ShellProvider({ children, initialCollapsed = false, initial = nu
         openStyleguide: () => via(b => b.openStyleguide(), { type: 'styleguide' }),
         openRules: () => via(b => b.openRules(), { type: 'rules' }),
         promptChat: (text, fix) => via(b => { b.newChat(); b.prefill(text, fix); }, { type: 'prompt', text, fix }),
-        sandboxChat: () => via(b => { b.newChat(); b.openSandbox(); }, { type: 'sandbox' }),
+        sandboxChat: choice => via(b => { if (choice && choice.type !== 'new') b.sandboxFrom(choice); else { b.newChat(); b.openSandbox(); } }, { type: 'sandbox', ...(choice ? { choice } : {}) }),
         deleteChat: id => {
           removed.current.add(id); setOlder(o => o.filter(c => c.id !== id));
           if (bridge.current) bridge.current.deleteChat(id);

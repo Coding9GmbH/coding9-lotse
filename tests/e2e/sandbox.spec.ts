@@ -1,11 +1,23 @@
 import zlib from 'node:zlib';
-import { expect, test, type Locator } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { GITHUB_TOKEN } from './support/github';
 import { E2E, githubUrl } from './support/env';
+import { connectShop } from './support/helpers';
 
 const aiUrl = `http://127.0.0.1:${E2E.aiPort}`;
 /** "Sandbox starten" has three steps (Was? → Code-Quelle → Daten): "Weiter" moves on once the step is complete */
 const next = (dialog: Locator) => dialog.getByRole('button', { name: 'Weiter' }).click();
+/** "Sandbox starten" opens the choice list (A23: saved environments → "Demo-Shop ohne Projekt" → "Neu einrichten …"); the dialog is the last */
+async function openSetup(page: Page) {
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Neu einrichten …', exact: true }).click();
+}
+/** The choices of a menu, top to bottom, by their accessible names (the second line of an item is its description) */
+async function expectChoices(menu: Locator, names: string[]) {
+  const items = menu.getByRole('menuitem');
+  await expect(items).toHaveCount(names.length);
+  for (const [i, n] of names.entries()) await expect(items.nth(i)).toHaveAccessibleName(n);
+}
 
 // Sandbox Coding with the in-memory runner (LOTSE_SANDBOX_RUNNER=fake): off by default, switched on in the settings,
 // environment saved (secret value never shown again), "Umgebung prüfen" pulls the image, switched off again.
@@ -31,7 +43,7 @@ test('Sandbox Coding: switch on, configure the environment, check, switch off', 
   await expect(env.getByLabel('Image')).toHaveValue('dockware/shopware:6.7.15.1');
 
   await env.getByLabel('Image').fill('dockware/shopware:6.7-latest');
-  await env.getByRole('button', { name: 'Umgebung speichern' }).click();
+  await env.getByRole('button', { name: 'Sandbox-Umgebung speichern' }).click();
   await expect(env.getByRole('status').filter({ hasText: /latest/ })).toBeVisible();
   await env.getByLabel('Image').fill('dockware/shopware:6.7.15.1');
 
@@ -42,7 +54,7 @@ test('Sandbox Coding: switch on, configure the environment, check, switch off', 
   await env.getByRole('button', { name: 'Befehl hinzufügen' }).click();
   await env.getByLabel('Bezeichnung', { exact: true }).fill('Demodaten');
   await env.getByLabel('Befehl Demodaten', { exact: true }).fill('bin/console framework:demodata');
-  await env.getByRole('button', { name: 'Umgebung speichern' }).click();
+  await env.getByRole('button', { name: 'Sandbox-Umgebung speichern' }).click();
   await expect(env.getByRole('status').filter({ hasText: 'Gespeichert.' })).toBeVisible();
 
   await env.getByRole('button', { name: 'Umgebung prüfen' }).click();
@@ -51,14 +63,14 @@ test('Sandbox Coding: switch on, configure the environment, check, switch off', 
   await page.reload();
   // set up now: the readiness is one line and the environment is folded below the sandboxes
   await expect(page.locator('section[aria-labelledby="sbx-ready"]').getByText(/fehl(t|en) – eine Sandbox kann noch nicht starten/)).toBeVisible(); // GitHub is not connected in this test
-  await env.getByRole('heading', { name: 'Umgebung' }).click();
+  await env.getByRole('heading', { name: 'Sandbox-Umgebung' }).click();
   await expect(env.getByLabel(/^Wert API_TOKEN/)).toHaveValue('');
   await expect(env.getByLabel(/^Wert API_TOKEN/)).toHaveAttribute('placeholder', /gespeichert/);
   await expect(page.locator('body')).not.toContainText('e2e-geheim-123');
   // unticking "geheim" without a new value would drop the secret: refused with a hint, nothing saved
   await env.getByLabel('geheim').uncheck();
   await expect(env.getByLabel(/^Wert API_TOKEN/)).toHaveAttribute('placeholder', /neuen Wert eingeben/);
-  await env.getByRole('button', { name: 'Umgebung speichern' }).click();
+  await env.getByRole('button', { name: 'Sandbox-Umgebung speichern' }).click();
   await expect(env.getByRole('status').filter({ hasText: 'API_TOKEN: Neuen Wert eingeben' })).toBeVisible();
   await env.getByLabel('geheim').check();
 
@@ -80,7 +92,10 @@ test('Sandbox Coding: attach a sandbox to a chat, setup reaches ready, preview, 
   await page.goto('/sandbox-coding');
   const tasks = page.locator('section[aria-labelledby="sbx-tasks"]');
   await expect(tasks.getByText('Noch keine Sandboxes')).toBeVisible();
-  await tasks.getByRole('button', { name: 'Sandbox in neuem Chat' }).click();
+  // "Neue Sandbox" offers the same choices as the workspace (A23); "Neu einrichten …" opens the dialog in a new chat
+  await tasks.getByRole('button', { name: 'Neue Sandbox', exact: true }).click();
+  await expectChoices(page.getByRole('menu', { name: 'Neue Sandbox' }), ['Demo-Shop ohne Projekt', 'Neu einrichten …']);
+  await page.getByRole('menuitem', { name: 'Neu einrichten …', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await expect(dialog.getByLabel('Bestehendes Projekt')).toBeChecked(); // step 1 "Was?": the default
   await dialog.getByLabel('Titel (optional)').fill('Footer grün');
@@ -185,7 +200,7 @@ test('Sandbox Coding: console in the container – type, quick commands, reattac
   expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
   await page.goto('/');
-  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await openSetup(page);
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await dialog.getByLabel('Titel (optional)').fill('Konsole');
   await next(dialog);
@@ -263,7 +278,7 @@ test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async (
   expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
   await page.goto('/');
-  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await openSetup(page);
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await dialog.getByLabel('Titel (optional)').fill('Mit Datenbank');
   await next(dialog);
@@ -302,7 +317,7 @@ test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async (
 });
 
 // Stored database: uploaded once in the start dialog (stored by default), listed under "Gespeicherte Datenbanken", the first sandbox
-// imports it and saves the quick-start snapshot, the next one (preselected as the environment's default) takes the snapshot over without
+// imports it and saves the snapshot, the next one (preselected as the environment's default) takes the snapshot over without
 // an import; deleting it removes it from the list.
 test('Sandbox Coding: a stored database is reused – snapshot after the first import, restored for the next sandbox, delete', async ({ page, request }) => {
   test.setTimeout(150_000);
@@ -310,7 +325,7 @@ test('Sandbox Coding: a stored database is reused – snapshot after the first i
   expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
   await page.goto('/');
-  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await openSetup(page);
   let dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await dialog.getByLabel('Titel (optional)').fill('Gespeicherte Datenbank 1');
   await next(dialog);
@@ -347,11 +362,11 @@ test('Sandbox Coding: a stored database is reused – snapshot after the first i
   const env = page.locator('#sbx-env');
   if ((await env.getAttribute('open')) === null) await env.locator('> summary').click();
   await env.getByLabel('Datenbank', { exact: true }).selectOption(dump.id);
-  await env.getByRole('button', { name: 'Umgebung speichern' }).click();
+  await env.getByRole('button', { name: 'Sandbox-Umgebung speichern' }).click();
   await expect(env.getByRole('status').filter({ hasText: 'Gespeichert.' })).toBeVisible();
 
   await page.goto('/');
-  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await openSetup(page);
   dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await dialog.getByLabel('Titel (optional)').fill('Gespeicherte Datenbank 2');
   await next(dialog);
@@ -388,7 +403,7 @@ test('Sandbox Coding: the agent edits the header template natively, compiles the
   expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true, defaultRepo: 'acme/shop-theme', defaultBranch: 'main' } })).ok()).toBeTruthy();
   await page.goto('/');
-  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await openSetup(page);
   const start = page.getByRole('dialog', { name: 'Sandbox starten' });
   await next(start); await next(start);
   await start.getByRole('button', { name: 'Sandbox starten' }).click();
@@ -443,7 +458,7 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true, defaultRepo: 'acme/shop-theme', defaultBranch: 'main' } })).ok()).toBeTruthy();
   await page.goto('/');
-  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await openSetup(page);
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await dialog.getByLabel('Titel (optional)').fill('Gratis Versand');
   await next(dialog); await next(dialog);
@@ -572,7 +587,7 @@ test('Sandbox Coding: a new project for a new plugin, the ZIP says what is missi
   expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
   await page.goto('/');
-  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await openSetup(page);
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await dialog.getByLabel('Neues Plugin').check();
   await next(dialog);
@@ -627,7 +642,7 @@ test('Sandbox Coding: a whole Shopware project – plugins, apps and config brou
   expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
   await page.goto('/');
-  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await openSetup(page);
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await expect(dialog.getByText(/ein ganzer Shopware-Shop mit mehreren Plugins und eigener Konfiguration/)).toBeVisible();
   await dialog.getByLabel('Titel (optional)').fill('Ganzer Shop');
@@ -684,7 +699,7 @@ test('Sandbox Coding: start dialog in three steps – repository file with appro
   expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
   await page.goto('/');
-  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await openSetup(page);
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await expect(dialog.getByRole('button', { name: /^Schritt 1 von 3: Was\?/ })).toHaveAttribute('aria-current', 'step');
   await expect(dialog.getByRole('button', { name: /Schritt 3 von 3/ })).toBeDisabled(); // not before the source is complete
@@ -740,7 +755,7 @@ test('Sandbox Coding: start dialog in three steps – repository file with appro
 
   // without a project, on a phone: the steps fit, nothing scrolls sideways
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await openSetup(page);
   await dialog.getByLabel('Ohne Projekt starten').check();
   await dialog.getByLabel('Titel (optional)').fill('Versand Banner');
   expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
@@ -771,16 +786,24 @@ test('Sandbox Coding: start dialog in three steps – repository file with appro
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
 });
 
-// A22 "Schnellstarts": save the dialog's choice, one click in the "Sandbox" menu of the workspace starts it, the panel saves a running
-// sandbox's setup, the default is preselected, a quick start that cannot start opens the dialog prefilled with why; on the Sandbox
-// Coding page: edit (the dialog as editor), rename, duplicate, delete.
-test('Sandbox Coding: quick starts – save in the dialog, one click in the Sandbox menu, edit and delete, a broken one opens the dialog', async ({ page, request }) => {
-  test.setTimeout(150_000);
+// A22/A23 "Gespeicherte Umgebungen": set up once (save the dialog's choice), then every entry point offers the same list – saved
+// environments (default first) → "Demo-Shop ohne Projekt" → "Neu einrichten …" – and every start is a fresh sandbox: two from the same
+// environment run side by side (workspace menu and the Sandbox Coding page), the AI's card preselects the one it suggests, the panel
+// saves a running sandbox's setup, a broken one opens the dialog prefilled with why (a deleted database: no data preselected); on the
+// Sandbox Coding page: edit (the dialog as editor), rename, duplicate, delete.
+test('Sandbox Coding: saved environments – the same choices everywhere, fresh sandboxes side by side, the AI card, broken ones, edit and delete', async ({ page, request }) => {
+  test.setTimeout(240_000);
   const lotse = { 'x-lotse': '1' };
   expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
+  await connectShop(request); // the AI's card below comes from a normal chat (start_sandbox): it needs a shop
   await page.goto('/');
+  // nothing saved yet: the demo shop and "Neu einrichten …", and the way to manage them
   await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  const menu = page.getByRole('menu', { name: 'Sandbox starten' });
+  await expectChoices(menu, ['Demo-Shop ohne Projekt', 'Neu einrichten …', 'Gespeicherte Umgebungen verwalten']);
+  await expect(menu.getByRole('menuitem', { name: 'Demo-Shop ohne Projekt', exact: true })).toHaveAccessibleDescription('Shopware mit Demodaten, kein Repository – ein Klick. Änderungen bleiben im lokalen Git.');
+  await menu.getByRole('menuitem', { name: 'Neu einrichten …', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await next(dialog);
   await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
@@ -793,52 +816,105 @@ test('Sandbox Coding: quick starts – save in the dialog, one click in the Sand
   await dialog.getByLabel('Startseite der Vorschau').fill('/de/');
   await dialog.getByLabel('Hinweise für die KI (nur diese Sandbox)').fill('Footer-Texte stehen in den Snippets.');
   await next(dialog);
-  await dialog.getByRole('button', { name: 'Als Schnellstart speichern' }).click();
-  await dialog.getByLabel('Name des Schnellstarts').fill('Theme Demo');
-  await dialog.getByLabel('Im Startdialog vorauswählen (Standard)').check();
-  await dialog.getByRole('button', { name: 'Schnellstart speichern' }).click();
-  await expect(dialog.getByRole('status').filter({ hasText: 'Als Schnellstart „Theme Demo“ gespeichert.' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Als Umgebung speichern', exact: true }).click();
+  await dialog.getByLabel('Name der Umgebung').fill('Theme Demo');
+  await dialog.getByLabel('Als Standard (steht oben und ist vorausgewählt)').check();
+  await dialog.getByRole('button', { name: 'Umgebung speichern', exact: true }).click();
+  await expect(dialog.getByRole('status').filter({ hasText: 'Als Umgebung „Theme Demo“ gespeichert.' })).toBeVisible();
   await dialog.getByRole('button', { name: 'Abbrechen' }).click();
   await expect(dialog).toHaveCount(0);
 
-  // one click in the "Sandbox" menu: what it will use is in the item, the status line confirms it
-  await page.getByRole('button', { name: 'Schnellstarts' }).click();
-  const item = page.getByRole('menuitem', { name: /^Theme Demo \(Standard\)/ });
-  await expect(item).toContainText('Bestehendes Projekt · acme/shop-theme @ main · Demo-Daten · Image 6.7.14.0');
+  // the menu: the saved environment on top (what it uses as its description), one click starts a new sandbox from it
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await expectChoices(menu, ['Theme Demo (Standard)', 'Demo-Shop ohne Projekt', 'Neu einrichten …', 'Gespeicherte Umgebungen verwalten']);
+  const item = menu.getByRole('menuitem', { name: 'Theme Demo (Standard)', exact: true });
+  await expect(item).toHaveAccessibleDescription('Bestehendes Projekt · acme/shop-theme @ main · Demo-Daten · Image 6.7.14.0');
   await item.click();
-  await expect(page.getByText(/Schnellstart „Theme Demo“ gestartet: Bestehendes Projekt · acme\/shop-theme @ main/)).toBeVisible();
+  await expect(page.getByText('Neue Sandbox aus „Theme Demo“ gestartet: Bestehendes Projekt · acme/shop-theme @ main · Demo-Daten · Image 6.7.14.0')).toBeVisible();
   const panel = page.getByRole('region', { name: 'Sandbox', exact: true });
   await expect(panel.getByRole('heading', { name: 'Theme Demo' })).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
-  await expect(panel.getByLabel('Pfad in der Sandbox')).toHaveValue('/de/'); // the quick start's start page
-  // the running sandbox's setup as another quick start (the name is taken: say so, then another)
+  await expect(panel.getByLabel('Pfad in der Sandbox')).toHaveValue('/de/'); // the environment's start page
+  // the running sandbox's setup as another environment (the name is taken: say so, then another)
   await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
-  await page.getByRole('menuitem', { name: 'Setup als Schnellstart speichern' }).click();
-  const fromTask = page.getByRole('dialog', { name: 'Setup als Schnellstart speichern' });
-  await expect(fromTask.getByLabel('Name des Schnellstarts')).toHaveValue('Theme Demo');
-  await fromTask.getByRole('button', { name: 'Schnellstart speichern' }).click();
-  await expect(fromTask.getByRole('alert')).toContainText('Es gibt schon einen Schnellstart „Theme Demo“.');
-  await fromTask.getByLabel('Name des Schnellstarts').fill('Aus der Sandbox');
-  await fromTask.getByRole('button', { name: 'Schnellstart speichern' }).click();
-  await expect(panel.getByRole('status').filter({ hasText: 'Als Schnellstart „Aus der Sandbox“ gespeichert.' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Setup als Umgebung speichern' }).click();
+  const fromTask = page.getByRole('dialog', { name: 'Setup als Umgebung speichern' });
+  await expect(fromTask.getByLabel('Name der Umgebung')).toHaveValue('Theme Demo');
+  await fromTask.getByRole('button', { name: 'Umgebung speichern', exact: true }).click();
+  await expect(fromTask.getByRole('alert')).toContainText('Es gibt schon eine gespeicherte Umgebung „Theme Demo“.');
+  await fromTask.getByLabel('Name der Umgebung').fill('Aus der Sandbox');
+  await fromTask.getByRole('button', { name: 'Umgebung speichern', exact: true }).click();
+  await expect(panel.getByRole('status').filter({ hasText: 'Als Umgebung „Aus der Sandbox“ gespeichert.' })).toBeVisible();
+
+  // a second job from the same environment while the first runs: "Neue Sandbox" on the Sandbox Coding page, same list, a new chat
+  await page.goto('/sandbox-coding');
+  const tasks = page.locator('section[aria-labelledby="sbx-tasks"]');
+  await tasks.getByRole('button', { name: 'Neue Sandbox', exact: true }).click();
+  const pageMenu = page.getByRole('menu', { name: 'Neue Sandbox' });
+  await expectChoices(pageMenu, ['Theme Demo (Standard)', 'Aus der Sandbox', 'Demo-Shop ohne Projekt', 'Neu einrichten …']);
+  await pageMenu.getByRole('menuitem', { name: 'Theme Demo (Standard)', exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(panel.getByRole('heading', { name: 'Theme Demo' })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+  type T = { id: string; title: string; status: string; branch: string; chatId: string | null; container: unknown };
+  const running = async () => ((await (await request.get('/api/sandbox/tasks', { headers: lotse })).json()) as { tasks: T[] }).tasks.filter(t => t.title === 'Theme Demo' && t.status !== 'done');
+  const both = await running();
+  expect(both).toHaveLength(2);
+  expect(both.every(t => t.status === 'ready')).toBe(true); // side by side (LOTSE_SANDBOX_MAX 2)
+  expect(new Set(both.map(t => t.branch)).size).toBe(2);
+  expect(new Set(both.map(t => t.chatId)).size).toBe(2);
+  for (const t of both) expect(t.branch).toMatch(/^lotse\/theme-demo-[a-z0-9]{6}$/);
+  for (const t of both) expect((await request.post(`/api/sandbox/tasks/${t.id}/finish`, { headers: lotse, data: {} })).ok()).toBeTruthy();
+  await page.reload();
+  await expect(panel).toHaveCount(0);
+
+  // "Demo-Shop ohne Projekt": one click, no repository
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await menu.getByRole('menuitem', { name: 'Demo-Shop ohne Projekt', exact: true }).click();
+  await expect(page.getByText(/^Sandbox ohne Projekt angehängt/)).toBeVisible();
+  await expect(panel.getByRole('heading', { name: 'Demo-Shop' })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
   page.once('dialog', d => void d.accept());
   await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
   await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
   await expect(panel).toHaveCount(0);
 
+  // the AI's card: the same choices, its suggestion preselected; nothing starts before the click, the reason becomes the title
+  await page.getByRole('textbox', { name: 'Nachricht an Lotse' }).fill('Bitte eine Sandbox vorschlagen. [e2e:offer Theme Demo|Footer-Link im Theme ergänzen]');
+  await page.getByRole('button', { name: 'Senden' }).click();
+  const card = page.getByRole('region', { name: 'Vorschlag: Sandbox starten' });
+  await expect(card.getByText('Vorschlag der KI: gespeicherte Umgebung „Theme Demo“ – jeder Start ist eine neue Sandbox.')).toBeVisible({ timeout: 30_000 });
+  const choices = card.getByRole('group', { name: 'Womit starten?' });
+  await expect(choices.getByRole('radio')).toHaveCount(4);
+  await expect(choices.getByRole('radio', { name: 'Theme Demo (Standard)' })).toBeChecked();
+  await expect(choices.getByRole('radio', { name: 'Demo-Shop ohne Projekt' })).not.toBeChecked();
+  await expect(panel).toHaveCount(0);
+  await choices.getByRole('radio', { name: 'Neu einrichten …' }).check();
+  await expect(card.getByRole('button', { name: 'Einrichten …', exact: true })).toBeVisible();
+  await choices.getByRole('radio', { name: 'Theme Demo (Standard)' }).check();
+  await card.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await expect(panel.getByRole('heading', { name: 'Footer-Link im Theme ergänzen' })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('Vorschlag angenommen: Footer-Link im Theme ergänzen')).toBeVisible();
+  page.once('dialog', d => void d.accept());
+  await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
+  await expect(panel).toHaveCount(0);
+  await page.getByRole('button', { name: 'Neuer Chat', exact: true }).click();
+
   // the default is preselected in the dialog
-  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
-  await expect(dialog.getByLabel('Schnellstart').locator('option:checked')).toHaveText('Theme Demo (Standard)');
+  await openSetup(page);
+  await expect(dialog.getByLabel('Gespeicherte Umgebung').locator('option:checked')).toHaveText('Theme Demo (Standard)');
   await next(dialog);
   await expect(dialog.getByLabel('Repository')).toHaveValue('acme/shop-theme');
   await expect(dialog.getByLabel('Startseite der Vorschau')).toHaveValue('/de/');
   await dialog.getByRole('button', { name: 'Abbrechen' }).click();
 
-  // a quick start whose project is gone: the dialog opens prefilled with why
+  // an environment whose project is gone: the dialog opens prefilled with why
   expect((await request.post('/api/sandbox/quick-starts', { headers: lotse, data: { name: 'Kaputt', setup: { kind: 'existing', repo: 'acme/gone', baseBranch: 'main', previewPath: '/kaputt/' } } })).ok()).toBeTruthy();
-  await page.getByRole('button', { name: 'Schnellstarts' }).click();
-  await page.getByRole('menuitem', { name: /^Kaputt/ }).click();
-  await expect(dialog.getByRole('alert')).toContainText('Der Schnellstart „Kaputt“ lässt sich so nicht starten – bitte prüfen und anpassen:');
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await menu.getByRole('menuitem', { name: 'Kaputt', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Die gespeicherte Umgebung „Kaputt“ lässt sich so nicht starten – bitte prüfen und anpassen:');
   await expect(dialog.getByRole('alert')).toContainText('Kein Zugriff auf acme/gone');
   await expect(dialog.getByRole('button', { name: /^Schritt 2 von 3/ })).toHaveAttribute('aria-current', 'step');
   await expect(dialog.getByLabel('Repository')).toHaveValue(''); // not in the list any more: pick another
@@ -846,21 +922,40 @@ test('Sandbox Coding: quick starts – save in the dialog, one click in the Sand
   await dialog.getByRole('button', { name: 'Abbrechen' }).click();
   await expect(panel).toHaveCount(0); // nothing started
 
+  // an environment whose stored database was deleted: step 3 opens, no data is preselected (not quietly the demo data)
+  const sql = Buffer.from("-- MySQL dump\nINSERT INTO `product` VALUES (1);\n");
+  const up = ((await (await request.post('/api/sandbox/dumps', { headers: lotse, data: { name: 'weg.sql', size: sql.length, keep: true } })).json()) as { dump: { id: string } }).dump;
+  expect((await request.put(`/api/sandbox/dumps/${up.id}?offset=0`, { headers: { ...lotse, 'content-type': 'application/octet-stream' }, data: sql })).ok()).toBeTruthy();
+  expect((await request.post(`/api/sandbox/dumps/${up.id}/complete`, { headers: lotse, data: {} })).ok()).toBeTruthy();
+  expect((await request.post('/api/sandbox/quick-starts', { headers: lotse, data: { name: 'Ohne DB', setup: { kind: 'existing', repo: 'acme/shop-theme', baseBranch: 'main', dumpId: up.id } } })).ok()).toBeTruthy();
+  expect((await request.delete(`/api/sandbox/dumps/${up.id}`, { headers: lotse })).ok()).toBeTruthy();
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await menu.getByRole('menuitem', { name: 'Ohne DB', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Die gespeicherte Datenbank dieser Umgebung gibt es nicht mehr – bitte Daten neu wählen.');
+  await expect(dialog.getByRole('button', { name: /^Schritt 3 von 3/ })).toHaveAttribute('aria-current', 'step');
+  await expect(dialog.getByRole('status').filter({ hasText: 'Die gespeicherte Datenbank dieser Umgebung gibt es nicht mehr. Bitte Daten wählen – nichts ist vorausgewählt.' })).toBeVisible();
+  for (const label of ['Demo-Daten', 'Gespeicherte Datenbank', 'Dump hochladen']) await expect(dialog.getByRole('radio', { name: label })).not.toBeChecked();
+  await expect(dialog.getByRole('button', { name: 'Sandbox starten', exact: true })).toBeDisabled();
+  await dialog.getByRole('radio', { name: 'Demo-Daten' }).check();
+  await expect(dialog.getByRole('button', { name: 'Sandbox starten', exact: true })).toBeEnabled();
+  await dialog.getByRole('button', { name: 'Abbrechen' }).click();
+  await expect(panel).toHaveCount(0);
+
   // Sandbox Coding page: list, edit in the dialog, rename, duplicate, delete
   await page.goto('/sandbox-coding');
   const quick = page.locator('section[aria-labelledby="sbx-quick"]');
   const row = quick.getByRole('listitem').filter({ hasText: 'Theme Demo' });
   await expect(row.getByText('Standard', { exact: true })).toBeVisible();
-  await expect(row.getByText(/Bestehendes Projekt · acme\/shop-theme @ main · Demo-Daten · Image 6\.7\.14\.0 · zuletzt verwendet/)).toBeVisible();
+  await expect(row.getByText(/Bestehendes Projekt · acme\/shop-theme @ main · Demo-Daten · Image 6\.7\.14\.0 · zuletzt gestartet/)).toBeVisible();
   await row.getByRole('button', { name: 'Bearbeiten' }).click();
-  const editor = page.getByRole('dialog', { name: 'Schnellstart bearbeiten: Theme Demo' });
-  await expect(editor.getByLabel('Name des Schnellstarts')).toHaveValue('Theme Demo');
+  const editor = page.getByRole('dialog', { name: 'Umgebung bearbeiten: Theme Demo' });
+  await expect(editor.getByLabel('Name der Umgebung')).toHaveValue('Theme Demo');
   await next(editor);
   await expect(editor.getByLabel('Repository')).toHaveValue('acme/shop-theme');
   await expect(editor.getByLabel('Image (Shopware-Version)')).toHaveValue('dockware/shopware:6.7.14.0');
   await editor.getByLabel('Image (Shopware-Version)').fill('');
   await next(editor);
-  await editor.getByRole('button', { name: 'Schnellstart speichern' }).click();
+  await editor.getByRole('button', { name: 'Umgebung speichern', exact: true }).click();
   await expect(editor).toHaveCount(0);
   await expect(row.getByText(/Bestehendes Projekt · acme\/shop-theme @ main · Demo-Daten · zuletzt/)).toBeVisible();
   // a variable whose value holds a secret of the environment is kept by name: shown in the editor, kept when saving; a secret in
@@ -872,20 +967,20 @@ test('Sandbox Coding: quick starts – save in the dialog, one click in the Sand
   const refId = ((await refRes.json()) as { quickStart: { id: string } }).quickStart.id;
   await page.reload();
   await quick.getByRole('listitem').filter({ hasText: 'Mit Referenz' }).getByRole('button', { name: 'Bearbeiten' }).click();
-  const refEditor = page.getByRole('dialog', { name: 'Schnellstart bearbeiten: Mit Referenz' });
+  const refEditor = page.getByRole('dialog', { name: 'Umgebung bearbeiten: Mit Referenz' });
   await next(refEditor);
-  await expect(refEditor.getByText('Aus der Umgebung (nur der Name, den Wert setzt die Sandbox-Umgebung):')).toBeVisible();
-  await expect(refEditor.getByRole('button', { name: 'API_URL nicht mehr aus der Umgebung übernehmen' })).toBeVisible();
+  await expect(refEditor.getByText('Aus der Sandbox-Umgebung (nur der Name, den Wert setzt die Sandbox-Umgebung):')).toBeVisible();
+  await expect(refEditor.getByRole('button', { name: 'API_URL nicht mehr aus der Sandbox-Umgebung übernehmen' })).toBeVisible();
   await refEditor.getByLabel('Hinweise für die KI (nur diese Sandbox)').fill(`Zahlung mit ${SECRET}`);
   await next(refEditor);
-  await refEditor.getByRole('button', { name: 'Schnellstart speichern' }).click();
+  await refEditor.getByRole('button', { name: 'Umgebung speichern', exact: true }).click();
   await expect(refEditor.getByRole('alert')).toContainText('Im Feld „Hinweise für die KI“ steht der geheime Wert von STRIPE_KEY.');
   await refEditor.getByRole('button', { name: /^Schritt 2 von 3/ }).click();
   await refEditor.getByLabel('Hinweise für die KI (nur diese Sandbox)').fill('Zahlung mit $STRIPE_KEY');
   await next(refEditor);
-  await refEditor.getByRole('button', { name: 'Schnellstart speichern' }).click();
+  await refEditor.getByRole('button', { name: 'Umgebung speichern', exact: true }).click();
   await expect(refEditor).toHaveCount(0);
-  await expect(quick.getByRole('status').filter({ hasText: 'Als Schnellstart „Mit Referenz“ gespeichert. Nur als Name gemerkt (der Wert kommt beim Start aus der Sandbox-Umgebung): API_URL' })).toBeVisible();
+  await expect(quick.getByRole('status').filter({ hasText: 'Als Umgebung „Mit Referenz“ gespeichert. Nur als Name gemerkt (der Wert kommt beim Start aus der Sandbox-Umgebung): API_URL' })).toBeVisible();
   const refSaved = (await (await request.get(`/api/sandbox/quick-starts/${refId}`, { headers: lotse })).json()) as { quickStart: { setup: { envRefs?: string[]; notes?: string } } };
   expect(refSaved.quickStart.setup).toMatchObject({ envRefs: ['API_URL'], notes: 'Zahlung mit $STRIPE_KEY' });
   expect(JSON.stringify(refSaved)).not.toContain(SECRET);
@@ -898,12 +993,12 @@ test('Sandbox Coding: quick starts – save in the dialog, one click in the Sand
   await renamed.getByRole('button', { name: 'Aktionen für Theme Basis' }).click();
   await page.getByRole('menuitem', { name: 'Duplizieren' }).click();
   await expect(quick.getByRole('listitem').filter({ hasText: 'Theme Basis (Kopie)' })).toBeVisible();
-  for (const name of ['Kaputt', 'Mit Referenz', 'Theme Basis (Kopie)', 'Aus der Sandbox', 'Theme Basis']) {
+  for (const name of ['Kaputt', 'Ohne DB', 'Mit Referenz', 'Theme Basis (Kopie)', 'Aus der Sandbox', 'Theme Basis']) {
     page.once('dialog', d => void d.accept());
     await quick.getByRole('button', { name: `Aktionen für ${name}`, exact: true }).click();
     await page.getByRole('menuitem', { name: 'Löschen' }).click();
     await expect(quick.getByRole('status').filter({ hasText: `„${name}“ gelöscht.` })).toBeVisible();
   }
-  await expect(quick.getByText('Noch keine Schnellstarts.')).toBeVisible();
+  await expect(quick.getByText('Noch keine gespeicherten Umgebungen.')).toBeVisible();
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, envVars: [] } })).ok()).toBeTruthy();
 });

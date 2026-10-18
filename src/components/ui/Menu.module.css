@@ -9,3 +9,6 @@
 .item[aria-disabled="true"] { color: var(--mute); cursor: default; opacity: .6; }
 .danger { color: var(--warn); }
 .list[data-up] { top: auto; bottom: calc(100% + 4px); }
+/* an item with a description: name on top, what it does below (wraps instead of widening the list) */
+.twoLine { display: grid; gap: 1px; min-width: 220px; max-width: min(340px, 80vw); white-space: normal; }
+.twoLine small { color: var(--mute); font-size: 12px; overflow-wrap: anywhere; }
