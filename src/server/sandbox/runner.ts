@@ -33,6 +33,19 @@ export interface NetworkOpts { internal: boolean; labels: Record<string, string>
 export interface ExecOpts { user: string; workdir?: string; env?: string[]; timeoutMs: number; signal?: AbortSignal; stdin?: Buffer; /** keep at most this many bytes (the end of the output) */ maxOutput?: number }
 export interface ExecResult { exitCode: number; output: string; truncated: boolean }
 export interface PullProgress { text: string; pct?: number }
+/** An interactive shell in a task container (exec with a TTY): only the user's console uses it (console.ts), never the AI. */
+export interface TtyOpts { user: string; workdir: string; env: string[]; cols: number; rows: number }
+export interface TtySession {
+  /** raw input (keystrokes, pasted text) */
+  write(data: string | Buffer): void;
+  resize(cols: number, rows: number): Promise<void>;
+  /** drops the connection; the shell in the container may keep running (console.ts ends it with its own exec) */
+  close(): void;
+  /** raw terminal output (one TTY stream, not multiplexed); chunks that arrived before the first listener are delivered to it */
+  onData(fn: (chunk: Buffer) => void): void;
+  /** the stream ended: the shell exited, the container stopped or close() */
+  onEnd(fn: () => void): void;
+}
 /** A large archive streamed from disk (dump import): length is the exact byte count. */
 export interface ArchiveStream { stream: Readable; length: number }
 
@@ -51,6 +64,8 @@ export interface SandboxRunner {
   /** the last `tail` lines of the container's output (stdout and stderr), e.g. why it exited while starting */
   logs(id: string, o: { tail: number }): Promise<string>;
   exec(id: string, argv: readonly string[], opts: ExecOpts): Promise<ExecResult>;
+  /** interactive exec with a TTY (hijacked connection, both directions), resizable */
+  openTty(id: string, argv: readonly string[], opts: TtyOpts): Promise<TtySession>;
   putArchive(id: string, dir: string, tar: Buffer | ArchiveStream, o?: { timeoutMs?: number; signal?: AbortSignal }): Promise<void>;
   /** tar of a path in the container (screenshots); more than maxBytes = error */
   getArchive(id: string, path: string, o: { maxBytes: number; timeoutMs?: number }): Promise<Buffer>;

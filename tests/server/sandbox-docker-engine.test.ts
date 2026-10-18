@@ -59,12 +59,13 @@ const server = http.createServer(async (req, res) => {
       assert.deepEqual([u.searchParams.get('stdout'), u.searchParams.get('stderr'), u.searchParams.get('tail')], ['1', '1', '20']);
       res.writeHead(200, { 'content-type': 'application/vnd.docker.multiplexed-stream' }); return res.end(Buffer.concat([frame(1, ' * Starting MySQL database server mysqld\n'), frame(2, '   ...fail!\n')]));
     }
-    if (c[2] === 'exec') { lastExecBody = JSON.parse(body); return send(res, 201, { Id: 'exec1' }); }
+    if (c[2] === 'exec') { lastExecBody = JSON.parse(body); return send(res, 201, { Id: lastExecBody?.Tty ? 'tty1' : 'exec1' }); }
     if (c[2] === 'wait') { assert.equal(u.searchParams.get('condition'), 'not-running'); return send(res, 200, { StatusCode: 3 }); }
     if (c[2] === 'archive' && req.method === 'GET') { res.writeHead(200, { 'content-type': 'application/x-tar' }); return res.end(Buffer.alloc(Number(u.searchParams.get('path') === '/big' ? 300_000 : 2048), 7)); }
     if (c[2] === '' && req.method === 'DELETE') { delete containers[c[1]]; return send(res, 204); }
   }
   if (r === '/exec/exec1/json') return send(res, 200, { ExitCode: 2 });
+  if (r === '/exec/tty1/resize') { resizes.push(`${u.searchParams.get('w')}x${u.searchParams.get('h')}`); return send(res, 201); }
   if (r === '/networks/lotse-sandbox') return send(res, 404, { message: 'network not found' });
   if (r === '/networks/lotse-sandbox-egress' && req.method === 'GET') return egressNet ? send(res, 200, egressNet) : send(res, 404, { message: 'network not found' });
   if (r === '/networks/create') { netBodies.push(JSON.parse(body)); return send(res, 201, { Id: 'n1' }); }
@@ -73,8 +74,15 @@ const server = http.createServer(async (req, res) => {
   send(res, 404, { message: `unknown ${r}` });
 });
 // exec start: hijacked connection (101), multiplexed frames, split across writes on purpose
+// console (Tty): one raw stream, no frames; the "shell" greets with a prompt (in the same packet as the 101) and echoes upper case
+const resizes: string[] = [];
 server.on('upgrade', (req, socket) => {
   calls.push(`UPGRADE ${req.url}`);
+  if (req.url?.includes('/exec/tty1/')) {
+    socket.write('HTTP/1.1 101 UPGRADED\r\nContent-Type: application/vnd.docker.raw-stream\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n$ ');
+    socket.on('data', (d: Buffer) => { if (d.toString() === 'exit\r') socket.end('bye\r\n'); else socket.write(d.toString().toUpperCase()); });
+    return;
+  }
   socket.write('HTTP/1.1 101 UPGRADED\r\nContent-Type: application/vnd.docker.raw-stream\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n');
   socket.on('data', (d: Buffer) => { stdinSeen += d.toString(); });
   const all = Buffer.concat([frame(1, 'hello '), frame(2, 'warn\n'), frame(1, 'world\n')]);
@@ -150,6 +158,27 @@ test('exec: upgrade, demux, stdin, exit code; argv as an array (no shell)', asyn
   const cut = await d.exec('mine', ['true'], { user: 'www-data', timeoutMs: 5000, maxOutput: 6 });
   assert.deepEqual(cut, { exitCode: 2, output: 'world\n', truncated: true }, 'keeps the end of the output');
   await assert.rejects(d.exec('mine', ['a\0b'], { user: 'www-data', timeoutMs: 1000 }), /Ungültiger Befehl/);
+});
+
+test('console: exec with Tty on a hijacked connection that stays open both ways, raw bytes (no frames), resize; label check first', async () => {
+  const tty = await d.openTty('mine', ['bash', '-l'], { user: 'dockware', workdir: '/var/www/html', env: ['TERM=xterm-256color'], cols: 120, rows: 40 });
+  assert.deepEqual(lastExecBody, { Cmd: ['bash', '-l'], User: 'dockware', WorkingDir: '/var/www/html', Env: ['TERM=xterm-256color'], AttachStdin: true, AttachStdout: true, AttachStderr: true, Tty: true });
+  assert.deepEqual(resizes, ['120x40'], 'the initial size right after the start');
+  let out = '', ended = false;
+  await new Promise(r => setTimeout(r, 20));
+  tty.onData(b => { out += b.toString(); }); // registered late: what arrived before (the prompt) is not lost
+  tty.onEnd(() => { ended = true; });
+  tty.write('ls\r');
+  await tty.resize(100, 30);
+  assert.deepEqual(resizes, ['120x40', '100x30']);
+  const until = async (fn: () => boolean) => { const end = Date.now() + 2000; while (!fn()) { if (Date.now() > end) throw new Error(`timeout: ${JSON.stringify(out)}`); await new Promise(r => setTimeout(r, 5)); } };
+  await until(() => out === '$ LS\r');
+  tty.write('exit\r');
+  await until(() => ended);
+  assert.equal(out, '$ LS\rbye\r\n');
+  const n = calls.length;
+  await assert.rejects(d.openTty('foreign', ['bash'], { user: 'root', workdir: '/', env: [], cols: 80, rows: 24 }), /nicht von Lotse verwaltet/);
+  assert.deepEqual(calls.slice(n).filter(c => !c.startsWith('GET ')), [], 'nothing created in a foreign container');
 });
 
 test('list: filter by label, and unlabelled containers are dropped even if the daemon returns them', async () => {

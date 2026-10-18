@@ -2,12 +2,14 @@ import 'server-only';
 // After a Lotse restart: steps (and a publish) that were running become "interrupted"; labelled containers without a task (or of a finished task)
 // are removed; the containers of the other tasks keep their state (a running one stays ready, a stopped one is paused) and their
 // internet access only if it was allowed and the container still runs.
-// Also starts the idle sweeper (one interval per process, unref: never keeps the process alive), which also deletes stale dumps,
+// Also starts the idle sweeper (one interval per process, unref: never keeps the process alive), which also deletes stale dumps
+// and closes idle consoles,
 // and the watcher of open pull requests (pr-watch.ts).
 // Dumps are swept at startup whether Sandbox Coding is on or not: a leftover file must never outlive its 24 h.
 import { log } from '../log';
 import { singleton } from '../state';
 import { errMsg } from '../util';
+import { killOrphanConsoles, sweepConsoles } from './console';
 import { sweepDumps } from './dumps';
 import { sandboxEnabled } from './env';
 import { reconcileInternet } from './internet';
@@ -83,6 +85,7 @@ export function ensureReconciled(): Promise<void> {
     try {
       const { removed } = await reconcileContainers();
       if (removed.length) log.info('Verwaiste Sandbox-Container entfernt', { containers: removed.join(', ') });
+      await killOrphanConsoles(); // shells of consoles from before the restart (nobody can reach them any more)
     } catch (e) { log.warn('Sandbox-Abgleich mit Docker nicht möglich', { error: errMsg(e) }); }
   })();
   return s.done;
@@ -94,6 +97,7 @@ export function startSweeper() {
   let lastDumps = Date.now();
   s.sweeper = setInterval(() => {
     void pauseIdle(Date.now(), id => hasListeners(id) || turnRunning(id)).catch(e => log.warn('Sandbox-Leerlauf-Prüfung fehlgeschlagen', { error: e }));
+    void sweepConsoles().catch(e => log.warn('Konsolen-Leerlauf-Prüfung fehlgeschlagen', { error: e }));
     if (Date.now() - lastDumps >= DUMP_SWEEP_MS) { lastDumps = Date.now(); sweepDumpsNow(); }
   }, SWEEP_MS);
   s.sweeper.unref?.();

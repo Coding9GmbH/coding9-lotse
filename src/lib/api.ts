@@ -5,7 +5,7 @@ import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget 
 import { createLineSplitter } from './ndjson';
 import type { CodexLoginState, GithubBranch, GithubPublic, GithubRepo, GithubTestResult, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
-  CodeTaskPublic, DumpPublic, PluginZipCheck, RepoOwner, RepoProbe, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
+  CodeTaskPublic, ConsoleSessionPublic, DumpPublic, PluginZipCheck, RepoOwner, RepoProbe, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
   PrStatus, PublishRequest, PublishResult } from './protocol';
 
 export class ApiError extends Error {
@@ -119,6 +119,12 @@ export const api = {
     /** "Pull Request erstellen/aktualisieren": title and description only, the server fixes branch and base */
     publish: (id: string, p: PublishRequest) => request<PublishResult>(`/api/sandbox/tasks/${encodeURIComponent(id)}/publish`, json('POST', p)),
     prStatus: (id: string) => request<{ pr: PrStatus | null }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/pr`),
+    /** the user's console (tab "Konsole"): open sessions, open one (wakes a paused sandbox), input/resize, close */
+    consoles: (id: string) => request<{ sessions: ConsoleSessionPublic[]; max: number }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/console`),
+    openConsole: (id: string, size: { cols: number; rows: number }) => request<{ session: ConsoleSessionPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/console`, json('POST', size)),
+    consoleSend: (id: string, sid: string, body: { input: string } | { resize: { cols: number; rows: number } }) =>
+      request<unknown>(`/api/sandbox/tasks/${encodeURIComponent(id)}/console/${encodeURIComponent(sid)}`, json('POST', body)),
+    closeConsole: (id: string, sid: string) => request<{ ok: true }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/console/${encodeURIComponent(sid)}`, { method: 'DELETE' }),
   },
   seoOverview: (refresh = false) => request<SeoOverview>(`/api/seo${refresh ? '?refresh=1' : ''}`),
   seoStored: () => request<SeoOverview | null>('/api/seo?stored=1'),
@@ -158,6 +164,9 @@ export const listenChat = (chatId: string, signal: AbortSignal) => fetch(`/api/c
 
 /** NDJSON of one code task (snapshot, then live events). */
 export const listenTask = (id: string, signal: AbortSignal) => fetch(`/api/sandbox/tasks/${encodeURIComponent(id)}/events`, { signal });
+/** NDJSON output of a console from chunk `from` on (ConsoleEvent lines) */
+export const listenConsole = (id: string, sid: string, from: number, signal: AbortSignal) =>
+  fetch(`/api/sandbox/tasks/${encodeURIComponent(id)}/console/${encodeURIComponent(sid)}?from=${from}`, { signal });
 
 export const DUMP_CHUNK = 8 * 1024 * 1024;
 const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, '0')).join('');

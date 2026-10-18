@@ -10,7 +10,7 @@ import type { ContainerSpec } from '../runner';
 import type { TaskLayout } from '@/lib/protocol';
 import { PLUGIN_NAME, isEmptyRepoListing, pluginNameFromRepo } from '@/lib/sandbox-task';
 import { MANAGED, SANDBOX_NET, TASK_LABEL, sandboxAlias } from '../labels';
-import type { CommandArg, CommandSpec, SandboxTemplate, SpecInput, StepCtx, TemplateStep } from './types';
+import type { CommandArg, CommandSpec, ConsoleSpec, SandboxTemplate, SpecInput, StepCtx, TemplateStep } from './types';
 
 const MIN = 60_000;
 export const DOCKWARE_DEFAULT_IMAGE = 'dockware/shopware:6.7.15.1';
@@ -234,6 +234,21 @@ export function buildSpec(o: SpecInput): ContainerSpec {
   return { ...base, HostConfig: { ...host, NetworkMode: SANDBOX_NET }, NetworkingConfig: { EndpointsConfig: { [SANDBOX_NET]: { Aliases: [alias] } } } };
 }
 
+/** Console shells as the image's own user "dockware" (uid 33 like www-data, so files keep their owner; member of sudo, so sudo works as
+ *  in a normal Dockware shell – www-data cannot sudo). A login shell in the shop root. The wrapper records the shell's pid: with a TTY
+ *  Docker starts it as a session leader, so the pid is the session id that stop ends (HUP first, then KILL for what ignores it).
+ *  The pid file is checked for a plain number above 1 (the shell's user can write it). */
+const CONSOLE_STOP = 'p=$(cat "$1" 2>/dev/null); rm -f "$1"; case "$p" in ""|*[!0-9]*|0|1) exit 0;; esac; pkill -HUP -s "$p"; sleep 1; pkill -KILL -s "$p"; exit 0';
+const CONSOLE_STOP_ALL = 'n=0; for f in /tmp/.lotse-console-*.pid; do [ -f "$f" ] || continue; p=$(cat "$f" 2>/dev/null); rm -f "$f"; case "$p" in ""|*[!0-9]*|0|1) continue;; esac; pkill -KILL -s "$p" && n=$((n+1)); done; echo "$n"; exit 0';
+export const CONSOLE: ConsoleSpec = {
+  user: 'dockware',
+  workdir: '/var/www/html',
+  env: ['TERM=xterm-256color', 'COLORTERM=truecolor', 'LANG=C.UTF-8'],
+  shell: pidFile => ['bash', '-c', 'echo $$ > "$0" && exec bash -l', pidFile],
+  stop: pidFile => ({ argv: ['sh', '-c', CONSOLE_STOP, 'sh', pidFile], user: 'root' }),
+  stopAll: { argv: ['sh', '-c', CONSOLE_STOP_ALL], user: 'root' },
+};
+
 export const dockware: SandboxTemplate = {
   id: 'dockware',
   labelKey: 'dockware',
@@ -252,4 +267,5 @@ export const dockware: SandboxTemplate = {
   workdir: '/var/www/html',
   bootFile: { dir: '/var/www', name: 'boot_start.sh', content: BOOT_SCRIPT, mode: 0o755 },
   gracefulStop: { argv: MYSQL_STOP_ARGV, user: 'root', timeoutMs: 30_000, stopTimeoutSec: 3 },
+  console: CONSOLE,
 };
