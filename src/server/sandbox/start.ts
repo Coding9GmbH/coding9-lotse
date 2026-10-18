@@ -57,12 +57,12 @@ export async function startSandbox(input: StartInput, locale: Locale, audit: Rec
   }
   const created = createTask({ ...input, pluginName: input.pluginName || undefined }, locale);
   let t;
-  try { t = runSteps(created.id); } catch (e) { codeTaskDelete(created.id); if (dumpId) releaseDump(dumpId); throw e; }
+  // attached before the setup starts: a new chat exists from then on, so it can say which sandboxes this one paused
+  try { t = runSteps(created.id, undefined, { attach: x => noteSandboxAttached(chatId, x) }); } catch (e) { codeTaskDelete(created.id); if (dumpId) releaseDump(dumpId); throw e; }
   const s = t.setup;
   auditTask(t, 'create', { baseBranch: t.baseBranch, chatId, ...(t.dump ? { dump: t.dump.name } : {}), ...(t.pluginName ? { pluginName: t.pluginName } : {}),
     ...(source === 'none' ? { source } : {}), ...(mode !== 'auto' ? { mode } : {}), ...(s?.targetPath ? { targetPath: s.targetPath } : {}),
     ...(s?.commands.length ? { commands: s.commands.map(c => c.label) } : {}), ...(s?.env.length ? { env: s.env.map(v => v.key) } : {}),
     ...(s?.image ? { image: s.image } : {}), ...(s?.previewPath ? { previewPath: s.previewPath } : {}), ...(s?.notes ? { notes: true } : {}), ...audit });
-  noteSandboxAttached(chatId, t);
   return t;
 }

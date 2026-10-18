@@ -449,7 +449,7 @@ export async function takeOver(t: CodeTask, sel: { items: TakeItem[] } | { all: 
   const c = await compare(t, o.signal, locale), worktree = taskPaths(t.id).worktree, tpl = getTemplate(t.template);
   const byPath = new Map(c.candidates.map(x => [x.path, x]));
   const refused: ContainerTakeOver['refused'] = [];
-  let chosen: Candidate[];
+  let chosen: Candidate[], skipped = c.skipped;
   if ('items' in sel) {
     chosen = [];
     for (const it of sel.items) {
@@ -461,7 +461,9 @@ export async function takeOver(t: CodeTask, sel: { items: TakeItem[] } | { all: 
   } else {
     const under = sel.under?.map(u => u.replace(/^\.\/+/, '').replace(/\/+$/, '')).filter(Boolean);
     if (c.noBaseline && !under?.length) throw Object.assign(new Error(NO_BASELINE_ALL), { status: 409 });
-    chosen = c.candidates.filter(x => !under?.length || under.some(u => x.path === u || x.path.startsWith(`${u}/`)));
+    const inside = (p: string) => !under?.length || under.some(u => p === u || p.startsWith(`${u}/`));
+    // only the asked-for paths: what was skipped elsewhere is not this call's business
+    chosen = c.candidates.filter(x => inside(x.path)); skipped = skipped.filter(x => inside(x.path));
   }
   for (const x of chosen.slice(PULL_LIMITS.files)) refused.push({ path: x.path, reason: L.tooManyAtOnce(PULL_LIMITS.files) });
   chosen = chosen.slice(0, PULL_LIMITS.files);
@@ -484,5 +486,5 @@ export async function takeOver(t: CodeTask, sel: { items: TakeItem[] } | { all: 
   auditAdd({ decision: 'changed', kind: 'sandbox-pull', taskId: t.id, chatId: t.chatId, via: o.via, title: `Aus dem Container übernommen: ${t.title}`, repo: t.repo,
     files: taken.map(x => x.path).slice(0, 50), ...(taken.length > 50 ? { moreFiles: taken.length - 50 } : {}), refused: refused.length });
   if (refused.length) log.info('Nicht alles aus dem Container übernommen', { task: t.id, refused: refused.length });
-  return { taken, refused, skipped: c.skipped, ...(c.noBaseline ? { noBaseline: true } : {}) };
+  return { taken, refused, skipped, ...(c.noBaseline ? { noBaseline: true } : {}) };
 }

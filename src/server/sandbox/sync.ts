@@ -10,7 +10,7 @@ import {
   CONFIG_STAGE, PROJECT_PARSE_PHP, SYNC_MANIFEST, isProjectConfig, isUncheckedConfig, overrideFile, overrideYaml, parseConfigOutput, planConfig, projectSyncPath, realDir,
   type ConfigPlan, type ProjectRuntime, type Quarantine,
 } from './project';
-import { targetPathProblem } from '@/lib/sandbox-task';
+import { isEmptyRepoListing, targetPathProblem } from '@/lib/sandbox-task';
 import type { SandboxRunner } from './runner';
 import { writeTar, type TarEntry } from './tar';
 
@@ -90,7 +90,10 @@ export interface SyncTarget { runner: SandboxRunner; containerId: string; worktr
    *  synced) and the files the boot check took out */
   project?: { runtime: ProjectRuntime | null; held: Record<string, Quarantine> };
   /** "Eigenes Setup": target is the user's folder (below /var/www, /opt or /srv); the repository is laid over it, nothing else there is removed */
-  custom?: boolean }
+  custom?: boolean;
+  /** a new plugin (empty repository): its folder appears in the container only with the repository's first file beyond README, LICENSE
+   *  and .gitignore – until then `bin/console plugin:create <Name>` can make it (Shopware refuses an existing folder, even an empty one) */
+  lazy?: boolean }
 
 const checkTarget = (t: string, custom = false) => {
   if (custom ? targetPathProblem(t) !== null : !/^\/var\/www\/html\/custom\/plugins\/[A-Z][A-Za-z0-9]{1,60}$/.test(t)) throw new Error('Ungültiges Zielverzeichnis im Container.');
@@ -108,23 +111,44 @@ const rm = (s: SyncTarget, flags: '-f' | '-rf', ...abs: string[]) =>
     if (r.exitCode !== 0) throw new Error(`Löschen im Container fehlgeschlagen: ${r.output.trim().slice(-200)}`);
   });
 
-/** Full mirror: the plugin directory is removed and written again from the workspace. A project: see syncProjectAll. */
-export async function syncAll(s: SyncTarget): Promise<{ files: number; bytes: number; config?: ConfigPlan | null }> {
+/** Whether the plugin folder exists in the container (a lazy target, see SyncTarget.lazy) */
+const targetExists = async (s: SyncTarget) =>
+  (await s.runner.exec(s.containerId, ['test', '-d', s.target], { user: s.user, timeoutMs: 30_000, signal: s.signal })).exitCode === 0;
+/** The worktree has nothing a plugin folder needs yet: README, LICENSE, .gitignore at most */
+const scaffoldOnly = (worktree: string) => isEmptyRepoListing(fs.readdirSync(worktree));
+
+/** Full mirror: the plugin directory is removed and written again from the workspace. A project: see syncProjectAll.
+ *  A lazy target with only README & co.: `deferred` – nothing is created; a folder made in the container meanwhile (plugin:create)
+ *  only gets those files, nothing there is removed. */
+export async function syncAll(s: SyncTarget): Promise<{ files: number; bytes: number; config?: ConfigPlan | null; deferred?: boolean }> {
   if (s.project) return syncProjectAll(s);
   if (s.custom) return syncCustomAll(s);
   const { parent, base } = checkTarget(s.target);
   const entries = collectAll(s.worktree, base);
   const tar = writeTar(entries, WWW_DATA);
+  if (s.lazy && scaffoldOnly(s.worktree)) {
+    if (!(await targetExists(s))) return { files: 0, bytes: 0, deferred: true };
+    await s.runner.putArchive(s.containerId, parent, tar);
+    return { files: entries.filter(e => e.type === 'file').length, bytes: tar.length };
+  }
   await rm(s, '-rf', s.target);
   await s.runner.putArchive(s.containerId, parent, tar);
   return { files: entries.filter(e => e.type === 'file').length, bytes: tar.length };
 }
 
-/** Changed paths only: existing files are uploaded (with their parent directories), missing ones are deleted in the container. */
-export async function syncPaths(s: SyncTarget, rels: string[]): Promise<{ put: number; removed: number; config?: ConfigPlan | null }> {
+/** Changed paths only: existing files are uploaded (with their parent directories), missing ones are deleted in the container.
+ *  A lazy target the container does not have yet: `deferred` while the worktree has only README & co., else the whole worktree. */
+export async function syncPaths(s: SyncTarget, rels: string[]): Promise<{ put: number; removed: number; config?: ConfigPlan | null; deferred?: boolean }> {
   if (s.project) return syncProjectPaths(s, rels);
   const { parent, base } = checkTarget(s.target, s.custom);
   if (s.custom) await ensureParent(s, parent);
+  else if (s.lazy && !(await targetExists(s))) {
+    if (scaffoldOnly(s.worktree)) return { put: 0, removed: 0, deferred: true };
+    // the first real file: the folder comes with everything the worktree has (the README the AI wrote before, too)
+    const entries = collectAll(s.worktree, base);
+    await s.runner.putArchive(s.containerId, parent, writeTar(entries, WWW_DATA));
+    return { put: entries.filter(e => e.type !== 'dir').length, removed: 0 };
+  }
   const entries: TarEntry[] = [], dirs = new Set<string>(), gone: string[] = [], b = syncBudget();
   for (const raw of rels) {
     const rel = guardRel(raw);

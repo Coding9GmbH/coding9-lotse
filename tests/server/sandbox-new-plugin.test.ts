@@ -117,10 +117,10 @@ test('setup of an empty repository: new plugin, install and theme compile skippe
   assert.ok(done.containerId && done.containerRunning);
   const argv = execs(done.containerId!);
   assert.ok(!argv.some(a => a.includes('plugin:install') || a.includes('theme:compile') || a.includes('theme:change')), 'nothing installed or compiled');
-  assert.deepEqual(argv.find(a => a[0] === 'rm'), ['rm', '-rf', '--', DIR], 'the plugin folder is prepared');
-  const arch = fake.archives.filter(a => a.id === done.containerId).at(-1)!;
-  assert.equal(arch.dir, '/var/www/html/custom/plugins');
-  assert.ok(arch.entries.some(e => e.path === `${NAME}/README.md`));
+  // README, LICENSE and .gitignore alone make no plugin folder: bin/console plugin:create can still create it
+  assert.ok(!argv.some(a => a[0] === 'rm'), 'nothing to prepare');
+  assert.ok(!fake.archives.some(a => a.id === done.containerId && a.entries.some(e => e.path.startsWith(NAME))), 'no plugin folder yet');
+  assert.match(step('install-plugin').log.join('\n'), new RegExp(`Der Ordner ${DIR} entsteht im Container erst mit der ersten Plugin-Datei[\\s\\S]*plugin:create`));
 
   // the agent's prompt explains how to build the plugin from scratch
   const before = codeSystemFor(t.id, 'de', false);
@@ -138,8 +138,10 @@ test('setup of an empty repository: new plugin, install and theme compile skippe
   const cmd = `bin/console plugin:refresh && bin/console plugin:install --activate ${NAME} && bin/console cache:clear`;
   const r = await tools.find(x => x.name === 'sandbox_bash')!.handler({ command: cmd } as any, {});
   assert.ok(!r.isError, JSON.stringify(r.content));
+  // the first real files bring the folder, with everything the worktree has
   const synced = fake.archives.filter(a => a.id === done.containerId).at(-1)!;
-  for (const f of ['composer.json', `src/${NAME}.php`, 'src/Resources/views/storefront/layout/header/header.html.twig']) assert.ok(synced.entries.some(e => e.path === `${NAME}/${f}`), f);
+  assert.equal(synced.dir, '/var/www/html/custom/plugins');
+  for (const f of ['README.md', 'composer.json', `src/${NAME}.php`, 'src/Resources/views/storefront/layout/header/header.html.twig']) assert.ok(synced.entries.some(e => e.path === `${NAME}/${f}`), f);
   assert.deepEqual(execs(done.containerId!).at(-1), ['bash', '-lc', cmd]);
   assert.ok(events.some(e => e.t === 'preview_reload'), 'plugin:install reloads the preview');
   // from now on an ordinary plugin (same folder in the running container), the prompt no longer talks about an empty repository
@@ -154,6 +156,36 @@ test('setup of an empty repository: new plugin, install and theme compile skippe
   assert.equal(again.steps.find(s => s.key === 'install-plugin')!.state, 'done');
   assert.equal(again.steps.find(s => s.key === 'theme-compile')!.state, 'done');
   assert.ok(execs(again.containerId!).some(a => a.join(' ') === `bin/console plugin:install --activate -- ${NAME}`));
+  await J.deleteTask(t.id);
+});
+
+test('new plugin: bin/console plugin:create in the container works (no folder made before), the result is taken over', async () => {
+  const t = T.createTask({ chatId: crypto.randomUUID(), title: 'Per plugin:create', goal: '', repo: 'conine/header-banner', baseBranch: 'main', pluginName: NAME });
+  J.runSteps(t.id); await settled(t.id);
+  const done = T.getTask(t.id)!;
+  assert.equal(done.status, 'ready', done.error ?? '');
+  const wt = T.taskPaths(t.id).worktree, files = fake.containers.get(done.containerId!)!.files;
+  const events: ChatEvent[] = [];
+  const tools = W.sandboxTools({ id: done.chatId!, taskId: t.id, emit: ev => { events.push(ev); }, askUser: async () => '', approvals: new Map(), abort: null });
+  const call = async (name: string, input: Record<string, unknown> = {}) => { const r = await tools.find(x => x.name === name)!.handler(input as any, {}); return { error: !!r.isError, text: r.content.map((c: any) => c.text ?? '').join('') }; };
+  // the AI edits the README first: still no folder in the container
+  fs.writeFileSync(path.join(wt, 'README.md'), '# Header-Banner\n\nZeigt ein Banner.\n');
+  assert.match(await W.syncChanged(t.id, ['README.md']), /in den Container übertragen/);
+  assert.ok(![...files.keys()].some(k => k.startsWith(`${DIR}/`)));
+  const created = await call('sandbox_bash', { command: `bin/console plugin:create ${NAME} 'CoNine\\HeaderBanner'` });
+  assert.equal(created.error, false, created.text);
+  assert.doesNotMatch(created.text, /already exists/);
+  assert.ok(files.has(`${DIR}/composer.json`));
+  // comparing first brings the README into the folder plugin:create made: it is not offered as deleted
+  const pulled = await call('pull_from_container');
+  assert.match(pulled.text, /Übernommen \(2\):/);
+  assert.match(pulled.text, /neu composer\.json/);
+  assert.match(pulled.text, new RegExp(`neu src/${NAME}\\.php`));
+  assert.doesNotMatch(pulled.text, /README/);
+  assert.equal(fs.readFileSync(path.join(wt, 'README.md'), 'utf8'), '# Header-Banner\n\nZeigt ein Banner.\n');
+  assert.equal(files.get(`${DIR}/README.md`)?.toString(), '# Header-Banner\n\nZeigt ein Banner.\n');
+  // now the folder exists: Shopware refuses a second plugin:create
+  assert.match((await call('sandbox_bash', { command: `bin/console plugin:create ${NAME} 'CoNine\\HeaderBanner'` })).text, /Plugin directory .* already exists/);
   await J.deleteTask(t.id);
 });
 

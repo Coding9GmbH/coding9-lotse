@@ -25,6 +25,8 @@ export function target(t: CodeTask, signal?: AbortSignal): SyncTarget {
     runner: getRunner(), containerId: t.containerId, worktree: taskPaths(t.id).worktree, target: tpl.syncTarget(t.layout), user: tpl.execUser, signal,
     ...(t.layout.kind === 'project' ? { project: { runtime: projectRuntime(p), held: Object.fromEntries((p?.held ?? []).map(({ file, ...q }) => [file, q])) } } : {}),
     ...(t.layout.kind === 'custom' ? { custom: true } : {}),
+    // a new plugin, also once it settled into an ordinary one: the folder may still be missing (made by plugin:create or the first file)
+    ...(t.layout.kind !== 'project' && t.layout.kind !== 'custom' && (t.layout.isNew || t.pluginName) ? { lazy: true } : {}),
   };
 }
 
@@ -87,7 +89,7 @@ const under = (rel: string, p: string) => rel === p || rel.startsWith(`${p}/`);
  * otherwise just the changed paths (and the ones edited while the container was paused) are synced. A full mirror only without a
  * record of what the container has, or with too many changes.
  */
-export async function syncTaskAll(t: CodeTask, signal?: AbortSignal, o: { ifChanged?: boolean } = {}): Promise<{ files: number; config: ConfigPlan | null; skipped?: boolean }> {
+export async function syncTaskAll(t: CodeTask, signal?: AbortSignal, o: { ifChanged?: boolean } = {}): Promise<{ files: number; config: ConfigPlan | null; skipped?: boolean; deferred?: boolean }> {
   const tg = target(t, signal);
   const s = o.ifChanged ? current(t, tg) : null;
   if (s?.pending) {
@@ -98,16 +100,18 @@ export async function syncTaskAll(t: CodeTask, signal?: AbortSignal, o: { ifChan
       writeState(t.id, null); // a failure below leaves the next call a full sync
       const r = await syncPaths(tg, paths);
       note(t, r.config);
-      writeState(t.id, { ...s, files: now, pending: [] });
-      return { files: r.put, config: r.config ?? null };
+      // a new plugin's folder not made yet: the paths still differ and go along once it exists
+      writeState(t.id, r.deferred ? { ...s, pending: paths } : { ...s, files: now, pending: [] });
+      return { files: r.put, config: r.config ?? null, ...(r.deferred ? { deferred: true } : {}) };
     }
   }
   writeState(t.id, null);
   const now = manifestOf(tg);
   const r = await syncAll(tg);
   note(t, r.config);
-  writeState(t.id, { container: t.containerId ?? '', project: projectKey(tg), files: now, pending: [] });
-  return { files: r.files, config: r.config ?? null };
+  // deferred (a new plugin's folder not made yet): the container has none of the worktree's files
+  writeState(t.id, { container: t.containerId ?? '', project: projectKey(tg), files: r.deferred ? {} : now, pending: [] });
+  return { files: r.files, config: r.config ?? null, ...(r.deferred ? { deferred: true } : {}) };
 }
 /** The container now has the worktree's state of exactly `rels` (files or folders; after a path sync or after taking files over from
  *  it): only their entries (and their parent folders) are updated, so any other change still differs and is transferred later.
@@ -141,7 +145,7 @@ export async function syncTaskPaths(t: CodeTask, rels: string[]): Promise<{ note
   let r: Awaited<ReturnType<typeof syncPaths>>;
   try { r = await syncPaths(tg, rels); } catch (e) { forgetSync(t.id); throw e; }
   note(t, r.config);
-  noteInSync(t, rels, now);
+  if (!r.deferred) noteInSync(t, rels, now);
   const fresh = r.config ? [...r.config.quarantine].filter(([f]) => rels.includes(f) && !before.has(f)) : [];
   return { note: fresh.length ? ` – in der Sandbox NICHT geladen: ${fresh.map(([f, q]) => `${f} (${redact(reasonText(q))})`).join('; ')}` : '' };
 }
