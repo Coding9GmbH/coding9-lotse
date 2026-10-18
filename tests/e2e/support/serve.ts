@@ -13,7 +13,7 @@ import path from 'node:path';
 import { startFakeShopify } from '../../support/shopify-fake/server';
 import { startFakeAnthropic } from '../../support/anthropic-fake/server';
 import { startFakeGithub } from '../../support/github-fake';
-import { HEADER_TEMPLATE, headerTemplate, makePluginRepo, makeProjectRepo } from '../../support/plugin-repo';
+import { HEADER_TEMPLATE, headerTemplate, makeBareRepo, makePluginRepo, makeProjectRepo } from '../../support/plugin-repo';
 import { GITHUB_TOKEN as E2E_GITHUB_TOKEN } from './github';
 import { E2E } from './env';
 
@@ -24,12 +24,16 @@ fs.rmSync(remoteRoot, { recursive: true, force: true });
 fs.mkdirSync(remoteRoot, { recursive: true });
 const themeRepo = makePluginRepo(remoteRoot, { repo: 'acme/shop-theme', name: 'AcmeShopTheme', theme: true, files: { [HEADER_TEMPLATE]: headerTemplate('Lotse Test-Header') } });
 makeProjectRepo(remoteRoot, { repo: 'acme/shop' }); // a whole Shopware project (A19)
+// A20: a plugin whose .lotse/sandbox.json brings setup commands (approval in the start dialog), and a repository Lotse does not know
+makePluginRepo(remoteRoot, { repo: 'acme/flex-plugin', name: 'AcmeFlex', files: { '.lotse/sandbox.json': JSON.stringify({ commands: [{ label: 'Demodaten anlegen', command: 'bin/console framework:demodata', phase: 'after-db' }], env: ['STRIPE_KEY'], previewPath: '/', notes: 'Testkunde: test@example.com' }, null, 2) } });
+makePluginRepo(remoteRoot, { repo: 'acme/tools', composer: { name: 'acme/tools', type: 'library' }, files: { 'package.json': '{"name":"tools"}\n' } });
 
 const shop = await startFakeShopify({ port: E2E.shopPort, log: false });
 const ai = await startFakeAnthropic({ port: E2E.aiPort, quiet: process.env.E2E_VERBOSE !== '1' });
 // "Neues Projekt anlegen" creates a repository in the fake; it becomes a README-only clone source, as GitHub's auto_init does
-const gh = await startFakeGithub({ token: E2E_GITHUB_TOKEN, login: 'octo-lotse', port: E2E.githubPort, orgs: ['acme'], repos: [{ fullName: 'acme/shop-theme' }, { fullName: 'acme/shop' }, { fullName: 'acme/legacy-plugin', push: false }],
-  onCreateRepo: r => { makePluginRepo(remoteRoot, { repo: r.fullName, empty: true }); } });
+const gh = await startFakeGithub({ token: E2E_GITHUB_TOKEN, login: 'octo-lotse', port: E2E.githubPort, orgs: ['acme'], repos: [{ fullName: 'acme/shop-theme' }, { fullName: 'acme/shop' }, { fullName: 'acme/flex-plugin' }, { fullName: 'acme/tools' }, { fullName: 'acme/legacy-plugin', push: false }],
+  // without auto_init ("Als GitHub-Projekt anlegen") an empty bare repository that the sandbox's local start is pushed into
+  onCreateRepo: r => { if (r.branches?.length) makePluginRepo(remoteRoot, { repo: r.fullName, empty: true }); else makeBareRepo(remoteRoot, r.fullName); } });
 console.log(`[e2e] Shopify-Fake ${shop.url} · Anthropic-Fake ${ai.url} · Daten ${E2E.dataDir}`);
 
 const next = path.join(process.cwd(), 'node_modules', 'next', 'dist', 'bin', 'next');

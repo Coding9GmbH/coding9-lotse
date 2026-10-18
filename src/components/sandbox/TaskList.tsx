@@ -73,7 +73,7 @@ export function TaskList({ tasks }: { tasks: CodeTaskPublic[] }) {
         const inner = (
           <>
             <span className={styles.taskTitle}>{task.title}</span>
-            <span className={styles.taskMeta} title={`${task.repo} @ ${task.baseBranch}`}>{middleTruncate(task.repo, 40)} @ {task.baseBranch}</span>
+            <span className={styles.taskMeta} title={task.repo ? `${task.repo} @ ${task.baseBranch}` : undefined}>{task.repo ? `${middleTruncate(task.repo, 40)} @ ${task.baseBranch}` : all.sandbox.task.noRepo}</span>
             <TaskStatus task={task} />
           </>
         );

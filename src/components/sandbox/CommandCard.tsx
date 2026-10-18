@@ -114,7 +114,7 @@ export function SandboxOfferCard({ offer, actions }: { offer: Offer; actions?: S
 /** Line in the history: from here on the chat works in the sandbox. */
 export function SandboxAttachedLine({ repo, baseBranch }: { repo: string; baseBranch: string }) {
   const t = useI18n().t.sandbox.code.offer;
-  return <p className={`${styles.sbx} ${styles.sbx_ready}`} role="status"><i aria-hidden="true" />{t.attachedLine(repo, baseBranch)}</p>;
+  return <p className={`${styles.sbx} ${styles.sbx_ready}`} role="status"><i aria-hidden="true" />{repo ? t.attachedLine(repo, baseBranch) : t.attachedNoRepo}</p>;
 }
 
 /** request_internet: the AI asks for internet in the task container. Only the click on "Für diese Sandbox erlauben" attaches it.

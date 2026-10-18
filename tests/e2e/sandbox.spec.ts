@@ -1,9 +1,11 @@
 import zlib from 'node:zlib';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { GITHUB_TOKEN } from './support/github';
 import { E2E, githubUrl } from './support/env';
 
 const aiUrl = `http://127.0.0.1:${E2E.aiPort}`;
+/** "Sandbox starten" has three steps (Was? → Code-Quelle → Daten): "Weiter" moves on once the step is complete */
+const next = (dialog: Locator) => dialog.getByRole('button', { name: 'Weiter' }).click();
 
 // Sandbox Coding with the in-memory runner (LOTSE_SANDBOX_RUNNER=fake): off by default, switched on in the settings,
 // environment saved (secret value never shown again), "Umgebung prüfen" pulls the image, switched off again.
@@ -80,9 +82,14 @@ test('Sandbox Coding: attach a sandbox to a chat, setup reaches ready, preview, 
   await expect(tasks.getByText('Noch keine Sandboxes')).toBeVisible();
   await tasks.getByRole('button', { name: 'Sandbox in neuem Chat' }).click();
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
+  await expect(dialog.getByLabel('Bestehendes Projekt')).toBeChecked(); // step 1 "Was?": the default
+  await dialog.getByLabel('Titel (optional)').fill('Footer grün');
+  await next(dialog);
   await expect(dialog.getByLabel('Repository')).toHaveValue('acme/shop-theme'); // preset of the environment
   await expect(dialog.getByLabel('Basis-Branch')).toHaveValue('main');
-  await dialog.getByLabel('Titel (optional)').fill('Footer grün');
+  await expect(dialog.getByRole('status').filter({ hasText: 'Erkannt: Theme AcmeShopTheme' })).toBeVisible(); // checked before the start
+  await next(dialog);
+  await expect(dialog.getByLabel('Demo-Daten')).toBeChecked(); // step 3: the default data
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
 
   await expect(page).toHaveURL(/\/$/);
@@ -180,8 +187,10 @@ test('Sandbox Coding: console in the container – type, quick commands, reattac
   await page.goto('/');
   await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
-  await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
   await dialog.getByLabel('Titel (optional)').fill('Konsole');
+  await next(dialog);
+  await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
+  await next(dialog);
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
   const panel = page.getByRole('region', { name: 'Sandbox' });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
@@ -256,10 +265,12 @@ test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async (
   await page.goto('/');
   await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
+  await dialog.getByLabel('Titel (optional)').fill('Mit Datenbank');
+  await next(dialog);
   await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
   await expect(dialog.getByLabel('Basis-Branch')).toHaveValue('main');
-  await dialog.getByLabel('Titel (optional)').fill('Mit Datenbank');
-  await dialog.getByText('Datenbank (optional)').click(); // optional: behind a disclosure
+  await next(dialog);
+  await dialog.getByLabel('Dump hochladen').check(); // step 3: demo data unless chosen
   const keep = dialog.getByLabel('Für weitere Sandboxes speichern');
   await expect(keep).toBeChecked(); // stored by default
   await keep.uncheck();
@@ -301,10 +312,12 @@ test('Sandbox Coding: a stored database is reused – snapshot after the first i
   await page.goto('/');
   await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
   let dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
+  await dialog.getByLabel('Titel (optional)').fill('Gespeicherte Datenbank 1');
+  await next(dialog);
   await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
   await expect(dialog.getByLabel('Basis-Branch')).toHaveValue('main');
-  await dialog.getByLabel('Titel (optional)').fill('Gespeicherte Datenbank 1');
-  await dialog.getByText('Datenbank (optional)').click();
+  await next(dialog);
+  await dialog.getByLabel('Dump hochladen').check();
   await expect(dialog.getByLabel('Für weitere Sandboxes speichern')).toBeChecked();
   await expect(dialog.getByText('Nur bereinigte Dumps ohne Kunden- und Bestelldaten speichern.')).toBeVisible();
   const sql = "-- MySQL dump\nINSERT INTO `migration` VALUES ('Shopware\\\\Core\\\\Migration\\\\V6_7\\\\Migration1700000000Foo',1,NULL,NULL,NULL);\n";
@@ -340,9 +353,11 @@ test('Sandbox Coding: a stored database is reused – snapshot after the first i
   await page.goto('/');
   await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
   dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
-  await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
   await dialog.getByLabel('Titel (optional)').fill('Gespeicherte Datenbank 2');
-  await expect(dialog.getByLabel('Datenbank', { exact: true })).toHaveValue(dump.id); // the default, the disclosure open
+  await next(dialog);
+  await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
+  await next(dialog);
+  await expect(dialog.getByLabel('Gespeicherte Datenbank', { exact: true })).toHaveValue(dump.id); // the environment's default, preselected
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
   panel = page.getByRole('region', { name: 'Sandbox' });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
@@ -374,7 +389,9 @@ test('Sandbox Coding: the agent edits the header template natively, compiles the
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true, defaultRepo: 'acme/shop-theme', defaultBranch: 'main' } })).ok()).toBeTruthy();
   await page.goto('/');
   await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Sandbox starten' }).getByRole('button', { name: 'Sandbox starten' }).click();
+  const start = page.getByRole('dialog', { name: 'Sandbox starten' });
+  await next(start); await next(start);
+  await start.getByRole('button', { name: 'Sandbox starten' }).click();
   const panel = page.getByRole('region', { name: 'Sandbox' });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
   const preview = page.frameLocator('iframe[title="Vorschau der Sandbox-Storefront"]');
@@ -429,6 +446,7 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await dialog.getByLabel('Titel (optional)').fill('Gratis Versand');
+  await next(dialog); await next(dialog);
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
   const panel = page.getByRole('region', { name: 'Sandbox' });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
@@ -556,6 +574,8 @@ test('Sandbox Coding: a new project for a new plugin, the ZIP says what is missi
   await page.goto('/');
   await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
+  await dialog.getByLabel('Neues Plugin').check();
+  await next(dialog);
   await expect(dialog.getByText('GitHub-Repository', { exact: true })).toBeVisible(); // the technical term next to "Projekt"
   await dialog.getByRole('button', { name: 'Neues Projekt anlegen' }).click();
   const group = dialog.getByRole('group', { name: 'Neues Projekt anlegen' });
@@ -564,7 +584,7 @@ test('Sandbox Coding: a new project for a new plugin, the ZIP says what is missi
   await expect(group.getByLabel('Konto').locator('option')).toHaveText(['octo-lotse (persönlich)', 'acme (Organisation)']);
   await group.getByLabel('Name des Projekts').fill('versand hinweis');
   await expect(group.getByLabel('Name des Projekts')).toHaveValue('versand-hinweis'); // spaces become hyphens
-  await expect(dialog.getByRole('button', { name: 'Sandbox starten' })).toBeDisabled(); // not while the project form is open
+  await expect(dialog.getByRole('button', { name: 'Weiter' })).toBeDisabled(); // not while the project form is open
   await group.getByRole('button', { name: 'Projekt anlegen' }).click();
   await expect(dialog.getByRole('status').filter({ hasText: 'Projekt octo-lotse/versand-hinweis angelegt (privat).' })).toBeVisible();
   const created = ((await (await request.get(`${githubUrl}/__fake/calls`)).json()) as { method: string; path: string; body: { name?: string; private?: boolean; auto_init?: boolean } }[])
@@ -574,6 +594,7 @@ test('Sandbox Coding: a new project for a new plugin, the ZIP says what is missi
   await expect(dialog.getByText('Das Projekt ist noch leer: Die KI baut darin ein neues Shopware-Plugin.')).toBeVisible();
   await expect(dialog.getByLabel('Technischer Name des Plugins')).toHaveValue('VersandHinweis');
   await dialog.getByLabel('Technischer Name des Plugins').fill('OctoVersandHinweis');
+  await next(dialog);
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
 
   const panel = page.getByRole('region', { name: 'Sandbox' });
@@ -609,8 +630,11 @@ test('Sandbox Coding: a whole Shopware project – plugins, apps and config brou
   await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
   await expect(dialog.getByText(/ein ganzer Shopware-Shop mit mehreren Plugins und eigener Konfiguration/)).toBeVisible();
-  await dialog.getByLabel('Repository').selectOption('acme/shop');
   await dialog.getByLabel('Titel (optional)').fill('Ganzer Shop');
+  await next(dialog);
+  await dialog.getByLabel('Repository').selectOption('acme/shop');
+  await expect(dialog.getByRole('status').filter({ hasText: 'Erkannt: ganzer Shopware-Shop (3 Plugins)' })).toBeVisible();
+  await next(dialog);
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
   const panel = page.getByRole('region', { name: 'Sandbox' });
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
@@ -647,5 +671,91 @@ test('Sandbox Coding: a whole Shopware project – plugins, apps and config brou
   await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
   await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
   await expect(page.getByRole('region', { name: 'Sandbox' })).toHaveCount(0);
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
+});
+
+// A20: one start dialog for every case. A project with .lotse/sandbox.json: detected before the start (chip), its commands shown and
+// allowed with a click, "ändern" → own setup with a target folder (invalid ones refused with the hint) and an own command; the setup
+// copies the code there and runs the commands. Then "Ohne Projekt starten": a test shop with a local git, later "Als GitHub-Projekt
+// anlegen" in the Freigabe tab. The dialog fits a phone (no horizontal scrolling).
+test('Sandbox Coding: start dialog in three steps – repository file with approval, own setup, without a project and GitHub later', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const lotse = { 'x-lotse': '1' };
+  expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
+  await expect(dialog.getByRole('button', { name: /^Schritt 1 von 3: Was\?/ })).toHaveAttribute('aria-current', 'step');
+  await expect(dialog.getByRole('button', { name: /Schritt 3 von 3/ })).toBeDisabled(); // not before the source is complete
+  await dialog.getByLabel('Titel (optional)').fill('Flex');
+  await next(dialog);
+  await dialog.getByLabel('Repository').selectOption('acme/flex-plugin');
+  await expect(dialog.getByRole('status').filter({ hasText: 'Erkannt: Plugin AcmeFlex' })).toBeVisible();
+  const file = dialog.getByRole('region', { name: 'Dieses Projekt möchte beim Einrichten folgende Befehle ausführen' });
+  await expect(file.getByText('bin/console framework:demodata')).toBeVisible();
+  await expect(file.getByText(/fehlen in der Umgebung: STRIPE_KEY/)).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Weiter' })).toBeDisabled(); // a decision first
+  await file.getByRole('button', { name: 'Befehle erlauben' }).click();
+  await expect(file.getByText('✓ Befehle erlaubt')).toBeVisible();
+  // "ändern": own setup – target folder (checked as typed), an own command for this sandbox
+  await dialog.getByRole('button', { name: 'ändern' }).click();
+  await dialog.getByLabel(/^Eigenes Setup: Zielordner/).check();
+  await expect(dialog.getByText(/Einrichtung liegt in deiner Hand/)).toBeVisible();
+  const target = dialog.getByLabel('Zielordner im Container');
+  await expect(target).toHaveValue('/opt/flex-plugin');
+  await target.fill('/etc/flex');
+  await expect(dialog.getByText('Nur unter /var/www, /opt oder /srv (ein Unterordner).')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Weiter' })).toBeDisabled();
+  await target.fill('/srv/flex');
+  await dialog.getByRole('button', { name: 'Befehl hinzufügen' }).click();
+  await dialog.getByLabel('Bezeichnung 1').fill('Bauen');
+  await dialog.getByLabel('Befehl 1').fill('make build');
+  await next(dialog);
+  await expect(dialog.getByText('Bestehendes Projekt · acme/flex-plugin @ main · Demo-Daten')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
+
+  const panel = page.getByRole('region', { name: 'Sandbox' });
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+  await panel.getByRole('tab', { name: 'Einrichtung' }).click();
+  const steps = panel.getByRole('tabpanel', { name: 'Einrichtung' });
+  await expect(steps.getByText(/Eigenes Setup: \/srv\/flex/)).toBeVisible();
+  await steps.getByRole('button', { name: 'Details anzeigen' }).click();
+  await expect(steps.getByText('Code in den Zielordner übertragen')).toBeVisible();
+  await expect(steps.getByText('Demodaten anlegen')).toBeVisible(); // the repository's command, allowed above
+  await expect(steps.getByText('Bauen', { exact: true })).toBeVisible(); // this sandbox's own command
+  page.once('dialog', d => void d.accept());
+  await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
+  await expect(panel).toHaveCount(0);
+
+  // without a project, on a phone: the steps fit, nothing scrolls sideways
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await dialog.getByLabel('Ohne Projekt starten').check();
+  await dialog.getByLabel('Titel (optional)').fill('Versand Banner');
+  expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await next(dialog);
+  await expect(dialog.getByLabel('Technischer Name des Plugins')).toHaveValue('VersandBanner');
+  await next(dialog);
+  await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(page.getByText(/Sandbox ohne Projekt angehängt/)).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+  await expect(panel.getByText('ohne GitHub-Projekt')).toBeVisible();
+  await panel.getByRole('tab', { name: 'Freigabe' }).click();
+  const gh = panel.getByRole('region', { name: 'Als GitHub-Projekt anlegen' });
+  await expect(gh.getByLabel('Name des Projekts')).toHaveValue('versandbanner');
+  await gh.getByLabel('Name des Projekts').fill('versand-banner');
+  await gh.getByRole('button', { name: 'GitHub-Projekt anlegen' }).click();
+  await expect(panel.getByText('octo-lotse/versand-banner').first()).toBeVisible();
+  await expect(panel.getByRole('region', { name: 'Als GitHub-Projekt anlegen' })).toHaveCount(0); // the usual "Zur Prüfung freigeben" now
+  const created = ((await (await request.get(`${githubUrl}/__fake/calls`)).json()) as { method: string; path: string; body: { name?: string; auto_init?: boolean } }[])
+    .filter(c => c.method === 'POST' && c.path === '/user/repos').at(-1);
+  expect(created?.body).toMatchObject({ name: 'versand-banner', auto_init: false });
+  page.once('dialog', d => void d.accept());
+  await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
+  await expect(panel).toHaveCount(0);
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
 });

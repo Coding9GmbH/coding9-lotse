@@ -17,17 +17,19 @@ import styles from './Sandbox.module.css';
 
 interface VarRow { key: string; secret: boolean; value: string; hasValue: boolean; /** stored as secret with a value: unticking needs a new value */ wasSecret?: boolean }
 interface CmdRow { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec: string }
-interface Form { image: string; defaultRepo: string; defaultBranch: string; defaultDump: string; internet: InternetPolicy; shotsOn: boolean; shots: string; vars: VarRow[]; cmds: CmdRow[] }
+interface Form { image: string; defaultRepo: string; defaultBranch: string; defaultDump: string; internet: InternetPolicy; shotsOn: boolean; shots: string; vars: VarRow[]; cmds: CmdRow[]; aiNotes: string }
 const formOf = (v: SandboxEnvView): Form => ({
   image: v.env.image, defaultRepo: v.env.defaultRepo, defaultBranch: v.env.defaultBranch, defaultDump: v.env.defaultDumpId, internet: v.env.internet, shotsOn: v.env.screenshots, shots: v.env.screenshotPaths.join('\n'),
   vars: v.env.envVars.map(x => ({ ...x, wasSecret: x.secret && x.hasValue })),
   cmds: v.env.commands.map(c => ({ id: c.id, label: c.label, command: c.command, phase: c.phase, timeoutSec: String(c.timeoutSec) })),
+  aiNotes: v.env.aiNotes,
 });
 const patchOf = (f: Form): SandboxEnvPatch => ({
   image: f.image.trim(), defaultRepo: f.defaultRepo.trim(), defaultBranch: f.defaultBranch.trim(), defaultDumpId: f.defaultDump, internet: f.internet,
   screenshots: f.shotsOn, screenshotPaths: f.shots.split('\n').map(x => x.trim()).filter(Boolean),
   envVars: f.vars.filter(v => v.key.trim() || v.value).map(v => ({ key: v.key.trim(), secret: v.secret, ...(v.secret && !v.value ? {} : { value: v.value }) })),
   commands: f.cmds.filter(c => c.label.trim() || c.command.trim()).map(c => ({ ...(c.id ? { id: c.id } : {}), label: c.label, command: c.command, phase: c.phase, timeoutSec: Number(c.timeoutSec) || undefined })),
+  aiNotes: f.aiNotes,
 });
 const same = (a: Form, b: Form) => JSON.stringify(patchOf(a)) === JSON.stringify(patchOf(b));
 
@@ -300,6 +302,10 @@ function Environment({ view, dbs, onSaved, onChecked }: { view: SandboxEnvView; 
         </div>
       ))}
       <Button size="sm" variant="ghost" onClick={() => set(f => ({ ...f, cmds: [...f.cmds, { label: '', command: '', phase: 'after-db', timeoutSec: '600' }] }))}><IconPlus size={14} /> {t.addCommand}</Button>
+
+      <h3 className={styles.h3}><label htmlFor="sbx-ai-notes">{t.aiNotes}</label></h3>
+      <Hint text={t.aiNotesHint} />
+      <textarea id="sbx-ai-notes" rows={4} maxLength={4000} placeholder={t.aiNotesPlaceholder} value={form.aiNotes} onChange={e => set(f => ({ ...f, aiNotes: e.target.value }))} />
 
       <div className={styles.actions}>
         <Button variant="primary" onClick={() => void save()} busy={saving} disabled={saving || !dirty}>{saving ? t.saving : t.save}</Button>
