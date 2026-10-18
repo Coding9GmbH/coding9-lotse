@@ -16,7 +16,7 @@ const ICON: Record<TaskStep['state'], string> = { pending: '○', running: '', d
  * and a failed step (the others on click); a failed step shows one summary line (the full output stays in its log) and the one
  * "Ab hier erneut versuchen". Steps after a failure are folded. Once everything is done the list folds into "Eingerichtet in …".
  */
-export function StepTimeline({ task, onRetry, onIgnoreVersion, busy }: { task: CodeTaskPublic; onRetry: (stepId: string) => void; onIgnoreVersion: () => void; busy: boolean }) {
+export function StepTimeline({ task, onRetry, onIgnoreVersion, busy }: { task: CodeTaskPublic; onRetry: (stepId: string) => void; /** "Trotzdem fortfahren" from this step */ onIgnoreVersion: (stepId: string) => void; busy: boolean }) {
   const { t: all } = useI18n();
   const t = all.sandbox.task, td = all.sandbox.dump;
   const running = task.steps.some(s => s.state === 'running');
@@ -52,7 +52,9 @@ export function StepTimeline({ task, onRetry, onIgnoreVersion, busy }: { task: C
       {took !== null && <div className={styles.tlDone}><b>{t.setupDone(formatSeconds(took))}</b><button type="button" className={styles.textBtn} aria-expanded onClick={() => setDetails(false)}>{t.hideDetails}</button></div>}
       <ol className={styles.timeline}>
         {shown.map(s => {
-          const sec = stepSeconds(s), label = s.key === 'custom' ? s.label ?? s.id : all.sandbox.steps[s.key];
+          const project = task.layout?.kind === 'project';
+          const sec = stepSeconds(s), label = s.key === 'custom' ? s.label ?? s.id : (project && all.sandbox.projectSteps[s.key]) || all.sandbox.steps[s.key];
+          const pmm = s.key === 'detect-layout' && s.state === 'failed' ? task.layout?.project?.versionMismatch : undefined;
           const skip = skipReason(task, s), state = skip ? 'skipped' : s.state;
           const autoLog = s.state === 'running' || s.state === 'failed';
           const hasLog = s.log.length > 0;
@@ -73,7 +75,13 @@ export function StepTimeline({ task, onRetry, onIgnoreVersion, busy }: { task: C
                 {s.key === 'version-check' && s.state === 'failed' && task.dump?.versionMismatch && !task.dump.deleted && (
                   <div className={styles.dumpWarn}>
                     <span>{td.mismatch(task.dump.versionMismatch.dump, task.dump.versionMismatch.image)}</span>
-                    <Button size="sm" onClick={onIgnoreVersion} disabled={busy}>{td.ignoreVersion}</Button>
+                    <Button size="sm" onClick={() => onIgnoreVersion(s.id)} disabled={busy}>{td.ignoreVersion}</Button>
+                  </div>
+                )}
+                {pmm && (
+                  <div className={styles.dumpWarn}>
+                    <span>{all.sandbox.project.mismatch(pmm.project, pmm.image, pmm.suggest)}</span>
+                    <Button size="sm" onClick={() => onIgnoreVersion(s.id)} disabled={busy}>{td.ignoreVersion}</Button>
                   </div>
                 )}
                 {s.key === 'import-db' && task.dump?.deleted && s.state !== 'pending' && <p className={styles.dumpNote}>{td.deleted}</p>}

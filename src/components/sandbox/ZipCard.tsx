@@ -19,15 +19,17 @@ export function ZipCard({ task, refresh = 0, onAskAi }: { task: CodeTaskPublic; 
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [tick, setTick] = useState(0);
+  // a full project: which of its plugins (folder); undefined = the server's default (the first)
+  const [plugin, setPlugin] = useState<string | undefined>(undefined);
   useEffect(() => {
     let off = false;
-    api.sandbox.zipCheck(task.id).then(c => { if (!off) setCheck(c); }, e => { if (!off) { setCheck(null); setNote({ ok: false, text: t.failed(errorText(e)) }); } });
+    api.sandbox.zipCheck(task.id, plugin).then(c => { if (!off) setCheck(c); }, e => { if (!off) { setCheck(null); setNote({ ok: false, text: t.failed(errorText(e)) }); } });
     return () => { off = true; };
-  }, [task.id, refresh, tick, t]);
+  }, [task.id, refresh, tick, t, plugin]);
 
   async function download() {
     setBusy(true); setNote(null);
-    try { setNote({ ok: true, text: t.saved(await api.sandbox.zipDownload(task.id)) }); }
+    try { setNote({ ok: true, text: t.saved(await api.sandbox.zipDownload(task.id, check?.plugin ?? plugin)) }); }
     catch (e) { setNote({ ok: false, text: t.failed(errorText(e)) }); setTick(n => n + 1); }
     finally { setBusy(false); }
   }
@@ -37,7 +39,16 @@ export function ZipCard({ task, refresh = 0, onAskAi }: { task: CodeTaskPublic; 
   return (
     <section className={styles.zipBox} aria-labelledby="sbx-zip-h">
       <h3 id="sbx-zip-h" className={styles.label}>{t.heading}</h3>
-      <p className={styles.fieldHint}>{t.lead}</p>
+      <p className={styles.fieldHint}>{check?.plugins ? t.leadProject : t.lead}</p>
+      {check?.plugins && check.plugins.length > 0 && (
+        <label className={styles.zipPick}>
+          <span className={styles.label}>{t.pick}</span>
+          <select value={check.plugin ?? ''} disabled={busy} onChange={e => { setNote(null); setPlugin(e.target.value); }}>
+            {check.plugins.map(p => <option key={p.dir} value={p.dir}>{p.name} ({p.dir})</option>)}
+          </select>
+        </label>
+      )}
+      {check?.plugins && check.plugins.length === 0 && <p className={styles.muted}>{t.noPlugins}</p>}
       {!check && !note && <p className={styles.muted} role="status">{t.checking}</p>}
       {check && !check.ok && (
         <div className={styles.zipMissing}>

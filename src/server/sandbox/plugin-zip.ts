@@ -5,7 +5,8 @@ import 'server-only';
 // vendor/ only when composer.json requires packages besides Shopware/PHP and the working copy has it. Text files with keys, tokens,
 // stored secrets or URLs with credentials block the ZIP (publishing's scan, without an override: the ZIP goes into a shop). Built
 // from disk as it is now, including what the AI has not committed yet; a file that changes between the check and the download breaks
-// the download instead of going out unchecked.
+// the download instead of going out unchecked. A full Shopware project: one of its plugins (custom/plugins or custom/static-plugins),
+// chosen by its folder; the ZIP holds that folder only.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,6 +14,7 @@ import type { PluginZipCheck, PluginZipProblem, PluginZipWarning } from '@/lib/p
 import { PLUGIN_NAME } from '@/lib/sandbox-task';
 import { scanSecrets } from '../settings';
 import { zipStream, type ZipEntry } from '../zip-write';
+import { detectProject } from './project';
 import { secretIn } from './publish';
 import { taskPaths, type CodeTask } from './tasks';
 import { isBinary, isDenied } from './workspace-fs';
@@ -76,9 +78,24 @@ function readComposer(root: string, problems: PluginZipProblem[], warnings: Plug
   return out;
 }
 
+/** A project's plugins to choose from (folder relative to the repository, technical name); null for a plugin repository */
+export function zipChoices(t: CodeTask): { dir: string; name: string }[] | null {
+  if (t.layout?.kind !== 'project') return null;
+  return detectProject(taskPaths(t.id).worktree).plugins.map(p => ({ dir: p.dir, name: p.name }));
+}
+/** The folder the ZIP is built from: the repository, or (a project) the chosen plugin's folder – the first one when none is chosen.
+ *  Throws for a folder that is not one of the project's plugins. */
+function zipRoot(t: CodeTask, plugin?: string | null): { root: string; choices: { dir: string; name: string }[] | null; plugin?: string } {
+  const wt = taskPaths(t.id).worktree, choices = zipChoices(t);
+  if (!choices) return { root: wt, choices: null };
+  const pick = plugin ? choices.find(c => c.dir === plugin) : choices[0];
+  if (plugin && !pick) throw Object.assign(new Error('Dieses Plugin gibt es im Projekt nicht.'), { status: 400 });
+  return { root: pick ? path.join(wt, pick.dir) : path.join(wt, 'custom', 'plugins', '.none'), choices, ...(pick ? { plugin: pick.dir } : {}) };
+}
+
 /** What the ZIP would contain and why it cannot be built (if so). Never throws for the working copy's content. */
-function plan(t: CodeTask): Plan {
-  const root = taskPaths(t.id).worktree;
+function plan(t: CodeTask, plugin?: string | null): Plan {
+  const { root, choices, plugin: chosen } = zipRoot(t, plugin);
   const problems: PluginZipProblem[] = [], warnings: PluginZipWarning[] = [];
   const { name, version, needsVendor } = readComposer(root, problems, warnings);
   const vendor = needsVendor && fs.existsSync(path.join(root, 'vendor', 'autoload.php'));
@@ -113,16 +130,17 @@ function plan(t: CodeTask): Plan {
   if (secretFile) problems.push('secret');
   if (!problems.length && !files.length) problems.push('empty');
   return {
-    check: { ok: problems.length === 0, name, version, problems, warnings, files: files.length, bytes, vendor, ...(secretFile ? { secretFile: secretFile.slice(0, 300) } : {}) },
+    check: { ok: problems.length === 0, name, version, problems, warnings, files: files.length, bytes, vendor, ...(secretFile ? { secretFile: secretFile.slice(0, 300) } : {}),
+      ...(choices ? { plugins: choices, ...(chosen ? { plugin: chosen } : {}) } : {}) },
     files, dirs: dirs.filter(d => files.some(f => f.rel.startsWith(`${d}/`))), // no folders left empty by the exclusions (keys/, config/ …)
   };
 }
 
-export const checkPluginZip = (t: CodeTask): PluginZipCheck => plan(t).check;
+export const checkPluginZip = (t: CodeTask, plugin?: string | null): PluginZipCheck => plan(t, plugin).check;
 
 /** The ZIP as a stream (top folder <Name>/ first, then folders and files in order), or the check that says why not. */
-export function pluginZip(t: CodeTask): { check: PluginZipCheck; stream: ReadableStream<Uint8Array> | null } {
-  const p = plan(t);
+export function pluginZip(t: CodeTask, plugin?: string | null): { check: PluginZipCheck; stream: ReadableStream<Uint8Array> | null } {
+  const p = plan(t, plugin);
   if (!p.check.ok || !p.check.name) return { check: p.check, stream: null };
   const top = p.check.name;
   // each file exactly as checked: changed since (the AI writes meanwhile) breaks the download instead of shipping unchecked content

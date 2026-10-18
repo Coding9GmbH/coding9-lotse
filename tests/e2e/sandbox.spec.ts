@@ -599,3 +599,51 @@ test('Sandbox Coding: a new project for a new plugin, the ZIP says what is missi
   await expect(page.getByRole('region', { name: 'Sandbox' })).toHaveCount(0);
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
 });
+
+test('Sandbox Coding: a whole Shopware project – plugins, apps and config brought in, what the sandbox switched, ZIP of one plugin', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const lotse = { 'x-lotse': '1' };
+  expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
+  await expect(dialog.getByText(/ein ganzer Shopware-Shop mit mehreren Plugins und eigener Konfiguration/)).toBeVisible();
+  await dialog.getByLabel('Repository').selectOption('acme/shop');
+  await dialog.getByLabel('Titel (optional)').fill('Ganzer Shop');
+  await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
+  const panel = page.getByRole('region', { name: 'Sandbox' });
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+
+  await panel.getByRole('tab', { name: 'Einrichtung' }).click();
+  const steps = panel.getByRole('tabpanel', { name: 'Einrichtung' });
+  await expect(steps.getByText(/Container läuft · Shopware-Projekt \(3 Plugins\)/)).toBeVisible();
+  const box = steps.getByRole('region', { name: 'Ganzes Shopware-Projekt' });
+  await expect(box.getByText('Shopware 6.7.15.1 (composer.lock) · Theme: AcmeTheme')).toBeVisible();
+  await expect(box.getByRole('listitem').filter({ hasText: 'AcmeErpConnector' })).toContainText('statisch');
+  await expect(box.getByText('Apps: AcmeHelloApp')).toBeVisible();
+  await box.getByText('1 Konfigurationsdatei wird in der Sandbox nicht geladen').click();
+  await expect(box.getByText(/config\/packages\/sentry\.yaml/)).toBeVisible();
+  await box.getByText(/^In der Sandbox umgestellt \(externe Dienste → lokal\)/).click();
+  await expect(box.getByText('shopware.cart.storage.type: redis → mysql')).toBeVisible();
+  await steps.getByRole('button', { name: 'Details anzeigen' }).click();
+  await expect(steps.getByText('Shopware-Projekt erkennen')).toBeVisible();
+  await steps.getByRole('listitem').filter({ hasText: 'Projekt einspielen (Plugins, Apps, Konfiguration, Theme)' }).getByText(/^Protokoll/).click();
+  await expect(steps.getByText('$ bin/console plugin:install --activate -n -- AcmeStorefrontTweaks AcmeTheme AcmeErpConnector')).toBeVisible();
+
+  // "Plugin als ZIP": one plugin of the project, chosen in the list
+  await panel.getByRole('tab', { name: 'Freigabe' }).click();
+  const zip = panel.getByRole('region', { name: 'Plugin als ZIP' });
+  const pick = zip.getByLabel('Plugin des Projekts');
+  await expect(pick.locator('option')).toHaveText(['AcmeStorefrontTweaks (custom/plugins/AcmeStorefrontTweaks)', 'AcmeTheme (custom/plugins/AcmeTheme)', 'AcmeErpConnector (custom/static-plugins/AcmeErpConnector)']);
+  await pick.selectOption('custom/plugins/AcmeTheme');
+  await expect(zip.getByText(/^AcmeTheme 1\.0\.0 · \d+ Dateien/)).toBeVisible();
+  const [download] = await Promise.all([page.waitForEvent('download'), zip.getByRole('button', { name: 'Plugin als ZIP herunterladen' }).click()]);
+  expect(download.suggestedFilename()).toBe('AcmeTheme-1.0.0.zip');
+
+  page.once('dialog', d => void d.accept());
+  await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
+  await expect(page.getByRole('region', { name: 'Sandbox' })).toHaveCount(0);
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
+});

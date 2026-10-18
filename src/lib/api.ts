@@ -90,10 +90,10 @@ export const api = {
     repoOwners: () => request<{ owners: RepoOwner[] }>('/api/sandbox/repos'),
     createRepo: (p: { owner: string; name: string; description?: string }) => request<{ repo: GithubRepo }>('/api/sandbox/repos', json('POST', p)),
     /** "Plugin als ZIP herunterladen": what the ZIP would contain (problems, warnings) */
-    zipCheck: (id: string) => request<PluginZipCheck>(`/api/sandbox/tasks/${encodeURIComponent(id)}/plugin-zip?check=1`),
+    zipCheck: (id: string, plugin?: string) => request<PluginZipCheck>(`/api/sandbox/tasks/${encodeURIComponent(id)}/plugin-zip?check=1${plugin ? `&plugin=${encodeURIComponent(plugin)}` : ''}`),
     /** the ZIP itself (streamed by the server); saved by the browser under the name the server gives */
-    zipDownload: async (id: string) => {
-      const r = await fetch(`/api/sandbox/tasks/${encodeURIComponent(id)}/plugin-zip`, withHeader());
+    zipDownload: async (id: string, plugin?: string) => {
+      const r = await fetch(`/api/sandbox/tasks/${encodeURIComponent(id)}/plugin-zip${plugin ? `?plugin=${encodeURIComponent(plugin)}` : ''}`, withHeader());
       if (!r.ok) { const j = await r.json().catch(() => null) as { error?: string } | null; throw new ApiError(j?.error ?? `HTTP ${r.status}`, r.status); }
       const name = /filename="([^"]+)"/.exec(r.headers.get('content-disposition') ?? '')?.[1] ?? 'plugin.zip';
       const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');

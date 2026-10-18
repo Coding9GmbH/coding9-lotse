@@ -13,7 +13,7 @@ import path from 'node:path';
 import { startFakeShopify } from '../../support/shopify-fake/server';
 import { startFakeAnthropic } from '../../support/anthropic-fake/server';
 import { startFakeGithub } from '../../support/github-fake';
-import { HEADER_TEMPLATE, headerTemplate, makePluginRepo } from '../../support/plugin-repo';
+import { HEADER_TEMPLATE, headerTemplate, makePluginRepo, makeProjectRepo } from '../../support/plugin-repo';
 import { GITHUB_TOKEN as E2E_GITHUB_TOKEN } from './github';
 import { E2E } from './env';
 
@@ -23,11 +23,12 @@ const remoteRoot = `${E2E.dataDir}-git`;
 fs.rmSync(remoteRoot, { recursive: true, force: true });
 fs.mkdirSync(remoteRoot, { recursive: true });
 const themeRepo = makePluginRepo(remoteRoot, { repo: 'acme/shop-theme', name: 'AcmeShopTheme', theme: true, files: { [HEADER_TEMPLATE]: headerTemplate('Lotse Test-Header') } });
+makeProjectRepo(remoteRoot, { repo: 'acme/shop' }); // a whole Shopware project (A19)
 
 const shop = await startFakeShopify({ port: E2E.shopPort, log: false });
 const ai = await startFakeAnthropic({ port: E2E.aiPort, quiet: process.env.E2E_VERBOSE !== '1' });
 // "Neues Projekt anlegen" creates a repository in the fake; it becomes a README-only clone source, as GitHub's auto_init does
-const gh = await startFakeGithub({ token: E2E_GITHUB_TOKEN, login: 'octo-lotse', port: E2E.githubPort, orgs: ['acme'], repos: [{ fullName: 'acme/shop-theme' }, { fullName: 'acme/legacy-plugin', push: false }],
+const gh = await startFakeGithub({ token: E2E_GITHUB_TOKEN, login: 'octo-lotse', port: E2E.githubPort, orgs: ['acme'], repos: [{ fullName: 'acme/shop-theme' }, { fullName: 'acme/shop' }, { fullName: 'acme/legacy-plugin', push: false }],
   onCreateRepo: r => { makePluginRepo(remoteRoot, { repo: r.fullName, empty: true }); } });
 console.log(`[e2e] Shopify-Fake ${shop.url} · Anthropic-Fake ${ai.url} · Daten ${E2E.dataDir}`);
 

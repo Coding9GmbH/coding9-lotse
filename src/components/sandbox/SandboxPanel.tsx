@@ -16,6 +16,7 @@ import { ConsolePanel } from './ConsolePanel';
 import { DiffPanel } from './DiffPanel';
 import { DumpPicker } from './DumpPicker';
 import { PrCard } from './PrCard';
+import { ProjectSummary } from './ProjectSummary';
 import { PublishCard, type PrProposal } from './PublishCard';
 import { SandboxOff } from './SandboxOff';
 import { SandboxPreview } from './SandboxPreview';
@@ -202,11 +203,12 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
           <p className={styles.taskMeta}>
             {t.branchInfo(task.baseBranch, task.branch)} · {all.sandbox.templates[task.template] ?? task.template}
             {' · '}{task.container ? (task.container.running ? t.container.running : t.container.stopped) : t.container.none}
-            {task.layout && <> · {task.layout.pluginDir}</>}
+            {task.layout && <> · {task.layout.kind === 'project' ? all.sandbox.project.kind(task.layout.project?.plugins.length ?? 0) : task.layout.pluginDir}</>}
             {task.dump && <> · {(task.dump.library ? all.sandbox.dump.infoStored : all.sandbox.dump.info)(task.dump.name, task.dump.size)} ({task.dump.restored ? all.sandbox.dump.restored : task.dump.imported ? all.sandbox.dump.imported : task.dump.deleted ? all.sandbox.dump.deleted : all.sandbox.dump.waiting})</>}
           </p>
           {error && <p className={styles.muted}>{t.connection(error)}</p>}
-          <StepTimeline task={task} busy={busyAct} onRetry={stepId => void act('start', { fromStep: stepId })} onIgnoreVersion={() => void act('start', { fromStep: 'version-check', ignoreVersion: true })} />
+          <ProjectSummary task={task} />
+          <StepTimeline task={task} busy={busyAct} onRetry={stepId => void act('start', { fromStep: stepId })} onIgnoreVersion={stepId => void act('start', { fromStep: stepId, ignoreVersion: true })} />
         </section>
         <section role="tabpanel" id="sbx-panel-changes" aria-labelledby="sbx-tab-changes" hidden={shown !== 'changes'} className={styles.tabBody}>
           {shown === 'changes' && <DiffPanel taskId={task.id} refresh={files + (busy ? 0 : 1)} />}

@@ -15,7 +15,7 @@ import { startFakeGithub } from '../support/github-fake';
 for (const k of ['LOTSE_SANDBOX', 'LOTSE_PASSWORD', 'ALLOWED_HOSTS', 'HOSTNAME', 'HOST', 'AICB_DOCKER', 'LOTSE_BIND', 'LOTSE_SANDBOX_MAX', 'LOTSE_SANDBOX_IDLE_MINUTES', 'LOTSE_SANDBOX_NETWORK', 'LOTSE_SANDBOX_SUBNET', 'LOTSE_SANDBOX_RUNNER']) delete process.env[k];
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lotse-jobs-'));
 const theme = makePluginRepo(tmp, { theme: true });
-makePluginRepo(tmp, { repo: 'acme/full-shop', name: 'Unused', composer: { name: 'acme/shop', type: 'project', require: { 'shopware/core': '6.7.*' } } });
+makePluginRepo(tmp, { repo: 'acme/full-shop', name: 'Unused', composer: { name: 'acme/shop', type: 'project', require: { 'symfony/framework-bundle': '^7.4' } } });
 process.env.LOTSE_GITHUB_CLONE_BASE = `file://${theme.remoteBase}`;
 const TOKEN = `github_pat_${'J0bsTest42'.repeat(8)}_abc`;
 const gh = await startFakeGithub({ token: TOKEN, repos: [{ fullName: 'acme/shop-theme' }] });
@@ -511,12 +511,12 @@ test('logs are redacted before they are stored or streamed', async () => {
   await J.finishTask(t.id);
 });
 
-test('detect-layout: a full Shopware project stops with a clear German error', async () => {
+test('detect-layout: a project without Shopware stops with a clear German error (whole Shopware projects: sandbox-project.test.ts)', async () => {
   const t = T.createTask({ chatId: crypto.randomUUID(), title: 'Ganzer Shop', goal: '', repo: 'acme/full-shop', baseBranch: 'main' });
   J.runSteps(t.id); await settled(t.id);
   const cur = T.getTask(t.id)!;
   assert.equal(cur.status, 'failed');
-  assert.match(cur.error!, /Vollständige Shopware-Projekte werden von dieser Vorlage noch nicht unterstützt/);
+  assert.match(cur.error!, /Kein Shopware-Projekt erkannt: composer\.json verlangt weder shopware\/core noch shopware\/platform/);
   assert.equal(cur.containerId, null, 'no container before the layout is known');
   await J.deleteTask(t.id);
 });

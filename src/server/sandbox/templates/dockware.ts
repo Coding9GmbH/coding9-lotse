@@ -10,6 +10,8 @@ import type { ContainerSpec } from '../runner';
 import type { TaskLayout } from '@/lib/protocol';
 import { PLUGIN_NAME, isEmptyRepoListing, pluginNameFromRepo } from '@/lib/sandbox-task';
 import { MANAGED, SANDBOX_NET, TASK_LABEL, sandboxAlias, taskDbVolume } from '../labels';
+import { COMPOSER_NAME, detectProject, imageVersion, isProjectComposer, projectSummary, versionMismatch } from '../project';
+import { installProject } from './dockware-project';
 import type { CommandArg, CommandSpec, ConsoleSpec, SandboxTemplate, SpecInput, StepCtx, TemplateStep } from './types';
 
 const MIN = 60_000;
@@ -99,11 +101,25 @@ async function importDb(ctx: StepCtx): Promise<void | 'skipped'> {
   ctx.log(d.library ? 'Datenbank importiert. Die gespeicherte Datenbank bleibt für weitere Sandboxes erhalten.' : 'Datenbank importiert. Dump gelöscht ✓');
 }
 
+/** A full project: what it contains, and its Shopware version (composer.lock) against the image's tag – a different major.minor
+ *  blocks until "Trotzdem fortfahren" (the layout is kept first, so the view can show both versions and the matching image). */
+async function projectLayout(ctx: StepCtx, l: TaskLayout): Promise<void> {
+  const p = l.project!, mm = versionMismatch(p.shopwareVersion, ctx.image);
+  ctx.setLayout({ ...l, project: { ...p, ...(mm ? { versionMismatch: mm } : {}) } });
+  ctx.log(`Shopware-Projekt ${l.name} → /var/www/html (Overlay: Plugins, Apps, config/packages, config/services*.yaml, src/) · ${projectSummary(p)}`);
+  if (!p.shopwareVersion) ctx.log('Hinweis: Kein composer.lock mit shopware/core – die Shopware-Version des Projekts lässt sich nicht prüfen.');
+  else if (!mm) ctx.log(`Shopware ${p.shopwareVersion} des Projekts passt zum Image (${imageVersion(ctx.image) ?? ctx.image}).`);
+  if (!mm) return;
+  if (ctx.ignoreProjectVersion) { ctx.log(`Abweichende Version (Projekt ${mm.project}, Image ${mm.image}) – „Trotzdem fortfahren“ gewählt.`); return; }
+  throw new Error(`Das Projekt nutzt Shopware ${mm.project}, das Image enthält ${mm.image} – passendes Image (${mm.suggest}) in der Umgebung wählen oder „Trotzdem fortfahren“.`);
+}
+
 const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
   'check-image': ctx => ctx.ensureImage(),
   clone: async ctx => { const { head } = await ctx.clone(); ctx.log(`Commit ${head.slice(0, 12)}`); },
   'detect-layout': async ctx => {
     const l = detectLayout(ctx.worktree, { newPluginName: ctx.newPluginName, repo: ctx.repo });
+    if (l.kind === 'project') return projectLayout(ctx, l);
     ctx.setLayout(l);
     ctx.log(l.isNew
       ? `Das Repository ist leer – neues Plugin ${l.name} → ${l.pluginDir}. Die KI legt es in der Sandbox an; Installieren und Theme-Kompilieren entfallen bei der Einrichtung.`
@@ -112,6 +128,7 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
   'start-container': ctx => ctx.createContainer(),
   'wait-ready': ctx => waitReady(ctx),
   'install-plugin': async ctx => {
+    if (ctx.layout()?.kind === 'project') return installProject(ctx);
     const l = pluginName(ctx);
     await ctx.syncAll();
     if (l.isNew) { ctx.log(`Neues Plugin: Es gibt noch nichts zu installieren. Sobald composer.json und die Plugin-Klasse angelegt sind, installiert die KI es mit bin/console plugin:install --activate ${l.name}.`); return 'skipped'; }
@@ -139,6 +156,8 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
     // a new plugin changes nothing yet; an imported dump still needs its themes compiled and the warm cache cleared
     if (ctx.layout()?.isNew && !ctx.hasDump()) { ctx.log('Neues Plugin: Die Storefront bleibt vorerst unverändert; kompiliert wird, sobald das Plugin Styles oder Templates mitbringt.'); return 'skipped'; }
     await ctx.run(bin('theme:compile')); await ctx.run(bin('cache:clear'));
+    // a project's changes (theme, apps, plugins at once): the HTTP cache kept serving the old start page after cache:clear alone
+    if (ctx.layout()?.kind === 'project') await ctx.run(bin('cache:pool:clear', '--all'), { okCodes: [0, 1] });
   },
   ready: async ctx => { const s = await ctx.httpStatus('/'); if (s !== 200) throw new Error(`Die Storefront antwortet mit HTTP ${s}.`); },
 };
@@ -156,7 +175,8 @@ const STEPS: TemplateStep[] = [
   step('set-domain', MIN),
   step('db-snapshot', 10 * MIN, { optional: true }),
   step('preview-tidy', 3 * MIN, { optional: true }),
-  step('install-plugin', 5 * MIN),
+  // a full project installs several plugins, apps, its theme and composer parts here (about 45 s measured)
+  step('install-plugin', 15 * MIN),
   step('custom-after-db', 0, { custom: 'after-db' }),
   step('theme-compile', 10 * MIN),
   step('custom-final', 0, { custom: 'final' }),
@@ -174,7 +194,8 @@ const COMMANDS: CommandSpec[] = [
   cmd('php-lint', (a, c) => ['php', '-l', `${c.pluginDir}/${a.path}`], [pathArg(/^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._/-]{0,195}\.php$/)], MIN),
 ];
 
-const FULL_PROJECT = 'Vollständige Shopware-Projekte werden von dieser Vorlage noch nicht unterstützt – nur Plugin- und Theme-Repositorys (custom/plugins/<Name>).';
+const NO_COMPOSER_PROJECT = 'Das Repository sieht nach einem Shopware-Projekt aus, hat aber keine composer.json im Hauptordner (mit shopware/core in „require“) – so kann Lotse es nicht einrichten.';
+const NOT_SHOPWARE_PROJECT = 'Kein Shopware-Projekt erkannt: composer.json verlangt weder shopware/core noch shopware/platform.';
 const NO_PLUGIN = 'Kein Shopware-Plugin erkannt: composer.json mit type „shopware-platform-plugin“ und extra.shopware-plugin-class fehlt. Für ein neues Plugin ein leeres Repository wählen (höchstens README, LICENSE, .gitignore).';
 
 const NO_NAME = 'Das Repository ist leer, aber es fehlt ein gültiger technischer Name für das neue Plugin (z. B. CoNineHeaderBanner: Buchstaben und Ziffern, beginnt mit einem Großbuchstaben). Sandbox abschließen und mit Plugin-Namen neu starten.';
@@ -182,7 +203,8 @@ const NO_NAME = 'Das Repository ist leer, aber es fehlt ein gültiger technische
 /** Options for an empty repository: the name the user chose for the new plugin (else one derived from the repository name). */
 export interface DetectOptions { newPluginName?: string | null; repo?: string }
 
-/** composer.json type shopware-platform-plugin + extra.shopware-plugin-class → plugin name; src/Resources/theme.json → theme.
+/** composer.json type shopware-platform-plugin + extra.shopware-plugin-class → plugin name; src/Resources/theme.json → theme;
+ *  type project requiring shopware/core (or platform) → a full Shopware project (project.ts).
  *  An (almost) empty repository (README, LICENSE, .gitignore at most) becomes a new plugin that the AI builds in the sandbox. */
 export function detectLayout(worktree: string, o: DetectOptions = {}): TaskLayout {
   const file = path.join(worktree, 'composer.json');
@@ -194,13 +216,17 @@ export function detectLayout(worktree: string, o: DetectOptions = {}): TaskLayou
     if (!PLUGIN_NAME.test(name)) throw new Error(NO_NAME);
     return { kind: 'plugin', name, pluginDir: `custom/plugins/${name}`, isNew: true };
   }
-  if (!st) throw new Error(has('bin/console') || has('symfony.lock') ? FULL_PROJECT : NO_PLUGIN);
+  if (!st) throw new Error(has('bin/console') || has('symfony.lock') ? NO_COMPOSER_PROJECT : NO_PLUGIN);
   if (!st.isFile() || st.size > 1024 * 1024) throw new Error('composer.json ist keine normale Datei oder zu groß.');
   let c: { type?: unknown; extra?: Record<string, unknown>; require?: Record<string, unknown> };
   try { c = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { throw new Error('composer.json ist kein gültiges JSON.'); }
   if (c?.type !== 'shopware-platform-plugin') {
-    const sw = c?.require && typeof c.require === 'object' && Object.keys(c.require).some(k => /^shopware\/(core|platform|storefront)$/.test(k));
-    throw new Error(c?.type === 'project' || sw || has('bin/console') ? FULL_PROJECT : NO_PLUGIN);
+    // a whole Shopware project (shopware/production layout): its plugins, apps and configuration are synced into the sandbox's shop
+    if (isProjectComposer(c as Record<string, unknown>, worktree)) {
+      const name = typeof (c as { name?: unknown }).name === 'string' && COMPOSER_NAME.test((c as { name: string }).name) ? (c as { name: string }).name : (o.repo ?? '').split('/').pop() || 'projekt';
+      return { kind: 'project', name: name.slice(0, 100), pluginDir: '', project: detectProject(worktree) };
+    }
+    throw new Error(c?.type === 'project' || has('bin/console') ? NOT_SHOPWARE_PROJECT : NO_PLUGIN);
   }
   const cls = c.extra?.['shopware-plugin-class'];
   if (typeof cls !== 'string' || !cls.trim()) throw new Error(NO_PLUGIN);
@@ -324,7 +350,7 @@ export const dockware: SandboxTemplate = {
   commands: COMMANDS,
   buildSpec,
   detectLayout,
-  syncTarget: l => `/var/www/html/${l.pluginDir}`,
+  syncTarget: l => (l.kind === 'project' ? '/var/www/html' : `/var/www/html/${l.pluginDir}`),
   execUser: 'www-data',
   workdir: '/var/www/html',
   bootFile: { dir: '/var/www', name: 'boot_start.sh', content: BOOT_SCRIPT, mode: 0o755 },

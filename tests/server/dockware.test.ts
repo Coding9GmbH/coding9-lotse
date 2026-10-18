@@ -8,7 +8,7 @@ import '../isolate-data';
 /* eslint-disable @typescript-eslint/no-explicit-any -- container spec as loose JSON */
 
 // Template dockware: the container spec is built only from server values (no privileges, binds, devices, no published ports; only the
-// internal network lotse-sandbox, in both modes) and passes the allow-list guard; detectLayout for plugin, theme, invalid name, full project.
+// internal network lotse-sandbox, in both modes) and passes the allow-list guard; detectLayout for plugin, theme, invalid name, whole project.
 const { buildSpec, detectLayout, sleep } = await import('../../src/server/sandbox/templates/dockware');
 const { assertSafeSpec } = await import('../../src/server/sandbox/guards');
 
@@ -60,10 +60,12 @@ test('detectLayout: plugin, theme plugin, invalid name, full project, no plugin,
   assert.throws(() => detectLayout(fixture('bad', plugin('Acme\\x;rm -rf'))), /Ungültiger Plugin-Name/);
   assert.throws(() => detectLayout(fixture('lower', plugin('Acme\\acme'))), /Ungültiger Plugin-Name/);
   assert.throws(() => detectLayout(fixture('noclass', { 'composer.json': JSON.stringify({ type: 'shopware-platform-plugin' }) })), /Kein Shopware-Plugin erkannt/);
-  const full = /Vollständige Shopware-Projekte werden von dieser Vorlage noch nicht unterstützt/;
-  assert.throws(() => detectLayout(fixture('project', { 'composer.json': JSON.stringify({ type: 'project', require: { 'shopware/core': '6.7.*' } }) })), full);
-  assert.throws(() => detectLayout(fixture('project2', { 'composer.json': JSON.stringify({ require: { 'shopware/storefront': '*' } }) })), full);
-  assert.throws(() => detectLayout(fixture('nocomposer', { 'bin/console': '#!/usr/bin/env php' })), full);
+  // a whole Shopware project (details: sandbox-project.test.ts); without shopware/core or without composer.json a clear error
+  const project = detectLayout(fixture('project', { 'composer.json': JSON.stringify({ name: 'acme/shop', type: 'project', require: { 'shopware/core': '6.7.*' } }) }));
+  assert.deepEqual([project.kind, project.name, project.pluginDir], ['project', 'acme/shop', '']);
+  assert.throws(() => detectLayout(fixture('symfony', { 'composer.json': JSON.stringify({ type: 'project', require: { 'symfony/framework-bundle': '*' } }) })), /Kein Shopware-Projekt erkannt/);
+  assert.throws(() => detectLayout(fixture('project2', { 'composer.json': JSON.stringify({ require: { 'shopware/storefront': '*' } }) })), /Kein Shopware-Plugin erkannt/);
+  assert.throws(() => detectLayout(fixture('nocomposer', { 'bin/console': '#!/usr/bin/env php' })), /sieht nach einem Shopware-Projekt aus, hat aber keine composer\.json/);
   assert.throws(() => detectLayout(fixture('other', { 'README.md': '# x', 'index.php': '<?php' })), /Kein Shopware-Plugin erkannt/);
   // only a README: a new plugin (sandbox-new-plugin.test.ts), here without a usable name
   assert.throws(() => detectLayout(fixture('empty', { 'README.md': '# x' })), /Repository ist leer, aber es fehlt ein gültiger technischer Name/);
