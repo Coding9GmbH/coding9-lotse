@@ -4,7 +4,7 @@ import 'server-only';
 import http from 'node:http';
 import { pipeline } from 'node:stream/promises';
 import type { Socket } from 'node:net';
-import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, NetworkOpts, PullProgress, SandboxRunner, TtyOpts, TtySession } from './runner';
+import { assertTtySize, ttyEmitter, type ArchiveStream, type ContainerInfo, type ContainerSpec, type ExecOpts, type ExecResult, type NetworkInfo, type NetworkOpts, type PullProgress, type SandboxRunner, type TtyOpts, type TtySession } from './runner';
 import { MANAGED, assertAllowedImage, assertContainerPath, assertEgressNetwork, assertId, assertManaged, assertNetworkName, assertSafeSpec } from './guards';
 import { EGRESS_NET, ICC_OPTION, ISOLATED_GATEWAY, SANDBOX_NET } from './labels';
 
@@ -243,14 +243,17 @@ export class DockerEngine implements SandboxRunner {
     return typeof code === 'number' ? code : -1;
   }
 
-  async exec(id: string, argv: readonly string[], o: ExecOpts): Promise<ExecResult> {
+  /** POST /containers/{id}/exec after the label check and the argv check (an array, no shell, no NUL); the exec id. */
+  private async createExec(id: string, argv: readonly string[], body: Record<string, unknown>, what: string): Promise<string> {
     await this.managed(id);
     if (!argv.length || argv.some(a => typeof a !== 'string' || a.includes('\0'))) throw new Error('Ungültiger Befehl.');
-    const created = await this.call('POST', `/containers/${enc(id)}/exec`, { body: {
-      Cmd: [...argv], User: o.user, WorkingDir: o.workdir, Env: o.env ?? [], AttachStdin: !!o.stdin, AttachStdout: true, AttachStderr: true, Tty: false,
-    } });
-    if (created.status !== 201) throw apiError(created, 'Befehl anlegen');
-    const execId = assertId(this.json<{ Id: string }>(created).Id);
+    const created = await this.call('POST', `/containers/${enc(id)}/exec`, { body: { Cmd: [...argv], ...body } });
+    if (created.status !== 201) throw apiError(created, what);
+    return assertId(this.json<{ Id: string }>(created).Id);
+  }
+
+  async exec(id: string, argv: readonly string[], o: ExecOpts): Promise<ExecResult> {
+    const execId = await this.createExec(id, argv, { User: o.user, WorkingDir: o.workdir, Env: o.env ?? [], AttachStdin: !!o.stdin, AttachStdout: true, AttachStderr: true, Tty: false }, 'Befehl anlegen');
     const out = tailBuffer(o.maxOutput ?? 256 * 1024);
     await this.attach(`${await this.prefix()}/exec/${execId}/start`, out.push, o);
     const r = await this.call('GET', `/exec/${execId}/json`);
@@ -258,80 +261,80 @@ export class DockerEngine implements SandboxRunner {
     const { ExitCode } = this.json<{ ExitCode: number | null }>(r);
     return { exitCode: typeof ExitCode === 'number' ? ExitCode : -1, ...out.get() };
   }
-  /** Start the exec with an upgraded connection (stdin possible), demux stdout/stderr until the stream ends. */
-  private attach(path: string, onOut: (b: Buffer) => void, o: ExecOpts): Promise<void> {
-    const body = Buffer.from(JSON.stringify({ Detach: false, Tty: false }));
-    return new Promise((resolve, reject) => {
-      let sock: Socket | null = null, done = false;
-      const finish = (e?: Error) => { if (done) return; done = true; clearTimeout(timer); o.signal?.removeEventListener('abort', onAbort); if (e) { sock?.destroy(); req.destroy(); reject(e); } else resolve(); };
-      const timer = setTimeout(() => finish(new Error(`Zeitüberschreitung nach ${Math.round(o.timeoutMs / 1000)} s.`)), o.timeoutMs);
-      const onAbort = () => finish(new Error('Abgebrochen.'));
-      o.signal?.addEventListener('abort', onAbort, { once: true });
+  /** Start the exec on a hijacked connection (stdin possible), demux stdout/stderr until the stream ends. */
+  private async attach(path: string, onOut: (b: Buffer) => void, o: ExecOpts): Promise<void> {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(new Error(`Zeitüberschreitung nach ${Math.round(o.timeoutMs / 1000)} s.`)), o.timeoutMs);
+    const onAbort = () => ac.abort(new Error('Abgebrochen.'));
+    if (o.signal?.aborted) onAbort(); else o.signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      const { stream, head, upgraded } = await this.hijack(path, { Detach: false, Tty: false }, 'Befehl starten', { plain: true, signal: ac.signal });
       const demux = createDemuxer((_stream, data) => onOut(data));
-      const req = http.request({ ...this.target, method: 'POST', path, headers: { host: 'docker', 'content-type': 'application/json', 'content-length': body.length, connection: 'Upgrade', upgrade: 'tcp' } });
-      req.on('upgrade', (_res, s, head) => {
-        sock = s;
+      await new Promise<void>((resolve, reject) => {
+        let done = false;
+        const finish = (e?: Error) => { if (done) return; done = true; ac.signal.removeEventListener('abort', stop); if (e) { stream.destroy(); reject(e); } else resolve(); };
+        const stop = () => finish(ac.signal.reason as Error);
+        if (ac.signal.aborted) return stop();
+        ac.signal.addEventListener('abort', stop, { once: true });
         if (head.length) demux(head);
-        s.on('data', demux);
-        s.on('end', () => finish());
-        s.on('close', () => finish());
-        s.on('error', e => finish(e));
-        if (o.stdin) s.write(o.stdin);
-        s.end(); // half-close: stdin EOF, the output keeps flowing
+        stream.on('data', demux);
+        stream.on('end', () => finish());
+        stream.on('close', () => finish());
+        stream.on('error', e => finish(e));
+        if (upgraded) { // half-close: stdin EOF, the output keeps flowing
+          const sock = stream as Socket;
+          if (o.stdin) sock.write(o.stdin);
+          sock.end();
+        }
       });
-      req.on('response', res => { // without upgrade (some proxies): the body is the same multiplexed stream
-        if ((res.statusCode ?? 500) >= 300) { const c: Buffer[] = []; res.on('data', (x: Buffer) => c.push(x)); res.on('end', () => finish(apiError({ status: res.statusCode ?? 500, headers: res.headers, body: Buffer.concat(c) }, 'Befehl starten'))); return; }
-        res.on('data', demux); res.on('end', () => finish()); res.on('error', e => finish(e));
-      });
-      req.on('error', (e: NodeJS.ErrnoException) => finish(e.code ? unreachable(e) : e));
-      req.end(body);
-    });
+    } finally { clearTimeout(timer); o.signal?.removeEventListener('abort', onAbort); }
   }
 
   /** Console: exec with Tty (raw stream, no frames) on a hijacked connection that stays open both ways; resize via /exec/{id}/resize. */
   async openTty(id: string, argv: readonly string[], o: TtyOpts): Promise<TtySession> {
-    await this.managed(id);
-    if (!argv.length || argv.some(a => typeof a !== 'string' || a.includes('\0'))) throw new Error('Ungültiger Befehl.');
-    const created = await this.call('POST', `/containers/${enc(id)}/exec`, { body: {
-      Cmd: [...argv], User: o.user, WorkingDir: o.workdir, Env: o.env, AttachStdin: true, AttachStdout: true, AttachStderr: true, Tty: true,
-    } });
-    if (created.status !== 201) throw apiError(created, 'Konsole anlegen');
-    const execId = assertId(this.json<{ Id: string }>(created).Id);
-    const { sock, head } = await this.hijack(`${await this.prefix()}/exec/${execId}/start`, JSON.stringify({ Detach: false, Tty: true }));
-    const data: ((b: Buffer) => void)[] = [], ends: (() => void)[] = [];
-    let early: Buffer[] | null = head.length ? [head] : [], ended = false;
-    const end = () => { if (ended) return; ended = true; for (const fn of ends) fn(); };
-    sock.on('data', (b: Buffer) => { if (early) early.push(b); else for (const fn of data) fn(b); });
-    sock.on('end', end); sock.on('close', end); sock.on('error', end);
+    assertTtySize(o.cols, o.rows);
+    const execId = await this.createExec(id, argv, { User: o.user, WorkingDir: o.workdir, Env: o.env, AttachStdin: true, AttachStdout: true, AttachStderr: true, Tty: true }, 'Konsole anlegen');
+    const { stream, head } = await this.hijack(`${await this.prefix()}/exec/${execId}/start`, { Detach: false, Tty: true }, 'Konsole starten');
+    const sock = stream as Socket, out = ttyEmitter();
+    out.emit(head);
+    sock.on('data', (b: Buffer) => out.emit(b));
+    sock.on('end', out.end); sock.on('close', out.end); sock.on('error', out.end);
     sock.setNoDelay?.(true);
     const resize = async (cols: number, rows: number) => {
+      assertTtySize(cols, rows);
       const r = await this.call('POST', `/exec/${execId}/resize`, { query: { h: String(rows), w: String(cols) }, timeoutMs: 5_000 });
       if (r.status !== 200 && r.status !== 201) throw apiError(r, 'Konsole anpassen');
     };
     await resize(o.cols, o.rows).catch(() => {}); // the shell starts with 80×24 otherwise; the next resize fixes it
     return {
-      write: d => { if (!ended) sock.write(d); },
+      write: d => { if (!out.ended) sock.write(d); },
       resize,
       pause: () => { sock.pause(); },
-      resume: () => { if (!ended) sock.resume(); },
-      close: () => { sock.destroy(); end(); },
-      onData: fn => { data.push(fn); if (early) { const b = early; early = null; for (const c of b) fn(c); } },
-      onEnd: fn => { if (ended) fn(); else ends.push(fn); },
+      resume: () => { if (!out.ended) sock.resume(); },
+      close: () => { sock.destroy(); out.end(); },
+      onData: out.onData,
+      onEnd: out.onEnd,
     };
   }
-  /** POST with Connection: Upgrade; resolves with the raw socket once Docker switched protocols (a plain answer = error). */
-  private hijack(path: string, body: string): Promise<{ sock: Socket; head: Buffer }> {
-    const payload = Buffer.from(body);
+  /** POST with Connection: Upgrade. Resolves with the raw socket once Docker switched protocols; `plain`: a 2xx answer without the
+   *  switch (some proxies) is the same stream as a response body (output only). Errors and an unswitched answer otherwise reject. */
+  private hijack(path: string, body: object, what: string, o: { plain?: boolean; signal?: AbortSignal } = {}): Promise<{ stream: Socket | http.IncomingMessage; head: Buffer; upgraded: boolean }> {
+    const payload = Buffer.from(JSON.stringify(body));
     return new Promise((resolve, reject) => {
       const req = http.request({ ...this.target, method: 'POST', path, timeout: 15_000, headers: { host: 'docker', 'content-type': 'application/json', 'content-length': payload.length, connection: 'Upgrade', upgrade: 'tcp' } });
-      req.on('upgrade', (_res, sock, head) => { req.setTimeout(0); sock.setTimeout(0); resolve({ sock, head }); });
-      req.on('response', res => { // no upgrade (a proxy that does not pass it on): no interactive stream possible
+      const onAbort = () => req.destroy(o.signal?.reason as Error);
+      o.signal?.addEventListener('abort', onAbort, { once: true });
+      const settle = () => o.signal?.removeEventListener('abort', onAbort);
+      req.on('upgrade', (_res, sock, head) => { settle(); req.setTimeout(0); sock.setTimeout(0); resolve({ stream: sock, head, upgraded: true }); });
+      req.on('response', res => {
+        const status = res.statusCode ?? 500;
+        if (o.plain && status < 300) { settle(); req.setTimeout(0); resolve({ stream: res, head: Buffer.alloc(0), upgraded: false }); return; }
         const c: Buffer[] = []; res.on('data', (x: Buffer) => c.push(x));
-        res.on('end', () => reject(res.statusCode && res.statusCode >= 300 ? apiError({ status: res.statusCode, headers: res.headers, body: Buffer.concat(c) }, 'Konsole starten') : new Error('Konsole starten: Docker hat die Verbindung nicht umgeschaltet (Proxy ohne Upgrade-Unterstützung?).')));
+        res.on('end', () => { settle(); reject(status >= 300 ? apiError({ status, headers: res.headers, body: Buffer.concat(c) }, what) : new Error(`${what}: Docker hat die Verbindung nicht umgeschaltet (Proxy ohne Upgrade-Unterstützung?).`)); });
       });
       req.on('timeout', () => req.destroy(new Error('Docker antwortet nicht (Timeout).')));
-      req.on('error', (e: NodeJS.ErrnoException) => reject(e.code ? unreachable(e) : e));
-      req.end(payload);
+      req.on('error', (e: NodeJS.ErrnoException) => { settle(); reject(e.code ? unreachable(e) : e); });
+      if (o.signal?.aborted) onAbort(); else req.end(payload);
     });
   }
 

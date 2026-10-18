@@ -59,12 +59,13 @@ const server = http.createServer(async (req, res) => {
       assert.deepEqual([u.searchParams.get('stdout'), u.searchParams.get('stderr'), u.searchParams.get('tail')], ['1', '1', '20']);
       res.writeHead(200, { 'content-type': 'application/vnd.docker.multiplexed-stream' }); return res.end(Buffer.concat([frame(1, ' * Starting MySQL database server mysqld\n'), frame(2, '   ...fail!\n')]));
     }
-    if (c[2] === 'exec') { lastExecBody = JSON.parse(body); return send(res, 201, { Id: lastExecBody?.Tty ? 'tty1' : 'exec1' }); }
+    if (c[2] === 'exec') { lastExecBody = JSON.parse(body); const cmd = (lastExecBody?.Cmd as string[] | undefined)?.[0]; return send(res, 201, { Id: lastExecBody?.Tty ? 'tty1' : cmd === 'plain' || cmd === 'hang' ? `${cmd}1` : 'exec1' }); }
     if (c[2] === 'wait') { assert.equal(u.searchParams.get('condition'), 'not-running'); return send(res, 200, { StatusCode: 3 }); }
     if (c[2] === 'archive' && req.method === 'GET') { res.writeHead(200, { 'content-type': 'application/x-tar' }); return res.end(Buffer.alloc(Number(u.searchParams.get('path') === '/big' ? 300_000 : 2048), 7)); }
     if (c[2] === '' && req.method === 'DELETE') { delete containers[c[1]]; return send(res, 204); }
   }
   if (r === '/exec/exec1/json') return send(res, 200, { ExitCode: 2 });
+  if (r === '/exec/plain1/json' || r === '/exec/hang1/json') return send(res, 200, { ExitCode: 0 });
   if (r === '/exec/tty1/resize') { resizes.push(`${u.searchParams.get('w')}x${u.searchParams.get('h')}`); return send(res, 201); }
   if (r === '/networks/lotse-sandbox') return send(res, 404, { message: 'network not found' });
   if (r === '/networks/lotse-sandbox-egress' && req.method === 'GET') return egressNet ? send(res, 200, egressNet) : send(res, 404, { message: 'network not found' });
@@ -78,6 +79,11 @@ const server = http.createServer(async (req, res) => {
 const resizes: string[] = [];
 server.on('upgrade', (req, socket) => {
   calls.push(`UPGRADE ${req.url}`);
+  if (req.url?.includes('/exec/plain1/')) { // a proxy that does not pass the upgrade on: a plain answer with the same frames
+    socket.end(Buffer.concat([Buffer.from('HTTP/1.1 200 OK\r\nContent-Type: application/vnd.docker.multiplexed-stream\r\nConnection: close\r\n\r\n'), frame(1, 'plain '), frame(2, 'ok\n')]));
+    return;
+  }
+  if (req.url?.includes('/exec/hang1/')) { socket.write('HTTP/1.1 101 UPGRADED\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n'); return; } // never ends
   if (req.url?.includes('/exec/tty1/')) {
     socket.write('HTTP/1.1 101 UPGRADED\r\nContent-Type: application/vnd.docker.raw-stream\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n$ ');
     socket.on('data', (d: Buffer) => { if (d.toString() === 'exit\r') socket.end('bye\r\n'); else socket.write(d.toString().toUpperCase()); });
@@ -93,6 +99,7 @@ await new Promise<void>(ok => server.listen(sock, ok));
 after(() => new Promise<void>(ok => server.close(() => ok())));
 
 const { DockerEngine, parseDockerHost, pickApiVersion, createDemuxer, demuxLog, pullProgressParser } = await import('../../src/server/sandbox/docker-engine');
+const { ttyEmitter, TTY_EARLY_MAX } = await import('../../src/server/sandbox/runner');
 const d = new DockerEngine({ socketPath: sock });
 
 test('DOCKER_HOST: unix socket and tcp, everything else is refused', () => {
@@ -158,6 +165,48 @@ test('exec: upgrade, demux, stdin, exit code; argv as an array (no shell)', asyn
   const cut = await d.exec('mine', ['true'], { user: 'www-data', timeoutMs: 5000, maxOutput: 6 });
   assert.deepEqual(cut, { exitCode: 2, output: 'world\n', truncated: true }, 'keeps the end of the output');
   await assert.rejects(d.exec('mine', ['a\0b'], { user: 'www-data', timeoutMs: 1000 }), /Ungültiger Befehl/);
+});
+
+test('exec on the shared hijack: a proxy answer without upgrade is read as the same stream; timeout and abort end it', async () => {
+  assert.deepEqual(await d.exec('mine', ['plain'], { user: 'www-data', timeoutMs: 5000 }), { exitCode: 0, output: 'plain ok\n', truncated: false });
+  const t0 = Date.now();
+  await assert.rejects(d.exec('mine', ['hang'], { user: 'www-data', timeoutMs: 150 }), /Zeitüberschreitung/);
+  assert.ok(Date.now() - t0 < 2000);
+  const ac = new AbortController();
+  setTimeout(() => ac.abort(), 50);
+  await assert.rejects(d.exec('mine', ['hang'], { user: 'www-data', timeoutMs: 5000, signal: ac.signal }), /Abgebrochen/);
+  await assert.rejects(d.exec('mine', ['hang'], { user: 'www-data', timeoutMs: 5000, signal: AbortSignal.abort() }), /Abgebrochen/, 'already aborted');
+});
+
+test('console size: whole numbers 1–1000 only, refused before anything is created', async () => {
+  const n = calls.length;
+  for (const [cols, rows] of [[Number.NaN, 24], [80, -1], [1e9, 24], [80.5, 24], [0, 24], [80, Infinity]]) {
+    await assert.rejects(d.openTty('mine', ['bash'], { user: 'dockware', workdir: '/', env: [], cols, rows }), /Terminalgröße/, `${cols}x${rows}`);
+  }
+  assert.deepEqual(calls.slice(n).filter(c => !c.startsWith('GET ')), []);
+});
+
+test('ttyEmitter: output before the first listener is kept (the newest TTY_EARLY_MAX bytes), then live; end once, also for late listeners', () => {
+  const e = ttyEmitter();
+  e.emit(Buffer.from('a'));
+  e.emit(Buffer.alloc(TTY_EARLY_MAX, 'b'));
+  e.emit(Buffer.from('c'));
+  const got: Buffer[] = [];
+  e.onData(b => got.push(b));
+  const early = Buffer.concat(got);
+  assert.equal(early.length, TTY_EARLY_MAX, 'bounded');
+  assert.equal(early.at(-1), 'c'.charCodeAt(0), 'the end is kept');
+  assert.equal(early[0], 'b'.charCodeAt(0), 'the oldest byte dropped');
+  e.emit(Buffer.from('live'));
+  assert.equal(got.at(-1)?.toString(), 'live');
+  let ends = 0;
+  e.onEnd(() => ends++);
+  e.end(); e.end();
+  e.onEnd(() => ends++);
+  e.emit(Buffer.from('late'));
+  assert.equal(ends, 2);
+  assert.equal(e.ended, true);
+  assert.notEqual(got.at(-1)?.toString(), 'late');
 });
 
 test('console: exec with Tty on a hijacked connection that stays open both ways, raw bytes (no frames), resize; label check first', async () => {

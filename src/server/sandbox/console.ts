@@ -79,7 +79,7 @@ function ended(s: Session) {
   R.ended.set(s.id, { taskId: s.taskId, actor: s.actor, reason, at: Date.now() });
   for (const fn of s.listeners) { try { fn({ t: 'end', reason }); } catch { /* view gone */ } }
   s.listeners.clear();
-  audit(s, 'close', { reason, seconds: Math.round((Date.now() - Date.parse(s.openedAt)) / 1000) });
+  audit(s, 'close', { user: s.spec.user, reason, seconds: Math.round((Date.now() - Date.parse(s.openedAt)) / 1000) });
 }
 
 /** "Neue Konsole": wakes a paused sandbox, then starts the template's shell in the task container. */
@@ -235,8 +235,8 @@ export async function killOrphanConsoles(): Promise<number> {
     if (!consoleSpec(t) || !t.containerId || !t.containerRunning || t.status === 'done' || open.has(t.containerId)) continue;
     await endShells(t).then(ended => {
       if (!ended) return;
-      n += ended; // who had opened them is gone with the restart: audited without a user
-      audit({ id: 'orphaned', taskId: t.id, actor: null }, 'close', { reason: 'lotse-restart', shells: ended });
+      n += ended; // who had opened them is gone with the restart: audited without a Lotse user, with the shell's user
+      audit({ id: 'orphaned', taskId: t.id, actor: null }, 'close', { user: consoleSpec(t)?.user, reason: 'lotse-restart', shells: ended });
     }, e => log.warn('Verwaiste Konsolen nicht beendet', { task: t.id, error: e }));
   }
   return n;

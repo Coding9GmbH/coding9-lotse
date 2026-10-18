@@ -239,7 +239,7 @@ export function buildSpec(o: SpecInput): ContainerSpec {
  *  on its own: the wrapper starts as root, writes the rc file and the pid file into a root-owned directory, then drops to dockware
  *  (setpriv, no fork: the pid stays the session leader of the TTY) and starts an interactive bash without profile, ~/.bashrc,
  *  ~/.inputrc, history file and BASH_ENV, with the system-wide files only; nvm (in /var/www) loads when it is typed.
- *  The pid file holds pid and start time: stop only ends that very session (HUP first, then KILL for what ignores it, also sudo jobs). */
+ *  The pid file holds pid and start time: stop only ends that very console (CONSOLE_KILL). */
 export const CONSOLE_DIR = '/run/lotse-console';
 const CONSOLE_RC = [
   '# Lotse console: written by root on every start; the shell reads no file the sandbox user (uid 33) can change',
@@ -248,19 +248,46 @@ const CONSOLE_RC = [
   '# the image points BASH_ENV at /var/www/.bashrc, which uid 33 can write: no script the user starts here sources it',
   'unset BASH_ENV HISTFILE',
   'nvm() { unset -f nvm; . /var/www/.nvm/nvm.sh && nvm "$@"; }',
+  '# the user and directory as the console tab and the audit name them (uid 33 is "www-data" first in /etc/passwd, so not \\u; not \\w,',
+  '# which shortens the shop directory to ~/html)',
+  'PS1=\'\\[\\e[32m\\]dockware@\\h\\[\\e[0m\\]:\\[\\e[34m\\]$PWD\\[\\e[0m\\]\\$ \'',
 ].join('\n');
+/** sudo in the console: the image's sudo logs every allowed command to syslog (not running) and the kernel audit, which fails
+ *  without AUDIT_WRITE (dropped on purpose) and prints "unable to send audit message" after each sudo. Not logging allowed commands
+ *  of the sudo group (only the console has it; www-data, the AI's user, has no sudo at all) loses no record that existed; denials are
+ *  still logged, use_pty stays (CONSOLE_KILL relies on it only through the process tree), Lotse audits opening and closing. */
+export const CONSOLE_SUDOERS = 'Defaults:%sudo !log_allowed';
 const CONSOLE_START = [
   `set -eu; s=$1; d=${CONSOLE_DIR}`,
   '[ -d "$d" ] || mkdir -m 755 "$d"; [ "$(stat -c %u "$d")" = 0 ]; umask 022',
   'printf \'%s\\n\' "$2" > "$d/bashrc"',
+  // checked by visudo before it is moved into place: a broken sudoers file would lock sudo; best effort, never stops the console
+  `c=/etc/sudoers.d/lotse-console; if [ -d /etc/sudoers.d ] && [ "$(cat "$c" 2>/dev/null)" != '${CONSOLE_SUDOERS}' ]; then`,
+  `  { printf '%s\\n' '${CONSOLE_SUDOERS}' > "$d/sudoers" && chmod 440 "$d/sudoers" && visudo -cqf "$d/sudoers" && mv -f "$d/sudoers" "$c"; } || rm -f "$d/sudoers"; fi`,
   'st=$(cat /proc/$$/stat); set -- ${st##*) }; echo "$$ ${20}" > "$d/$s.pid"',
   'u=$(id -u dockware); g=$(id -g dockware); gs=$(id -G dockware | tr " " ,)',
   'exec env -u BASH_ENV -u ENV HOME=/var/www USER=dockware LOGNAME=dockware SHELL=/bin/bash INPUTRC=/etc/inputrc setpriv --reuid="$u" --regid="$g" --groups="$gs" bash --noprofile --rcfile "$d/bashrc" -i',
 ].join('\n');
 /** `leader <pid file>`: removes the file; true (and $p set) if the recorded process still runs with the recorded start time */
 const LEADER = 'leader() { p=; t=; read -r p t < "$1" || :; rm -f "$1"; case "$p" in ""|*[!0-9]*|0|1) return 1;; esac; st=$(cat "/proc/$p/stat" 2>/dev/null) || return 1; set -- ${st##*) }; [ "${20}" = "$t" ]; }';
-const CONSOLE_STOP = `${LEADER}; f=${CONSOLE_DIR}/$1.pid; [ -f "$f" ] && leader "$f" || exit 0; pkill -HUP -s "$p"; sleep 1; pkill -KILL -s "$p"; exit 0`;
-const CONSOLE_STOP_ALL = `${LEADER}; n=0; for f in ${CONSOLE_DIR}/*.pid; do [ -f "$f" ] && leader "$f" || continue; pkill -KILL -s "$p" && n=$((n+1)); done; echo "$n"; exit 0`;
+/** `procs <session> "<pid:start …>"`: the console's processes as "pid:start" (sorted), from /proc: everything in the session and
+ *  everything still alive of the given ones (same start time, so never a reused pid), plus all their descendants. The tree, not
+ *  only the session: sudo (use_pty) runs its command in a new session below it. A job that forks away to pid 1 (`setsid cmd &`, a
+ *  daemon) is not the console's any more. */
+export const CONSOLE_PROCS = `procs() { cat /proc/[0-9]*/stat 2>/dev/null | awk -v s="$1" -v seed="$2" '
+{ r = $0; sub(/^[^(]*\\(.*\\) /, "", r); split(r, f, " "); par[$1] = f[2]; st[$1] = f[20]; if (f[4] == s) k[$1] = 1 }
+END { m = split(seed, a, " "); for (j = 1; j <= m; j++) { split(a[j], q, ":"); if ((q[1] in st) && st[q[1]] == q[2]) k[q[1]] = 1 }
+  do { c = 0; for (i in par) if (!(i in k) && (par[i] in k)) { k[i] = 1; c = 1 } } while (c)
+  for (i in k) if (i != 1) print i ":" st[i] }' | sort | tr '\\n' ' '; }`;
+/** `freeze <session>`: SIGSTOP the console's processes ($a, extended) until no new one appears – stopped processes cannot fork, so
+ *  nothing slips out between finding and killing; `sig <signal>` sends one to all of $a. */
+const CONSOLE_FREEZE = 'freeze() { i=0; while [ $i -lt 50 ]; do b=$(procs "$1" "$a"); [ "$b" = "$a" ] && return; a=$b; sig STOP; i=$((i+1)); done; }; sig() { for x in $a; do kill -"$1" "${x%%:*}" 2>/dev/null || :; done; }';
+/** Ends a console: its whole process tree, also what runs as root via sudo. HUP first (editors save, jobs clean up), then KILL for
+ *  whatever is left a second later. Daemons that detach completely (double fork to pid 1, e.g. `sudo service mysql restart`) are
+ *  left alone on purpose; pausing or finishing the sandbox stops the container and everything in it. */
+const CONSOLE_KILL = `${CONSOLE_PROCS}; ${CONSOLE_FREEZE}`;
+const CONSOLE_STOP = `${LEADER}; ${CONSOLE_KILL}; f=${CONSOLE_DIR}/$1.pid; [ -f "$f" ] && leader "$f" || exit 0; a=; freeze "$p"; sig HUP; sig CONT; sleep 1; freeze "$p"; sig KILL; exit 0`;
+const CONSOLE_STOP_ALL = `${LEADER}; ${CONSOLE_KILL}; n=0; for f in ${CONSOLE_DIR}/*.pid; do [ -f "$f" ] && leader "$f" || continue; a=; freeze "$p"; sig KILL; n=$((n+1)); done; echo "$n"; exit 0`;
 export const CONSOLE: ConsoleSpec = {
   user: 'dockware',
   workdir: '/var/www/html',

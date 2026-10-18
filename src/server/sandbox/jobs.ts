@@ -20,7 +20,7 @@ import { singleton } from '../state';
 import { errMsg, pool } from '../util';
 import { closeAllConsoles, closeTaskConsoles, endConsoleShells } from './console';
 import { assertAttachable, deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
-import { getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
+import { STOP_CONCURRENCY, getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
 import { revokeInternet, type RevokeReason } from './internet';
 import { SANDBOX_NETWORK, ensureNetwork, networkMode, openHostPorts, probeRoute } from './network';
 import { clearJar, forgetUpstream } from './preview';
@@ -40,8 +40,6 @@ const STARTING: CodeTaskStatus[] = ['setting_up', 'waking'];
 /** Counts against LOTSE_SANDBOX_MAX: starting, or a running container (also failed/interrupted). A paused one is being stopped. */
 const occupies = (t: CodeTask) => STARTING.includes(t.status) || (!!t.containerId && t.containerRunning && t.status !== 'paused' && t.status !== 'done');
 const MAX_OUTPUT = 256 * 1024;
-/** containers stopped at the same time when Sandbox Coding is switched off */
-export const STOP_CONCURRENCY = 4;
 
 interface Job { ac: AbortController; done: Promise<void> }
 interface Jobs { setup: Map<string, Job>; wakes: Map<string, Job>; locks: Map<string, Promise<unknown>>; finishing: Set<string> }

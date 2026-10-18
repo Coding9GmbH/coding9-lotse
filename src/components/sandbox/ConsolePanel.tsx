@@ -28,6 +28,8 @@ type End = ConsoleCloseReason | 'gone';
 interface Item { id: string; n: number; end: End | null }
 
 const bytes = (b64: string) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+/** The lowest number no shown console has: after closing "Konsole 2" the next one is "Konsole 2" again, never "Konsole 7" */
+const freeNumber = (list: { n: number }[]) => { let n = 1; while (list.some(i => i.n === n)) n++; return n; };
 
 /**
  * Tab "Konsole": interactive shells in the sandbox's container for the user (never the AI). Each session is an xterm.js terminal fed
@@ -40,10 +42,11 @@ export function ConsolePanel({ task, active }: { task: CodeTaskPublic; active: b
   const [items, setItems] = useState<Item[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
+  /** number of the console being opened (its tab shows the progress, e.g. while a paused sandbox starts), null = none */
+  const [pending, setPending] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const typers = useRef(new Map<string, (text: string) => void>());
-  const seq = useRef(0);
 
   // the user's sessions that are still open (after a reload): attach to them again
   useEffect(() => {
@@ -51,7 +54,6 @@ export function ConsolePanel({ task, active }: { task: CodeTaskPublic; active: b
     api.sandbox.consoles(task.id).then(r => {
       if (off) return;
       const list = r.sessions.map((x, i) => ({ id: x.id, n: i + 1, end: null }));
-      seq.current = Math.max(seq.current, list.length);
       setItems(cur => (cur.length ? cur : list));
       setCurrent(c => c ?? list.at(-1)?.id ?? null);
     }, () => {}).finally(() => { if (!off) setLoaded(true); });
@@ -62,14 +64,19 @@ export function ConsolePanel({ task, active }: { task: CodeTaskPublic; active: b
   const s = task.status;
   const usable = s !== 'done' && !task.stopping && (s === 'paused' || (!!task.container?.running && s !== 'waking'));
 
+  /** "Konsole öffnen", "+ Neue Konsole" and "Neu öffnen": ended consoles go away, the new one's tab shows the progress at once
+   *  (for a paused sandbox "Umgebung startet …"), not the console that was closed before */
   async function open() {
-    setOpening(true); setError(null);
+    const keep = items.filter(i => !i.end), n = freeNumber(keep);
+    setItems(keep); setPending(n); setCurrent(null); setOpening(true); setError(null);
     try {
       const { session } = await api.sandbox.openConsole(task.id, { cols: 100, rows: 30 }); // the terminal fits itself right after
-      const n = ++seq.current; // outside the updater: React may call an updater twice
       setItems(cur => [...cur.filter(i => !i.end), { id: session.id, n, end: null }]);
       setCurrent(session.id);
-    } catch (e) { setError(t.failed(errorText(e))); } finally { setOpening(false); }
+    } catch (e) {
+      setError(t.failed(errorText(e)));
+      setCurrent(c => c ?? keep.at(-1)?.id ?? null);
+    } finally { setOpening(false); setPending(null); }
   }
   async function close(id: string) {
     const ended = items.find(i => i.id === id)?.end;
@@ -91,6 +98,11 @@ export function ConsolePanel({ task, active }: { task: CodeTaskPublic; active: b
               <button type="button" className={styles.conX} aria-label={t.closeOne(t.name(i.n))} title={t.closeOne(t.name(i.n))} onClick={() => void close(i.id)}><IconClose size={12} /></button>
             </span>
           ))}
+          {pending !== null && (
+            <span className={styles.conTab} data-on={current === null || undefined}>
+              <button type="button" role="tab" aria-selected={current === null} onClick={() => setCurrent(null)}>{t.name(pending)} …</button>
+            </span>
+          )}
           {items.length > 0 && (
             <Button size="sm" variant="ghost" onClick={() => void open()} busy={opening} disabled={!usable || live.length >= CONSOLE_MAX}
               title={live.length >= CONSOLE_MAX ? t.max(CONSOLE_MAX) : undefined}>+ {t.add}</Button>
@@ -105,7 +117,12 @@ export function ConsolePanel({ task, active }: { task: CodeTaskPublic; active: b
         )}
       </div>
       {error && <p className={`${styles.bad} ${styles.conNote}`} role="alert">{error}</p>}
-      {items.length === 0 && loaded && (
+      {pending !== null && current === null && (
+        <div className={styles.conEmpty} role="status" data-console-pending>
+          <p>{s === 'paused' || s === 'waking' ? t.starting : t.opening}</p>
+        </div>
+      )}
+      {items.length === 0 && pending === null && loaded && (
         <div className={styles.conEmpty}>
           <p>{t.lead}</p>
           <p className={styles.muted}>{s === 'paused' ? t.paused : usable ? t.idle(CONSOLE_IDLE_MINUTES) : t.notRunning}</p>
@@ -119,7 +136,7 @@ export function ConsolePanel({ task, active }: { task: CodeTaskPublic; active: b
       {shown?.end && (
         <p className={`${styles.muted} ${styles.conNote}`} role="status">
           {shown.end === 'gone' ? t.gone : t.ended[shown.end]}{' '}
-          {usable && live.length < CONSOLE_MAX && <button type="button" className={styles.textBtn} onClick={() => { void close(shown.id); void open(); }}>{t.reopen}</button>}
+          {usable && live.length < CONSOLE_MAX && !opening && <button type="button" className={styles.textBtn} onClick={() => void open()}>{t.reopen}</button>}
         </p>
       )}
       {items.length > 0 && <p className={`${styles.muted} ${styles.conKeys}`}>{t.keys}</p>}

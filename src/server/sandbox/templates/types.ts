@@ -59,7 +59,7 @@ export interface ConsoleSpec {
   env: string[];
   /** the shell's wrapper (exec with a TTY): it records the shell's pid (with a TTY also its session id) for sid, so it can be ended later */
   start: (sid: string) => { argv: string[]; user: string };
-  /** ends that shell's session: all its processes, also ones started with sudo (hence its own user) */
+  /** ends that console: its whole process tree, also commands started with sudo in a session of their own (hence its own user) */
   stop: (sid: string) => { argv: string[]; user: string };
   /** ends every console session of the container (after a Lotse restart nobody holds them any more); its output is the number ended */
   stopAll: { argv: string[]; user: string };

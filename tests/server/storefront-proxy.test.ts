@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { relayResponse, rewriteOrigin, rewriteRootRelative } from '../../src/server/storefront-proxy';
 import '../isolate-data';
 import { jarCookie, previewShim, sandboxLocation, scriptCookies, storeCookies, taskOfSegment } from '../../src/server/sandbox/preview';
-import { sandboxReferer, sandboxSrc } from '../../src/lib/urls';
+import { SANDBOX_WAKE_PATH, sandboxReferer, sandboxSrc, wakeTarget } from '../../src/lib/urls';
 
 const P = '/sbx/t_abcdefghijk1';
 
@@ -52,6 +52,16 @@ test('sandbox redirects stay on the sandbox; cookie jar honours expiry and HttpO
   for (const seg of [id, `${id}.${'0'.repeat(20)}`, `${id}.${pre.split('.')[1]}x`, 'x']) assert.equal(taskOfSegment(seg), null, seg);
   const shim = previewShim(pre, [['a', '</script>']]);
   assert.ok(!shim.slice(8, -9).includes('</script>'), 'cookie values cannot end the script');
+});
+
+test('wake target: a path below the prefix; the wake path itself never, also not dressed up as "/./", "/%2e/" or "/../"', () => {
+  assert.equal(wakeTarget('/checkout/cart?x=1'), '/checkout/cart?x=1');
+  assert.equal(wakeTarget('/'), '/');
+  assert.equal(wakeTarget(`/x/..${SANDBOX_WAKE_PATH}`), `/x${SANDBOX_WAKE_PATH}`, 'dot segments are dropped, not resolved: a page below /x');
+  for (const bad of [null, '', 'checkout', '//evil.test/x', '/\\evil', SANDBOX_WAKE_PATH, `${SANDBOX_WAKE_PATH}?to=/`, `/.${SANDBOX_WAKE_PATH}?to=/`,
+    `/./${SANDBOX_WAKE_PATH.slice(1)}`, `/%2e${SANDBOX_WAKE_PATH}`, `/%2E/%2e${SANDBOX_WAKE_PATH}`, `/../..${SANDBOX_WAKE_PATH}`]) {
+    assert.equal(wakeTarget(bad), '/', String(bad));
+  }
 });
 
 test('sandbox URLs in the UI stay below the prefix; Referer → preview segment only on the same host and with a key', () => {
