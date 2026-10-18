@@ -31,9 +31,9 @@ export function startChoiceItems({ list, dumps, all, onPick, disabled = false, m
 /** The same list as radio buttons (the AI's card): the choice it suggested preselected, the user confirms or switches.
  *  `setupFor`: where "Neu einrichten …" starts (the AI's repository), shown in its label. */
 export function StartChoiceRadios({ list, dumps, all, value, onChange, setupFor, name }: {
-  list: QuickStartPublic[] | null; dumps: LibraryDumpPublic[] | null; all: Messages; value: StartChoice; onChange: (c: StartChoice) => void; setupFor?: string; name: string;
+  list: QuickStartPublic[] | null; dumps: LibraryDumpPublic[] | null; all: Messages; value: StartChoice | null; onChange: (c: StartChoice) => void; setupFor?: string; name: string;
 }) {
-  const t = all.sandbox.quick, cur = choiceKey(value);
+  const t = all.sandbox.quick, cur = value ? choiceKey(value) : null;
   const row = (c: StartChoice, label: string, text: string) => (
     <label key={choiceKey(c)} className={styles.kindCard}>
       <input type="radio" name={name} value={choiceKey(c)} checked={cur === choiceKey(c)} onChange={() => onChange(c)} />

@@ -106,6 +106,7 @@ export function SandboxOfferCard({ offer, actions }: { offer: Offer; actions?: S
   const envs = actions?.environments ?? null;
   // the user's pick; until then the AI's suggestion (once the environments are known)
   const [picked, setPicked] = useState<StartChoice | null>(null);
+  // null while loading, and when the suggested environment is gone (nothing preselected: the user picks)
   const choice = picked ?? (envs ? offerChoice(offer, envs) : null);
   if (actions?.attached) return <p className={styles.sbx} role="note"><IconCheck size={13} className={styles.sbxCheck} />{t.accepted}: {offer.reason}</p>;
   const suggested = offer.quickStartId ? envs?.find(q => q.id === offer.quickStartId) : undefined;
@@ -117,12 +118,12 @@ export function SandboxOfferCard({ offer, actions }: { offer: Offer; actions?: S
       {offer.quickStartId && envs && !suggested && <p className={styles.offerRepo}>{t.suggestedGone}</p>}
       {offer.pluginName && <p className={styles.offerRepo}>{t.newPlugin} <code>{offer.pluginName}</code></p>}
       {!actions ? <p className={styles.pubNote}>{t.off}</p> : <>
-        {choice ? <StartChoiceRadios list={envs} dumps={actions.dumps} all={all} value={choice} onChange={setPicked} setupFor={where || undefined} name={`sbo-${offer.id}`} />
+        {envs ? <StartChoiceRadios list={envs} dumps={actions.dumps} all={all} value={choice} onChange={setPicked} setupFor={where || undefined} name={`sbo-${offer.id}`} />
           : <p className={styles.pubNote}>…</p>}
         <p className={styles.pubNote}>{t.note}</p>
         <div className={styles.offerBtns}>
           <Button variant="primary" disabled={!choice || actions.busy || (choice.type !== 'new' && !!actions.blocked)} title={(choice?.type !== 'new' && actions.blocked) || undefined}
-            onClick={() => { if (choice) actions.start(offer, choice); }}>{choice?.type === 'new' ? t.setup : t.start}</Button>
+            onClick={() => { if (choice) actions.start(offer, choice); }}>{choice?.type === 'new' ? all.sandbox.quick.setup : t.start}</Button>
         </div>
       </>}
     </section>

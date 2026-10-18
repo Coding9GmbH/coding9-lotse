@@ -137,7 +137,7 @@ test('setup with an approved repository file: commands as own steps in their pha
   const log = t.steps.find(s => s.key === 'detect-layout')!.log.join('\n');
   assert.match(log, /\.lotse\/sandbox\.json gefunden, 2 Einrichtungsbefehl\(e\)/);
   assert.match(log, /Unbekannte Angaben in \.lotse\/sandbox\.json werden ignoriert: future/);
-  assert.match(log, /fehlen in der Umgebung: SHOP_MODE/);
+  assert.match(log, /fehlen in der Sandbox-Umgebung: SHOP_MODE/);
   assert.ok(execs(t.containerId!).some(c => c.argv!.join(' ') === 'bash -lc bin/console framework:demodata'));
   // the notes are data in the prompt, fenced (backticks inside cannot close the fence), next to the environment's notes
   E.saveSandbox({ aiNotes: 'Wir testen immer mit dem Kunden test@example.com.' });

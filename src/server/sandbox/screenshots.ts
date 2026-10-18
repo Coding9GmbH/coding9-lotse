@@ -107,7 +107,7 @@ const conflict = (message: string) => Object.assign(new Error(message), { status
  *  Only while "Screenshots" is on and the sandbox runs. Throws with a status (409 conflict, 400 off, 502 capture failed). */
 export async function takeScreenshots(id: string, timeoutMs = 15 * 60_000): Promise<CodeTask> {
   const t = mustTask(id);
-  if (!getSandboxConfig().screenshots) throw Object.assign(new Error('Screenshots sind in der Umgebung ausgeschaltet (Sandbox Coding → Umgebung).'), { status: 400 });
+  if (!getSandboxConfig().screenshots) throw Object.assign(new Error('Screenshots sind in der Sandbox-Umgebung ausgeschaltet (Sandbox Coding → Sandbox-Umgebung).'), { status: 400 });
   if (t.status !== 'ready' || !t.containerRunning) throw conflict('Die Sandbox läuft nicht – erst „Fortsetzen“, dann den Screenshot aufnehmen.');
   if (captureRunning(id)) throw conflict('Es wird bereits ein Screenshot aufgenommen.');
   capturing().add(id);
