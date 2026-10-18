@@ -51,3 +51,10 @@ export function sandboxReferer(referer: string | null, host: string): string | n
   if (!referer) return null;
   try { const u = new URL(referer); return u.host === host ? u.pathname.match(SANDBOX_PATH)?.[1] ?? null : null; } catch { return null; }
 }
+/** Preview path that wakes a paused sandbox on an explicit request (a click), then redirects to `to`. Plain preview requests stop
+ *  waking a sandbox whose last start failed, so a page that keeps reloading itself cannot retry forever. */
+export const SANDBOX_WAKE_PATH = '/__lotse/wake';
+export const sandboxWakeSrc = (prefix: string, path = '/') => `${sandboxSrc(prefix, SANDBOX_WAKE_PATH)}?to=${encodeURIComponent(sandboxSrc('', path))}`;
+/** `to` of the wake path → a path below the preview prefix ('/' when it is anything else) */
+export const wakeTarget = (to: string | null) => (to && to.startsWith('/') && !to.startsWith('//') && !to.includes('\\') && !to.startsWith(SANDBOX_WAKE_PATH) ? sandboxSrc('', to) : '/');
+

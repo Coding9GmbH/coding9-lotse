@@ -265,6 +265,25 @@ test('switching off during a wake-up aborts it: paused with a stopped container,
   await J.finishTask(t.id);
 });
 
+test('switching off stops the running containers in parallel, at most STOP_CONCURRENCY at once', async () => {
+  process.env.LOTSE_SANDBOX_MAX = '8';
+  const list = Array.from({ length: J.STOP_CONCURRENCY + 2 }, (_, i) => newTask(`Parallel ${i}`));
+  try {
+    for (const t of list) { J.runSteps(t.id); await settled(t.id); assert.equal(T.getTask(t.id)!.status, 'ready'); }
+    const orig = fake.stop.bind(fake);
+    let now = 0, most = 0;
+    fake.stop = async (id, sec) => { now++; most = Math.max(most, now); await new Promise(r => setTimeout(r, 60)); try { return await orig(id, sec); } finally { now--; } };
+    const started = Date.now();
+    try { assert.equal(await J.suspendAll(), list.length); } finally { fake.stop = orig; }
+    assert.equal(most, J.STOP_CONCURRENCY, 'bounded, but more than one at a time');
+    assert.ok(Date.now() - started < list.length * 60, 'not one after the other');
+    for (const t of list) { const cur = T.getTask(t.id)!; assert.equal(cur.status, 'paused'); assert.equal(cur.containerRunning, false); }
+  } finally {
+    delete process.env.LOTSE_SANDBOX_MAX;
+    for (const t of list) await J.finishTask(t.id);
+  }
+});
+
 /** The container's main process ends at the first readiness probe, like Dockware when `service mysql start` fails (set -e). */
 const DOCKWARE_FAIL_LOG = ['DOCKWARE: starting MySQL....', ' * Starting MySQL database server mysqld', `   ...fail!`];
 function exitOnProbe(o: { log?: string[]; oomKilled?: boolean } = {}) {

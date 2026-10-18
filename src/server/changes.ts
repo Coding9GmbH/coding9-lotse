@@ -11,7 +11,7 @@ import { singleton } from './state';
 import { checkHtmlItems } from './seo-links';
 import type { PlatformKind } from '@/lib/platforms';
 import type { ShopLookup } from './platform/types';
-import { errMsg } from './util';
+import { errMsg, pool } from './util';
 
 export const DEFAULT_CURRENCY = 'b7d2554b0ce847cd82f3ac9bd1c0dfca';
 export const MAX_ITEMS = 300;
@@ -332,7 +332,7 @@ export async function buildPublishChangeSet(ro: ShopReader, spec: PageSpec, a: P
 }
 
 // ================= EXECUTOR (the only writing code) =================
-export const pool = async <T, R>(list: T[], n: number, fn: (x: T) => Promise<R>) => { const out: R[] = []; let i = 0; await Promise.all(Array.from({ length: Math.min(n, list.length) }, async () => { while (i < list.length) { const k = i++; out[k] = await fn(list[k]); } })); return out; };
+export { pool } from './util';
 
 const fieldSet = () => singleton('fieldSet', () => ({ ok: false }));
 export async function ensureFieldSet(swW: Shopware) { // one-time: custom field set "aicb_content" (JSON field aicb_blocks) on the product
