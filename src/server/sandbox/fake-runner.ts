@@ -120,7 +120,7 @@ export function fakeFileCommand(files: Map<string, Buffer>, cwd: string, line: s
 }
 const FAKE_SKIP = ['.git', 'node_modules', 'vendor', 'var', 'public'];
 /** container-pull.ts LIST_SH over the fake's files (every file 0644; folders only where files are) */
-function fakeListing(files: Map<string, Buffer>, max: number, roots: string[]): string {
+export function fakeListing(files: Map<string, Buffer>, max: number, roots: string[]): string {
   const out: string[] = [];
   for (const root of roots) {
     out.push('R', root);
@@ -335,11 +335,11 @@ export class FakeRunner implements SandboxRunner {
       }
     }
     if (argv[0] === 'rm' && argv.includes('--')) for (const target of argv.slice(argv.indexOf('--') + 1)) for (const k of [...c.files.keys()]) if (k === target || k.startsWith(`${target}/`)) c.files.delete(k);
-    // container-pull.ts STAGE_SH: the files copied to <dir>/0, <dir>/1 …
+    // container-pull.ts STAGE_SH: the files copied to <dir>/0, <dir>/1 … (one larger than the limit: an empty <dir>/<i>.big)
     if (argv[0] === 'bash' && argv[3] === 'lotse-stage') {
-      const dir = argv[4];
+      const max = Number(argv[4]), dir = argv[5];
       for (const k of [...c.files.keys()]) if (k.startsWith(`${dir}/`)) c.files.delete(k);
-      argv.slice(5).forEach((f, i) => { const b = c.files.get(f); if (b) c.files.set(`${dir}/${i}`, b); });
+      argv.slice(6).forEach((f, i) => { const b = c.files.get(f); if (b) c.files.set(`${dir}/${i}${b.length > max ? '.big' : ''}`, b.length > max ? Buffer.alloc(0) : b); });
     }
     // sandbox_bash: a few file commands change the container's files (fakeFileCommand)
     if (argv[0] === 'bash' && argv[1] === '-lc') fakeFileCommand(c.files, o.workdir ?? '/', argv[2] ?? '');

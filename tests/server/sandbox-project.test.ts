@@ -593,7 +593,7 @@ test('one budget for a whole project sync: many plugin folders together hit the 
   await assert.rejects(S.syncProjectAll(sync(wt, h.runner, null)), /Zu viele Dateien im Repository/);
   assert.equal(h.put.length, 0, 'nothing uploaded');
   assert.ok(!h.argvs.some(a => a[3] === 'lotse-restore'), 'nothing removed');
-  assert.throws(() => S.projectStamp(wt), /Zu viele Dateien/);
+  assert.throws(() => S.projectManifest(wt), /Zu viele Dateien/);
 });
 
 test('the image\'s own config comes back when the project\'s file of that name is quarantined or deleted', async () => {

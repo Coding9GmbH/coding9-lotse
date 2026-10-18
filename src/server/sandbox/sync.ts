@@ -4,7 +4,6 @@ import 'server-only';
 // secret files (.env, keys, auth.json …), node_modules and symlinks that point outside the workspace.
 // Deletions in the container only with the fixed argv ['rm', '-f', '--', <target>/<guarded relative path>].
 // A full Shopware project (project.ts) is synced into the shop's root instead, only its plugin and app folders, config files and src/.
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -317,15 +316,20 @@ export async function syncProjectPaths(s: SyncTarget, rels: string[]): Promise<{
   return { put: entries.filter(e => e.type !== 'dir' && e.path !== SYNC_MANIFEST && e.path !== own).length, removed: gone.length, config: plan };
 }
 
-/** A fingerprint of what a full project sync would transfer (paths, sizes, modes, modification times – nothing is read): unchanged
- *  means the container already has it, so sandbox_bash can skip the full mirror. Within the same limits as the sync. */
-export function projectStamp(worktree: string): string {
-  const h = createHash('sha256'), b = syncBudget(), content = projectContent(worktree);
-  const add = (rel: string) => { const st = lstatOr(path.join(worktree, rel)); h.update(`${rel}\0${st ? `${st.mode}:${st.size}:${st.mtimeMs}` : '-'}\n`); charge(b, 0); };
+/** What the container got of the worktree, per entry: path → mode, size and modification time ('d' for a folder; nothing is read).
+ *  Compared with the worktree later, it names exactly the paths changed since (by the tools, on the host, by a crash between writing
+ *  and syncing), so only those are transferred again. */
+export type TreeManifest = Record<string, string>;
+const entryStamp = (st: fs.Stats | null) => (!st ? '-' : st.isDirectory() ? 'd' : `${st.mode}:${st.size}:${st.mtimeMs}`);
+
+/** The manifest of what a full project sync would transfer. Within the same limits as the sync. */
+export function projectManifest(worktree: string): TreeManifest {
+  const out: TreeManifest = {}, b = syncBudget(), content = projectContent(worktree);
+  const add = (rel: string) => { out[rel] = entryStamp(lstatOr(path.join(worktree, rel))); charge(b, 0); };
   const walk = (unit: string, dir: string) => {
     let names: fs.Dirent[] = [];
     try { names = fs.readdirSync(path.join(worktree, unit, dir), { withFileTypes: true }); } catch { return; }
-    for (const d of names.sort((x, y) => x.name.localeCompare(y.name))) {
+    for (const d of names) {
       const rel = dir ? `${dir}/${d.name}` : d.name;
       if (isExcluded(rel)) continue;
       add(`${unit}/${rel}`);
@@ -334,23 +338,22 @@ export function projectStamp(worktree: string): string {
   };
   for (const u of content.units) { add(u); walk(u, ''); }
   for (const f of content.files) add(f);
-  return h.digest('hex');
+  return out;
 }
 
-/** The same fingerprint for a plugin or an own setup: every transferable entry of the worktree (what collectAll would read). */
-export function treeStamp(worktree: string): string {
-  const h = createHash('sha256'), b = syncBudget();
+/** The same manifest for a plugin or an own setup: every transferable entry of the worktree (what collectAll would read). */
+export function treeManifest(worktree: string): TreeManifest {
+  const out: TreeManifest = {}, b = syncBudget();
   const walk = (dir: string) => {
     let names: fs.Dirent[] = [];
     try { names = fs.readdirSync(path.join(worktree, dir), { withFileTypes: true }); } catch { return; }
-    for (const d of names.sort((x, y) => x.name.localeCompare(y.name))) {
+    for (const d of names) {
       const rel = dir ? `${dir}/${d.name}` : d.name;
       if (isExcluded(rel)) continue;
-      const st = lstatOr(path.join(worktree, rel));
-      h.update(`${rel}\0${st ? `${st.mode}:${st.size}:${st.mtimeMs}` : '-'}\n`); charge(b, 0);
+      out[rel] = entryStamp(lstatOr(path.join(worktree, rel))); charge(b, 0);
       if (d.isDirectory()) walk(rel);
     }
   };
   walk('');
-  return h.digest('hex');
+  return out;
 }

@@ -85,14 +85,16 @@ test('sandbox_bash: any command line via bash -lc as www-data in /var/www/html, 
   assert.deepEqual(cmd.slice(-2).map(e => e.t === 'command' && [e.status, e.command]), [['running', 'bin/console theme:compile && bin/console cache:clear'], ['ok', 'bin/console theme:compile && bin/console cache:clear']]);
   assert.equal(events.at(-1)?.t, 'preview_reload');
 
-  // a worktree changed outside the tools: mirrored in full right before the command
+  // a worktree changed outside the tools: exactly that path is transferred right before the command (no full mirror)
   write('src/Resources/out-of-band.txt', 'x\n');
-  const n1 = fake.calls.length;
+  const n1 = fake.calls.length, a1 = fake.archives.length;
   const ls = await call('sandbox_bash', { command: 'ls var/log', timeout_sec: 5 });
   assert.equal(ls.error, false);
   assert.notEqual(events.at(-1)?.t, 'preview_reload', 'no reload for a read-only command');
   const after = fake.calls.slice(n1).filter(c => c.op === 'exec').map(c => c.argv!.join(' '));
-  assert.deepEqual(after.slice(-2), [mirror, 'bash -lc ls var/log'], 'the full sync ran right before');
+  assert.ok(!after.includes(mirror), 'no full mirror');
+  assert.equal(after.at(-1), 'bash -lc ls var/log');
+  assert.deepEqual(fake.archives.slice(a1).flatMap(x => x.entries.filter(e => e.type === 'file').map(e => e.path)), ['AcmeTheme/src/Resources/out-of-band.txt'], 'transferred right before');
   fs.rmSync(path.join(T.taskPaths(task.id).worktree, 'src/Resources/out-of-band.txt'));
 });
 

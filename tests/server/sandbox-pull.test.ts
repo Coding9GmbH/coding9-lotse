@@ -239,6 +239,19 @@ test('plugin: taking over writes exactly the compared versions (normalized, audi
   }
 });
 
+test('the reasons are in the user\'s language (request locale)', async () => {
+  const r = await pullRoute.GET(new Request(url(plugin.id), { headers: { 'accept-language': 'en' } }), ctx(plugin.id));
+  assert.equal(r.status, 200);
+  const m = byPath(await r.json() as ContainerChanges);
+  assert.match(m['src/Resources/config/token.txt'].blocked!, /looks like a secret \(GitHub token\)/);
+  assert.match(m['.github/workflows/deploy.yml'].blocked!, /GitHub workflows or actions/);
+  assert.match(m['src/Resources/config/shop.ini'].blocked!, /a secret stored in Lotse/);
+  const res = await (await pullRoute.POST(new Request(url(plugin.id), { method: 'POST', headers: { 'content-type': 'application/json', 'accept-language': 'en' }, body: JSON.stringify({ items: [{ path: 'gibt/es/nicht.txt', sha: null }] }) }), ctx(plugin.id))).json() as ContainerTakeOver;
+  assert.match(res.refused[0].reason, /^No difference between container and project/);
+  // German by default
+  assert.match(byPath(await compare(plugin.id))['src/Resources/config/token.txt'].blocked!, /wie ein Geheimnis aussieht \(GitHub-Token\)/);
+});
+
 test('plugin: the AI\'s pull_from_container takes over (all or below paths) and shows file cards; refused ones are named', async () => {
   events.length = 0;
   await bash("echo '{\"neu\": \"Neu\"}' > custom/plugins/AcmeTheme/src/Resources/snippet/de_DE/neu.de-DE.json && echo Service > custom/plugins/AcmeTheme/src/Service/Neu.php");
@@ -306,8 +319,9 @@ test('plugin: a hostile container – forged listing and archive – is refused 
   // the staged file came back as a link: not read
   fake.archive = (_id, dir) => (dir.startsWith('/tmp/lotse-pull-') ? tarOf(hdr(stage(dir), '5', 0), hdr(`${stage(dir)}/0`, '2', 0, { link: '/etc/shadow' })) : undefined);
   try { assert.match(byPath(await compare(plugin.id))['NEU.txt'].blocked!, /nicht gelesen/); } finally { fake.archive = null; }
-  // other bytes than listed: refused (the sha256 is checked on what arrives)
-  fake.archive = (_id, dir) => (dir.startsWith('/tmp/lotse-pull-') ? tarOf(hdr(stage(dir), '5', 0), hdr(`${stage(dir)}/0`, '0', 5), data('böse')) : undefined);
+  // other bytes than listed: refused (the sha256 is checked on what arrives); the blocked files made earlier are still in the container
+  const fetched = (await compare(plugin.id)).changes.filter(x => x.status !== 'deleted').length;
+  fake.archive = (_id, dir) => (dir.startsWith('/tmp/lotse-pull-') ? tarOf(hdr(stage(dir), '5', 0), ...Array.from({ length: fetched }, (_, i) => [hdr(`${stage(dir)}/${i}`, '0', 5), data('böse')]).flat()) : undefined);
   try { assert.match(byPath(await compare(plugin.id))['NEU.txt'].blocked!, /währenddessen geändert/); } finally { fake.archive = null; }
   // traversal, a foreign entry or a broken header: the whole archive is refused
   for (const forged of [(d: string) => tarOf(hdr(`${d}/../../etc/cron.d/x`, '0', 1), data('x')), (d: string) => tarOf(hdr(`${d}/99`, '0', 1), data('x')), (d: string) => tarOf(hdr(`${d}/0`, '0', 1, { badSum: true }), data('x'))]) {
@@ -323,19 +337,107 @@ test('plugin: a hostile container – forged listing and archive – is refused 
   assert.ok(![...files(plugin.id).keys()].some(k => k.startsWith('/tmp/lotse-pull-')));
 });
 
+test('plugin: below a symlinked or unreadable folder nothing counts as deleted; a folder removed as a whole does', async () => {
+  const { fakeListing } = await import('../../src/server/sandbox/fake-runner');
+  await compare(plugin.id);
+  const APP = `${PLUGIN}/src/Resources/app`, saved = [...files(plugin.id)].filter(([k]) => k.startsWith(`${APP}/`));
+  const inWorktree = (fs.readdirSync(path.join(wt, 'src/Resources/app'), { recursive: true, withFileTypes: true }) as fs.Dirent[])
+    .filter(d => d.isFile()).map(d => path.relative(wt, path.join(d.parentPath, d.name))).sort();
+  assert.ok(inWorktree.length >= 2);
+  for (const [k] of saved) files(plugin.id).delete(k);
+  // the plugin folder's listing with extra records right after its R record
+  const listed = (rec: string[]) => {
+    fake.script = (argv, id) => (argv[0] === 'bash' && argv[3] === 'lotse-list'
+      ? { output: fakeListing(fake.containers.get(id)!.files, Number(argv[4]), argv.slice(5)).replace(`R\0${PLUGIN}\0`, `R\0${PLUGIN}\0${rec.join('\0')}\0`) } : undefined);
+  };
+  const deleted = (c: ContainerChanges) => c.changes.filter(x => x.status === 'deleted').map(x => x.path);
+  try {
+    // `mv src/Resources/app /tmp/x && ln -s /tmp/x src/Resources/app`: the link is named, nothing below it is deleted
+    listed(['O', 'l', 'src/Resources/app']);
+    let c = await compare(plugin.id);
+    assert.deepEqual(deleted(c), []);
+    assert.deepEqual(c.skipped.filter(x => x.path === 'src/Resources/app'), [{ path: 'src/Resources/app', reason: 'symlink' }]);
+    // `sudo chmod 700 src/Resources/app` (LIST_SH: U)
+    listed(['U', 'src/Resources/app']);
+    c = await compare(plugin.id);
+    assert.deepEqual(deleted(c), []);
+    assert.deepEqual(c.skipped.filter(x => x.path === 'src/Resources/app'), [{ path: 'src/Resources/app', reason: 'unreadable' }]);
+    // a file in place of the folder
+    listed(['F', '3', '644', 'src/Resources/app']);
+    assert.deepEqual(deleted(await compare(plugin.id)), []);
+    // find failed on the way (LIST_SH: I): nothing of this root counts as deleted
+    listed(['I']);
+    assert.deepEqual(deleted(await compare(plugin.id)), []);
+    // `rm -rf src/Resources/app`: the folder is gone as a whole – its files are offered as deleted (an AI pull without paths would take that)
+    fake.script = () => undefined;
+    assert.deepEqual(deleted(await compare(plugin.id)), inWorktree);
+  } finally {
+    fake.script = () => undefined;
+    for (const [k, v] of saved) files(plugin.id).set(k, v);
+  }
+  assert.deepEqual(deleted(await compare(plugin.id)), []);
+  // the listing script reports what it cannot walk
+  assert.match(P.LIST_SH, /-readable -executable/);
+  assert.match(P.LIST_SH, /\|\| printf 'I\\0'/);
+});
+
+test('plugin: without a baseline (a sandbox set up before) the AI takes over only named paths', async () => {
+  const bl = path.join(T.taskPaths(plugin.id).workspace, 'container-baseline.json'), kept = fs.readFileSync(bl);
+  fs.rmSync(bl);
+  try {
+    await bash('echo ohne > custom/plugins/AcmeTheme/src/Ohne.php');
+    assert.equal((await compare(plugin.id)).noBaseline, true);
+    const all = await call(tools, 'pull_from_container');
+    assert.equal(all.error, true);
+    assert.match(all.text, /Ausgangsstand[\s\S]*mit paths aufrufen/);
+    assert.ok(!fs.existsSync(path.join(wt, 'src/Ohne.php')), 'nothing taken over');
+    const named = await call(tools, 'pull_from_container', { paths: ['src/Ohne.php'] });
+    assert.equal(named.error, false, named.text);
+    assert.match(named.text, /neu src\/Ohne\.php[\s\S]*keinen gemerkten Ausgangsstand/);
+    assert.equal(fs.readFileSync(path.join(wt, 'src/Ohne.php'), 'utf8'), 'ohne\n');
+  } finally { fs.writeFileSync(bl, kept); }
+});
+
+test('plugin: a file that grows beyond the limit after the listing is refused alone; the others are still compared', async () => {
+  await bash('echo log > custom/plugins/AcmeTheme/app.log && echo klein > custom/plugins/AcmeTheme/KLEIN.md');
+  const LOG = `${PLUGIN}/app.log`;
+  // the app keeps writing its log: listed small, staged too large
+  fake.script = (argv, id) => { if (argv[0] === 'bash' && argv[3] === 'lotse-list') fake.containers.get(id)!.files.set(LOG, Buffer.alloc(P.PULL_LIMITS.fileBytes + 1, 'x')); return undefined; };
+  try {
+    const m = byPath(await compare(plugin.id));
+    assert.match(m['app.log'].blocked!, /inzwischen größer als 5 MB/);
+    assert.equal(m['KLEIN.md'].blocked, undefined);
+    assert.equal(m['KLEIN.md'].sha, sha('klein\n'));
+  } finally { fake.script = () => undefined; }
+  assert.deepEqual((await compare(plugin.id)).skipped.filter(x => x.path === 'app.log'), [{ path: 'app.log', reason: 'too-large' }]);
+  files(plugin.id).delete(LOG);
+});
+
 test('plugin: a wake keeps what was made in the container; edits while paused are synced alone', async () => {
   await bash('echo bleibt > custom/plugins/AcmeTheme/BLEIBT.md');
   await J.pauseTask(plugin.id);
   fs.writeFileSync(path.join(wt, 'src/Resources/app/storefront/src/scss/base.scss'), '.pausiert { color: red; }\n');
   assert.match(await W.syncChanged(plugin.id, ['src/Resources/app/storefront/src/scss/base.scss']), /Container pausiert/);
+  // changed on the host, not through the tools: transferred too, never masked by the edited path
+  fs.writeFileSync(path.join(wt, 'src/Resources/theme.json'), '{"name": "AcmeTheme"}\n');
   const n = fake.archives.length;
   await J.ensureAwake(plugin.id);
   assert.equal(T.getTask(plugin.id)!.status, 'ready');
   const put = fake.archives.slice(n).filter(a => a.dir !== '/var/www');
-  assert.deepEqual(put.flatMap(a => a.entries.filter(e => e.type === 'file').map(e => e.path)), ['AcmeTheme/src/Resources/app/storefront/src/scss/base.scss'], 'only the edited file');
+  assert.deepEqual(put.flatMap(a => a.entries.filter(e => e.type === 'file').map(e => e.path)).sort(), ['AcmeTheme/src/Resources/app/storefront/src/scss/base.scss', 'AcmeTheme/src/Resources/theme.json'], 'only the changed files');
+  assert.equal(files(plugin.id).get(`${PLUGIN}/src/Resources/theme.json`)!.toString(), '{"name": "AcmeTheme"}\n');
   assert.ok(files(plugin.id).has(`${PLUGIN}/BLEIBT.md`), 'not wiped by a full mirror');
   assert.equal(files(plugin.id).get(`${PLUGIN}/src/Resources/app/storefront/src/scss/base.scss`)!.toString(), '.pausiert { color: red; }\n');
   assert.ok(byPath(await compare(plugin.id))['BLEIBT.md']);
+  // running: a host-side change next to a tool's edit is not taken as transferred – the next command transfers it, and comparing
+  // never offers the container's older version
+  fs.writeFileSync(path.join(wt, 'README.md'), '# AcmeTheme\nauf dem Host\n');
+  fs.writeFileSync(path.join(wt, 'src/Resources/app/storefront/src/scss/base.scss'), '.wieder { color: blue; }\n');
+  await W.syncChanged(plugin.id, ['src/Resources/app/storefront/src/scss/base.scss']);
+  assert.notEqual(files(plugin.id).get(`${PLUGIN}/README.md`)!.toString(), '# AcmeTheme\nauf dem Host\n');
+  const c = await compare(plugin.id);
+  assert.equal(files(plugin.id).get(`${PLUGIN}/README.md`)!.toString(), '# AcmeTheme\nauf dem Host\n');
+  assert.ok(!byPath(c)['README.md'] && !byPath(c)['src/Resources/app/storefront/src/scss/base.scss']);
 });
 
 test('full project: new plugin folders and config made in the container; image and Lotse files, vendor/ and the root are not offered', async () => {
@@ -358,17 +460,26 @@ test('full project: new plugin folders and config made in the container; image a
 });
 
 test('own setup: the target folder is compared; what the own setup commands made is the baseline', async () => {
-  fake.script = (argv, id) => { if (argv[2] === 'make build') fake.containers.get(id)!.files.set('/srv/plain/build/app.txt', Buffer.from('gebaut\n')); return undefined; };
+  // the own setup command builds into a new folder, rewrites a tracked file and removes another
+  fake.script = (argv, id) => {
+    if (argv[2] !== 'make build') return undefined;
+    const f = fake.containers.get(id)!.files;
+    f.set('/srv/plain/build/app.txt', Buffer.from('gebaut\n'));
+    f.set('/srv/plain/README.md', Buffer.from('# vom Build neu geschrieben\n'));
+    f.delete('/srv/plain/src/AcmeTheme.php');
+    return undefined;
+  };
   let c: Awaited<ReturnType<typeof ready>>;
   try { c = await ready({ title: 'Eigenes Setup', repo: 'acme/plain-lib', mode: 'custom', targetPath: '/srv/plain', commands: [{ label: 'Bauen', command: 'make build', phase: 'after-db' }] }); } finally { fake.script = () => undefined; }
   const c0 = await compare(c.id);
-  assert.deepEqual([c0.roots, c0.changes], [['/srv/plain'], []]);
+  assert.deepEqual([c0.roots, c0.changes], [['/srv/plain'], []], 'what the setup changed or removed in the repository\'s files is no change either');
   const ctools = toolsFor(c, []);
-  assert.equal((await call(ctools, 'sandbox_bash', { command: 'echo neu > lib/neu.txt && echo neu-gebaut > build/app.txt' })).error, false);
+  assert.equal((await call(ctools, 'sandbox_bash', { command: 'echo neu > lib/neu.txt && echo neu-gebaut > build/app.txt && echo danach >> README.md' })).error, false);
   const m = byPath(await compare(c.id));
-  assert.deepEqual(Object.keys(m).sort(), ['build/app.txt', 'lib/neu.txt']);
+  assert.deepEqual(Object.keys(m).sort(), ['README.md', 'build/app.txt', 'lib/neu.txt'], 'changed again after the setup: offered');
+  assert.equal(m['README.md'].status, 'modified');
   const r = await (await takeOver(c.id, Object.values(m).map(x => ({ path: x.path, sha: x.sha })))).json() as ContainerTakeOver;
-  assert.equal(r.taken.length, 2);
+  assert.equal(r.taken.length, 3);
   assert.equal(fs.readFileSync(path.join(T.taskPaths(c.id).worktree, 'build/app.txt'), 'utf8'), 'neu-gebaut\n');
   await J.finishTask(c.id);
 });
