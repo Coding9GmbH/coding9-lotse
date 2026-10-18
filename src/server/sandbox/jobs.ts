@@ -30,7 +30,7 @@ import { clearJar, forgetUpstream } from './preview';
 import { getRunner } from './runner';
 import { captureRunning, removeShotFiles } from './screenshots';
 import { TASK_LABEL } from './labels';
-import { syncAll } from './sync';
+import { syncTaskAll } from './task-sync';
 import { streamFileTar, writeTar } from './tar';
 import { getTemplate, resolveCommand } from './templates';
 import { waitReady } from './templates/dockware';
@@ -141,6 +141,8 @@ export function runSteps(id: string, fromStep?: string, o: { ignoreVersion?: boo
   // Only now (nothing can throw any more): binding the new dump deletes the previous one
   if (o.dumpId) setTaskDump(t, o.dumpId);
   if (o.ignoreVersion && t.dump && !t.dump.deletedAt) t.dump.ignoreVersion = true;
+  // "Trotzdem fortfahren" after the project's Shopware version did not match the image (step detect-layout)
+  if (o.ignoreVersion && t.steps[from]?.key === 'detect-layout') t.ignoreProjectVersion = true;
   for (const s of t.steps.slice(from)) { s.state = 'pending'; s.log = []; delete s.startedAt; delete s.endedAt; delete s.error; }
   t.status = 'setting_up'; t.error = null; t.lastActiveAt = now();
   saveTask(t);
@@ -245,6 +247,7 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
     layout: () => t.layout,
     setLayout: l => { t.layout = l; saveTask(t, false); },
     newPluginName: t.pluginName ?? null,
+    ignoreProjectVersion: !!t.ignoreProjectVersion,
     run: async (cmd, o = {}) => {
       const r = Array.isArray(cmd) ? { argv: cmd as readonly string[], user: tpl.execUser, workdir: tpl.workdir, timeoutMs: o.timeoutMs ?? limit, maxOutput: MAX_OUTPUT }
         : resolveCommand(tpl, (cmd as { command: string }).command, (cmd as { args?: Record<string, string> }).args, { pluginDir: t.layout?.pluginDir ?? '' });
@@ -342,8 +345,10 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
     },
     syncAll: async () => {
       if (!t.layout) throw new Error('Plugin noch nicht erkannt.');
-      const r = await syncAll({ runner, containerId: container(), worktree: p.worktree, target: tpl.syncTarget(t.layout), user: tpl.execUser, signal });
+      container();
+      const r = await syncTaskAll(t, signal);
       lg(`${r.files} Dateien nach ${tpl.syncTarget(t.layout)} übertragen.`);
+      return r.config;
     },
   };
 }

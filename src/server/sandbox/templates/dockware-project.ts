@@ -1,0 +1,229 @@
+// Template "Dockware (Shopware)", step "install-plugin" for a full Shopware project repository (A19, mode "Overlay"): the image's
+// Shopware stays installed, the project's parts are synced over it and installed. Measured offline with dockware/shopware:6.7.15.1 and a
+// project with 3 plugins, a static plugin, an app, a theme, src/ and production configs: about 45 s.
+//  1. what the clean image knows: APP_ENV, extension aliases (bin/console debug:config), defined environment variables (names only)
+//  2. sync (sync.ts): plugin/app folders, config/packages + config/services*.yaml (with the sandbox override, quarantine), src/
+//  3. static plugins (custom/static-plugins) via an offline composer path install, like shopware/production does it; other psr-4
+//     namespaces of src/ via composer dump-autoload (offline, composer.json's repositories restored afterwards)
+//  4. boot check: bin/console about; a config error that names a file takes that file out (at most 5 rounds), else the step fails
+//     with the error and the likely file
+//  5. plugin:refresh + install/activate (without a dump all project plugins; with a dump its plugin table decides, only new ones are
+//     installed), apps (app:install --force: aborts without it), the project's theme (without a dump)
+//  6. extension aliases again (plugins may bring their own): files quarantined only for that are loaded now
+// Every argv is constant or built from validated names (plugin names, composer package names, sales channel ids from MySQL).
+import type { ProjectInfo, TaskLayout } from '@/lib/protocol';
+import { PLUGIN_NAME } from '@/lib/sandbox-task';
+import {
+  COMPOSER_NAME, ENV_NAMES_ARGV, bootError, bootFinding, detectProject, missingPsr4, parseAppEnv, parseEnvNames, parseExtensions, pickTheme,
+  readComposerJson, requiredPackages, type ConfigPlan,
+} from '../project';
+import type { StepCtx } from './types';
+
+const MIN = 60_000;
+const bin = (...a: string[]) => ['bin/console', ...a];
+const MYSQL = ['mysql', '-uroot', '-proot', '-h127.0.0.1', 'shopware', '-N', '-e'];
+const ANY = { okCodes: Array.from({ length: 256 }, (_, i) => i) };
+/** Boot rounds: each one takes a file out or defines an env default (the fixture needed one) */
+export const BOOT_ROUNDS = 5;
+
+/** composer.json of the image: only path repositories plus packagist off (offline, else composer fails on Shopware's conflicts
+ *  repository), psr-4 additions of the project (argv[2], JSON); "restore" puts the original repositories back afterwards (the
+ *  requirements and autoload stay). As www-data in /var/www/html. */
+export const COMPOSER_EDIT_PHP = `$f = '/var/www/html/composer.json'; $keep = '/var/www/html/var/lotse-composer-repositories.json';
+$j = json_decode((string) file_get_contents($f), true);
+if (!is_array($j)) { fwrite(STDERR, "composer.json ist nicht lesbar\\n"); exit(2); }
+if (($argv[1] ?? '') === 'prepare') {
+  if (!file_exists($keep)) file_put_contents($keep, json_encode(['repositories' => $j['repositories'] ?? null]));
+  $repos = array_values(array_filter($j['repositories'] ?? [], fn ($r) => is_array($r) && ($r['type'] ?? '') === 'path'));
+  if (!array_filter($repos, fn ($r) => ($r['url'] ?? '') === 'custom/static-plugins/*')) $repos[] = ['type' => 'path', 'url' => 'custom/static-plugins/*', 'options' => ['symlink' => true]];
+  $repos[] = ['packagist.org' => false];
+  $j['repositories'] = $repos;
+  foreach (json_decode($argv[2] ?? '{}', true) ?: [] as $ns => $dir) $j['autoload']['psr-4'][$ns] = $dir;
+} else {
+  if (!file_exists($keep)) exit(0);
+  $o = json_decode((string) file_get_contents($keep), true);
+  if (($o['repositories'] ?? null) === null) unset($j['repositories']); else $j['repositories'] = $o['repositories'];
+  unlink($keep);
+}
+file_put_contents($f, json_encode($j, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\\n");`;
+const OFFLINE = ['env', 'COMPOSER_DISABLE_NETWORK=1', 'COMPOSER_NO_INTERACTION=1'];
+/** Clears Symfony's cache directory (the boot check builds the container again) */
+const CLEAR_CACHE = ['bash', '-c', 'rm -rf var/cache/* 2>/dev/null; exit 0'];
+
+const project = (ctx: StepCtx): { l: TaskLayout; p: ProjectInfo } => {
+  const l = ctx.layout();
+  if (!l?.project || l.kind !== 'project') throw new Error('Projekt noch nicht erkannt (Schritt „Plugin erkennen“ fehlt).');
+  return { l, p: l.project };
+};
+const save = (ctx: StepCtx, l: TaskLayout, p: ProjectInfo) => ctx.setLayout({ ...l, project: p });
+const lines = (s: string) => s.split('\n').map(x => x.trim()).filter(Boolean);
+
+/** Step 1: the clean image's APP_ENV, extension aliases and environment names; on a retry (config already synced, the console may not
+ *  boot) what an earlier run read is kept. */
+async function readRuntime(ctx: StepCtx, p: ProjectInfo): Promise<ProjectInfo> {
+  const about = await ctx.run(bin('about'), { ...ANY, quiet: true });
+  const dbg = await ctx.run(['bash', '-c', 'bin/console debug:config 2>&1'], { ...ANY, quiet: true });
+  const extensions = dbg.exitCode === 0 ? parseExtensions(dbg.output) : p.extensions;
+  if (!extensions?.length) throw new Error(`Shopware im Container antwortet nicht auf bin/console: ${bootError(dbg.output) || `Exit-Code ${dbg.exitCode}`}`);
+  const envNames = parseEnvNames((await ctx.run(ENV_NAMES_ARGV, { quiet: true })).output);
+  const appEnv = about.exitCode === 0 ? parseAppEnv(about.output) : p.appEnv ?? 'dev';
+  ctx.log(`Shopware im Image: Umgebung ${appEnv}, ${extensions.length} Konfigurations-Erweiterungen (${extensions.join(', ')}).`);
+  return { ...p, appEnv, extensions, envNames };
+}
+
+/** What the sync's config plan did, for the setup log */
+function logPlan(ctx: StepCtx, plan: ConfigPlan | null) {
+  if (!plan) return;
+  for (const [f, why] of plan.quarantine) ctx.log(`Nicht geladen: ${f} – ${why}`);
+  if (plan.notes.length) ctx.log(`Sandbox-Anpassungen (config/packages/…/zz_lotse_sandbox.yaml): ${plan.notes.join('; ')}`);
+  if (plan.envDefaults.length) ctx.log(`Umgebungsvariablen ohne Wert in der Sandbox: ${plan.envDefaults.join(', ')}`);
+}
+
+/** Packages the project or its plugins require that the image does not have (never installed offline: a warning) */
+async function missingPackages(ctx: StepCtx, p: ProjectInfo): Promise<string[]> {
+  const own = new Set(p.plugins.map(x => x.composerName).filter((x): x is string => !!x));
+  const want = new Set(requiredPackages(readComposerJson(`${ctx.worktree}/composer.json`), own));
+  for (const x of p.plugins) for (const r of requiredPackages(readComposerJson(`${ctx.worktree}/${x.dir}/composer.json`), own)) want.add(r);
+  if (!want.size) return [];
+  const r = await ctx.run(['bash', '-c', 'for p; do [ -d "vendor/$p" ] || echo "$p"; done; exit 0', '_', ...[...want].filter(n => COMPOSER_NAME.test(n))], { quiet: true });
+  return lines(r.output).filter(n => want.has(n)).sort();
+}
+
+/** Step 3: static plugins (offline composer path install) and psr-4 namespaces of src/ the image lacks */
+async function composerParts(ctx: StepCtx, p: ProjectInfo, skip: Set<string>) {
+  const statics = p.plugins.filter(x => x.static && x.composerName && !skip.has(x.name));
+  for (const x of p.plugins.filter(y => y.static && !y.composerName)) ctx.log(`Warnung: ${x.dir} hat keinen gültigen composer-Namen – wird nicht installiert.`);
+  const image = await ctx.run(['cat', 'composer.json'], { quiet: true });
+  let imageJson: Record<string, unknown> | null = null;
+  try { imageJson = JSON.parse(image.output) as Record<string, unknown>; } catch { /* below */ }
+  const { add, skipped } = missingPsr4(p.psr4, imageJson);
+  if (skipped.length) ctx.log(`Hinweis: Autoload für ${skipped.join(', ')} zeigt nicht nach src/ – dieser Code wird in der Sandbox nicht geladen.`);
+  if (!statics.length && !Object.keys(add).length) return;
+  if (!imageJson) throw new Error('composer.json im Container ist nicht lesbar.');
+  await ctx.run(['php', '-r', COMPOSER_EDIT_PHP, '--', 'prepare', JSON.stringify(add)], { quiet: true });
+  try {
+    if (statics.length) {
+      ctx.log(`Statische Plugins über composer (offline, Pfad-Repository): ${statics.map(x => x.composerName).join(', ')}`);
+      await ctx.run([...OFFLINE, 'composer', 'require', '--no-scripts', '--no-plugins', '--no-interaction', '--no-progress', '--', ...statics.map(x => `${x.composerName}:*@dev`)], { timeoutMs: 5 * MIN });
+    } else {
+      ctx.log(`Autoload für den Projekt-Code: ${Object.keys(add).join(', ')}`);
+      await ctx.run([...OFFLINE, 'composer', 'dump-autoload', '--no-scripts', '--no-plugins', '--no-interaction'], { timeoutMs: 5 * MIN });
+    }
+  } finally { await ctx.run(['php', '-r', COMPOSER_EDIT_PHP, '--', 'restore'], { quiet: true }).catch(() => {}); }
+}
+
+/** Step 4: Shopware boots with the project's config (bin/console about); a file the error points at is taken out and synced again */
+async function bootCheck(ctx: StepCtx, l: TaskLayout, p: ProjectInfo, plan: ConfigPlan | null): Promise<ProjectInfo> {
+  for (let round = 1; ; round++) {
+    await ctx.run(CLEAR_CACHE, { quiet: true });
+    const r = await ctx.run(bin('about'), { ...ANY, quiet: true, timeoutMs: 3 * MIN });
+    if (r.exitCode === 0) { ctx.log(round === 1 ? 'Shopware startet mit der Konfiguration des Projekts ✓' : `Shopware startet nach ${round - 1} Anpassung(en) ✓`); return p; }
+    const why = bootError(r.output), found = round <= BOOT_ROUNDS ? bootFinding(r.output, plan?.files ?? [], p.appEnv ?? 'dev') : null;
+    if (found && 'env' in found && !(p.extraEnv ?? []).includes(found.env)) {
+      ctx.log(`Umgebungsvariable ${found.env} fehlt – in der Sandbox leer gesetzt.`);
+      p = { ...p, extraEnv: [...(p.extraEnv ?? []), found.env] };
+    } else if (found && 'file' in found && !(p.held ?? []).some(h => h.file === found.file)) {
+      ctx.log(`Shopware startet nicht (${why}) – ${found.file} wird in der Sandbox nicht geladen.`);
+      p = { ...p, held: [...(p.held ?? []), { file: found.file, reason: found.reason }] };
+    } else {
+      const quoted = [...why.matchAll(/"([^"]{3,80})"/g)].map(m => m[1]);
+      const likely = (plan?.files ?? []).find(f => quoted.some(q => f.raw.includes(q)))?.rel;
+      throw new Error(`Shopware startet mit der Konfiguration des Projekts nicht: ${why || `Exit-Code ${r.exitCode}`}${likely ? `\nWahrscheinliche Ursache: ${likely}` : found && 'file' in found ? `\nWahrscheinliche Ursache: ${found.file}` : '\nDie Ursache ließ sich keiner Konfigurationsdatei zuordnen – Log (var/log) in der Konsole prüfen.'}`);
+    }
+    save(ctx, l, p);
+    plan = await ctx.syncAll();
+    p = project(ctx).p; // the sync keeps what it quarantined on the layout
+    logPlan(ctx, plan);
+  }
+}
+
+/** Plugin states in the database: name → "<installed><active>" (e.g. "11") */
+async function pluginStates(ctx: StepCtx, names: string[]): Promise<Map<string, string>> {
+  const safe = names.filter(n => PLUGIN_NAME.test(n));
+  if (!safe.length) return new Map();
+  const r = await ctx.run([...MYSQL, `SELECT name, CONCAT(installed_at IS NOT NULL, active) FROM plugin WHERE name IN (${safe.map(n => `'${n}'`).join(',')})`], { quiet: true });
+  return new Map(lines(r.output).map(x => x.split(/\s+/)).filter(x => x.length === 2 && PLUGIN_NAME.test(x[0])).map(x => [x[0], x[1]]));
+}
+
+/** "install-plugin" for a project */
+export async function installProject(ctx: StepCtx): Promise<void> {
+  const { l } = project(ctx);
+  // detected again: a retry after the AI changed the repository installs what is there now; a new run starts the boot check over
+  let p: ProjectInfo = { ...l.project!, ...detectProject(ctx.worktree), held: [], extraEnv: [] };
+  p = await readRuntime(ctx, p);
+  save(ctx, l, p);
+
+  const missing = await missingPackages(ctx, p);
+  p = { ...p, missingPackages: missing };
+  if (missing.length) ctx.log(`Warnung: Diese Pakete verlangt das Projekt, sie fehlen aber im Image und werden offline nicht installiert: ${missing.join(', ')}. Was sie braucht, läuft in der Sandbox nicht (Projekt vollständig installieren wird noch nicht unterstützt).`);
+  // a static plugin whose own requirements are missing cannot be installed by composer offline
+  const skip = new Set<string>();
+  for (const x of p.plugins.filter(y => y.static)) {
+    const own = new Set(p.plugins.map(y => y.composerName).filter((y): y is string => !!y));
+    const need = requiredPackages(readComposerJson(`${ctx.worktree}/${x.dir}/composer.json`), own).filter(n => missing.includes(n));
+    if (need.length) { skip.add(x.name); ctx.log(`Warnung: ${x.name} braucht ${need.join(', ')} – wird in der Sandbox nicht installiert.`); }
+  }
+  save(ctx, l, p);
+
+  let plan = await ctx.syncAll();
+  p = project(ctx).p;
+  logPlan(ctx, plan);
+  await composerParts(ctx, p, skip);
+  p = await bootCheck(ctx, l, p, plan);
+  save(ctx, l, p);
+
+  // plugins: with a dump its plugin table decides (only plugins it does not know are installed); without one every project plugin
+  const names = p.plugins.filter(x => !skip.has(x.name)).map(x => x.name);
+  const dumped = ctx.hasDump() ? await dumpPlugins(ctx) : null;
+  const refresh = await ctx.run(bin('plugin:refresh'));
+  const install = dumped ? names.filter(n => !dumped.has(n)) : names;
+  if (dumped) ctx.log(`Datenbank-Dump: ${names.length - install.length} Projekt-Plugins sind darin bekannt und behalten ihren Zustand${install.length ? `, neu installiert: ${install.join(', ')}` : ''}.`);
+  if (install.length) await ctx.run(bin('plugin:install', '--activate', '-n', '--', ...install), { timeoutMs: 10 * MIN });
+  const states = await pluginStates(ctx, install);
+  const failed = install.filter(n => states.get(n) !== '11');
+  if (failed.length) {
+    const why = refresh.output.split('\n').filter(x => /\[ERROR]|Errors?:|^\s{5,}\S/.test(x)).map(x => x.trim()).join(' ').slice(0, 600);
+    throw new Error(`Nicht installiert und aktiviert: ${failed.join(', ')}.${why ? ` Shopware meldet: ${why}` : ''}`);
+  }
+  if (install.length) ctx.log(`Plugins installiert und aktiv: ${install.join(', ')}`);
+
+  // apps: work offline as long as they have no backend of their own (registration)
+  const known = dumped ? new Set(lines((await ctx.run([...MYSQL, 'SELECT name FROM app'], { quiet: true, okCodes: [0, 1] })).output)) : new Set<string>();
+  for (const a of p.apps.filter(x => !known.has(x.name))) {
+    const r = await ctx.run(bin('app:install', '--activate', '--force', '-n', '--', a.name), { okCodes: [0, 1], timeoutMs: 3 * MIN });
+    ctx.log(r.exitCode === 0 ? `App ${a.name} installiert und aktiv.` : `Warnung: App ${a.name} ließ sich nicht installieren (Apps mit eigenem Server brauchen Internet).`);
+  }
+
+  // theme: without a dump the project's theme for every storefront; with one the dump's assignment stays (theme-compile compiles it)
+  const theme = dumped ? null : pickTheme(ctx.worktree, p.plugins.filter(x => names.includes(x.name)));
+  if (theme) { await ctx.run(bin('theme:change', '--all', '--no-compile', '-n', '--', theme)); ctx.log(`Theme ${theme} der Storefront zugewiesen.`); }
+  else if (dumped) ctx.log('Theme: bleibt, wie es im Datenbank-Dump zugewiesen ist.');
+  p = { ...p, theme };
+  save(ctx, l, p);
+
+  // plugins may bring configuration extensions of their own: files held back only for an unknown extension are loaded now
+  const dbg = await ctx.run(['bash', '-c', 'bin/console debug:config 2>&1'], { ...ANY, quiet: true });
+  const ext = dbg.exitCode === 0 ? parseExtensions(dbg.output) : [];
+  if (ext.some(e => !p.extensions?.includes(e)) && (p.quarantined ?? []).length) {
+    p = { ...p, extensions: [...new Set([...(p.extensions ?? []), ...ext])].sort() };
+    save(ctx, l, p);
+    const before = new Set((p.quarantined ?? []).map(q => q.file));
+    plan = await ctx.syncAll();
+    p = project(ctx).p;
+    const loaded = [...before].filter(f => !plan?.quarantine.has(f));
+    if (loaded.length) { ctx.log(`Mit den Erweiterungen der Plugins jetzt geladen: ${loaded.join(', ')}`); p = await bootCheck(ctx, l, p, plan); save(ctx, l, p); }
+  }
+}
+
+/** The dump's plugin table before plugin:refresh: names known to it; warns about active plugins whose code is missing (a refresh
+ *  deletes their rows) */
+async function dumpPlugins(ctx: StepCtx): Promise<Set<string>> {
+  const rows = lines((await ctx.run([...MYSQL, "SELECT name, active, path FROM plugin WHERE installed_at IS NOT NULL"], { quiet: true })).output).map(x => x.split('\t'));
+  const paths = rows.filter(r => r[1] === '1' && /^[A-Za-z0-9_./-]{1,300}$/.test(r[2] ?? '') && !r[2].includes('..')).map(r => r[2]);
+  if (paths.length) {
+    const gone = lines((await ctx.run(['bash', '-c', 'for p; do [ -e "$p" ] || echo "$p"; done; exit 0', '_', ...paths], { quiet: true })).output);
+    const names = rows.filter(r => gone.includes(r[2])).map(r => r[0]);
+    if (names.length) ctx.log(`Warnung: Im Dump aktiv, aber ohne Code im Projekt oder Image: ${names.join(', ')} – plugin:refresh entfernt sie aus der Datenbank der Sandbox (Store- oder composer-Plugins).`);
+  }
+  return new Set(rows.map(r => r[0]).filter(n => PLUGIN_NAME.test(n)));
+}

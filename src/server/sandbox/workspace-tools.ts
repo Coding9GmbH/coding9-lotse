@@ -28,7 +28,7 @@ import { fetchUpstream, sandboxUpstream } from './preview';
 import { relOf } from './native-tools';
 import { LOTSE_AUTHOR, coAuthor, commitCheck, findSecret } from './publish';
 import { getRunner } from './runner';
-import { syncAll, syncPaths } from './sync';
+import { syncTaskAll, syncTaskPaths } from './task-sync';
 import { getTemplate } from './templates';
 import { mustTask, publishRunning, settleNewPlugin, taskPaths, type CodeTask } from './tasks';
 import { deleteText, listFiles, readText, searchFiles, type Change } from './workspace-fs';
@@ -72,10 +72,10 @@ export function pageText(html: string): { title: string; text: string } {
  *  Returns a short note for the AI. Shared by delete_file, Claude's native Edit/Write and Codex' patches. */
 export async function syncChanged(taskId: string, rels: string[]): Promise<string> {
   return withTaskLock(taskId, async () => {
-    const t = mustTask(taskId), tpl = getTemplate(t.template);
+    const t = mustTask(taskId);
     if (!t.containerId || !t.containerRunning || !t.layout) return ' (Container pausiert: wird beim Fortsetzen übertragen)';
-    await syncPaths({ runner: getRunner(), containerId: t.containerId, worktree: taskPaths(taskId).worktree, target: tpl.syncTarget(t.layout), user: tpl.execUser }, rels);
-    return ' und in den Container übertragen';
+    const { note } = await syncTaskPaths(t, rels);
+    return ` und in den Container übertragen${note}`;
   }).catch(e => ` – Übertragung in den Container fehlgeschlagen: ${redact(e instanceof Error ? e.message : e).slice(0, 300)}`);
 }
 
@@ -138,7 +138,7 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
           res = await withTaskLock(taskId, async () => {
             const fresh = task();
             if (!fresh.containerId || !fresh.containerRunning || !fresh.layout) throw new Error('Der Container läuft nicht.');
-            await syncAll({ runner: getRunner(), containerId: fresh.containerId, worktree: worktree(), target: tpl.syncTarget(fresh.layout), user: tpl.execUser, signal: host.abort?.signal });
+            await syncTaskAll(fresh, host.abort?.signal);
             return getRunner().exec(fresh.containerId, ['bash', '-lc', command], { user: tpl.execUser, workdir: tpl.workdir, timeoutMs: (timeout_sec ?? BASH_TIMEOUT.def) * 1000, maxOutput: 256 * 1024, signal: host.abort?.signal });
           });
         } catch (e) {

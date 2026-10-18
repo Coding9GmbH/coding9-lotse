@@ -64,9 +64,42 @@ const WEBROOT = '/var/www/html/public';
 const PLUGINS = '/var/www/html/custom/plugins/';
 /** What the fake storefront shows of a plugin's storefront template: its markup without Twig tags (enough to see an edit after compiling). */
 const renderTwig = (src: string) => src.replace(/\{%[\s\S]*?%\}|\{\{[\s\S]*?\}\}|\{#[\s\S]*?#\}/g, '').trim();
-/** What a healthy Dockware answers where the setup reads output (plugin installed and active). */
-const dockwareAnswers = (argv: readonly string[]): Partial<ExecResult> | undefined =>
-  (argv[0] === 'mysql' && argv.some(a => a.includes('installed_at IS NOT NULL')) ? { output: '11\n' } : undefined);
+/** The image's extension aliases as `bin/console debug:config` lists them (6.7.15.1) */
+export const FAKE_EXTENSIONS = ['debug', 'elasticsearch', 'framework', 'mcp', 'monolog', 'pentatrion_vite', 'service', 'shopware', 'storefront', 'twig', 'twig_component', 'web_profiler'];
+/** Enough YAML for tests: nested block mappings of `key: value` (comments, lists and anchors are skipped) */
+export function fakeYaml(text: string): Record<string, unknown> {
+  const root: Record<string, unknown> = {}, stack: { indent: number; obj: Record<string, unknown> }[] = [{ indent: -1, obj: root }];
+  for (const line of text.split('\n')) {
+    const m = /^(\s*)([A-Za-z0-9_.@\\()-]+|'[^']*'):(?:\s+(.*))?$/.exec(line.replace(/\s+#.*$/, ''));
+    if (!m || /^\s*#/.test(line)) continue;
+    const indent = m[1].length, key = m[2].replace(/^'|'$/g, ''), raw = (m[3] ?? '').trim();
+    while (stack.length > 1 && stack[stack.length - 1].indent >= indent) stack.pop();
+    const parent = stack[stack.length - 1].obj;
+    if (!raw || raw.startsWith('&')) { const child: Record<string, unknown> = {}; parent[key] = child; stack.push({ indent, obj: child }); continue; }
+    parent[key] = raw === 'true' ? true : raw === 'false' ? false : raw === '~' || raw === 'null' ? null : /^-?\d+$/.test(raw) ? Number(raw) : raw.replace(/^'(.*)'$/, '$1').replace(/^"(.*)"$/, '$1');
+  }
+  return root;
+}
+/** What a healthy Dockware answers where the setup reads output (plugins installed and active, the project steps' probes). */
+function dockwareAnswers(argv: readonly string[], c: FakeContainer): Partial<ExecResult> | undefined {
+  const last = argv.at(-1) ?? '', script = argv[0] === 'bash' ? argv[2] ?? '' : '';
+  if (argv[0] === 'mysql' && argv.some(a => a.includes('installed_at IS NOT NULL'))) {
+    const names = /WHERE name IN \(([^)]*)\)/.exec(last)?.[1];
+    return { output: names ? names.split(',').map(n => `${n.replace(/'/g, '').trim()}\t11`).join('\n') + '\n' : '11\n' };
+  }
+  if (argv[0] === 'bin/console' && argv[1] === 'about') return { output: ' Kernel\n  Environment          dev\n  Debug                true\n' };
+  if (script === 'bin/console debug:config 2>&1') return { output: ` ---- ----\n  Bundle name   Extension alias\n${FAKE_EXTENSIONS.map(e => `  Some${e.replace(/_/g, '')}Bundle   ${e}`).join('\n')}\n` };
+  if (argv[0] === 'bash' && /env \| cut -d= -f1/.test(script)) return { output: 'APP_ENV\nAPP_URL\nDATABASE_URL\nAPP_SECRET\nPATH\n' };
+  if (argv[0] === 'cat' && argv[1] === 'composer.json') return { output: JSON.stringify({ type: 'project', require: { 'shopware/core': 'v6.7.15.1' }, autoload: { 'psr-4': { 'App\\': 'src/' } } }) };
+  if (argv[0] === 'cat' && argv[1]?.startsWith('/')) { const f = c.files.get(argv[1]); return f ? { output: f.toString('utf8') } : { exitCode: 1, output: `cat: ${argv[1]}: No such file or directory` }; }
+  // the project's config parsed by "the container's Symfony": staged files below /tmp/lotse-config
+  if (argv[0] === 'php' && argv[1] === '-r' && argv[2]?.includes('PARSE_CUSTOM_TAGS')) {
+    const out: Record<string, unknown> = {};
+    for (const rel of argv.slice(4)) { const f = c.files.get(`/tmp/lotse-config/${rel}`); out[rel] = f ? (/^\s*broken:\s*\[/m.test(f.toString('utf8')) ? { error: 'Malformed inline YAML string' } : { data: fakeYaml(f.toString('utf8')) }) : { error: 'missing' }; }
+    return { output: JSON.stringify(out) };
+  }
+  return undefined;
+}
 
 /** A valid 1×1 PNG: what the fake screenshot container "captures". */
 export const FAKE_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
@@ -238,8 +271,8 @@ export class FakeRunner implements SandboxRunner {
       const dump = [...c.files].find(([k]) => k.endsWith('/lotse-import/dump'))?.[1];
       for (const m of mountsOf(c.spec)) { const v = this.volumes.get(m.Source); if (v) v.data = [`import:${dump?.length ?? 0}`]; }
     }
-    if (argv[0] === 'rm' && argv[argv.length - 2] === '--') { const target = argv[argv.length - 1]; for (const k of [...c.files.keys()]) if (k === target || k.startsWith(`${target}/`)) c.files.delete(k); }
-    const r = this.script(argv, id) ?? dockwareAnswers(argv) ?? {};
+    if (argv[0] === 'rm' && argv.includes('--')) for (const target of argv.slice(argv.indexOf('--') + 1)) for (const k of [...c.files.keys()]) if (k === target || k.startsWith(`${target}/`)) c.files.delete(k);
+    const r = this.script(argv, id) ?? dockwareAnswers(argv, c) ?? {};
     return { exitCode: r.exitCode ?? 0, output: r.output ?? '', truncated: r.truncated ?? false };
   }
   /** Echo shell: prompt, line editing (backspace, Ctrl-C), a few commands (whoami, pwd, stty size, plugin:list, echo), exit ends it. */

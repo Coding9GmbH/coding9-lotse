@@ -289,9 +289,32 @@ export type CodeTaskStatus = 'setting_up' | 'ready' | 'waking' | 'paused' | 'fai
 export type TaskStepState = 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'interrupted';
 /** One setup step. key = template step; 'custom' = an own setup command of the environment (label = its name) */
 export interface TaskStep { id: string; key: SandboxStepKey | 'custom'; label?: string; state: TaskStepState; startedAt?: string; endedAt?: string; /** last lines, redacted */ log: string[]; error?: string }
-/** What the repository is: a plugin or a theme plugin below custom/plugins/<name>. isNew: the repository was empty (README, LICENSE,
- *  .gitignore at most) and the plugin is built in the sandbox; nothing was installed during the setup. */
-export interface TaskLayout { kind: 'plugin' | 'theme'; name: string; pluginDir: string; isNew?: boolean }
+/** What the repository is: a plugin or a theme plugin below custom/plugins/<name>, or a whole Shopware project (project: its plugins,
+ *  apps and configuration, synced into the shop's root; pluginDir ''). isNew: the repository was empty (README, LICENSE, .gitignore at
+ *  most) and the plugin is built in the sandbox; nothing was installed during the setup. */
+export interface TaskLayout { kind: 'plugin' | 'theme' | 'project'; name: string; pluginDir: string; isNew?: boolean; project?: ProjectInfo }
+/** What a project plugin brings (detected from its files): storefront templates, styles, JavaScript, administration, PHP code, settings,
+ *  migrations, texts */
+export type ProjectPart = 'storefront' | 'styles' | 'js' | 'admin' | 'php' | 'settings' | 'migrations' | 'snippets';
+/** A plugin of a project: below custom/plugins/<dir> or (static) custom/static-plugins/<dir>, installed by its technical name */
+export interface ProjectPlugin { name: string; dir: string; static?: boolean; theme?: boolean; composerName?: string; label?: string; parts: ProjectPart[] }
+/** A full Shopware project repository (A19), "Overlay" mode: the image's Shopware stays, the project's plugins, apps, config/packages,
+ *  config/services*.yaml and src/ are synced over it. The runtime part (appEnv, extensions, envNames) is read from the container during
+ *  the setup; quarantined config files are not loaded in the sandbox (no extension for them, or Shopware did not boot with them). */
+export interface ProjectInfo {
+  plugins: ProjectPlugin[]; apps: { name: string; dir: string }[];
+  /** config/packages/** and config/services*.yaml of the repository */ configFiles: string[];
+  /** src/ with project code (psr-4 namespaces from composer.json autoload) */ src: boolean; psr4: Record<string, string>;
+  /** shopware/core (or shopware/platform) in composer.lock, without "v" */ shopwareVersion: string | null;
+  /** the lock's version differs from the image in major.minor: blocks until "Trotzdem fortfahren"; suggest = matching image */
+  versionMismatch?: { project: string; image: string; suggest: string };
+  /** theme plugin the setup assigned to the storefront (null: none or the dump's assignment) */ theme?: string | null;
+  appEnv?: string; extensions?: string[]; envNames?: string[]; extraEnv?: string[];
+  quarantined?: { file: string; reason: string }[];
+  /** config files the boot check took out (Shopware did not start with them); kept until a new setup */ held?: { file: string; reason: string }[];
+  /** what the sandbox override (config/packages/<env>/zz_lotse_sandbox.yaml) switched to local, one line each */ overrides?: string[];
+  /** composer packages the project requires that the image does not have */ missingPackages?: string[];
+}
 export interface CodeTaskPublic {
   id: string; title: string; goal: string; repo: string; baseBranch: string; branch: string; template: string;
   status: CodeTaskStatus; steps: TaskStep[]; layout: TaskLayout | null; error: string | null;
@@ -343,6 +366,7 @@ export interface PluginZipCheck {
   ok: boolean; /** technical name = top folder and file name */ name: string | null; version: string | null;
   problems: PluginZipProblem[]; warnings: PluginZipWarning[]; files: number; bytes: number; /** vendor/ included (dependencies besides Shopware) */ vendor: boolean;
   /** for 'secret': the file (no content) */ secretFile?: string;
+  /** a project: its plugins to choose from (folder relative to the repository) and the one checked */ plugins?: { dir: string; name: string }[]; plugin?: string;
 }
 /** A local commit of the task's worktree; published = contained in the last push */
 export interface TaskCommit { sha: string; at: string; subject: string; published: boolean }

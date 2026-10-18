@@ -1,6 +1,7 @@
 // Sandbox templates: a fixed recipe per platform (image pattern, setup steps, allow-listed commands).
 // Templates are code, never configuration: neither the AI nor chat input can add steps or commands.
 import type { CommandPhase, SandboxStepKey, SandboxCommandKey, TaskLayout } from '@/lib/protocol';
+import type { ConfigPlan } from '../project';
 import type { ContainerSpec } from '../runner';
 
 /** What a step may do: a restricted facade over the runner, git and the workspace, bound to one task. */
@@ -14,6 +15,8 @@ export interface StepCtx {
   setLayout: (l: TaskLayout) => void;
   /** technical name the user chose for a new plugin (used only if the cloned repository is empty) */
   newPluginName: string | null;
+  /** a full project whose Shopware version differs from the image: the user chose "Trotzdem fortfahren" */
+  ignoreProjectVersion: boolean;
   /** a fixed argv or the id of an allow-listed command; never a shell string from input. Throws on a non-zero exit (with the output's tail). */
   run: (cmd: readonly string[] | { command: SandboxCommandKey; args?: Record<string, string> }, o?: { timeoutMs?: number; okCodes?: number[]; /** polling: neither the command nor its output go to the log */ quiet?: boolean }) => Promise<{ exitCode: number; output: string }>;
   ensureImage: () => Promise<void>;
@@ -25,8 +28,8 @@ export interface StepCtx {
   createContainer: () => Promise<void>;
   /** HTTP status of a storefront path, requested by Lotse with Host: localhost (the domain Dockware knows) */
   httpStatus: (path: string) => Promise<number>;
-  /** workspace → container (full mirror of the plugin directory) */
-  syncAll: () => Promise<void>;
+  /** workspace → container (full mirror of the plugin directory; a project: its synced parts, with the config plan it returns) */
+  syncAll: () => Promise<ConfigPlan | null>;
   /** the task's uploaded dump waiting for the import (metadata only; the AI never gets this context). library = a stored database
    *  (kept after the import); restored = its MySQL data came from a snapshot before the container started (nothing to import) */
   dump: () => { name: string; size: number; ignoreVersion: boolean; library: boolean; restored: boolean } | null;

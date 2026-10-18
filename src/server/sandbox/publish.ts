@@ -14,7 +14,7 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { PrStatus, PublishStep, SecretFinding, TaskPr } from '@/lib/protocol';
+import type { PrStatus, PublishStep, SecretFinding, TaskLayout, TaskPr } from '@/lib/protocol';
 import { currentActor } from '../actor';
 import { auditAdd } from '../db';
 import { DEFAULT_LOCALE, messages, type Locale } from '@/lib/i18n';
@@ -27,6 +27,7 @@ import { noteChatEvent } from '../sessions';
 import { singleton } from '../state';
 import { errMsg } from '../util';
 import { setupBusy, TaskConflict } from './jobs';
+import { projectPathBlock } from './project';
 import { shotNote } from './screenshots';
 import { isDenied } from './workspace-fs';
 import { markPublishing, mustTask, now, publishRunning, saveTask, taskPaths, turnRunning, type CodeTask } from './tasks';
@@ -85,14 +86,17 @@ export function changedPaths(nameStatus: string): Changed[] {
   });
 }
 
-/** The reason a set of changed paths must not be published, in plain German, or null. */
-export function blockReason(files: Changed[]): string | null {
+/** The reason a set of changed paths must not be published, in plain German, or null. A full project (`kind` 'project') publishes
+ *  only its own parts (projectPathBlock). */
+export function blockReason(files: Changed[], kind?: TaskLayout['kind'] | null): string | null {
   if (!files.length) return 'Nichts zu veröffentlichen: keine Änderungen gegenüber dem Basis-Branch.';
   if (files.length > PUBLISH_LIMITS.files) return `Zu viele geänderte Dateien (${files.length}, höchstens ${PUBLISH_LIMITS.files}).`;
   for (const { path: p } of files) {
     if (!p || p.startsWith('/') || p.split('/').includes('..') || p.includes('\\') || /[\x00-\x1f]/.test(p)) return `Ungültiger Pfad „${p.slice(0, 120)}“.`;
     if (/^\.github\/(workflows|actions)(\/|$)/i.test(p) || /(^|\/)action\.ya?ml$/i.test(p)) return `Änderungen an GitHub-Workflows oder -Actions (${p.slice(0, 120)}) veröffentlicht Lotse nicht – sie liefen mit den Rechten des Repositorys.`;
     if (isDenied(p)) return `„${p.slice(0, 120)}“ ist eine geschützte Datei (.git, Geheimnis oder Schlüssel) und wird nicht veröffentlicht.`;
+    const outside = kind === 'project' ? projectPathBlock(p) : null;
+    if (outside) return outside;
   }
   return null;
 }
@@ -173,7 +177,7 @@ export async function preflight(t: CodeTask, allow: readonly string[] = []): Pro
   const p = taskPaths(t.id);
   const raw = await diffAgainstBase(p.worktree, p.gitDir, t.baseBranch);
   const files = changedPaths(raw.status);
-  const early = blockReason(files);
+  const early = blockReason(files, t.layout?.kind);
   if (early) throw new PublishBlocked(early);
   const { why, findings } = await checkOnDisk(t, files, scanSecrets());
   if (why) throw new PublishBlocked(why);
@@ -191,7 +195,7 @@ export async function preflight(t: CodeTask, allow: readonly string[] = []): Pro
  * overridden here (a possible false positive stays uncommitted; the user decides at publishing). Returns the reason, or null.
  */
 export async function commitCheck(t: CodeTask, files: Changed[], head: string, read?: StagedReader): Promise<string | null> {
-  const early = blockReason(files);
+  const early = blockReason(files, t.layout?.kind);
   if (early) return early;
   const { why, findings } = await checkOnDisk(t, files.filter(f => f.status !== 'D'), scanSecrets(), head, read);
   if (why) return why;

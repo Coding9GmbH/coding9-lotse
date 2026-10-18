@@ -34,6 +34,7 @@ export interface CodeTask extends CodeTaskRow {
   lastActiveAt: string; finishedAt: string | null;
   /** missing in rows from before dumps existed */ dump?: StoredDump | null;
   /** technical name for a new plugin, used when the cloned repository is empty (validated PLUGIN_NAME) */ pluginName?: string | null;
+  /** a full project on another Shopware version than the image: the user chose "Trotzdem fortfahren" */ ignoreProjectVersion?: boolean;
   /** the container keeps MySQL's data in the task's own volume (stored databases, db-snapshots.ts) */ dbVolume?: boolean;
   /** title of the pull request (number, URL and pushed SHA are columns) */ prTitle?: string | null;
   /** publishing (running, failed or interrupted by a restart); null after success */ publish?: TaskPublish | null;

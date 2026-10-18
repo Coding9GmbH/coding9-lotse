@@ -326,6 +326,16 @@ a.iconBtn:hover { border-color: var(--dark); text-decoration: none; }
 /* "Plugin als ZIP" ("Freigabe" tab): what is missing in composer.json, notes, download, where to upload it */
 .zipBox { margin: 22px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); display: flex; flex-direction: column; gap: 8px; }
 .zipBox > * { margin: 0; }
+.zipPick { display: flex; flex-direction: column; gap: 4px; }
+.zipPick select { width: 100%; min-width: 0; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+.zipPick select:focus { border-color: var(--green); outline: none; }
+/* A full Shopware project ("Einrichtung" tab): plugins, apps, what the sandbox switched */
+.projectBox { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.projectBox > *, .projectBox p { margin: 0; }
+.projectBox summary { cursor: pointer; }
+.projectList { margin: 4px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.projectWarn { padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); overflow-wrap: anywhere; }
+.projectWarn ul { margin: 6px 0 0; padding-left: 18px; }
 .zipMissing, .zipHints { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; font-size: 13px; }
 .zipMissing { padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); }
 .zipMissing p, .zipHints p { margin: 0; }

@@ -1,6 +1,6 @@
 // Namensraum "sandbox". `de` legt die Form fest, `en` muss dieselben Schlüssel haben (Texte mit Platzhaltern als Funktionen).
 // Reiter „Sandbox Coding“ (src/components/sandbox): Bereitschaft, Umgebung (Image, Variablen, eigene Befehle), Aufgaben.
-import type { CodeTaskStatus, ConsoleCloseReason, CommandPhase, InternetPolicy, PluginZipProblem, PluginZipWarning, PublishStep, SandboxCommandKey, SandboxStepKey, ShotDevice, TaskStepState } from '../../protocol';
+import type { CodeTaskStatus, ConsoleCloseReason, CommandPhase, InternetPolicy, PluginZipProblem, PluginZipWarning, ProjectPart, PublishStep, SandboxCommandKey, SandboxStepKey, ShotDevice, TaskStepState } from '../../protocol';
 
 const steps: Record<SandboxStepKey, string> = {
   'check-image': 'Image prüfen',
@@ -158,7 +158,7 @@ export const de = {
   },
   create: {
     title: 'Sandbox starten',
-    lead: 'Lotse holt dein Projekt von GitHub und richtet dafür einen eigenen Test-Shop ein (ein bis zwei Minuten). Das Projekt kann ein Plugin oder Theme sein – oder leer, dann baut die KI darin ein neues Plugin. Ab dann arbeitet die KI in diesem Chat nur noch im Test-Shop – ohne Zugriff auf den Live-Shop.',
+    lead: 'Lotse holt dein Projekt von GitHub und richtet dafür einen eigenen Test-Shop ein (ein bis zwei Minuten). Das Projekt kann ein Plugin oder Theme sein, ein ganzer Shopware-Shop mit mehreren Plugins und eigener Konfiguration – oder leer, dann baut die KI darin ein neues Plugin. Ab dann arbeitet die KI in diesem Chat nur noch im Test-Shop – ohne Zugriff auf den Live-Shop.',
     repo: 'Projekt',
     repoTech: 'GitHub-Repository',
     repoPick: 'Projekt wählen …',
@@ -484,6 +484,9 @@ export const de = {
     zip: {
       heading: 'Plugin als ZIP',
       lead: 'Ohne Entwickler direkt in den Shop: Das ZIP enthält das Plugin aus dieser Sandbox – auch Änderungen, die noch nicht freigegeben sind –, ohne Git-Ordner, Tests und geheime Dateien.',
+      leadProject: 'Ohne Entwickler direkt in den Shop: Wähle ein Plugin des Projekts – das ZIP enthält es aus dieser Sandbox, auch Änderungen, die noch nicht freigegeben sind, ohne Git-Ordner, Tests und geheime Dateien.',
+      pick: 'Plugin des Projekts',
+      noPlugins: 'Das Projekt hat noch kein Plugin (custom/plugins oder custom/static-plugins).',
       upload: 'So kommt es in den Shop: Shopware-Admin → Erweiterungen → Meine Erweiterungen → „Erweiterung hochladen“, danach installieren und aktivieren. Am besten zuerst in einer Testumgebung ausprobieren.',
       button: 'Plugin als ZIP herunterladen',
       busy: 'Erstelle ZIP …',
@@ -559,6 +562,24 @@ export const de = {
     reopen: 'Neu öffnen',
   },
   steps,
+  /** step labels for a full Shopware project (the others stay) */
+  projectSteps: { 'detect-layout': 'Shopware-Projekt erkennen', 'install-plugin': 'Projekt einspielen (Plugins, Apps, Konfiguration, Theme)' } as Partial<Record<SandboxStepKey, string>>,
+  project: {
+    kind: (n: number) => `Shopware-Projekt (${n === 1 ? '1 Plugin' : `${n} Plugins`})`,
+    heading: 'Ganzes Shopware-Projekt',
+    lead: 'Lotse spielt die Plugins, Apps, die Konfiguration (config/packages) und den Projekt-Code (src/) in den Test-Shop ein. Dienste, die es in der Sandbox nicht gibt (Redis, OpenSearch, S3, Mailserver …), stellt Lotse dort auf lokal um – dein Repository bleibt unverändert, .env-Dateien werden nie übertragen.',
+    version: (v: string | null) => (v ? `Shopware ${v} (composer.lock)` : 'Shopware-Version unbekannt (kein composer.lock)'),
+    plugins: 'Plugins',
+    apps: 'Apps',
+    theme: (name: string) => `Theme: ${name}`,
+    static: 'statisch',
+    themeTag: 'Theme',
+    parts: { storefront: 'Storefront-Templates', styles: 'Styles', js: 'JavaScript', admin: 'Administration', php: 'PHP-Code', settings: 'Einstellungen', migrations: 'Migrationen', snippets: 'Texte' } as Record<ProjectPart, string>,
+    quarantined: (n: number) => (n === 1 ? '1 Konfigurationsdatei wird in der Sandbox nicht geladen' : `${n} Konfigurationsdateien werden in der Sandbox nicht geladen`),
+    overrides: 'In der Sandbox umgestellt (externe Dienste → lokal)',
+    missing: 'Pakete, die im Image fehlen (offline nicht installiert)',
+    mismatch: (project: string, image: string, suggest: string) => `Das Projekt nutzt Shopware ${project}, das Image enthält ${image}. Besser in der Umgebung das passende Image ${suggest} wählen – oder trotzdem fortfahren (Plugins und Konfiguration können dann scheitern).`,
+  },
   commands,
   templates: { dockware: 'Dockware (Shopware)', 'shopify-theme': 'Shopify-Theme (vorbereitet, noch nicht verfügbar)' } as Record<string, string>,
 };
@@ -686,7 +707,7 @@ export const en: typeof de = {
   },
   create: {
     title: 'Start sandbox',
-    lead: 'Lotse fetches your project from GitHub and sets up a test shop of its own for it (one to two minutes). The project can be a plugin or theme – or empty, then the AI builds a new plugin in it. From then on the AI works in this chat only in the test shop – without access to the live shop.',
+    lead: 'Lotse fetches your project from GitHub and sets up a test shop of its own for it (one to two minutes). The project can be a plugin or theme, a whole Shopware shop with several plugins and its own configuration – or empty, then the AI builds a new plugin in it. From then on the AI works in this chat only in the test shop – without access to the live shop.',
     repo: 'Project',
     repoTech: 'GitHub repository',
     repoPick: 'Choose a project …',
@@ -928,6 +949,23 @@ export const en: typeof de = {
     gone: 'This console no longer exists.',
     reopen: 'Open again',
   },
+  projectSteps: { 'detect-layout': 'Detect Shopware project', 'install-plugin': 'Bring in the project (plugins, apps, configuration, theme)' },
+  project: {
+    kind: n => `Shopware project (${n === 1 ? '1 plugin' : `${n} plugins`})`,
+    heading: 'Whole Shopware project',
+    lead: 'Lotse brings the plugins, apps, configuration (config/packages) and project code (src/) into the test shop. Services the sandbox does not have (Redis, OpenSearch, S3, mail server …) are switched to local there – your repository stays unchanged, .env files are never transferred.',
+    version: v => (v ? `Shopware ${v} (composer.lock)` : 'Shopware version unknown (no composer.lock)'),
+    plugins: 'Plugins',
+    apps: 'Apps',
+    theme: name => `Theme: ${name}`,
+    static: 'static',
+    themeTag: 'Theme',
+    parts: { storefront: 'storefront templates', styles: 'styles', js: 'JavaScript', admin: 'administration', php: 'PHP code', settings: 'settings', migrations: 'migrations', snippets: 'texts' },
+    quarantined: n => (n === 1 ? '1 configuration file is not loaded in the sandbox' : `${n} configuration files are not loaded in the sandbox`),
+    overrides: 'Switched in the sandbox (external services → local)',
+    missing: 'Packages the image lacks (not installed offline)',
+    mismatch: (project, image, suggest) => `The project uses Shopware ${project}, the image contains ${image}. Better choose the matching image ${suggest} in the environment – or continue anyway (plugins and configuration may fail then).`,
+  },
   templates: { dockware: 'Dockware (Shopware)', 'shopify-theme': 'Shopify theme (prepared, not available yet)' },
   code: {
     button: 'Start sandbox',
@@ -1070,6 +1108,9 @@ export const en: typeof de = {
     zip: {
       heading: 'Plugin as ZIP',
       lead: 'Straight into the shop without a developer: the ZIP contains the plugin from this sandbox – including changes not submitted yet – without the Git folder, tests and secret files.',
+      leadProject: 'Straight into the shop without a developer: choose a plugin of the project – the ZIP contains it from this sandbox, including changes not submitted yet, without the Git folder, tests and secret files.',
+      pick: 'Plugin of the project',
+      noPlugins: 'The project has no plugin yet (custom/plugins or custom/static-plugins).',
       upload: 'How it gets into the shop: Shopware admin → Extensions → My extensions → “Upload extension”, then install and activate it. Ideally try it in a test environment first.',
       button: 'Download plugin as ZIP',
       busy: 'Building ZIP …',

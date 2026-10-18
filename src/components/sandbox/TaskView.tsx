@@ -9,6 +9,7 @@ import { useTaskEvents } from '@/hooks/useTaskEvents';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { DumpPicker } from './DumpPicker';
+import { ProjectSummary } from './ProjectSummary';
 import { SandboxOff } from './SandboxOff';
 import { useShell } from '@/components/shell/ShellProvider';
 import { StepTimeline } from './StepTimeline';
@@ -70,7 +71,7 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
         <p className={styles.taskMeta}>
           <b>{task.repo}</b> {t.branchInfo(task.baseBranch, task.branch)} · {all.sandbox.templates[task.template] ?? task.template}
           {' · '}{task.container ? (task.container.running ? t.container.running : t.container.stopped) : t.container.none}
-          {task.layout && <> · {task.layout.pluginDir}</>}
+          {task.layout && <> · {task.layout.kind === 'project' ? all.sandbox.project.kind(task.layout.project?.plugins.length ?? 0) : task.layout.pluginDir}</>}
           {task.dump && <> · {(task.dump.library ? all.sandbox.dump.infoStored : all.sandbox.dump.info)(task.dump.name, task.dump.size)} ({task.dump.restored ? all.sandbox.dump.restored : task.dump.imported ? all.sandbox.dump.imported : task.dump.deleted ? all.sandbox.dump.deleted : all.sandbox.dump.waiting})</>}
         </p>
         <p className={styles.hint} role="status">{typeof hint === 'function' ? hint(idleMinutes) : hint}</p>
@@ -96,7 +97,8 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
         )}
         <section className={styles.card} aria-labelledby="sbx-steps">
           <div className={styles.cardHead}><h2 id="sbx-steps">{t.steps}</h2></div>
-          <StepTimeline task={task} busy={busy} onRetry={stepId => void act('start', { fromStep: stepId })} onIgnoreVersion={() => void act('start', { fromStep: 'version-check', ignoreVersion: true })} />
+          <ProjectSummary task={task} />
+          <StepTimeline task={task} busy={busy} onRetry={stepId => void act('start', { fromStep: stepId })} onIgnoreVersion={stepId => void act('start', { fromStep: stepId, ignoreVersion: true })} />
         </section>
         <Dialog open={replacing} onClose={() => { setReplacing(false); setNewDump(null); }} title={all.sandbox.dump.replaceTitle} wide footer={
           <>
