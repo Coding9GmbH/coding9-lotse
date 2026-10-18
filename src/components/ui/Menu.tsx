@@ -7,6 +7,7 @@ import styles from './Menu.module.css';
 export interface MenuItem {
   key: string;
   label: React.ReactNode;
+  /** a second, smaller line (what the item does or uses): read as the item's description, not as part of its name */ description?: React.ReactNode;
   onSelect?: () => void;
   /** a link instead of an action */ href?: string;
   /** opens in a new tab (only with href) */ external?: boolean;
@@ -48,12 +49,15 @@ export function Menu({ label, items, className, align = 'end', trigger, triggerC
         aria-label={label} title={title ?? label} disabled={disabled} onClick={() => { if (!open) onOpen?.(); setOpen(!open); }}>{trigger ?? <IconMore size={18} />}</button>
       {open && (
         <ul id={id} role="menu" aria-label={label} className={styles.list} data-align={align} data-up={up || undefined} onKeyDown={move}>
-          {items.map(it => (
+          {items.map((it, i) => (
             <li key={it.key} role="none">
               {it.href
                 ? <a role="menuitem" href={it.href} className={styles.item} {...(it.external ? { target: '_blank', rel: 'noopener' } : {})} onClick={() => setOpen(false)}>{it.label}</a>
                 : <button type="button" role="menuitem" className={`${styles.item} ${it.danger ? styles.danger : ''}`} aria-disabled={it.disabled || undefined}
-                  onClick={() => { if (it.disabled) return; setOpen(false); it.onSelect?.(); }}>{it.label}</button>}
+                  aria-describedby={it.description ? `${id}-d${i}` : undefined}
+                  onClick={() => { if (it.disabled) return; setOpen(false); it.onSelect?.(); }}>
+                  {it.description ? <span className={styles.twoLine}><span>{it.label}</span><small id={`${id}-d${i}`} aria-hidden="true">{it.description}</small></span> : it.label}
+                </button>}
             </li>
           ))}
         </ul>

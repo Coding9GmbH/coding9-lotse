@@ -2,28 +2,20 @@
 
 import { useState } from 'react';
 import { api, errorText } from '@/lib/api';
-import type { Messages } from '@/lib/i18n';
 import type { LibraryDumpPublic, QuickStartPublic, QuickStartSetup } from '@/lib/protocol';
-import { savedText } from '@/lib/sandbox-task';
+import { orderedEnvironments, savedText } from '@/lib/sandbox-task';
 import { INTL_LOCALE } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { Button } from '@/components/ui/Button';
 import { IconPlus } from '@/components/ui/icons';
 import { Menu } from '@/components/ui/Menu';
 import { AttachSandboxDialog } from './AttachSandboxDialog';
+import { envSummary } from './StartChoices';
 import styles from './Sandbox.module.css';
 
-/** What a quick start will use, in one line: "Bestehendes Projekt · acme/shop @ main · Demo-Daten · Image 6.7.14.0" */
-export function quickSummary(s: QuickStartSetup, all: Messages, dumps: LibraryDumpPublic[] | null): string {
-  const ts = all.sandbox.start;
-  const source = s.kind === 'none' ? ts.localSource(s.pluginName || 'SandboxPlugin') : `${s.repo} @ ${s.baseBranch}`;
-  const data = s.dumpId ? dumps?.find(d => d.id === s.dumpId)?.name ?? ts.dataStored : ts.dataDemo;
-  const line = ts.summary(ts.kinds[s.kind].title, source, data);
-  return s.image ? `${line} · ${all.sandbox.quick.image(s.image.slice(s.image.lastIndexOf(':') + 1))}` : line;
-}
-
-/** "Schnellstarts" on the Sandbox Coding page (A22): name, what it uses, default and last use; "Neuer Schnellstart" and per row
- *  Bearbeiten (the start dialog as its editor), Umbenennen, Duplizieren, Als Standard / Nicht mehr Standard, Löschen. */
+/** "Gespeicherte Umgebungen" on the Sandbox Coding page (A22/A23): name, what it uses, default and last start (the default first);
+ *  "Neue Umgebung" and per row Bearbeiten (the start dialog as its editor), Umbenennen, Duplizieren, Als Standard / Nicht mehr Standard,
+ *  Löschen. Starting one is in "Neue Sandbox" above (and in the workspace) – every start is a new sandbox. */
 export function QuickStarts({ list, dumps, error, onChanged }: { list: QuickStartPublic[] | null; dumps: LibraryDumpPublic[] | null; error: string | null; onChanged: () => void }) {
   const { t: all, locale } = useI18n();
   const t = all.sandbox.quick;
@@ -58,7 +50,7 @@ export function QuickStarts({ list, dumps, error, onChanged }: { list: QuickStar
       {list && !list.length && <p className={styles.empty}>{t.empty}</p>}
       {!!list?.length && (
         <ul className={styles.dbList}>
-          {list.map(q => (
+          {orderedEnvironments(list).map(q => (
             <li key={q.id} className={styles.dbRow}>
               {renaming?.id === q.id
                 ? <span className={`${styles.taskTitle} ${styles.qsRename}`}>
@@ -68,7 +60,7 @@ export function QuickStarts({ list, dumps, error, onChanged }: { list: QuickStar
                   <Button size="sm" variant="ghost" onClick={() => setRenaming(null)}>{t.cancel}</Button>
                 </span>
                 : <span className={styles.taskTitle}>{q.name}</span>}
-              <span className={styles.taskMeta}>{quickSummary(q.setup, all, dumps)} · {q.lastUsedAt ? t.lastUsed(when(q.lastUsedAt)) : t.neverUsed}</span>
+              <span className={styles.taskMeta}>{envSummary(q, all, dumps)} · {q.lastUsedAt ? t.lastUsed(when(q.lastUsedAt)) : t.neverUsed}</span>
               <span className={styles.dbActions}>
                 {q.default && <span className={styles.badgeOk} title={t.defaultTitle}>{t.isDefault}</span>}
                 <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => edit(q)}>{t.edit}</Button>

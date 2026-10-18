@@ -1,11 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import type { LogItem } from '@/lib/chat-state';
+import type { LibraryDumpPublic, QuickStartPublic } from '@/lib/protocol';
+import { offerChoice, type StartChoice } from '@/lib/sandbox-task';
 import { INTL_LOCALE } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { Button } from '@/components/ui/Button';
 import { IconCheck } from '@/components/ui/icons';
 import { Markdown } from '@/components/chat/Message';
+import { StartChoiceRadios } from './StartChoices';
 import styles from './CodeCards.module.css';
 
 type Command = Extract<LogItem, { kind: 'command' }>;
@@ -75,8 +79,11 @@ export function PublishProposalCard({ title, body, onReview, publishedAs, update
 /** start_sandbox / chat: what a card needs to attach a sandbox to this chat. */
 export interface SandboxOfferActions {
   /** a sandbox is attached already (the card is only a record then) */ attached: boolean;
-  /** direct = create with the card's repository and branch (title from the reason); otherwise the dialog opens prefilled */
-  start: (offer: { repo: string; baseBranch: string; reason: string; pluginName?: string }, direct: boolean) => void;
+  /** A23: the saved environments (null = loading) and the stored databases (their names in the summaries) */
+  environments: QuickStartPublic[] | null; dumps: LibraryDumpPublic[] | null;
+  /** the user's click: a saved environment or the demo shop starts right away (title from the reason), "Neu einrichten …" opens the
+   *  dialog prefilled with the AI's repository and branch */
+  start: (offer: { repo: string; baseBranch: string; reason: string; pluginName?: string }, choice: StartChoice) => void;
   busy?: boolean;
   /** why a sandbox cannot start right now (Docker unreachable), shown as the button's tooltip */ blocked?: string | null;
 }
@@ -89,25 +96,35 @@ export function offerTitle(reason: string): string {
   return `${(sp > 30 ? cut.slice(0, sp) : cut).replace(/[.:;,]$/, '')} …`;
 }
 
-/** The AI proposes a sandbox (start_sandbox): nothing starts until the user clicks. Once a sandbox is attached, the card folds into
- *  one line (the "Sandbox angehängt" line below says the rest). */
+/** The AI proposes a sandbox (start_sandbox) with the same choices as the "Sandbox starten" menu (A23): saved environments, the demo
+ *  shop, "Neu einrichten …" – its suggestion preselected (offerChoice); nothing starts until the user clicks. Once a sandbox is
+ *  attached, the card folds into one line (the "Sandbox angehängt" line below says the rest). */
 export function SandboxOfferCard({ offer, actions }: { offer: Offer; actions?: SandboxOfferActions }) {
-  const t = useI18n().t.sandbox.code.offer;
-  const where = offer.repo ? `${offer.repo}${offer.baseBranch ? ` @ ${offer.baseBranch}` : ''}` : t.noRepo;
+  const { t: all } = useI18n();
+  const t = all.sandbox.code.offer;
+  const where = offer.repo ? `${offer.repo}${offer.baseBranch ? ` @ ${offer.baseBranch}` : ''}` : '';
+  const envs = actions?.environments ?? null;
+  // the user's pick; until then the AI's suggestion (once the environments are known)
+  const [picked, setPicked] = useState<StartChoice | null>(null);
+  const choice = picked ?? (envs ? offerChoice(offer, envs) : null);
   if (actions?.attached) return <p className={styles.sbx} role="note"><IconCheck size={13} className={styles.sbxCheck} />{t.accepted}: {offer.reason}</p>;
+  const suggested = offer.quickStartId ? envs?.find(q => q.id === offer.quickStartId) : undefined;
   return (
     <section className={styles.offer} aria-label={t.heading}>
       <h3>{t.heading}</h3>
       <p>{offer.reason}</p>
-      <p className={styles.offerRepo}><code>{where}</code></p>
+      {suggested && <p className={styles.offerRepo}>{t.suggested(suggested.name)}</p>}
+      {offer.quickStartId && envs && !suggested && <p className={styles.offerRepo}>{t.suggestedGone}</p>}
       {offer.pluginName && <p className={styles.offerRepo}>{t.newPlugin} <code>{offer.pluginName}</code></p>}
-      <p className={styles.pubNote}>{t.note}</p>
-      {!actions ? <p className={styles.pubNote}>{t.off}</p> : (
+      {!actions ? <p className={styles.pubNote}>{t.off}</p> : <>
+        {choice ? <StartChoiceRadios list={envs} dumps={actions.dumps} all={all} value={choice} onChange={setPicked} setupFor={where || undefined} name={`sbo-${offer.id}`} />
+          : <p className={styles.pubNote}>…</p>}
+        <p className={styles.pubNote}>{t.note}</p>
         <div className={styles.offerBtns}>
-          <Button variant="primary" disabled={actions.busy || !!actions.blocked} title={actions.blocked ?? undefined} onClick={() => actions.start(offer, !!offer.repo && !!offer.baseBranch)}>{t.start}</Button>
-          <Button disabled={actions.busy} onClick={() => actions.start(offer, false)}>{t.adjust}</Button>
+          <Button variant="primary" disabled={!choice || actions.busy || (choice.type !== 'new' && !!actions.blocked)} title={(choice?.type !== 'new' && actions.blocked) || undefined}
+            onClick={() => { if (choice) actions.start(offer, choice); }}>{choice?.type === 'new' ? t.setup : t.start}</Button>
         </div>
-      )}
+      </>}
     </section>
   );
 }
