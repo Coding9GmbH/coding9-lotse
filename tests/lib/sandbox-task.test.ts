@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { CodeTaskPublic } from '../../src/lib/protocol';
-import { applyTaskEvent, canRetryFrom, displayStatus, draftOf, quickSetupOf, errorSummary, followStartPath, formatSeconds, newerTask, statusTone, stepSeconds } from '../../src/lib/sandbox-task';
+import type { CodeTaskPublic, QuickStartPublic } from '../../src/lib/protocol';
+import { messages } from '../../src/lib/i18n';
+import { applyTaskEvent, canRetryFrom, choiceKey, demoRequest, displayStatus, draftOf, offerChoice, orderedEnvironments, quickSetupOf, quickSummary, startChoices, errorSummary, followStartPath, formatSeconds, newerTask, statusTone, stepSeconds } from '../../src/lib/sandbox-task';
 
 // Task view state: snapshot replaces, log lines append to their step (capped), deleted clears; status pips and durations.
 const task = (o: Partial<CodeTaskPublic> = {}): CodeTaskPublic => ({
@@ -81,4 +82,25 @@ test('A22: a quick start is the dialog’s request – kept without chat, title 
   assert.equal(none.repo, '');
   assert.equal(none.pluginName, 'VersandHinweis');
   assert.equal(draftOf({ kind: 'custom', repo: 'a/b', baseBranch: 'main', mode: 'custom', targetPath: '/srv/b' }).advanced, true);
+});
+
+// A23: one choice list everywhere – saved environments (the default first, then by name) → demo shop → "Neu einrichten …"
+test('start choices: order, the AI card’s preselection, the demo request, the summary', () => {
+  const env = (id: string, name: string, def = false, setup: QuickStartPublic['setup'] = { kind: 'existing', repo: 'acme/shop', baseBranch: 'main' }): QuickStartPublic =>
+    ({ id, name, setup, default: def, createdAt: '', updatedAt: '', createdBy: null, lastUsedAt: null });
+  const list = [env('qs_b', 'Zeta'), env('qs_c', 'alpha'), env('qs_a', 'Mitte', true)];
+  assert.deepEqual(orderedEnvironments(list).map(q => q.name), ['Mitte', 'alpha', 'Zeta']);
+  assert.deepEqual(startChoices(list).map(choiceKey), ['qs_a', 'qs_c', 'qs_b', 'demo', 'new']);
+  assert.deepEqual(startChoices([]).map(choiceKey), ['demo', 'new']);
+  // the card: the AI's environment (if still saved) → "Neu einrichten …" for a proposed repository → the default → the demo shop
+  assert.deepEqual(offerChoice({ quickStartId: 'qs_c', repo: 'acme/shop' }, list), { type: 'env', id: 'qs_c' });
+  assert.deepEqual(offerChoice({ quickStartId: 'qs_gone', repo: '' }, list), { type: 'env', id: 'qs_a' });
+  assert.deepEqual(offerChoice({ repo: 'acme/other' }, list), { type: 'new' });
+  assert.deepEqual(offerChoice({ repo: '' }, list.filter(q => !q.default)), { type: 'demo' });
+  assert.deepEqual(demoRequest('c1', 'Demo-Shop'), { chatId: 'c1', repo: '', baseBranch: '', source: 'none', title: 'Demo-Shop' });
+  const de = messages('de'), en = messages('en');
+  assert.equal(quickSummary({ kind: 'existing', repo: 'acme/shop', baseBranch: 'main', dumpId: 'd_1', image: 'dockware/shopware:6.7.14.0' }, de, id => (id === 'd_1' ? 'live.sql' : null)),
+    'Bestehendes Projekt · acme/shop @ main · live.sql · Image 6.7.14.0');
+  assert.equal(quickSummary({ kind: 'none', repo: '', baseBranch: '' }, en), 'Start without a project · Plugin SandboxPlugin, local git only · Demo data');
+  assert.equal(quickSummary({ kind: 'existing', repo: 'a/b', baseBranch: 'dev', dumpId: 'd_x' }, de), 'Bestehendes Projekt · a/b @ dev · Gespeicherte Datenbank');
 });

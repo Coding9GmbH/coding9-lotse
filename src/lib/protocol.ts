@@ -125,7 +125,7 @@ export type ChatEvent =
   /** The user published the sandbox's changes: pull request created or updated (state as of that moment) */
   | { t: 'pr'; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
   /** The AI proposes to attach a sandbox to this chat (start_sandbox): a card; only the user's click creates the task */
-  | { t: 'sandbox_offer'; id: string; repo: string; baseBranch: string; reason: string; /** technical name if the AI proposes a new plugin (empty repository) */ pluginName?: string }
+  | { t: 'sandbox_offer'; id: string; repo: string; baseBranch: string; reason: string; /** technical name if the AI proposes a new plugin (empty repository) */ pluginName?: string; /** A23: the saved environment the AI suggests (preselected on the card) */ quickStartId?: string }
   /** The AI asks for internet in the task container (request_internet): a card; only the user's click allows it (decision: the answer).
    *  Sent again with the same approvalId, decision false and error when attaching failed after the click (the card shows it);
    *  restart: still open when Lotse restarted (closed as declined). */
@@ -319,7 +319,7 @@ export interface NewSandboxRequest {
 }
 /** Step 1 of "Sandbox starten": an existing project (detected), a new plugin, no project at all, or an own setup */
 export type StartKind = 'existing' | 'new' | 'none' | 'custom';
-/** A22: a quick start ("Schnellstart") is a saved "Sandbox starten" request – without the chat, the title (the quick start's name is used)
+/** A22/A23: a saved environment ("Gespeicherte Umgebung", internally a quick start) is a saved "Sandbox starten" request – without the chat, the title (the quick start's name is used)
  *  and the decision on a repository file's commands (asked again at the setup). dumpId: a stored database only (none = demo data).
  *  env: plain values only; envRefs: names of environment variables it relies on (values of secret ones are never stored). */
 export interface QuickStartSetup extends Omit<NewSandboxRequest, 'chatId' | 'title' | 'skipRepoHash'> { kind: StartKind; envRefs?: string[] }

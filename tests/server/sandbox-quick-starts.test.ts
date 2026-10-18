@@ -10,7 +10,7 @@ import { makePluginRepo } from '../support/plugin-repo';
 import { startFakeGithub } from '../support/github-fake';
 /* eslint-disable @typescript-eslint/no-explicit-any -- route answers are loose JSON */
 
-// A22 "Schnellstarts": a quick start is a saved request of "Sandbox starten" – stored in kv (at most 50, one default), checked with the
+// A22/A23 "Gespeicherte Umgebungen" (internally quick starts): one is a saved request of "Sandbox starten" – stored in kv (at most 50, one default), checked with the
 // dialog's rules when saved, without secret values, checked again on every use (project, branch, stored database, image) and started
 // like the dialog's own request; the approval of a repository's .lotse/sandbox.json is not part of it.
 for (const k of ['LOTSE_SANDBOX', 'LOTSE_PASSWORD', 'ALLOWED_HOSTS', 'HOSTNAME', 'HOST', 'AICB_DOCKER', 'LOTSE_BIND', 'LOTSE_SANDBOX_MAX', 'LOTSE_SANDBOX_IDLE_MINUTES', 'LOTSE_SANDBOX_NETWORK', 'LOTSE_SANDBOX_SUBNET', 'LOTSE_SANDBOX_RUNNER']) delete process.env[k];
@@ -32,6 +32,10 @@ const T = await import('../../src/server/sandbox/tasks');
 const R = await import('../../src/server/sandbox/reconcile');
 const D = await import('../../src/server/sandbox/dumps');
 const Q = await import('../../src/server/sandbox/quick-starts');
+const I = await import('../../src/server/sandbox/internet');
+const P = await import('../../src/server/sandbox/preview');
+const C = await import('../../src/server/sandbox/console');
+const { taskDbVolume } = await import('../../src/server/sandbox/db-snapshot-spec');
 const db = await import('../../src/server/db');
 const listRoute = await import('../../src/app/api/sandbox/quick-starts/route');
 const oneRoute = await import('../../src/app/api/sandbox/quick-starts/[id]/route');
@@ -84,12 +88,12 @@ test('storage: create, sorted list, unique names, rename, duplicate, delete – 
   for (const q of [c1, c2]) assert.equal((await oneRoute.DELETE(req('DELETE'), params(q.body.quickStart.id))).status, 200);
   assert.equal((await oneRoute.DELETE(req('DELETE'), params(c1.body.quickStart.id))).status, 404);
   assert.equal((await oneRoute.GET(req('GET'), params('qs_doesnotexi'))).status, 404);
-  assert.ok(audits('create').some(x => x.title === 'Schnellstart: Plugin Develop' && x.repo === 'acme/qs-plugin'));
+  assert.ok(audits('create').some(x => x.title === 'Gespeicherte Umgebung: Plugin Develop' && x.repo === 'acme/qs-plugin'));
   assert.ok(audits('update').some(x => x.quickStartId === id && JSON.stringify(x.changed) === '["name"]'));
   assert.equal(audits('delete').length, 2);
   // English answers for an English browser
   const en = await create({ name: 'Grundstand', setup: PLUGIN }, 'en');
-  assert.match(en.body.error, /There already is a quick start “Grundstand”/);
+  assert.match(en.body.error, /There already is a saved environment “Grundstand”/);
 });
 
 test('saved with the start dialog’s rules: target, plugin name, commands, image, start page, repository name, stored databases only', async () => {
@@ -105,8 +109,8 @@ test('saved with the start dialog’s rules: target, plugin name, commands, imag
   await bad({ ...PLUGIN, image: 'latest' }, /latest/);
   await bad({ ...PLUGIN, previewPath: 'https://evil.example/' }, /Startseite der Vorschau/);
   await bad({ ...PLUGIN, repo: '../etc' }, /Ungültiger Repository-Name/);
-  await bad({ ...PLUGIN, kind: 'other' }, /Ungültiger Schnellstart: kind/);
-  await bad({ ...PLUGIN, chatId: 'x' }, /Ungültiger Schnellstart/); // the chat is never part of it
+  await bad({ ...PLUGIN, kind: 'other' }, /Ungültige gespeicherte Umgebung: kind/);
+  await bad({ ...PLUGIN, chatId: 'x' }, /Ungültige gespeicherte Umgebung/); // the chat is never part of it
   const once = D.createDump('once.sql', 10);
   await bad({ ...PLUGIN, dumpId: once.id }, /nur gespeicherte Datenbanken/);
   const lib = await storedDb('lib.sql');
@@ -129,14 +133,14 @@ test('secret values are never stored: a secret variable of the environment, or a
   // on use, missing names are a warning (the variable comes from the environment, never from the quick start)
   const used = await start(r.body.quickStart.id);
   assert.equal(used.status, 201, JSON.stringify(used.body));
-  assert.deepEqual(used.body.warnings, ['Diese Umgebungsvariablen fehlen in der Umgebung: API_URL']);
+  assert.deepEqual(used.body.warnings, ['Diese Variablen fehlen in der Sandbox-Umgebung: API_URL']);
   const t = T.getTask(used.body.task.id)!;
   assert.deepEqual(t.setup?.env, [{ key: 'SHOP_MODE', value: 'dev' }]);
   await settled(t.id);
   const env = fake.containers.get(T.getTask(t.id)!.containerId!)!.spec.Env as string[];
   assert.ok(env.includes(`STRIPE_KEY=${SECRET}`), 'the secret comes from the environment');
   assert.ok(env.includes('SHOP_MODE=dev'), 'the quick start’s plain value wins over the environment’s');
-  // "Setup als Schnellstart speichern" of a running sandbox: its setup, no secret either
+  // "Setup als Umgebung speichern" of a running sandbox: its setup, no secret either
   const fromTask = await create({ fromTask: t.id });
   assert.equal(fromTask.status, 201, JSON.stringify(fromTask.body));
   assert.equal(fromTask.body.quickStart.name, 'Mit Variablen 2', 'the sandbox’s title, made unique');
@@ -208,10 +212,10 @@ test('checked on every use: project, branch, stored database, image, GitHub – 
     const r = await start(q.id);
     assert.equal(r.status, 422);
     assert.deepEqual(r.body.problems.map((p: any) => p.field), ['repo', 'dump', 'image']);
-    assert.match(r.body.error, /^Der Schnellstart „Wird kaputt“ lässt sich so nicht starten/);
-    assert.equal(r.body.lead, 'Der Schnellstart „Wird kaputt“ lässt sich so nicht starten – bitte prüfen und anpassen:');
+    assert.match(r.body.error, /^Die gespeicherte Umgebung „Wird kaputt“ lässt sich so nicht starten/);
+    assert.equal(r.body.lead, 'Die gespeicherte Umgebung „Wird kaputt“ lässt sich so nicht starten – bitte prüfen und anpassen:');
     assert.match(r.body.problems[0].message, /Kein Zugriff auf acme\/qs-gone/);
-    assert.equal(r.body.problems[1].message, 'Die gespeicherte Datenbank dieses Schnellstarts gibt es nicht mehr.');
+    assert.equal(r.body.problems[1].message, 'Die gespeicherte Datenbank dieser Umgebung gibt es nicht mehr – bitte Daten neu wählen.');
     assert.match(r.body.problems[2].message, /^Image: .*nur ein anderer Tag von dockware\/play/);
     assert.equal(r.body.quickStart.id, q.id, 'for the prefilled dialog');
     assert.equal(r.body.quickStart.setup.repo, 'acme/qs-gone');
@@ -276,12 +280,84 @@ test('default: one at a time, preselected; unmarked, replaced and cleared with i
   assert.equal(((await ok.json()) as any).quickStart.setup.previewPath, '/de/');
 });
 
+// A23 "Einmal einrichten, für jeden Auftrag eine frische Sandbox": every start from a saved environment is a sandbox of its own – side by
+// side within LOTSE_SANDBOX_MAX, nothing shared (workspace, container, database volume, branch, cookie jar, consoles, internet), nothing
+// of a running sandbox written back into the environment.
+test('several sandboxes from one saved environment run side by side and share nothing', async () => {
+  for (const t of T.listTasks()) if (t.status !== 'done') await J.finishTask(t.id); // a clean slate for the capacity
+  const lib = await storedDb('parallel.sql');
+  const q = (await create({ name: 'Shop Basis', setup: { ...PLUGIN, dumpId: lib.id, previewPath: '/de/' } })).body.quickStart;
+  const saved = JSON.stringify(Q.getQuickStart(q.id).setup);
+  const [chatA, chatB] = [crypto.randomUUID(), crypto.randomUUID()];
+  // two jobs at the same time, each in its chat; the title is the job's (e.g. the AI's reason), else the environment's name
+  const [ra, rb] = await Promise.all([
+    startRoute.POST(req('POST', { chatId: chatA, title: 'Banner im Header' }), params(q.id)).then(async r => ({ status: r.status, body: (await r.json()) as any })),
+    start(q.id, chatB),
+  ]);
+  assert.equal(ra.status, 201, JSON.stringify(ra.body));
+  assert.equal(rb.status, 201, JSON.stringify(rb.body));
+  const [a, b] = [ra.body.task.id as string, rb.body.task.id as string];
+  await Promise.all([settled(a), settled(b)]);
+  const ta = T.getTask(a)!, tb = T.getTask(b)!;
+  assert.equal(ta.status, 'ready', ta.error ?? '');
+  assert.equal(tb.status, 'ready', tb.error ?? '');
+  assert.notEqual(a, b);
+  assert.equal(ta.title, 'Banner im Header');
+  assert.equal(tb.title, 'Shop Basis');
+  assert.match(ta.branch, /^lotse\/banner-im-header-/);
+  assert.match(tb.branch, /^lotse\/shop-basis-/);
+  assert.deepEqual([ta.chatId, tb.chatId], [chatA, chatB]);
+  // own container, own data volume (filled from the stored database), own workspace
+  assert.ok(ta.containerId && tb.containerId && ta.containerId !== tb.containerId);
+  assert.ok(fake.containers.get(ta.containerId)?.running && fake.containers.get(tb.containerId)?.running, 'both run at once (LOTSE_SANDBOX_MAX 2)');
+  assert.ok(fake.volumes.has(taskDbVolume(a)) && fake.volumes.has(taskDbVolume(b)) && taskDbVolume(a) !== taskDbVolume(b));
+  const mounts = (id: string) => JSON.stringify(fake.containers.get(id)!.spec.HostConfig);
+  assert.ok(mounts(ta.containerId).includes(taskDbVolume(a)) && !mounts(ta.containerId).includes(taskDbVolume(b)));
+  assert.ok(mounts(tb.containerId).includes(taskDbVolume(b)) && !mounts(tb.containerId).includes(taskDbVolume(a)));
+  const [wa, wb] = [T.taskPaths(a).worktree, T.taskPaths(b).worktree];
+  assert.notEqual(wa, wb);
+  fs.writeFileSync(path.join(wa, 'nur-in-a.txt'), 'a');
+  assert.ok(!fs.existsSync(path.join(wb, 'nur-in-a.txt')), 'a file of one job is not in the other');
+  assert.deepEqual([ta.dump?.id, tb.dump?.id], [lib.id, lib.id], 'the same stored database, each imported into its own volume');
+  // the storefront session (cookie jar), the consoles and the internet grant are per sandbox
+  P.storeCookies(a, ['sw-context-token=nur-a; HttpOnly; Path=/']);
+  assert.match(P.jarCookie(a) ?? '', /nur-a/);
+  assert.equal(P.jarCookie(b), null);
+  const con = await C.openConsole(a, 'alex', { cols: 80, rows: 24 });
+  assert.equal(C.listConsoles(a, 'alex').length, 1);
+  assert.deepEqual(C.listConsoles(b, 'alex'), []);
+  await C.closeConsole(a, con.id, 'alex');
+  await I.grantInternet(a, { via: 'panel' });
+  assert.ok(T.getTask(a)!.internet);
+  assert.equal(T.getTask(b)!.internet ?? null, null);
+  assert.ok(!fake.containers.get(tb.containerId)!.networks.includes('lotse-sandbox-egress'));
+  await I.revokeInternet(a, 'panel');
+  // usage: each start recorded on its own (its task), the environment itself unchanged by what the sandboxes do
+  const uses = audits('use').filter(x => x.quickStartId === q.id).map(x => x.taskId).sort();
+  assert.deepEqual(uses, [a, b].sort());
+  assert.ok(Q.getQuickStart(q.id).lastUsedAt);
+  assert.equal(JSON.stringify(Q.getQuickStart(q.id).setup), saved);
+  // a third job within LOTSE_SANDBOX_MAX (2): the least recently used ready one is paused for it, never more than 2 containers run
+  const rc = await start(q.id);
+  assert.equal(rc.status, 201, JSON.stringify(rc.body));
+  await settled(rc.body.task.id);
+  assert.equal(T.getTask(rc.body.task.id)!.status, 'ready');
+  const running = [a, b, rc.body.task.id].filter(id => { const t = T.getTask(id)!; return t.containerId && fake.containers.get(t.containerId)?.running; });
+  assert.equal(running.length, 2);
+  assert.ok([a, b].some(id => T.getTask(id)!.status === 'paused'));
+  // finishing one leaves the others alone
+  await J.finishTask(a);
+  assert.equal(T.getTask(b)!.status === 'done', false);
+  assert.ok(fs.existsSync(wb));
+  for (const id of [b, rc.body.task.id]) await J.finishTask(id);
+});
+
 test('limit: at most 50 quick starts', async () => {
   for (const q of Q.listQuickStarts()) Q.deleteQuickStart(q.id);
   for (let i = 0; i < Q.QUICK_MAX; i++) Q.createQuickStart({ name: `Nr ${i}`, setup: PLUGIN });
   const r = await create({ name: 'Einer zu viel', setup: PLUGIN });
   assert.equal(r.status, 409);
-  assert.match(r.body.error, /Höchstens 50 Schnellstarts/);
+  assert.match(r.body.error, /Höchstens 50 gespeicherte Umgebungen/);
   assert.equal((await create({ duplicateOf: Q.listQuickStarts()[0].id })).status, 409);
   // while Sandbox Coding is off, none of it answers
   E.saveSandbox({ enabled: false });

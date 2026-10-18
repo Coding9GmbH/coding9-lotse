@@ -1,6 +1,9 @@
 import 'server-only';
-// Quick starts ("Schnellstarts", A22): saved setups of "Sandbox starten". A quick start is the dialog's request without the chat
-// (start.ts checks and starts it like the dialog's own), kept in kv 'sandbox-quick-starts' (at most 50, one of them the default).
+// Saved environments ("Gespeicherte Umgebungen", A22/A23; internally quick starts): saved setups of "Sandbox starten". One is the
+// dialog's request without the chat (start.ts checks and starts it like the dialog's own), kept in kv 'sandbox-quick-starts' (at most 50,
+// one of them the default). Set up once, then every start makes a FRESH sandbox from it (own task id, container, data volume filled
+// from the database's snapshot, workspace and branch lotse/<title>-<id>): several jobs from one environment run side by side; nothing of
+// a running sandbox is written back.
 // - secret values never get in: a variable whose name is a secret of the environment, or whose value contains one, is kept by name only;
 //   a secret in any other text (command, notes, start page, …) is refused with the field's name
 // - the stored database is referenced by id; a one-off dump cannot be kept
@@ -10,6 +13,7 @@ import 'server-only';
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { DEFAULT_LOCALE, messages, type Locale } from '@/lib/i18n';
+import { orderedEnvironments, quickSummary } from '@/lib/sandbox-task';
 import type { QuickStartProblem, QuickStartPublic, QuickStartSetup, StartKind } from '@/lib/protocol';
 import { auditAdd, codeDumpGet, kvGet, kvSet } from '../db';
 import { currentActor } from '../actor';
@@ -96,7 +100,7 @@ export function normalizeSetup(raw: unknown, locale: Locale = DEFAULT_LOCALE): Q
   };
 }
 
-/** "Setup als Schnellstart speichern" of a running sandbox: what its start dialog chose (no secrets: a task keeps plain values only) */
+/** "Setup als Umgebung speichern" of a running sandbox: what its start dialog chose (no secrets: a task keeps plain values only) */
 export function setupOfTask(t: CodeTask, locale: Locale = DEFAULT_LOCALE): QuickStartSetup {
   const s = t.setup;
   if (!s) throw fail(409, M(locale).taskNoSetup);
@@ -115,7 +119,13 @@ export function setupOfTask(t: CodeTask, locale: Locale = DEFAULT_LOCALE): Quick
 const pub = (q: StoredQuickStart, defaultId: string | null): QuickStartPublic => ({ ...q, default: q.id === defaultId });
 export function listQuickStarts(): QuickStartPublic[] {
   const s = load();
-  return [...s.items].sort((a, b) => a.name.localeCompare(b.name, 'de')).map(q => pub(q, s.defaultId));
+  return orderedEnvironments(s.items.map(q => pub(q, s.defaultId)));
+}
+
+/** The saved environments as the AI sees them in start_sandbox (data, not instructions): id, name, default and what it uses */
+export function environmentsForAgent(): { id: string; name: string; default: boolean; uses: string }[] {
+  const all = messages(DEFAULT_LOCALE);
+  return listQuickStarts().map(q => ({ id: q.id, name: q.name, default: q.default, uses: quickSummary(q.setup, all, id => codeDumpGet(id)?.name) }));
 }
 export function getQuickStart(id: string, locale: Locale = DEFAULT_LOCALE): QuickStartPublic {
   const s = load(), q = QUICK_ID.test(id) ? s.items.find(x => x.id === id) : undefined;
@@ -130,7 +140,7 @@ function checkName(raw: string, items: StoredQuickStart[], self: string | null, 
   return name;
 }
 const audit = (q: Pick<StoredQuickStart, 'id' | 'name' | 'setup'>, action: 'create' | 'update' | 'delete' | 'use', extra: Record<string, unknown> = {}) =>
-  auditAdd({ decision: 'changed', kind: 'sandbox-quick-start', action, quickStartId: q.id, title: `Schnellstart: ${q.name}`, ...(q.setup.repo ? { repo: q.setup.repo } : {}), ...extra });
+  auditAdd({ decision: 'changed', kind: 'sandbox-quick-start', action, quickStartId: q.id, title: `Gespeicherte Umgebung: ${q.name}`, ...(q.setup.repo ? { repo: q.setup.repo } : {}), ...extra });
 
 /** A new quick start (the setup checked like the dialog's start). `isDefault`: preselected in "Sandbox starten" from now on. */
 export function createQuickStart(p: { name: string; setup: unknown; isDefault?: boolean }, locale: Locale = DEFAULT_LOCALE): QuickStartPublic {
@@ -212,24 +222,26 @@ export async function checkQuickStart(q: QuickStartPublic, locale: Locale = DEFA
   return { problems, warnings };
 }
 
-/** A quick start that cannot start as saved: the route answers 422 with the problems, the browser opens the dialog prefilled */
+/** A saved environment that cannot start as saved: the route answers 422 with the problems, the browser opens the dialog prefilled */
 export class QuickStartBrokenError extends Error {
   constructor(readonly lead: string, readonly problems: QuickStartProblem[], readonly quickStart: QuickStartPublic) { super(`${lead} ${problems.map(p => p.message).join(' ')}`); }
 }
 
-/** One click in the "Sandbox" menu: checks the quick start, then starts it in this chat like the dialog would (title = its name).
- *  The repository file's commands still wait for a human decision in the setup. */
-export async function startQuickStart(id: string, chatId: string, locale: Locale = DEFAULT_LOCALE): Promise<{ task: CodeTask; warnings: string[] }> {
+/** One click on a saved environment (the "Sandbox starten" menu, the AI's card, the Sandbox Coding page): checks it, then starts a NEW
+ *  sandbox from it in this chat like the dialog would (title: the given one, e.g. the AI's reason, else its name). The repository file's
+ *  commands still wait for a human decision in the setup. */
+export async function startQuickStart(id: string, chatId: string, locale: Locale = DEFAULT_LOCALE, opts: { title?: string } = {}): Promise<{ task: CodeTask; warnings: string[] }> {
   const q = getQuickStart(id, locale);
   const { problems, warnings } = await checkQuickStart(q, locale);
   if (problems.length) throw new QuickStartBrokenError(M(locale).broken(q.name), problems, q);
   const s = q.setup, kind = s.kind;
   const task = await startSandbox({
-    chatId, goal: '', title: q.name, repo: s.repo, baseBranch: s.baseBranch, source: kind === 'none' ? 'none' : 'repo', mode: kind === 'custom' ? 'custom' : s.mode ?? 'auto',
+    chatId, goal: '', title: opts.title?.trim() || q.name, repo: s.repo, baseBranch: s.baseBranch, source: kind === 'none' ? 'none' : 'repo', mode: kind === 'custom' ? 'custom' : s.mode ?? 'auto',
     ...(s.pluginName ? { pluginName: s.pluginName } : {}), ...(s.targetPath ? { targetPath: s.targetPath } : {}), ...(s.commands ? { commands: s.commands } : {}),
     ...(s.env ? { env: s.env } : {}), ...(s.dumpId ? { dumpId: s.dumpId } : {}), ...(s.image ? { image: s.image } : {}), ...(s.previewPath ? { previewPath: s.previewPath } : {}),
     ...(s.notes ? { notes: s.notes } : {}),
   }, locale, { quickStart: q.name });
+  // read again after the awaits: another start of the same environment (or an edit) may have saved meanwhile
   const store = load(), row = store.items.find(x => x.id === id);
   if (row) { row.lastUsedAt = now(); save(store); }
   audit(q, 'use', { taskId: task.id, chatId });
