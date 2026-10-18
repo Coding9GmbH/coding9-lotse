@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import type { ChatEvent, CodeTaskPublic, InternetPolicy, PublishResult } from '@/lib/protocol';
-import { canRetryFrom, displayStatus, middleTruncate, newerTask } from '@/lib/sandbox-task';
+import { canRetryFrom, displayStatus, middleTruncate, newerTask, savedText } from '@/lib/sandbox-task';
 import { useTaskEvents } from '@/hooks/useTaskEvents';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
@@ -136,7 +136,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
     setSavingQuick(true); setQuickError(null);
     try {
       const { quickStart } = await api.sandbox.createQuickStart({ fromTask: task.id, name: saveQuick.name.trim(), ...(saveQuick.isDefault ? { isDefault: true } : {}) });
-      setSaveQuick(null); setQuickSaved(all.sandbox.quick.saved(quickStart.name));
+      setSaveQuick(null); setQuickSaved(savedText(quickStart, all));
     } catch (e) { setQuickError(all.sandbox.quick.saveFailed(errorText(e))); }
     finally { setSavingQuick(false); }
   }

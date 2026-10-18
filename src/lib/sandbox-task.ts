@@ -1,5 +1,6 @@
 // Code tasks in the UI: applying live events, status groups and durations (pure, shared by hook, list and tests).
-import type { CodeTaskPublic, CodeTaskStatus, CommandPhase, NewSandboxRequest, QuickStartSetup, StartKind, TaskEvent, TaskStep } from './protocol';
+import type { Messages } from './i18n';
+import type { CodeTaskPublic, CodeTaskStatus, CommandPhase, NewSandboxRequest, QuickStartPublic, QuickStartSetup, StartKind, TaskEvent, TaskStep } from './protocol';
 
 const LOG_LINES = 200;
 
@@ -157,15 +158,17 @@ export const PREVIEW_PATH = /^\/(?!\/)[A-Za-z0-9._~!$&'()*+,;=:@%/?-]{0,299}$/;
 // ---- Quick starts (A22): a quick start is a saved request of the start dialog ----
 /** The dialog's request → what a quick start keeps: no chat, title or decision on the repository file's commands; a one-off upload is not
  *  kept (keepDump false: demo data). The server checks it again like a start. */
-export function quickSetupOf(kind: StartKind, req: Omit<NewSandboxRequest, 'chatId'>, keepDump: boolean): QuickStartSetup {
+export function quickSetupOf(kind: StartKind, req: Omit<NewSandboxRequest, 'chatId'>, keepDump: boolean, envRefs: string[] = []): QuickStartSetup {
   const { title: _title, skipRepoHash: _skip, dumpId, ...rest } = req; // eslint-disable-line @typescript-eslint/no-unused-vars -- left out on purpose
-  return { kind, ...rest, ...(dumpId && keepDump ? { dumpId } : {}) };
+  // envRefs always sent (also []): the server keeps a quick start's references only while the setup carries them
+  return { kind, ...rest, ...(dumpId && keepDump ? { dumpId } : {}), envRefs: kind === 'none' ? [] : envRefs };
 }
 /** What the dialog shows for a quick start (prefill): its first step, project, plugin name, own setup, "Erweitert" and the data */
 export interface StartDraft {
   kind: StartKind; repo: string; baseBranch: string; pluginName: string;
   /** "ändern" → own setup of an existing project */ custom: boolean; targetPath: string | null;
   commands: { label: string; command: string; phase: CommandPhase }[]; vars: { key: string; value: string }[];
+  /** variables taken from the environment by name only (their value was or is secret) */ envRefs: string[];
   dumpId: string | null; image: string; previewPath: string; notes: string;
   /** "Erweitert" opens: something in it is set */ advanced: boolean;
 }
@@ -176,7 +179,12 @@ export function draftOf(s: QuickStartSetup): StartDraft {
     kind, repo: none ? '' : s.repo, baseBranch: none ? '' : s.baseBranch, pluginName: s.pluginName ?? '',
     custom: kind === 'existing' && s.mode === 'custom', targetPath: s.mode === 'custom' || kind === 'custom' ? s.targetPath ?? null : null,
     commands: (s.commands ?? []).map(c => ({ label: c.label, command: c.command, phase: c.phase })), vars: (s.env ?? []).map(v => ({ key: v.key, value: v.value })),
+    envRefs: none ? [] : [...(s.envRefs ?? [])],
     dumpId: s.dumpId ?? null, image: s.image ?? '', previewPath: s.previewPath ?? '', notes: s.notes ?? '',
   };
-  return { ...d, advanced: kind === 'custom' || d.custom || !!(d.commands.length || d.vars.length || d.image || d.previewPath || d.notes) };
+  return { ...d, advanced: kind === 'custom' || d.custom || !!(d.commands.length || d.vars.length || d.envRefs.length || d.image || d.previewPath || d.notes) };
 }
+
+/** "Als Schnellstart „X“ gespeichert." plus the variables kept by name only (the server turned a secret value into a reference) */
+export const savedText = (q: QuickStartPublic, all: Messages) =>
+  `${all.sandbox.quick.saved(q.name)}${q.setup.envRefs?.length ? ` ${all.sandbox.quick.savedRefs(q.setup.envRefs.join(', '))}` : ''}`;

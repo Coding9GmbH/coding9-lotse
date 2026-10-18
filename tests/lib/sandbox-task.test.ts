@@ -66,12 +66,17 @@ test('A22: a quick start is the dialog’s request – kept without chat, title 
   const req = { repo: 'acme/shop', baseBranch: 'main', title: 'Footer', dumpId: 'd_x', skipRepoHash: 'a'.repeat(64), mode: 'custom' as const, targetPath: '/opt/shop',
     commands: [{ label: 'Bauen', command: 'make', phase: 'final' as const }], env: [{ key: 'A', value: '1' }], image: '6.7.14.0', previewPath: '/de/', notes: 'n' };
   const kept = quickSetupOf('existing', req, true);
-  assert.deepEqual(kept, { kind: 'existing', repo: 'acme/shop', baseBranch: 'main', dumpId: 'd_x', mode: 'custom', targetPath: '/opt/shop', commands: req.commands, env: req.env, image: '6.7.14.0', previewPath: '/de/', notes: 'n' });
+  assert.deepEqual(kept, { kind: 'existing', repo: 'acme/shop', baseBranch: 'main', dumpId: 'd_x', mode: 'custom', targetPath: '/opt/shop', commands: req.commands, env: req.env, image: '6.7.14.0', previewPath: '/de/', notes: 'n', envRefs: [] });
   assert.equal(quickSetupOf('existing', req, false).dumpId, undefined, 'a one-off upload is not kept');
-  assert.deepEqual(draftOf(kept), { kind: 'existing', repo: 'acme/shop', baseBranch: 'main', pluginName: '', custom: true, targetPath: '/opt/shop', commands: req.commands, vars: req.env,
+  // references to the environment's variables travel with the setup (also when empty: the server keeps them only while sent)
+  assert.deepEqual(quickSetupOf('existing', req, true, ['STRIPE_KEY']).envRefs, ['STRIPE_KEY']);
+  assert.deepEqual(quickSetupOf('none', { repo: '', baseBranch: '', source: 'none' }, false, ['STRIPE_KEY']).envRefs, []);
+  assert.deepEqual(draftOf({ kind: 'existing', repo: 'acme/shop', baseBranch: 'main', envRefs: ['STRIPE_KEY'] }).envRefs, ['STRIPE_KEY']);
+  assert.equal(draftOf({ kind: 'existing', repo: 'acme/shop', baseBranch: 'main', envRefs: ['STRIPE_KEY'] }).advanced, true);
+  assert.deepEqual(draftOf(kept), { kind: 'existing', repo: 'acme/shop', baseBranch: 'main', pluginName: '', custom: true, targetPath: '/opt/shop', commands: req.commands, vars: req.env, envRefs: [],
     dumpId: 'd_x', image: '6.7.14.0', previewPath: '/de/', notes: 'n', advanced: true });
   // the plain cases: nothing in "Erweitert", demo data
-  assert.deepEqual(draftOf({ kind: 'existing', repo: 'acme/shop', baseBranch: 'main' }), { kind: 'existing', repo: 'acme/shop', baseBranch: 'main', pluginName: '', custom: false, targetPath: null, commands: [], vars: [], dumpId: null, image: '', previewPath: '', notes: '', advanced: false });
+  assert.deepEqual(draftOf({ kind: 'existing', repo: 'acme/shop', baseBranch: 'main' }), { kind: 'existing', repo: 'acme/shop', baseBranch: 'main', pluginName: '', custom: false, targetPath: null, commands: [], vars: [], envRefs: [], dumpId: null, image: '', previewPath: '', notes: '', advanced: false });
   const none = draftOf({ kind: 'none', repo: 'x/y', baseBranch: 'main', source: 'none', pluginName: 'VersandHinweis' });
   assert.equal(none.repo, '');
   assert.equal(none.pluginName, 'VersandHinweis');
