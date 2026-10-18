@@ -213,6 +213,29 @@ a.iconBtn:hover { border-color: var(--dark); text-decoration: none; }
 .panelBody { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
 .panelBody[data-tab=preview] { overflow: hidden; }
 .pvPanel:not([hidden]) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* Console tab: session strip with quick commands, then the terminal filling the rest (dark in both themes) */
+.panelBody[data-tab=console] { overflow: hidden; }
+.conPanel:not([hidden]) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.conBar { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; padding: 8px 14px; border-bottom: 1px solid var(--line); flex: none; }
+.conTabs { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; min-width: 0; }
+.conTab { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 99px; background: var(--panel); overflow: hidden; }
+.conTab[data-on] { border-color: var(--dark); }
+.conTab[data-ended] > button:first-child { color: var(--mute); text-decoration: line-through; }
+.conTab > button { border: 0; background: none; color: var(--ink); font: inherit; font-size: 13px; padding: 3px 4px 3px 11px; cursor: pointer; }
+.conTab[data-on] > button:first-child { font-weight: 600; }
+.conTab > .conX { padding: 3px 8px 3px 4px; color: var(--mute); display: inline-flex; }
+.conTab > .conX:hover { color: var(--ink); }
+.conQuick { display: flex; gap: 4px; flex-wrap: wrap; }
+.conChip { border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 6px; padding: 2px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+.conChip:hover { border-color: var(--mute); }
+.conNote { margin: 6px 14px; }
+.conKeys { margin: 0; padding: 6px 14px 8px; font-size: 12px; flex: none; }
+.conEmpty { padding: 18px 16px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; max-width: 620px; }
+.conEmpty p { margin: 0; }
+.conTerm:not([hidden]) { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #1d1d24; }
+.conTerm > .conNote { color: #c9c6bd; }
+.conXterm { flex: 1; min-height: 0; padding: 6px 4px 4px 10px; }
+.conXterm :global(.xterm) { height: 100%; }
 .tabBody { padding: 14px 16px 18px; }
 .tabs { display: flex; gap: 4px; margin-bottom: 8px; }
 .tabs button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 99px; padding: 5px 14px; font: inherit; font-size: 14px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }

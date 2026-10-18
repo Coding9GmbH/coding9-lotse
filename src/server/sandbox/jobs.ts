@@ -6,6 +6,7 @@ import 'server-only';
 // - pause = docker stop (code, database and changes stay), wake = docker start + wait + full sync (no new setup)
 // - finish = container, workspace, git dir, dump and screenshots removed; the task stays as a record (done)
 // - internet (internet.ts) ends with every stop, a new setup and finish; a woken container starts offline
+// - the user's consoles (console.ts) close with every stop, a new setup and finish
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ChatEvent, CodeTaskStatus } from '@/lib/protocol';
@@ -17,6 +18,7 @@ import { chatExists, noteChatEvent } from '../sessions';
 import { redact } from '../settings';
 import { singleton } from '../state';
 import { errMsg, pool } from '../util';
+import { closeAllConsoles, closeTaskConsoles } from './console';
 import { assertAttachable, deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
 import { getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
 import { revokeInternet, type RevokeReason } from './internet';
@@ -108,6 +110,7 @@ async function stopContainer(t: CodeTask, why: RevokeReason = 'pause') {
   if (!t.containerId) return;
   markStopping(t.id, true); // a paused task whose container still runs: the views show "Pausiere …", no "Fortsetzen" yet
   try {
+    await closeTaskConsoles(t.id, 'pause'); // the stop ends the shells anyway; the views learn why
     // internet ends with the stop; a failed detach does not keep the container running (waking detaches again before the start)
     await revokeInternet(t.id, why).catch(e => log.warn('Internetzugang nicht gesperrt', { task: t.id, error: e }));
     // services first (the template's clean shutdown, e.g. MySQL), then docker stop with the template's grace period; a failure only costs time
@@ -139,6 +142,7 @@ export function runSteps(id: string, fromStep?: string, o: { ignoreVersion?: boo
   for (const s of t.steps.slice(from)) { s.state = 'pending'; s.log = []; delete s.startedAt; delete s.endedAt; delete s.error; }
   t.status = 'setting_up'; t.error = null; t.lastActiveAt = now();
   saveTask(t);
+  void closeTaskConsoles(id, 'restart', true); // a new setup may recreate the container: consoles start again afterwards
   const ac = new AbortController();
   const done = stopVictims(victims).then(() => withTaskLock(id, () => execute(id, from, ac.signal)))
     .catch(e => log.error('Sandbox-Einrichtung abgebrochen', { task: id, error: e }))
@@ -366,6 +370,7 @@ async function syncContainerState(t: CodeTask): Promise<void> {
   if (!fresh || fresh.containerId !== t.containerId || !fresh.containerRunning) return;
   fresh.containerRunning = false;
   if (!info) fresh.containerId = null;
+  void closeTaskConsoles(t.id, 'stopped');
   if (fresh.status === 'ready') { fresh.status = info ? 'paused' : 'failed'; fresh.error = info ? null : 'Der Container fehlt – Einrichtung ab „Container starten“ erneut versuchen.'; }
   saveTask(fresh);
   // stopped outside Lotse (OOM, docker stop): internet ends like on a pause, flag and audit included
@@ -415,6 +420,7 @@ export async function finishTask(id: string): Promise<CodeTask> {
   try {
     await abortAndWait(J.setup.get(id));
     await abortAndWait(J.wakes.get(id));
+    await closeTaskConsoles(id, 'finish');
     await withTaskLock(id, async () => {
       await revokeInternet(id, 'finish'); // Docker unreachable: nothing is removed (as below)
       const fresh = mustTask(id);
@@ -447,6 +453,7 @@ export async function deleteTask(id: string): Promise<void> {
  *  The containers stop in parallel (at most STOP_CONCURRENCY at once): each one takes seconds (clean MySQL shutdown, docker stop). */
 export async function suspendAll(): Promise<number> {
   await Promise.all([...jobs().setup.values(), ...jobs().wakes.values()].map(abortAndWait));
+  await closeAllConsoles('disabled');
   const running: CodeTask[] = [];
   for (const t of listTasks()) {
     if (t.status === 'ready' || t.status === 'waking') { t.status = 'paused'; saveTask(t); }

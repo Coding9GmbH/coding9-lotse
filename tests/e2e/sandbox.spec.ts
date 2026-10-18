@@ -170,6 +170,76 @@ test('Sandbox Coding: attach a sandbox to a chat, setup reaches ready, preview, 
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '', screenshots: false } })).ok()).toBeTruthy();
 });
 
+// Console (tab "Konsole", fake runner's echo shell): open, type, quick command, a second console, resize with the panel, reattach
+// after a reload with the earlier output, closed by a pause (with the reason), opening again wakes the sandbox, closed by the user.
+test('Sandbox Coding: console in the container – type, quick commands, reattach after reload, closed on pause', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const lotse = { 'x-lotse': '1' };
+  expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true } })).ok()).toBeTruthy();
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
+  await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
+  await dialog.getByLabel('Titel (optional)').fill('Konsole');
+  await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
+  const panel = page.getByRole('region', { name: 'Sandbox' });
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+
+  await panel.getByRole('tab', { name: 'Konsole' }).click();
+  const tab = panel.getByRole('tabpanel', { name: 'Konsole' });
+  await expect(tab.getByText(/Benutzer „dockware“ im Shop-Verzeichnis, sudo geht/)).toBeVisible();
+  await tab.getByRole('button', { name: 'Konsole öffnen' }).click();
+  const term = tab.locator('[data-console]:not([hidden]) .xterm-rows');
+  await expect(term).toContainText('www-data@sandbox');
+  await tab.locator('[data-console]:not([hidden]) .xterm').click();
+  await page.keyboard.type('whoami');
+  await page.keyboard.press('Enter');
+  await expect(term).toContainText(/whoami\s*www-data/);
+  await tab.getByRole('button', { name: 'Plugins anzeigen' }).click();
+  await expect(term).toContainText('AcmeTheme');
+  await page.keyboard.type('stty size');
+  await page.keyboard.press('Enter');
+  await expect(term).toContainText(/stty size\s*\d+ \d+/); // the panel's size, not the 100×30 it opened with
+  expect(await term.textContent()).not.toMatch(/stty size\s*30 100/);
+
+  // a second console, then back to the first
+  await tab.getByRole('button', { name: '+ Neue Konsole' }).click();
+  await expect(tab.getByRole('tab', { name: 'Konsole 2' })).toHaveAttribute('aria-selected', 'true');
+  await expect(term).toContainText('www-data@sandbox');
+  await expect(term).not.toContainText('AcmeTheme');
+  await tab.getByRole('button', { name: 'Konsole 2 schließen' }).click();
+  await expect(tab.getByRole('tab', { name: 'Konsole 2' })).toHaveCount(0);
+  await expect(term).toContainText('AcmeTheme');
+
+  // reload: the session is still open and shows what was there
+  await page.reload();
+  await panel.getByRole('tab', { name: 'Konsole' }).click();
+  await expect(tab.getByRole('tab', { name: /Konsole \d/ })).toHaveCount(1);
+  await expect(term).toContainText('AcmeTheme');
+  await tab.locator('[data-console]:not([hidden]) .xterm').click();
+  await page.keyboard.type('echo wieder da');
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => ((await term.textContent()) ?? '').split('wieder da').length - 1).toBe(2); // typed and echoed: input still works
+
+  // pausing closes it and says why; opening again wakes the sandbox
+  await panel.getByRole('button', { name: 'Pausieren' }).click();
+  await expect(tab.getByRole('status').filter({ hasText: 'Die Sandbox wurde pausiert – Konsole geschlossen.' })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Fortsetzen' })).toBeVisible();
+  await tab.getByRole('button', { name: 'Neu öffnen' }).click();
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 15_000 });
+  await expect(term).toContainText('www-data@sandbox');
+  await expect(tab.getByRole('tab', { name: /Konsole \d/ })).toHaveCount(1);
+  await tab.getByRole('button', { name: /Konsole \d schließen/ }).click();
+  await expect(tab.getByRole('button', { name: 'Konsole öffnen' })).toBeVisible();
+
+  page.once('dialog', d => void d.accept());
+  await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
+  await expect(panel).toHaveCount(0);
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
+});
+
 // Database dump: chunked upload in the "Sandbox starten" dialog, imported during the setup and deleted right afterwards.
 test('Sandbox Coding: a .sql.gz dump is uploaded, imported and deleted', async ({ page, request }) => {
   test.setTimeout(120_000);

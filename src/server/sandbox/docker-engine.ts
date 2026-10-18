@@ -4,7 +4,7 @@ import 'server-only';
 import http from 'node:http';
 import { pipeline } from 'node:stream/promises';
 import type { Socket } from 'node:net';
-import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, NetworkOpts, PullProgress, SandboxRunner } from './runner';
+import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, NetworkOpts, PullProgress, SandboxRunner, TtyOpts, TtySession } from './runner';
 import { MANAGED, assertAllowedImage, assertContainerPath, assertEgressNetwork, assertId, assertManaged, assertNetworkName, assertSafeSpec } from './guards';
 import { EGRESS_NET, ICC_OPTION, ISOLATED_GATEWAY, SANDBOX_NET } from './labels';
 
@@ -285,6 +285,51 @@ export class DockerEngine implements SandboxRunner {
       });
       req.on('error', (e: NodeJS.ErrnoException) => finish(e.code ? unreachable(e) : e));
       req.end(body);
+    });
+  }
+
+  /** Console: exec with Tty (raw stream, no frames) on a hijacked connection that stays open both ways; resize via /exec/{id}/resize. */
+  async openTty(id: string, argv: readonly string[], o: TtyOpts): Promise<TtySession> {
+    await this.managed(id);
+    if (!argv.length || argv.some(a => typeof a !== 'string' || a.includes('\0'))) throw new Error('Ungültiger Befehl.');
+    const created = await this.call('POST', `/containers/${enc(id)}/exec`, { body: {
+      Cmd: [...argv], User: o.user, WorkingDir: o.workdir, Env: o.env, AttachStdin: true, AttachStdout: true, AttachStderr: true, Tty: true,
+    } });
+    if (created.status !== 201) throw apiError(created, 'Konsole anlegen');
+    const execId = assertId(this.json<{ Id: string }>(created).Id);
+    const { sock, head } = await this.hijack(`${await this.prefix()}/exec/${execId}/start`, JSON.stringify({ Detach: false, Tty: true }));
+    const data: ((b: Buffer) => void)[] = [], ends: (() => void)[] = [];
+    let early: Buffer[] | null = head.length ? [head] : [], ended = false;
+    const end = () => { if (ended) return; ended = true; for (const fn of ends) fn(); };
+    sock.on('data', (b: Buffer) => { if (early) early.push(b); else for (const fn of data) fn(b); });
+    sock.on('end', end); sock.on('close', end); sock.on('error', end);
+    sock.setNoDelay?.(true);
+    const resize = async (cols: number, rows: number) => {
+      const r = await this.call('POST', `/exec/${execId}/resize`, { query: { h: String(rows), w: String(cols) }, timeoutMs: 5_000 });
+      if (r.status !== 200 && r.status !== 201) throw apiError(r, 'Konsole anpassen');
+    };
+    await resize(o.cols, o.rows).catch(() => {}); // the shell starts with 80×24 otherwise; the next resize fixes it
+    return {
+      write: d => { if (!ended) sock.write(d); },
+      resize,
+      close: () => { sock.destroy(); end(); },
+      onData: fn => { data.push(fn); if (early) { const b = early; early = null; for (const c of b) fn(c); } },
+      onEnd: fn => { if (ended) fn(); else ends.push(fn); },
+    };
+  }
+  /** POST with Connection: Upgrade; resolves with the raw socket once Docker switched protocols (a plain answer = error). */
+  private hijack(path: string, body: string): Promise<{ sock: Socket; head: Buffer }> {
+    const payload = Buffer.from(body);
+    return new Promise((resolve, reject) => {
+      const req = http.request({ ...this.target, method: 'POST', path, timeout: 15_000, headers: { host: 'docker', 'content-type': 'application/json', 'content-length': payload.length, connection: 'Upgrade', upgrade: 'tcp' } });
+      req.on('upgrade', (_res, sock, head) => { req.setTimeout(0); sock.setTimeout(0); resolve({ sock, head }); });
+      req.on('response', res => { // no upgrade (a proxy that does not pass it on): no interactive stream possible
+        const c: Buffer[] = []; res.on('data', (x: Buffer) => c.push(x));
+        res.on('end', () => reject(res.statusCode && res.statusCode >= 300 ? apiError({ status: res.statusCode, headers: res.headers, body: Buffer.concat(c) }, 'Konsole starten') : new Error('Konsole starten: Docker hat die Verbindung nicht umgeschaltet (Proxy ohne Upgrade-Unterstützung?).')));
+      });
+      req.on('timeout', () => req.destroy(new Error('Docker antwortet nicht (Timeout).')));
+      req.on('error', (e: NodeJS.ErrnoException) => reject(e.code ? unreachable(e) : e));
+      req.end(payload);
     });
   }
 

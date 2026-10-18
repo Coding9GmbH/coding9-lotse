@@ -3,7 +3,7 @@ import 'server-only';
 // Exec results are scripted; each started container gets a small node:http "storefront" that serves the synced files.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, NetworkOpts, PullProgress, SandboxRunner } from './runner';
+import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, NetworkOpts, PullProgress, SandboxRunner, TtyOpts, TtySession } from './runner';
 import { MANAGED, assertAllowedImage, assertContainerPath, assertEgressNetwork, assertId, assertManaged, assertNetworkName, assertSafeSpec, isManaged } from './guards';
 import { EGRESS_NET, ROLE_LABEL, SANDBOX_NET, SHOT_ROLE } from './labels';
 import { SHOT_DIR, SHOT_OUT, type ShotJob } from './screenshot-spec';
@@ -14,6 +14,33 @@ interface FakeContainer { id: string; spec: ContainerSpec; running: boolean; exi
 type ExecScript = (argv: readonly string[], id: string) => Partial<ExecResult> | undefined;
 
 export { readTar, readTarEntries, type TarRecord } from './tar';
+
+/** A console in the fake: a line-editing echo shell that knows a few commands (enough for tests and e2e, see FakeRunner.openTty). */
+export interface FakeTty { containerId: string; argv: string[]; opts: TtyOpts; cols: number; rows: number; alive: boolean; input: string; end: () => void }
+const FAKE_PLUGINS = `Shopware Plugin Service
+=======================
+
+ -------------- ---------------- --------- ----------- -------- ----------- 
+  Plugin         Label            Version   Installed   Active   Upgradeable  
+ -------------- ---------------- --------- ----------- -------- ----------- 
+  AcmeTheme      Acme Theme       1.0.0     Yes         Yes      No           
+ -------------- ---------------- --------- ----------- -------- ----------- 
+
+ 1 plugins, 1 installed, 1 active , 0 upgradeable
+`;
+function fakeShell(t: FakeTty, line: string): string | null {
+  const cmd = line.trim();
+  if (cmd === 'exit' || cmd === 'logout') return null;
+  if (!cmd) return '';
+  if (cmd === 'whoami') return `${t.opts.user === 'dockware' ? 'www-data' : t.opts.user}\r\n`;
+  if (cmd === 'pwd') return `${t.opts.workdir}\r\n`;
+  if (cmd === 'stty size') return `${t.rows} ${t.cols}\r\n`;
+  if (cmd === 'sudo -n true') return '';
+  if (/^(bin\/console|php bin\/console) plugin:list\b/.test(cmd)) return FAKE_PLUGINS.replace(/\n/g, '\r\n');
+  if (cmd.startsWith('echo ')) return `${cmd.slice(5)}\r\n`;
+  if (/^printf '\\e\[3[0-7]m/.test(cmd)) return '\x1b[32mgrün\x1b[0m\r\n';
+  return `\x1b[2m(fake) ${cmd}\x1b[0m\r\n`;
+}
 
 async function collect(a: ArchiveStream): Promise<Buffer> {
   const parts: Buffer[] = [];
@@ -51,6 +78,8 @@ export class FakeRunner implements SandboxRunner {
   shooter: ((job: ShotJob) => Record<string, Buffer | null>) | null = null;
   /** every uploaded archive, decoded (tests check owner and paths) */
   archives: { id: string; dir: string; entries: TarRecord[] }[] = [];
+  /** every console opened (tests: argv, user, size, whether it is still open) */
+  ttys: FakeTty[] = [];
   private seq = 0;
 
   private enter(op: string, call: Omit<FakeCall, 'op'> = {}) {
@@ -149,7 +178,10 @@ export class FakeRunner implements SandboxRunner {
     await this.closeServer(c);
     this.containers.delete(id);
   }
+  /** A stopped or removed container ends its consoles (Docker closes the exec streams). */
+  private endTtys(id: string) { for (const t of this.ttys) if (t.containerId === id && t.alive) t.end(); }
   private async closeServer(c: FakeContainer) {
+    this.endTtys(c.id);
     const s = c.server; c.server = null; c.port = null;
     if (s) await new Promise<void>(ok => { s.closeAllConnections?.(); s.close(() => ok()); });
   }
@@ -168,9 +200,46 @@ export class FakeRunner implements SandboxRunner {
     if ((argv[0] === 'bin/console' && argv[1] === 'theme:compile') || (argv[0] === 'bash' && /\btheme:compile\b/.test(argv.at(-1) ?? ''))) {
       c.compiled = [...c.files].filter(([k]) => k.startsWith(PLUGINS) && /\/Resources\/views\/storefront\/.+\.html\.twig$/.test(k)).sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => renderTwig(v.toString('utf8')));
     }
+    // the console's stop command names the pid file the shell wrapper wrote (templates: console.stop); the "all" variant ends every one
+    const all = argv.join(' ').includes('.lotse-console-*.pid');
+    let ended = 0;
+    for (const t of this.ttys) if (t.alive && t.containerId === id && (all || argv.some(a => /\.lotse-console-[a-f0-9]+\.pid$/.test(a) && t.argv.includes(a)))) { t.end(); ended++; }
+    if (all) return { exitCode: 0, output: `${ended}\n`, truncated: false };
     if (argv[0] === 'rm' && argv[argv.length - 2] === '--') { const target = argv[argv.length - 1]; for (const k of [...c.files.keys()]) if (k === target || k.startsWith(`${target}/`)) c.files.delete(k); }
     const r = this.script(argv, id) ?? dockwareAnswers(argv) ?? {};
     return { exitCode: r.exitCode ?? 0, output: r.output ?? '', truncated: r.truncated ?? false };
+  }
+  /** Echo shell: prompt, line editing (backspace, Ctrl-C), a few commands (whoami, pwd, stty size, plugin:list, echo), exit ends it. */
+  async openTty(id: string, argv: readonly string[], o: TtyOpts): Promise<TtySession> {
+    this.enter('openTty', { id, argv: [...argv], user: o.user, detail: { workdir: o.workdir, env: o.env, cols: o.cols, rows: o.rows } });
+    const c = this.managed(id);
+    if (!c.running) throw new Error('Container läuft nicht.');
+    const data: ((b: Buffer) => void)[] = [], ends: (() => void)[] = [];
+    let early: Buffer[] | null = [];
+    const emit = (text: string) => { if (!t.alive || !text) return; const b = Buffer.from(text); if (early) early.push(b); else for (const fn of data) fn(b); };
+    const t: FakeTty = { containerId: c.id, argv: [...argv], opts: o, cols: o.cols, rows: o.rows, alive: true, input: '', end: () => { if (!t.alive) return; t.alive = false; for (const fn of ends) fn(); } };
+    this.ttys.push(t);
+    const prompt = () => emit(`\x1b[32m${o.user === 'dockware' ? 'www-data' : o.user}@sandbox\x1b[0m:\x1b[34m${o.workdir.replace('/var/www', '~')}\x1b[0m$ `);
+    let line = '';
+    prompt();
+    return {
+      write: d => {
+        if (!t.alive) return;
+        const text = d.toString();
+        t.input += text;
+        for (const ch of text) {
+          if (ch === '\r' || ch === '\n') { emit('\r\n'); const out = fakeShell(t, line); line = ''; if (out === null) { emit('logout\r\n'); t.end(); return; } emit(out); prompt(); }
+          else if (ch === '\x7f') { if (line) { line = line.slice(0, -1); emit('\b \b'); } }
+          else if (ch === '\x03') { line = ''; emit('^C\r\n'); prompt(); }
+          else if (ch === '\x04' && !line) { emit('logout\r\n'); t.end(); return; }
+          else if (ch >= ' ') { line += ch; emit(ch); }
+        }
+      },
+      resize: async (cols, rows) => { this.calls.push({ op: 'ttyResize', id, detail: { cols, rows } }); t.cols = cols; t.rows = rows; },
+      close: () => t.end(),
+      onData: fn => { data.push(fn); if (early) { const b = early; early = null; for (const x of b) fn(x); } },
+      onEnd: fn => { if (!t.alive) fn(); else ends.push(fn); },
+    };
   }
   async putArchive(id: string, dir: string, archive: Buffer | ArchiveStream) {
     this.enter('putArchive', { id, detail: dir });

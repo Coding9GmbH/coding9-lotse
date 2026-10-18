@@ -12,6 +12,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { IconClose, IconCopy, IconGlobe } from '@/components/ui/icons';
 import { Menu, type MenuItem } from '@/components/ui/Menu';
 import pp from '@/components/preview/PreviewPane.module.css';
+import { ConsolePanel } from './ConsolePanel';
 import { DiffPanel } from './DiffPanel';
 import { DumpUpload } from './DumpUpload';
 import { PrCard } from './PrCard';
@@ -24,7 +25,7 @@ import { TaskStatus } from './TaskList';
 import { ZipCard, zipAvailable } from './ZipCard';
 import styles from './Sandbox.module.css';
 
-type Tab = 'preview' | 'setup' | 'changes' | 'pr';
+type Tab = 'preview' | 'setup' | 'changes' | 'pr' | 'console';
 type Action = 'start' | 'stop' | 'pause' | 'resume' | 'finish';
 /** Statuses in which the setup tab is the interesting one */
 const SETUP = new Set(['setting_up', 'failed', 'interrupted']);
@@ -35,7 +36,8 @@ const SETUP = new Set(['setting_up', 'failed', 'interrupted']);
  * the one lifecycle action that fits the status and a "⋯" menu (finish, replace the database, all sandboxes).
  * Tabs: Vorschau (the task's storefront, full width, full screen; "Screenshot" while switched on), Einrichtung (step timeline),
  * Änderungen (the AI's commits, what is not committed yet, diff per file) and Freigabe (= pull request: status, form with a sticky
- * button, the screenshots the user took, "Plugin als ZIP" for the Shopware admin). Plain words first, technical terms as tooltip. During the setup it shows "Einrichtung" and switches to
+ * button, the screenshots the user took, "Plugin als ZIP" for the Shopware admin) and Konsole (the user's own shells in the container, never
+ * the AI's). Plain words first, technical terms as tooltip. During the setup it shows "Einrichtung" and switches to
  * "Vorschau" once the sandbox is ready. `files`: file cards so far (refreshes the diff); `openPr` changing opens the PR tab.
  */
 export function SandboxPanel({ taskId, className, reload, files, busy, proposal, openPr = 0, feedbackOpen = 0, chatHidden, onToggleChat, onPublished, onSendNotes, onClose, onTask, onChatEvent }: {
@@ -94,6 +96,9 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
   const net = !!task?.internet;
   useEffect(() => { if (task) onTask?.(task); }, [status, net]); // eslint-disable-line react-hooks/exhaustive-deps -- only on status/internet changes
   const shown: Tab = tab ?? (status && SETUP.has(status) ? 'setup' : 'preview');
+  // the console mounts on its first visit and stays mounted (hidden) so its terminals and connections survive tab switches
+  const [consoleSeen, setConsoleSeen] = useState(false);
+  if (shown === 'console' && !consoleSeen) setConsoleSeen(true);
 
   async function act(action: Action, extra: { fromStep?: string; ignoreVersion?: boolean } = {}) {
     if (!task) return;
@@ -176,7 +181,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
         </div>
       </header>
       <div className={styles.panelTabs} role="tablist" aria-label={tc.tabs.label}>
-        {(['preview', 'setup', 'changes', 'pr'] as Tab[]).map(k => (
+        {(['preview', 'setup', 'changes', 'pr', ...(task.console ? ['console'] : [])] as Tab[]).map(k => (
           <button key={k} type="button" role="tab" id={`sbx-tab-${k}`} aria-selected={shown === k} aria-controls={`sbx-panel-${k}`} onClick={() => setTab(k)} title={k === 'pr' ? tc.tech.pr : undefined}>
             {tc.tabs[k]}
             {k === 'changes' && files > 0 && <span className={styles.tabCount}>{files}</span>}
@@ -222,6 +227,11 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
             : <ShotList task={task} />)}
           {shown === 'pr' && zipAvailable(task) && <ZipCard task={task} refresh={files + (busy ? 0 : 1)} onAskAi={onSendNotes} />}
         </section>
+        {task.console && (
+          <div role="tabpanel" id="sbx-panel-console" aria-labelledby="sbx-tab-console" hidden={shown !== 'console'} className={styles.conPanel}>
+            {consoleSeen && <ConsolePanel task={task} active={shown === 'console'} />}
+          </div>
+        )}
       </div>
       <Dialog open={replacing} onClose={() => { setReplacing(false); setNewDump(null); }} title={all.sandbox.dump.replaceTitle} wide footer={
         <>

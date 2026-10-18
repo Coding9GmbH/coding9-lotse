@@ -150,8 +150,10 @@ export function publicTask(t: CodeTask, o: { logs?: boolean } = {}): CodeTaskPub
     chatId: t.chatId, pluginName: t.pluginName ?? null, pr: t.prNumber && t.prUrl ? { number: t.prNumber, url: t.prUrl, title: t.prTitle ?? t.title, ...(t.prWatch?.number === t.prNumber && t.prWatch.state !== 'open' ? { state: t.prWatch.state } : {}) } : null, publish: t.publish ?? null,
     internet: t.internet ? { since: t.internet.since } : null,
     shots: (Array.isArray(t.shots) ? t.shots : []).map(s => publicShots(t.id, s)),
+    ...(hasConsole(t.template) ? { console: true as const } : {}),
   };
 }
+const hasConsole = (template: string) => { try { return !!getTemplate(template).console; } catch { return false; } };
 const publicShots = (id: string, s: StoredShotSet): TaskShotSet => ({
   id: s.id, at: s.at, ...(s.error ? { error: s.error } : {}),
   shots: s.items.map(i => ({ path: i.path, device: i.device, url: `/api/sandbox/tasks/${id}/screenshots/${i.file}` })),

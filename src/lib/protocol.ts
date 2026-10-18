@@ -304,6 +304,7 @@ export interface CodeTaskPublic {
   /** publishing right now, or the last attempt failed / was cut off by a restart (a retry continues idempotently) */ publish: TaskPublish | null;
   /** internet access a human allowed for this task (container attached to lotse-sandbox-egress); null = offline */ internet: { since: string } | null;
   /** screenshots of the sandbox storefront the user took by hand ("Screenshot" in the preview), oldest first; stored in Lotse only */ shots: TaskShotSet[];
+  /** the template offers the user a console (tab "Konsole"); missing = none (containerless templates) */ console?: true;
 }
 export type ShotDevice = 'desktop' | 'mobile';
 /** One stored screenshot; url = GET /api/sandbox/tasks/[id]/screenshots/[file] */
@@ -351,6 +352,16 @@ export interface DumpPublic { id: string; name: string; size: number; received: 
 export type TaskEvent = { t: 'task'; task: CodeTaskPublic } | { t: 'log'; step: string; line: string } | { t: 'deleted' }
   /** an event the server added to the task's chat between turns (PR feedback): the open workspace shows it without reloading */
   | { t: 'chat'; event: ChatEvent };
+/** Console of a sandbox (tab "Konsole"): an interactive shell in the task container, for the user only (never the AI). */
+export type ConsoleCloseReason = 'user' | 'exit' | 'idle' | 'pause' | 'finish' | 'disabled' | 'restart' | 'stopped';
+export interface ConsoleSessionPublic { id: string; openedAt: string; cols: number; rows: number }
+/** GET /api/sandbox/tasks/<id>/console/<session>?from=<seq> (NDJSON): output chunks (base64 bytes, numbered; `from` replays the
+ *  buffered ones, e.g. after a reload), then the end with its reason. */
+export type ConsoleEvent = { t: 'out'; seq: number; data: string } | { t: 'end'; reason: ConsoleCloseReason };
+/** Most consoles one task can have open at once */
+export const CONSOLE_MAX = 3;
+/** A console without input for this long is closed */
+export const CONSOLE_IDLE_MINUTES = 30;
 /** SEO overview: levers from Search Console and Sistrix as ready-made tasks (prompt) for a new chat */
 export interface SeoItem { id: string; source: 'gsc' | 'sistrix' | 'site'; kind: 'meta' | 'gap' | 'striking' | 'cannibal' | 'decline' | 'keyword' | 'onpage' | 'site'; title: string; detail: string; metrics: { label: string; value: string }[]; /** sort value (estimated impact) */ impact: number; prompt: string; /** done/ignored by the user: hidden */ mark?: SeoMark }
 /** Done = hidden until a fetch at least SEO_DONE_RECHECK_DAYS later still reports the lever; ignored = hidden permanently */
