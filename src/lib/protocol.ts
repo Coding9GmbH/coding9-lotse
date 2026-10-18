@@ -317,6 +317,20 @@ export interface NewSandboxRequest {
   /** A22: another image tag of the environment's image, the preview's first page, notes for the AI of this sandbox */
   image?: string; previewPath?: string; notes?: string;
 }
+/** Step 1 of "Sandbox starten": an existing project (detected), a new plugin, no project at all, or an own setup */
+export type StartKind = 'existing' | 'new' | 'none' | 'custom';
+/** A22: a quick start ("Schnellstart") is a saved "Sandbox starten" request – without the chat, the title (the quick start's name is used)
+ *  and the decision on a repository file's commands (asked again at the setup). dumpId: a stored database only (none = demo data).
+ *  env: plain values only; envRefs: names of environment variables it relies on (values of secret ones are never stored). */
+export interface QuickStartSetup extends Omit<NewSandboxRequest, 'chatId' | 'title' | 'skipRepoHash'> { kind: StartKind; envRefs?: string[] }
+export interface QuickStartPublic {
+  id: string; name: string; setup: QuickStartSetup; default: boolean;
+  createdAt: string; updatedAt: string; createdBy: string | null; lastUsedAt: string | null;
+}
+/** Why a quick start cannot start as saved (checked on every use); the dialog then opens prefilled with these messages */
+export interface QuickStartProblem { field: 'github' | 'repo' | 'branch' | 'dump' | 'image' | 'setup'; message: string }
+/** POST /api/sandbox/quick-starts/<id>/start answers 422 with these */
+export interface QuickStartBroken { error: string; problems: QuickStartProblem[]; quickStart: QuickStartPublic }
 /** The user's choices in "Sandbox starten" for a task (stored on it) */
 export interface TaskSetupPublic { source: 'repo' | 'none'; mode: SandboxMode; targetPath?: string; commands: number; env: string[] }
 /** .lotse/sandbox.json of the task as the setup read it; state: commands approved, skipped by the user, waiting for a decision, or none */
