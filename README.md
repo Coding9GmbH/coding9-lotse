@@ -54,6 +54,7 @@ make env     # .env aus .env.example (optional – alles geht auch in der Oberfl
 make up      # Image bauen und starten → http://localhost:3333
 make demo    # zusätzlich Demo-Shop (dockware) → http://localhost:8888
 make logs    # Logs   ·   make down  stoppen   ·   make backup  Daten sichern
+make sandbox-up  # Lotse mit Docker-Zugang für Sandbox Coding (Socket-Proxy, internes Netz)
 make help    # alle Befehle
 ```
 
@@ -72,6 +73,7 @@ Ohne Docker: `npm install && npm run dev` (Node ≥ 22.13) → http://localhost:
 | Abverkauf | Standardmäßig aus; einschaltbar unter Einstellungen → KI-Zugriff → Abverkauf. Lotse liest dann mit einer festen Abfrage nur Summen je Produkt (Stückzahl, Umsatz, Anzahl Bestellungen), nie Kunden, Adressen oder einzelne Bestellungen. |
 | Internetrecherche | Standardmäßig aus; einschaltbar unter Einstellungen → KI-Zugriff → Internet (Websuche und Abruf öffentlicher Webseiten, nur lesend). |
 | Codex (ChatGPT-Abo) | Eigene Codex-Werkzeuge (Shell, Dateien, Web, Bilder, Plugins …) abgeschaltet (Websuche nur bei eingeschalteter Internetrecherche), Dateizugriff per Berechtigungsprofil komplett gesperrt, keine Rückfragen nach mehr Rechten; Shop-Tools nur über einen lokalen MCP-Endpunkt mit Zufalls-Token je Chat. Taucht trotzdem ein gesperrtes Werkzeug auf, bricht Lotse die Runde ab. |
+| Sandbox Coding | Standardmäßig aus. Container nur im internen Netz ohne Internet (Internet nur nach Freigabe), die KI hat dort keine Shop-Werkzeuge und führt Befehle nur im Container aus, Befehle aus dem Repository laufen erst nach Freigabe, veröffentlicht wird nur per Klick. Details: [Sandbox Coding](#sandbox-coding). |
 | Serverbetrieb | `LOTSE_PASSWORD` (Login) + `ALLOWED_HOSTS` setzen, HTTPS per Reverse-Proxy. Anleitung: [`docs/self-hosting.md`](docs/self-hosting.md). |
 
 Für Live-Shops: eigene Integration mit eingeschränkter Rolle statt Admin-Login, neue Abläufe zuerst im Staging testen. Details: [SECURITY.md](SECURITY.md).
@@ -98,6 +100,7 @@ Die Sprache (Deutsch/Englisch) ist keine Variable: Sie wird in den Einstellungen
 | `LOTSE_WRITE_CONCURRENCY`, `LOTSE_SHOP_TIMEOUT_MS` | Shop-Schonung |
 | `LOTSE_LOG_RETENTION_DAYS`, `LOTSE_AUDIT_RETENTION_DAYS` | Aufbewahrung von Zugriffs- (Standard 180 Tage) und Änderungsprotokoll (365 Tage); `0` = nie löschen |
 | `OPENAI_API_KEY`, `IMAGE_MODEL` | optionale Bild-KI |
+| `LOTSE_SANDBOX`, `DOCKER_HOST`, `LOTSE_SANDBOX_*` | Sandbox Coding: `0` = hart aus, Docker-Zugang, Grenzen und Netze ([Sandbox Coding aktivieren](docs/self-hosting.md#sandbox-coding-aktivieren)) |
 
 ## Releases & Image
 
@@ -110,7 +113,7 @@ Gebaut wird für amd64 und arm64, mit SBOM und Provenance. `latest` gibt es erst
 
 ## Dokumentation
 
-Die ausführliche Dokumentation liegt unter [`docs/`](docs/README.md): [Benutzerhandbuch](docs/benutzerhandbuch.md) (wie alles funktioniert), [Selbst hosten](docs/self-hosting.md), [Architektur](docs/architektur.md) und [Plattform-Schicht](docs/platform.md). Was sich je Version geändert hat, steht im [CHANGELOG](CHANGELOG.md).
+Die ausführliche Dokumentation liegt unter [`docs/`](docs/README.md): [Benutzerhandbuch](docs/benutzerhandbuch.md) (wie alles funktioniert, auch Sandbox Coding), [Selbst hosten](docs/self-hosting.md), [Architektur](docs/architektur.md) und [Plattform-Schicht](docs/platform.md). Was sich je Version geändert hat, steht im [CHANGELOG](CHANGELOG.md).
 
 ## Konzept: AI-first Verwaltung
 Chat statt Formulare. Du schreibst, was passieren soll („Ändere das Layout von Produkt XY“, „Senke alle Preise um 20 %“, „FAQ bei allen Produkten“). Der Agent **versteht → fragt gezielt zurück** (klickbare Antworten) **→ recherchiert (nur lesen) → zeigt Vorschau bzw. Alt→Neu-Vergleich → du gibst frei → der Server schreibt** (Audit-Log, Rückgängig).
@@ -129,8 +132,21 @@ Chat statt Formulare. Du schreibst, was passieren soll („Ändere das Layout vo
 - **Einkaufswelten-Know-how**: Agent kennt Sections/Blöcke/Slots, liest bestehende Layouts (`get_cms_page`) und bezieht vorhandene Inhalte ein.
 - **Custom-HTML/CSS/JS** als `html`-Element (Block `custom-html`, CSS automatisch gescoped).
 - **Verlauf**: Alle Chats inkl. Entwurf/Freigaben liegen in der Datenbank und lassen sich im UI wieder öffnen.
+- **Sandbox Coding** (optional, braucht Docker): Code-Aufgaben in einer Entwicklungsumgebung mit Git und eigenem Test-Shop, in der Claude Code oder Codex arbeiten – für Plugins, Themes, ganze Shopware-Projekte, ein eigenes Setup oder ohne Projekt; mit Vorschau und Konsole, veröffentlicht als Pull Request oder Plugin-ZIP. Siehe [Sandbox Coding](#sandbox-coding).
 - **Deutsch und Englisch**: Oberfläche und KI-Antworten gibt es auf Deutsch und Englisch. Umschalten in den Einstellungen oder in der Seitennavigation; ohne Auswahl gilt die Browsersprache (gespeichert im Cookie `lotse_lang`).
 - UI im Coding9-CI (Dunkel `#2E2E38`, Grün, Koralle, Creme; Satoshi/Inter via Fontshare/Google Fonts).
+
+## Sandbox Coding
+
+Für Code statt Shop-Daten: Eine Sandbox ist eine **Entwicklungsumgebung mit Git, in der Claude Code oder Codex arbeiten** – eine Arbeitskopie deines Repositorys und ein eigener Shopware-Test-Shop in Docker (Dockware). Du startest sie aus einem normalen Chat; die KI ändert Dateien, führt Befehle im Container aus, prüft das Ergebnis in der Vorschau und speichert jeden fertigen Schritt als Commit. Den Live-Shop erreicht sie aus einer Sandbox nicht.
+
+- **Fälle:** bestehendes Plugin oder Theme, neues Plugin (auch in einem neu angelegten GitHub-Projekt), ganzes Shopware-Projekt (Aufbau wie `shopware/production`), eigenes Setup (Zielordner und Befehle legst du fest) oder ganz ohne Projekt mit lokalem Git. Ein Repository kann seine Einrichtung in `.lotse/sandbox.json` beschreiben; Befehle daraus laufen erst nach deiner Freigabe.
+- **Daten:** Demo-Daten, eine gespeicherte Datenbank (weitere Sandboxes starten per Snapshot ohne Import) oder ein hochgeladener, bereinigter Dump.
+- **Konsole:** eine eigene Shell im Container (`bin/console`, Logs, Composer) – nur für Menschen, nicht für die KI.
+- **Veröffentlichen:** nur per Klick, als Pull Request auf einen eigenen Branch `lotse/…` oder als Plugin-ZIP zum Hochladen in den Shop. Rückmeldungen zum Pull Request gibst du mit einem Klick an die KI weiter.
+- **Voraussetzungen:** standardmäßig aus (Einstellungen → Sandbox). Braucht Docker-Zugriff – das ist Root-Zugriff auf den Host – und auf einem Server `LOTSE_PASSWORD`. Die Container sind offline, Internet gibt es nur nach Freigabe.
+
+Einrichtung: [Sandbox Coding aktivieren](docs/self-hosting.md#sandbox-coding-aktivieren) · Bedienung und alle Fälle: [Benutzerhandbuch](docs/benutzerhandbuch.md#sandbox-coding-sandbox-im-chat) · Sicherheitsmodell: [SECURITY.md](SECURITY.md)
 
 ## Unterstützte Shopsysteme
 
@@ -169,8 +185,9 @@ src/
 │   ├── settings/         Einstellungen: Shop, KI, Bild-KI, KI-Zugriff, Protokolle
 │   ├── api/**/route.ts   REST + Chat-Stream (NDJSON)
 │   ├── shop/             Storefront-Proxy für die Live-Vorschau
+│   ├── sbx/              Proxy für die Vorschau einer Sandbox (Sandbox Coding)
 │   └── staged/           vorgemerkte Bilder (vor Freigabe nur lokal)
-├── components/           UI nach Bereichen (shell = Navigation, chat, context, preview, dialogs, settings, ui), CSS Modules
+├── components/           UI nach Bereichen (shell = Navigation, chat, context, preview, dialogs, sandbox, settings, ui), CSS Modules
 ├── hooks/                useChatStream, useAttachments
 ├── lib/
 │   ├── i18n/             Sprachen (de, en), Wörterbücher je Namensraum unter messages/
@@ -186,8 +203,9 @@ src/
     ├── changes.ts        Executor: einziger schreibender Code (gedrosselt, Audit, Rückgängig)
     ├── shopware.ts       Admin-API-Client (Timeouts, Backoff) + ReadOnlyShopware für die KI
     ├── cms.ts / patterns.ts   Block-Katalog, Spec → `cms_page`, HTML-Vorschau
+    ├── sandbox/          Sandbox Coding: Docker-Runner, Vorlagen, Einrichtung, Abgleich, Konsole, Veröffentlichen
     └── db.ts / settings.ts    SQLite, verschlüsselte Zugangsdaten
-prompts/                  System-Prompt als versioniertes Markdown: common/ (alle Plattformen) + shopware/, shopify/, magento/, openmage/
+prompts/                  System-Prompt als versioniertes Markdown: common/ (alle Plattformen) + shopware/, shopify/, magento/, openmage/; code/ für Sandbox-Chats
 integrations/openmage/    OpenMage-Modul Lotse_Connector (JSON-API, openapi.yaml, Tests, package.sh)
 tests/                    alle Tests (node:test), Struktur wie src/
 └── support/              Fake-Shops (Shopify, OpenMage) samt Tests und Live-Prüfskripte

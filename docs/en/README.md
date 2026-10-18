@@ -4,10 +4,18 @@
 
 | Document | For whom | Contents |
 |---|---|---|
-| [User guide](user-guide.md) | Everyone who works with Lotse | How the interface works: chat, context, preview, approval and undo, layouts, style guide, rules, knowledge, shop check, settings, language |
-| [Self-hosting](self-hosting.md) | Anyone running Lotse on a server | Login via environment variable, host names, HTTPS and reverse proxy, backups, troubleshooting |
-| [Architecture](architecture.md) | Development and security review | Flow of a chat turn, protection layers, data storage, preview, layout publishing, shop check, prompts, internationalization, tests |
+| [User guide](user-guide.md) | Everyone who works with Lotse | How the interface works: chat, context, preview, approval and undo, layouts, style guide, rules, knowledge, shop check, settings, Sandbox Coding, language |
+| [Self-hosting](self-hosting.md) | Anyone running Lotse on a server | Login via environment variable, host names, HTTPS and reverse proxy, enabling Sandbox Coding (Docker), backups, troubleshooting |
+| [Architecture](architecture.md) | Development and security review | Flow of a chat turn, protection layers, data storage, preview, layout publishing, shop check, chats with a sandbox, prompts, internationalization, tests |
 | [Platform layer](platform.md) | Anyone adding or adapting a platform | Adapter contract, capability matrix Shopware/Shopify/Magento 2/OpenMage, checklist for new adapters |
+
+## Sandbox Coding
+
+Code tasks in a development environment with git and a test shop of its own (Docker), in which Claude Code or Codex work. Where to find what:
+
+- **Using it:** [A sandbox in the chat](user-guide.md#sandbox-coding-a-sandbox-in-the-chat) (tabs, data, console, working with the AI, submitting for review), [Start sandbox: every case](user-guide.md#start-sandbox-every-case) (plugin, new plugin, whole project, own setup, without a project, `.lotse/sandbox.json`, notes for the AI), [Whole Shopware project](user-guide.md#whole-shopware-project), [Without a developer: build your own plugin](user-guide.md#without-a-developer-build-your-own-plugin)
+- **Running it:** [Enable Sandbox Coding](self-hosting.md#enable-sandbox-coding) (Docker, networks, variables, setup steps, dumps)
+- **Understanding and reviewing it:** [Chats with a sandbox](architecture.md#chats-with-a-sandbox-sandbox-coding) (tools, console, publishing, every case), [`SECURITY.en.md`](../../SECURITY.en.md) (security model)
 
 Other files in the repository:
 
