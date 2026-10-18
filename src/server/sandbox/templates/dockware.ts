@@ -285,10 +285,12 @@ const LEADER = 'leader() { p=; t=; read -r p t < "$1" || :; rm -f "$1"; case "$p
 /** `procs <session> "<pid:start …>"`: the console's processes as "pid:start" (sorted), from /proc: everything in the session and
  *  everything still alive of the given ones (same start time, so never a reused pid), plus all their descendants. The tree, not
  *  only the session: sudo (use_pty) runs its command in a new session below it. A job that forks away to pid 1 (`setsid cmd &`, a
- *  daemon) is not the console's any more. */
-export const CONSOLE_PROCS = `procs() { cat /proc/[0-9]*/stat 2>/dev/null | awk -v s="$1" -v seed="$2" '
-{ r = $0; sub(/^[^(]*\\(.*\\) /, "", r); split(r, f, " "); par[$1] = f[2]; st[$1] = f[20]; if (f[4] == s) k[$1] = 1 }
-END { m = split(seed, a, " "); for (j = 1; j <= m; j++) { split(a[j], q, ":"); if ((q[1] in st) && st[q[1]] == q[2]) k[q[1]] = 1 }
+ *  daemon) is not the console's any more. The pid comes from the file name, never from the line: a process name may contain a
+ *  newline, which only splits its own line (joined again here). */
+export const CONSOLE_PROCS = `procs() { LC_ALL=C grep -aHs '' /proc/[0-9]*/stat | LC_ALL=C awk -v s="$1" -v seed="$2" '
+{ i = index($0, ":"); p = substr($0, 7, i - 12); l[p] = (p in l) ? l[p] " " substr($0, i + 1) : substr($0, i + 1) }
+END { for (p in l) { r = l[p]; sub(/^[^(]*\\(.*\\) /, "", r); split(r, f, " "); par[p] = f[2]; st[p] = f[20]; if (f[4] == s) k[p] = 1 }
+  m = split(seed, a, " "); for (j = 1; j <= m; j++) { split(a[j], q, ":"); if ((q[1] in st) && st[q[1]] == q[2]) k[q[1]] = 1 }
   do { c = 0; for (i in par) if (!(i in k) && (par[i] in k)) { k[i] = 1; c = 1 } } while (c)
   for (i in k) if (i != 1) print i ":" st[i] }' | sort | tr '\\n' ' '; }`;
 /** `freeze <session>`: SIGSTOP the console's processes ($a, extended) until no new one appears – stopped processes cannot fork, so

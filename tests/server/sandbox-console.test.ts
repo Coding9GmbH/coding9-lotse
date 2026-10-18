@@ -277,6 +277,25 @@ test('dockware stop: the console\'s whole process tree is found (also children i
   leader.kill('SIGKILL');
 });
 
+test('dockware stop: a process name with a newline neither hides a console process nor adds an unrelated one', { skip: process.platform !== 'linux' }, async () => {
+  const { spawn, execFileSync } = await import('node:child_process');
+  const victim = spawn('sleep', ['304'], { stdio: 'ignore' }); // not the console's
+  // the console's sh renames itself so that its stat line splits into "<pid> (" and a forged "<victim> (x) S <ppid> <pgrp> <session> …"
+  const leader = spawn('setsid', ['sh', '-c', `printf '\\n%s (x' ${victim.pid} > /proc/$$/comm; sleep 303; :`], { stdio: 'ignore' });
+  try {
+    await until(() => { try { return execFileSync('cat', [`/proc/${leader.pid}/stat`]).toString().includes('\n'); } catch { return false; } });
+    const session = execFileSync('sh', ['-c', `ps -o sid= -p ${leader.pid}`]).toString().trim();
+    const found = execFileSync('sh', ['-c', `${CONSOLE_PROCS}; procs "$1" ""`, 'sh', session]).toString().trim().split(' ');
+    assert.ok(found.every(x => /^\d+:\d+$/.test(x)), found.join(' '));
+    const ids = found.map(x => x.split(':')[0]);
+    assert.ok(ids.includes(String(leader.pid)), 'the renamed console process is found by its real pid');
+    assert.ok(!ids.includes(String(victim.pid)), 'the forged pid is not');
+  } finally {
+    victim.kill('SIGKILL');
+    execFileSync('sh', ['-c', `pkill -9 -s ${leader.pid} || :`]);
+  }
+});
+
 test('flow control: output capped per second (socket paused, then resumed), a view that falls behind is dropped, at most two views', async () => {
   const t = await readyTask('Flut');
   const sid = (await (await open(t.id)).json() as any).session.id as string;

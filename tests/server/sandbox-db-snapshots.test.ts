@@ -176,6 +176,30 @@ test('a copy that fails on restore falls back to the import; a failed snapshot c
   for (const t of [a, b, c]) await J.finishTask(t.id);
 });
 
+test('a volume with the snapshot name that is not Lotse\'s: no quick start and no snapshot, the import runs, the volume is not touched', async () => {
+  const d = await stored('foreign.sql'), snap = SP.snapshotVolume(d.id, IMAGE);
+  // recorded snapshot whose volume was replaced outside Lotse by an unlabelled one of the same name
+  const a = await runTask(d.id, 'Snapshot anlegen');
+  assert.equal(step(a, 'db-snapshot').state, 'done');
+  fake.volumes.set(snap, { name: snap, labels: {}, data: ['foreign'] });
+  const b = await runTask(d.id, 'Fremdes Volume');
+  assert.equal(b.status, 'ready', b.error ?? '');
+  assert.match(step(b, 'start-container').log.join('\n'), /Snapshot nicht nutzbar \(.*gehört nicht zu Lotse.*\) – die Datenbank wird stattdessen importiert/);
+  assert.ok(opsOf(b.id).some(x => isImport(x.argv)), 'imported instead');
+  assert.equal(step(b, 'db-snapshot').state, 'skipped');
+  assert.match(step(b, 'db-snapshot').log.join('\n'), /Snapshot nicht angelegt: .*gehört nicht zu Lotse/);
+  // no recorded snapshot at all: taking one finds the foreign volume and skips
+  db.codeDumpPut({ ...db.codeDumpGet(d.id)!, snapshots: [] });
+  const c = await runTask(d.id, 'Ohne Eintrag');
+  assert.equal(c.status, 'ready', c.error ?? '');
+  assert.ok(opsOf(c.id).some(x => isImport(x.argv)), 'imported');
+  assert.equal(step(c, 'db-snapshot').state, 'skipped');
+  assert.match(step(c, 'db-snapshot').log.join('\n'), /Snapshot nicht angelegt: .*gehört nicht zu Lotse/);
+  assert.deepEqual(fake.volumes.get(snap), { name: snap, labels: {}, data: ['foreign'] }, 'the foreign volume is left alone');
+  fake.volumes.delete(snap);
+  for (const t of [a, b, c]) await J.finishTask(t.id);
+});
+
 test('MySQL that does not stop cleanly is not copied; one that does not start again fails the step', async () => {
   const d = await stored('unclean.sql');
   fake.script = argv => (JSON.stringify(argv) === JSON.stringify(MYSQL_STOP_ARGV) ? { exitCode: 1, output: 'mysqld: still running' } : undefined);
