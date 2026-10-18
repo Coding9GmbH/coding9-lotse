@@ -262,6 +262,9 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
 
   /** "Als Umgebung speichern" (start dialog) and "Umgebung speichern" (editing one) */
   async function saveQuick(name: string, isDefault = false) {
+    // never saved without a data choice (no quiet fall-back to the demo data), nor with an unfinished step
+    if (data === null) { setError(tq.dumpGone); return; }
+    if (!stepOk.every(Boolean)) return;
     const setup = quickSetup();
     if (!setup) { setError(tq.uploadOnce); return; }
     setSaving(true); setError(null); setSaved(null);
@@ -542,12 +545,12 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
                   <label className={styles.field}>
                     <span className={styles.label}>{tq.saveName}</span>
                     <input value={save.name} maxLength={80} autoFocus onChange={e => setSave(x => x && { ...x, name: e.target.value })}
-                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (save.name.trim()) void saveQuick(save.name, save.isDefault); } }} />
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (save.name.trim() && stepOk.every(Boolean)) void saveQuick(save.name, save.isDefault); } }} />
                   </label>
                   <label className={styles.toggle}><input type="checkbox" checked={save.isDefault} onChange={e => setSave(x => x && { ...x, isDefault: e.target.checked })} /> {tq.saveDefault}</label>
                   <p className={styles.fieldHint}>{tq.saveHint}</p>
                   <div className={styles.footRow}>
-                    <Button size="sm" variant="primary" busy={saving} disabled={!save.name.trim() || saving} onClick={() => void saveQuick(save.name, save.isDefault)}>{tq.saveSubmit}</Button>
+                    <Button size="sm" variant="primary" busy={saving} disabled={!save.name.trim() || saving || !stepOk.every(Boolean)} onClick={() => void saveQuick(save.name, save.isDefault)}>{tq.saveSubmit}</Button>
                     <Button size="sm" variant="ghost" disabled={saving} onClick={() => setSave(null)}>{tq.cancel}</Button>
                   </div>
                 </div>

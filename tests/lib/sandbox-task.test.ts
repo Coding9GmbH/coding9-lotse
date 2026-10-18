@@ -94,7 +94,8 @@ test('start choices: order, the AI card’s preselection, the demo request, the 
   assert.deepEqual(startChoices([]).map(choiceKey), ['demo', 'new']);
   // the card: the AI's environment (if still saved) → "Neu einrichten …" for a proposed repository → the default → the demo shop
   assert.deepEqual(offerChoice({ quickStartId: 'qs_c', repo: 'acme/shop' }, list), { type: 'env', id: 'qs_c' });
-  assert.deepEqual(offerChoice({ quickStartId: 'qs_gone', repo: '' }, list), { type: 'env', id: 'qs_a' });
+  assert.equal(offerChoice({ quickStartId: 'qs_gone', repo: '' }, list), null); // gone: nothing preselected, the user picks
+  assert.equal(offerChoice({ quickStartId: 'qs_gone', repo: 'acme/shop' }, list), null);
   assert.deepEqual(offerChoice({ repo: 'acme/other' }, list), { type: 'new' });
   assert.deepEqual(offerChoice({ repo: '' }, list.filter(q => !q.default)), { type: 'demo' });
   assert.deepEqual(demoRequest('c1', 'Demo-Shop'), { chatId: 'c1', repo: '', baseBranch: '', source: 'none', title: 'Demo-Shop' });

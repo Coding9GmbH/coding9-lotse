@@ -716,7 +716,7 @@ test('Sandbox Coding: start dialog in three steps – repository file with appro
   await expect(dialog.getByRole('status').filter({ hasText: 'Erkannt: Plugin AcmeFlex' })).toBeVisible();
   const file = dialog.getByRole('region', { name: 'Dieses Projekt möchte beim Einrichten folgende Befehle ausführen' });
   await expect(file.getByText('bin/console framework:demodata')).toBeVisible();
-  await expect(file.getByText(/fehlen in der Umgebung: STRIPE_KEY/)).toBeVisible();
+  await expect(file.getByText(/fehlen in der Sandbox-Umgebung: STRIPE_KEY/)).toBeVisible();
   await expect(file.getByRole('button', { name: 'Befehle erlauben' })).toBeInViewport(); // scrolled into view, not below the fold
   await expect(dialog.getByRole('button', { name: 'Weiter' })).toBeDisabled(); // a decision first
   await file.getByRole('button', { name: 'Befehle erlauben' }).click();
@@ -890,7 +890,7 @@ test('Sandbox Coding: saved environments – the same choices everywhere, fresh 
   await expect(choices.getByRole('radio', { name: 'Demo-Shop ohne Projekt' })).not.toBeChecked();
   await expect(panel).toHaveCount(0);
   await choices.getByRole('radio', { name: 'Neu einrichten …' }).check();
-  await expect(card.getByRole('button', { name: 'Einrichten …', exact: true })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Neu einrichten …', exact: true })).toBeVisible();
   await choices.getByRole('radio', { name: 'Theme Demo (Standard)' }).check();
   await card.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
   await expect(panel.getByRole('heading', { name: 'Footer-Link im Theme ergänzen' })).toBeVisible();

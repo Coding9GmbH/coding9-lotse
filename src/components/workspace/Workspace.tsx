@@ -354,7 +354,9 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     }
   };
   const loadQuicks = () => Promise.all([api.sandbox.quickStarts(), api.sandbox.storedDbs().catch(() => ({ dumps: [] as LibraryDumpPublic[] }))])
-    .then(([q, d]) => { const v = { list: q.quickStarts, dumps: d.dumps }; setQuicks(v); return v; }, e => { reportError(errorText(e)); return null; });
+    .then(([q, d]) => { const v = { list: q.quickStarts, dumps: d.dumps }; setQuicks(v); return v; },
+      // a failed load must not lock the choices: keep what was there, else offer Demo-Shop and "Neu einrichten …"
+      e => { reportError(errorText(e)); setQuicks(prev => prev ?? { list: [], dumps: [] }); return null; });
   // the AI's card shows the same choices: load them once a card is waiting for a decision
   const offerOpen = !!shell.sandbox && !taskId && state.items.some(i => i.kind === 'sandbox_offer');
   useEffect(() => { if (offerOpen) void loadQuicks(); }, [offerOpen, chatId]); // eslint-disable-line react-hooks/exhaustive-deps -- once per chat with a card

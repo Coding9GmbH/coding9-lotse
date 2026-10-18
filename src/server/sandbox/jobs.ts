@@ -254,7 +254,7 @@ async function applyRepoFile(t: CodeTask, ctx: StepCtx): Promise<void> {
   if (own?.image && f.image) ctx.log(`Image aus dem Startdialog: ${own.image} (statt ${f.image} laut ${REPO_FILE}).`);
   const known = new Set([...cfg.envVars.map(v => v.key), ...(t.setup?.env ?? []).map(v => v.key)]);
   const missing = f.env.filter(n => !known.has(n));
-  if (missing.length) ctx.log(`Warnung: Das Projekt erwartet diese Umgebungsvariablen, sie fehlen in der Umgebung: ${missing.join(', ')} (Sandbox Coding → Umgebung → Umgebungsvariablen).`);
+  if (missing.length) ctx.log(`Warnung: Das Projekt erwartet diese Umgebungsvariablen, sie fehlen in der Sandbox-Umgebung: ${missing.join(', ')} (Sandbox Coding → Sandbox-Umgebung → Umgebungsvariablen).`);
   let state: NonNullable<CodeTask['repoFile']>['state'] = 'none';
   if (f.commands.length) {
     if (repoFileApproved(t.repo, f.hash)) state = 'approved';

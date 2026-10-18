@@ -213,10 +213,11 @@ export function startChoices(list: readonly QuickStartPublic[]): StartChoice[] {
 }
 /** "Demo-Shop ohne Projekt": dockware's demo data, no repository (the changes stay in the local git), started with one click */
 export const demoRequest = (chatId: string, title: string): NewSandboxRequest => ({ chatId, repo: '', baseBranch: '', source: 'none', title });
-/** The choice the AI's card starts with: the environment it suggested (if still saved); else "Neu einrichten …" for a repository it
- *  proposed; else the default environment; else the demo shop */
-export function offerChoice(offer: { quickStartId?: string; repo: string }, list: readonly QuickStartPublic[]): StartChoice {
-  if (offer.quickStartId && list.some(q => q.id === offer.quickStartId)) return { type: 'env', id: offer.quickStartId };
+/** The choice the AI's card starts with: the environment it suggested; none if that one is gone (the card asks the user to pick,
+ *  nothing the AI did not suggest is preselected); else "Neu einrichten …" for a repository it proposed; else the default
+ *  environment; else the demo shop */
+export function offerChoice(offer: { quickStartId?: string; repo: string }, list: readonly QuickStartPublic[]): StartChoice | null {
+  if (offer.quickStartId) return list.some(q => q.id === offer.quickStartId) ? { type: 'env', id: offer.quickStartId } : null;
   if (offer.repo) return { type: 'new' };
   const def = list.find(q => q.default);
   return def ? { type: 'env', id: def.id } : { type: 'demo' };

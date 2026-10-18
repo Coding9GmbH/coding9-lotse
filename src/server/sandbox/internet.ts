@@ -20,7 +20,7 @@ export type InternetVia = 'chat' | 'panel';
 /** Why access ended: the user (panel/chat), the lifecycle (pause also covers idle, capacity and switching off), the policy, a restart. */
 export type RevokeReason = 'panel' | 'pause' | 'finish' | 'setup' | 'wake' | 'policy' | 'restart';
 
-export const INTERNET_NEVER = 'Internet im Container ist in der Umgebung ausgeschaltet („nie“).';
+export const INTERNET_NEVER = 'Internet im Container ist in der Sandbox-Umgebung ausgeschaltet („nie“).';
 const OPEN_EGRESS = 'Internet bleibt gesperrt: Ohne LOTSE_SANDBOX_EGRESS_SUBNET könnte Lotse Anfragen aus dem Internet-Netz der Sandbox nicht erkennen. Aktuelle docker-compose.sandbox.yml verwenden (make sandbox-up) oder LOTSE_PASSWORD setzen.';
 const NOT_READY = 'Internet gibt es nur für eine bereite Sandbox mit laufendem Container.';
 
