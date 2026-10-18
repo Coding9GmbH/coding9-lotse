@@ -1,11 +1,11 @@
 import type { TaskEvent } from '@/lib/protocol';
 import { taskRoute } from '@/server/sandbox/api';
 import { touchTask } from '@/server/sandbox/jobs';
-import { listen, mustTask, publicTask } from '@/server/sandbox/tasks';
+import { listen, mustTask, publicTask, takeHeldChat } from '@/server/sandbox/tasks';
 
 export const dynamic = 'force-dynamic';
 
-/** NDJSON: the task as snapshot, then live (task on every transition, log lines). An open view counts as activity (no idle pause). */
+/** NDJSON: the task as snapshot (plus chat events held for the first view, tasks.ts emitChatToViews), then live (task on every transition, log lines). An open view counts as activity (no idle pause). */
 export function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   return taskRoute(req, async () => {
     const t = mustTask((await params).id);
@@ -21,6 +21,7 @@ export function GET(req: Request, { params }: { params: Promise<{ id: string }> 
         };
         send({ t: 'task', task: publicTask(t) });
         stop = listen(t.id, send);
+        for (const event of takeHeldChat(t.id)) send({ t: 'chat', event }); // e.g. which sandboxes its start paused
         req.signal.addEventListener('abort', end, { once: true });
       },
       cancel() { end(); },

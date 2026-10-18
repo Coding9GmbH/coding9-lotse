@@ -930,7 +930,15 @@ test('Sandbox Coding: saved environments – the same choices everywhere, fresh 
   expect(new Set(both.map(t => t.branch)).size).toBe(2);
   expect(new Set(both.map(t => t.chatId)).size).toBe(2);
   for (const t of both) expect(t.branch).toMatch(/^lotse\/theme-demo-[a-z0-9]{6}$/);
-  for (const t of both) expect((await request.post(`/api/sandbox/tasks/${t.id}/finish`, { headers: lotse, data: {} })).ok()).toBeTruthy();
+  // a third one pauses the oldest: the new chat says so at once, without a reload
+  await page.getByRole('button', { name: 'Neuer Chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await menu.getByRole('menuitem', { name: 'Demo-Shop ohne Projekt', exact: true }).click();
+  await expect(page.getByText('„Theme Demo“ wurde pausiert, weil höchstens 2 Sandboxes gleichzeitig laufen. Fortsetzen geht jederzeit in ihrem Chat.', { exact: true })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+  const all = ((await (await request.get('/api/sandbox/tasks', { headers: lotse })).json()) as { tasks: T[] }).tasks.filter(t => t.status !== 'done');
+  expect(all.filter(t => t.title === 'Theme Demo').map(t => t.status).sort()).toEqual(['paused', 'ready']);
+  for (const t of all) expect((await request.post(`/api/sandbox/tasks/${t.id}/finish`, { headers: lotse, data: {} })).ok()).toBeTruthy();
   await page.reload();
   await expect(panel).toHaveCount(0);
 

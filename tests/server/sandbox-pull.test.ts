@@ -259,6 +259,7 @@ test('plugin: the AI\'s pull_from_container takes over (all or below paths) and 
   assert.equal(some.error, false, some.text);
   assert.match(some.text, /^Übernommen \(1\):\nneu src\/Resources\/snippet\/de_DE\/neu\.de-DE\.json \(\+1 −0\)/);
   assert.match(some.text, /Noch nicht committet – prüfen und mit git_commit speichern\./);
+  assert.doesNotMatch(some.text, /Übersprungen/, 'what was skipped outside the asked-for paths (.env.local) is not named');
   assert.ok(fs.existsSync(path.join(wt, 'src/Resources/snippet/de_DE/neu.de-DE.json')) && !fs.existsSync(path.join(wt, 'src/Service/Neu.php')));
   assert.deepEqual(events.filter(e => e.t === 'file_change'), [{ t: 'file_change', path: 'src/Resources/snippet/de_DE/neu.de-DE.json', kind: 'create', added: 1, removed: 0 }]);
   const rest = await call(tools, 'pull_from_container');
@@ -488,7 +489,9 @@ test('without a project: bin/console plugin:create in the container, taken over 
   const n = await ready({ title: 'Ohne Projekt', source: 'none', pluginName: 'AcmeOhne', baseBranch: '' });
   assert.equal(n.layout?.pluginDir, 'custom/plugins/AcmeOhne');
   const ntools = toolsFor(n, []);
-  assert.equal((await call(ntools, 'sandbox_bash', { command: "echo '{\"type\": \"shopware-platform-plugin\"}' > custom/plugins/AcmeOhne/composer.json && echo '<?php' > custom/plugins/AcmeOhne/src/AcmeOhne.php" })).error, false);
+  // the setup made no (empty) plugin folder, so Shopware's plugin:create can create it
+  const created = await call(ntools, 'sandbox_bash', { command: "bin/console plugin:create AcmeOhne 'Acme\\Ohne'" });
+  assert.equal(created.error, false, created.text);
   const r = await call(ntools, 'pull_from_container');
   assert.match(r.text, /Übernommen \(2\)/);
   assert.ok(fs.existsSync(path.join(T.taskPaths(n.id).worktree, 'composer.json')));
@@ -511,6 +514,9 @@ test('LOTSE_SANDBOX_MAX: the chat of the sandbox that starts says which one was 
     J.runSteps(t.id);
     const ev = getSession(t.chatId!).events.find(e => e.t === 'sandbox_status' && e.state === 'displaced');
     assert.deepEqual(ev, { t: 'sandbox_status', state: 'displaced', paused: ['Plugin bauen'], max: 1 });
+    // nobody listens to the new task yet (its start request has not answered): its panel gets the line once it subscribes, once
+    assert.deepEqual(T.takeHeldChat(t.id), [ev]);
+    assert.deepEqual(T.takeHeldChat(t.id), []);
     await settled(t.id);
   } finally { delete process.env.LOTSE_SANDBOX_MAX; }
 });

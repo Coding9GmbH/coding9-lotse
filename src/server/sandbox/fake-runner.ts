@@ -16,7 +16,7 @@ export interface FakeCall { op: string; id?: string; argv?: string[]; user?: str
 export interface FakeVolume { name: string; labels: Record<string, string>; data: string[] }
 type Mount = { Source: string; Target: string; ReadOnly?: boolean };
 const mountsOf = (spec: ContainerSpec) => ((spec.HostConfig as { Mounts?: Mount[] } | undefined)?.Mounts ?? []);
-interface FakeContainer { id: string; spec: ContainerSpec; running: boolean; exitCode?: number; oomKilled?: boolean; /** container output (docker logs) */ log: string[]; networks: string[]; files: Map<string, Buffer>; server: http.Server | null; port: number | null; /** storefront templates as of the last theme:compile */ compiled: string[] }
+interface FakeContainer { id: string; spec: ContainerSpec; running: boolean; exitCode?: number; oomKilled?: boolean; /** container output (docker logs) */ log: string[]; networks: string[]; files: Map<string, Buffer>; /** folders put without files (an archive's dir entries) */ dirs: Set<string>; server: http.Server | null; port: number | null; /** storefront templates as of the last theme:compile */ compiled: string[] }
 type ExecScript = (argv: readonly string[], id: string) => Partial<ExecResult> | undefined;
 
 export { readTar, readTarEntries, type TarRecord } from './tar';
@@ -206,7 +206,7 @@ export class FakeRunner implements SandboxRunner {
     assertSafeSpec(spec);
     for (const m of mountsOf(spec)) if (!this.volumes.has(m.Source)) throw new Error(`Volume ${m.Source} fehlt.`);
     const id = `fake${(++this.seq).toString().padStart(8, '0')}`;
-    this.containers.set(id, { id, spec, running: false, log: [], networks: [SANDBOX_NET], files: new Map(), server: null, port: null, compiled: [] });
+    this.containers.set(id, { id, spec, running: false, log: [], networks: [SANDBOX_NET], files: new Map(), dirs: new Set(), server: null, port: null, compiled: [] });
     return id;
   }
   async start(id: string) {
@@ -334,7 +334,19 @@ export class FakeRunner implements SandboxRunner {
         for (const [k, v] of [...c.files]) if (k === `${b}/${rel}` || k.startsWith(`${b}/${rel}/`)) c.files.set(`${root}/${k.slice(b.length + 1)}`, v);
       }
     }
-    if (argv[0] === 'rm' && argv.includes('--')) for (const target of argv.slice(argv.indexOf('--') + 1)) for (const k of [...c.files.keys()]) if (k === target || k.startsWith(`${target}/`)) c.files.delete(k);
+    if (argv[0] === 'rm' && argv.includes('--')) for (const target of argv.slice(argv.indexOf('--') + 1)) for (const m of [c.files, c.dirs]) for (const k of [...m.keys()]) if (k === target || k.startsWith(`${target}/`)) m.delete(k);
+    // sync.ts: whether a new plugin's folder exists (one put as a folder, or any file below it)
+    const hasDir = (d: string) => c.dirs.has(d) || [...c.files.keys(), ...c.dirs].some(k => k.startsWith(`${d}/`));
+    if (argv[0] === 'test' && argv[1] === '-d' && argv.length === 3) return { exitCode: hasDir(argv[2].replace(/\/+$/, '')) ? 0 : 1, output: '', truncated: false };
+    // sandbox_bash `bin/console plugin:create <Name>`: like Shopware, refused when the folder exists (even empty), else a skeleton
+    const create = argv[0] === 'bash' && argv[1] === '-lc' ? /^bin\/console plugin:create ([A-Z][A-Za-z0-9]{1,60})\b/.exec(argv[2] ?? '') : null;
+    if (create) {
+      const d = `${PLUGINS}${create[1]}`;
+      if (hasDir(d)) return { exitCode: 1, output: `\n In PluginCreateCommand.php line 117:\n\n  Plugin directory ${d} already exists\n`, truncated: false };
+      c.files.set(`${d}/composer.json`, Buffer.from(`${JSON.stringify({ name: `swag/${create[1].toLowerCase()}`, type: 'shopware-platform-plugin', autoload: { 'psr-4': { [`${create[1]}\\`]: 'src/' } }, extra: { 'shopware-plugin-class': `${create[1]}\\${create[1]}` } }, null, 4)}\n`));
+      c.files.set(`${d}/src/${create[1]}.php`, Buffer.from(`<?php declare(strict_types=1);\n\nnamespace ${create[1]};\n\nuse Shopware\\Core\\Framework\\Plugin;\n\nclass ${create[1]} extends Plugin\n{\n}\n`));
+      return { exitCode: 0, output: `Creating plugin ${create[1]}\n`, truncated: false };
+    }
     // container-pull.ts STAGE_SH: the files copied to <dir>/0, <dir>/1 … (one larger than the limit: an empty <dir>/<i>.big)
     if (argv[0] === 'bash' && argv[3] === 'lotse-stage') {
       const max = Number(argv[4]), dir = argv[5];
@@ -388,6 +400,7 @@ export class FakeRunner implements SandboxRunner {
     const tar = Buffer.isBuffer(archive) ? archive : await collect(archive);
     this.archives.push({ id, dir, entries: readTarEntries(tar) });
     for (const f of readTar(tar)) c.files.set(`${assertContainerPath(dir).replace(/\/$/, '')}/${f.path}`, f.data);
+    for (const e of readTarEntries(tar)) if (e.type === 'dir') c.dirs.add(`${dir.replace(/\/$/, '')}/${e.path.replace(/\/+$/, '')}`);
   }
   async inspectNetwork(name: string) { this.enter('inspectNetwork', { detail: name }); return this.networks.get(name) ?? null; }
   async createNetwork(name: string, opts: NetworkOpts) {

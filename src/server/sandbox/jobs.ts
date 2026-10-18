@@ -38,7 +38,7 @@ import { getTemplate, resolveCommand } from './templates';
 import { waitReady } from './templates/dockware';
 import type { StepCtx } from './templates/types';
 import { REPO_FILE, RepoFileError, readRepoFile, repoFileApproved, repoFileImage } from './repo-config';
-import { appendLog, commandDir, effectiveMode, effectiveTarget, emitTask, getTask, httpStatusOf, listTasks, markStopping, mustTask, now, placeRepoSteps, publicTask, publishRunning, sandboxOrigin, saveTask, setTaskDump, taskImage, taskPaths, turnRunning, type CodeTask, type StoredStep } from './tasks';
+import { appendLog, commandDir, effectiveMode, effectiveTarget, emitChatToViews, emitTask, getTask, httpStatusOf, listTasks, markStopping, mustTask, now, placeRepoSteps, publicTask, publishRunning, sandboxOrigin, saveTask, setTaskDump, taskImage, taskPaths, turnRunning, type CodeTask, type StoredStep } from './tasks';
 /** Author of the empty start commit of a sandbox without a project (the same identity publishing commits with) */
 const LOTSE_AUTHOR = { name: 'Lotse', email: 'lotse@users.noreply.github.com' };
 
@@ -104,14 +104,15 @@ function makeRoom(self: string): CodeTask[] {
   for (const v of victims) if (v.status === 'ready') { v.status = 'paused'; saveTask(v); }
   return victims;
 }
-/** The chat of the sandbox that starts learns which ones were paused for it (by title), before the start request answers – the
- *  workspace reloads the chat once the sandbox is attached; a wake from the panel gets it through the task's events. */
+/** The chat of the sandbox that starts learns which ones were paused for it (by title): stored in its history, and live through the
+ *  task's events – a wake from the open panel at once; a new sandbox's start request answers before the panel listens, so its panel
+ *  gets the line when it subscribes (emitChatToViews). A running turn's stream has it already. */
 function noteDisplaced(t: CodeTask, victims: CodeTask[]) {
   const paused = victims.filter(v => v.status === 'paused').map(v => v.title);
   if (!paused.length || !t.chatId || !chatExists(t.chatId)) return;
   const ev: ChatEvent = { t: 'sandbox_status', state: 'displaced', paused, max: maxRunning() };
   noteChatEvent(t.chatId, ev);
-  if (!turnRunning(t.id)) emitTask(t.id, { t: 'chat', event: ev }); // a running turn's stream has it already
+  if (!turnRunning(t.id)) emitChatToViews(t.id, ev);
 }
 const stopVictims = (victims: CodeTask[]) => Promise.all(victims.map(v => withTaskLock(v.id, () => stopContainer(v)).catch(e => log.warn('Sandbox pausieren fehlgeschlagen', { task: v.id, error: e }))));
 
@@ -141,7 +142,7 @@ async function stopContainer(t: CodeTask, why: RevokeReason = 'pause') {
 
 // ---- Setup ----
 /** Starts (or resumes) the setup from `fromStep` (default: the first step not done). Returns at once; the job runs detached. */
-export function runSteps(id: string, fromStep?: string, o: { ignoreVersion?: boolean; dumpId?: string } = {}): CodeTask {
+export function runSteps(id: string, fromStep?: string, o: { ignoreVersion?: boolean; dumpId?: string; /** a new sandbox: binds it to its chat (which may only now come to exist) before the chat learns what it paused */ attach?: (t: CodeTask) => void } = {}): CodeTask {
   assertOn();
   const t = mustTask(id);
   if (setupRunning(id) || jobs().wakes.has(id) || jobs().finishing.has(id)) throw new TaskConflict('Für diese Aufgabe läuft bereits ein Vorgang.');
@@ -152,6 +153,7 @@ export function runSteps(id: string, fromStep?: string, o: { ignoreVersion?: boo
   if (fromStep && from < 0) throw Object.assign(new Error('Unbekannter Schritt.'), { status: 400 });
   if (from < 0) throw new TaskConflict('Die Einrichtung ist bereits fertig.');
   const victims = makeRoom(id);
+  o.attach?.(t);
   noteDisplaced(t, victims);
   // Only now (nothing can throw any more): binding the new dump deletes the previous one
   if (o.dumpId) setTaskDump(t, o.dumpId);
@@ -430,7 +432,9 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
       if (!t.layout) throw new Error('Plugin noch nicht erkannt.');
       container();
       const r = await syncTaskAll(t, signal);
-      lg(`${r.files} Dateien nach ${tpl.syncTarget(t.layout)} übertragen.`);
+      lg(r.deferred
+        ? `Neues Plugin: Der Ordner ${tpl.syncTarget(t.layout)} entsteht im Container erst mit der ersten Plugin-Datei (README, LICENSE und .gitignore allein legen ihn nicht an) – bis dahin kann ihn auch bin/console plugin:create anlegen.`
+        : `${r.files} Dateien nach ${tpl.syncTarget(t.layout)} übertragen.`);
       return r.config;
     },
   };

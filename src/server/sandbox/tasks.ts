@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
 import { DEFAULT_LOCALE, messages, type Locale } from '@/lib/i18n';
-import type { CodeTaskPublic, CodeTaskStatus, TaskDumpPublic, CommandPhase, SandboxMode, ShotDevice, TaskEvent, TaskLayout, TaskPublish, TaskRepoFile, TaskShotSet, TaskStep } from '@/lib/protocol';
+import type { ChatEvent, CodeTaskPublic, CodeTaskStatus, TaskDumpPublic, CommandPhase, SandboxMode, ShotDevice, TaskEvent, TaskLayout, TaskPublish, TaskRepoFile, TaskShotSet, TaskStep } from '@/lib/protocol';
 import { PLUGIN_NAME, PREVIEW_PATH, pluginNameFromRepo, suggestTargetPath, targetPathProblem } from '@/lib/sandbox-task';
 import { codeTaskByChat, codeTaskGet, codeTaskList, codeTaskPut, dataDir, macOf, type CodeTaskRow } from '../db';
 import { assertLotseBranch } from '../git';
@@ -163,6 +163,21 @@ export function listen(id: string, fn: (ev: TaskEvent) => void): () => void {
 }
 export const hasListeners = (id: string) => (live().listeners.get(id)?.size ?? 0) > 0;
 export function emitTask(id: string, ev: TaskEvent) { for (const fn of live().listeners.get(id) ?? []) { try { fn(ev); } catch { /* listener gone */ } } }
+/** Chat events for a view that does not listen yet (a sandbox that starts pauses others before its start request answers, so the
+ *  panel subscribes only after that): the task's next listener gets them right after its snapshot, once; kept a minute at most. */
+const HELD_MS = 60_000;
+const held = () => singleton<Map<string, { ev: ChatEvent; at: number }[]>>('sandboxHeldChat', () => new Map());
+/** To the task's open views now, or held for the next one */
+export function emitChatToViews(id: string, ev: ChatEvent) {
+  if (hasListeners(id)) { emitTask(id, { t: 'chat', event: ev }); return; }
+  const at = Date.now(), list = (held().get(id) ?? []).filter(x => at - x.at < HELD_MS);
+  held().set(id, [...list, { ev, at }].slice(-10));
+}
+export function takeHeldChat(id: string): ChatEvent[] {
+  const list = held().get(id) ?? [];
+  held().delete(id);
+  return list.filter(x => Date.now() - x.at < HELD_MS).map(x => x.ev);
+}
 
 /** Preview path /sbx/<id>.<key>: the key (keyed hash of the id) makes the URL unguessable. The preview runs in an opaque origin
  *  whose requests carry neither cookies nor a Referer, so the key is what ties a request (form post, ajax) to this task. */
