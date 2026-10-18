@@ -770,3 +770,114 @@ test('Sandbox Coding: start dialog in three steps – repository file with appro
   await expect(panel).toHaveCount(0);
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
 });
+
+// A22 "Schnellstarts": save the dialog's choice, one click in the "Sandbox" menu of the workspace starts it, the panel saves a running
+// sandbox's setup, the default is preselected, a quick start that cannot start opens the dialog prefilled with why; on the Sandbox
+// Coding page: edit (the dialog as editor), rename, duplicate, delete.
+test('Sandbox Coding: quick starts – save in the dialog, one click in the Sandbox menu, edit and delete, a broken one opens the dialog', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const lotse = { 'x-lotse': '1' };
+  expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Sandbox starten' });
+  await next(dialog);
+  await dialog.getByLabel('Repository').selectOption('acme/shop-theme');
+  await expect(dialog.getByRole('status').filter({ hasText: 'Erkannt: Theme AcmeShopTheme' })).toBeVisible();
+  await dialog.getByText('Erweitert', { exact: true }).click();
+  await dialog.getByLabel('Image (Shopware-Version)').fill('6.7.14.0');
+  await dialog.getByLabel('Startseite der Vorschau').fill('de/');
+  await expect(dialog.getByText('Ein Pfad, der mit / beginnt, ohne Leerzeichen (z. B. /de/).')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Weiter' })).toBeDisabled();
+  await dialog.getByLabel('Startseite der Vorschau').fill('/de/');
+  await dialog.getByLabel('Hinweise für die KI (nur diese Sandbox)').fill('Footer-Texte stehen in den Snippets.');
+  await next(dialog);
+  await dialog.getByRole('button', { name: 'Als Schnellstart speichern' }).click();
+  await dialog.getByLabel('Name des Schnellstarts').fill('Theme Demo');
+  await dialog.getByLabel('Im Startdialog vorauswählen (Standard)').check();
+  await dialog.getByRole('button', { name: 'Schnellstart speichern' }).click();
+  await expect(dialog.getByRole('status').filter({ hasText: 'Als Schnellstart „Theme Demo“ gespeichert.' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Abbrechen' }).click();
+  await expect(dialog).toHaveCount(0);
+
+  // one click in the "Sandbox" menu: what it will use is in the item, the status line confirms it
+  await page.getByRole('button', { name: 'Schnellstarts' }).click();
+  const item = page.getByRole('menuitem', { name: /^Theme Demo \(Standard\)/ });
+  await expect(item).toContainText('Bestehendes Projekt · acme/shop-theme @ main · Demo-Daten · Image 6.7.14.0');
+  await item.click();
+  await expect(page.getByText(/Schnellstart „Theme Demo“ gestartet: Bestehendes Projekt · acme\/shop-theme @ main/)).toBeVisible();
+  const panel = page.getByRole('region', { name: 'Sandbox' });
+  await expect(panel.getByRole('heading', { name: 'Theme Demo' })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+  await expect(panel.getByLabel('Pfad in der Sandbox')).toHaveValue('/de/'); // the quick start's start page
+  // the running sandbox's setup as another quick start (the name is taken: say so, then another)
+  await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Setup als Schnellstart speichern' }).click();
+  const fromTask = page.getByRole('dialog', { name: 'Setup als Schnellstart speichern' });
+  await expect(fromTask.getByLabel('Name des Schnellstarts')).toHaveValue('Theme Demo');
+  await fromTask.getByRole('button', { name: 'Schnellstart speichern' }).click();
+  await expect(fromTask.getByRole('alert')).toContainText('Es gibt schon einen Schnellstart „Theme Demo“.');
+  await fromTask.getByLabel('Name des Schnellstarts').fill('Aus der Sandbox');
+  await fromTask.getByRole('button', { name: 'Schnellstart speichern' }).click();
+  await expect(panel.getByRole('status').filter({ hasText: 'Als Schnellstart „Aus der Sandbox“ gespeichert.' })).toBeVisible();
+  page.once('dialog', d => void d.accept());
+  await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
+  await expect(panel).toHaveCount(0);
+
+  // the default is preselected in the dialog
+  await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
+  await expect(dialog.getByLabel('Schnellstart').locator('option:checked')).toHaveText('Theme Demo (Standard)');
+  await next(dialog);
+  await expect(dialog.getByLabel('Repository')).toHaveValue('acme/shop-theme');
+  await expect(dialog.getByLabel('Startseite der Vorschau')).toHaveValue('/de/');
+  await dialog.getByRole('button', { name: 'Abbrechen' }).click();
+
+  // a quick start whose project is gone: the dialog opens prefilled with why
+  expect((await request.post('/api/sandbox/quick-starts', { headers: lotse, data: { name: 'Kaputt', setup: { kind: 'existing', repo: 'acme/gone', baseBranch: 'main', previewPath: '/kaputt/' } } })).ok()).toBeTruthy();
+  await page.getByRole('button', { name: 'Schnellstarts' }).click();
+  await page.getByRole('menuitem', { name: /^Kaputt/ }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Der Schnellstart „Kaputt“ lässt sich so nicht starten – bitte prüfen und anpassen:');
+  await expect(dialog.getByRole('alert')).toContainText('Kein Zugriff auf acme/gone');
+  await expect(dialog.getByRole('button', { name: /^Schritt 2 von 3/ })).toHaveAttribute('aria-current', 'step');
+  await expect(dialog.getByLabel('Repository')).toHaveValue(''); // not in the list any more: pick another
+  await expect(dialog.getByLabel('Startseite der Vorschau')).toHaveValue('/kaputt/'); // the rest is taken over
+  await dialog.getByRole('button', { name: 'Abbrechen' }).click();
+  await expect(panel).toHaveCount(0); // nothing started
+
+  // Sandbox Coding page: list, edit in the dialog, rename, duplicate, delete
+  await page.goto('/sandbox-coding');
+  const quick = page.locator('section[aria-labelledby="sbx-quick"]');
+  const row = quick.getByRole('listitem').filter({ hasText: 'Theme Demo' });
+  await expect(row.getByText('Standard', { exact: true })).toBeVisible();
+  await expect(row.getByText(/Bestehendes Projekt · acme\/shop-theme @ main · Demo-Daten · Image 6\.7\.14\.0 · zuletzt verwendet/)).toBeVisible();
+  await row.getByRole('button', { name: 'Bearbeiten' }).click();
+  const editor = page.getByRole('dialog', { name: 'Schnellstart bearbeiten: Theme Demo' });
+  await expect(editor.getByLabel('Name des Schnellstarts')).toHaveValue('Theme Demo');
+  await next(editor);
+  await expect(editor.getByLabel('Repository')).toHaveValue('acme/shop-theme');
+  await expect(editor.getByLabel('Image (Shopware-Version)')).toHaveValue('dockware/shopware:6.7.14.0');
+  await editor.getByLabel('Image (Shopware-Version)').fill('');
+  await next(editor);
+  await editor.getByRole('button', { name: 'Schnellstart speichern' }).click();
+  await expect(editor).toHaveCount(0);
+  await expect(row.getByText(/Bestehendes Projekt · acme\/shop-theme @ main · Demo-Daten · zuletzt/)).toBeVisible();
+  await row.getByRole('button', { name: 'Aktionen für Theme Demo' }).click();
+  await page.getByRole('menuitem', { name: 'Umbenennen' }).click();
+  await quick.getByLabel('Neuer Name für Theme Demo').fill('Theme Basis');
+  await quick.getByRole('button', { name: 'Speichern' }).click();
+  const renamed = quick.getByRole('listitem').filter({ hasText: 'Theme Basis' });
+  await expect(renamed).toBeVisible();
+  await renamed.getByRole('button', { name: 'Aktionen für Theme Basis' }).click();
+  await page.getByRole('menuitem', { name: 'Duplizieren' }).click();
+  await expect(quick.getByRole('listitem').filter({ hasText: 'Theme Basis (Kopie)' })).toBeVisible();
+  for (const name of ['Kaputt', 'Theme Basis (Kopie)', 'Aus der Sandbox', 'Theme Basis']) {
+    page.once('dialog', d => void d.accept());
+    await quick.getByRole('button', { name: `Aktionen für ${name}`, exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Löschen' }).click();
+    await expect(quick.getByRole('status').filter({ hasText: `„${name}“ gelöscht.` })).toBeVisible();
+  }
+  await expect(quick.getByText('Noch keine Schnellstarts.')).toBeVisible();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false } })).ok()).toBeTruthy();
+});

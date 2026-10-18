@@ -413,3 +413,13 @@ a.iconBtn:hover { border-color: var(--dark); text-decoration: none; }
 .kindLead { margin-top: 14px; }
 /* the repository file's card is scrolled into view while it waits for a decision; a little air below its buttons */
 .repoFileWrap button { scroll-margin: 16px 0; }
+
+/* Quick starts (A22): problems of a quick start that cannot start as saved, "Als Schnellstart speichern", the list, the workspace menu */
+.qsProblems { margin: 4px 0 0; padding-left: 18px; }
+.qsSave { margin-top: 10px; display: grid; gap: 8px; }
+.qsSave > .textBtn { justify-self: start; }
+.qsSaveBox { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.qsRename { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.qsRename input { flex: 1; min-width: 140px; }
+.qsItem { display: grid; gap: 1px; min-width: 240px; max-width: min(340px, 80vw); white-space: normal; }
+.qsItem small { color: var(--mute); font-size: 12px; overflow-wrap: anywhere; }

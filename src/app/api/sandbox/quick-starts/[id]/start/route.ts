@@ -20,7 +20,7 @@ export function POST(req: Request, { params }: { params: Promise<{ id: string }>
       const { task, warnings } = await startQuickStart((await params).id, body.data.chatId, requestLocale(req));
       return Response.json({ task: publicTask(task), warnings }, { status: 201 });
     } catch (e) {
-      if (e instanceof QuickStartBrokenError) return Response.json({ error: e.message, problems: e.problems, quickStart: e.quickStart } satisfies QuickStartBroken, { status: 422 });
+      if (e instanceof QuickStartBrokenError) return Response.json({ error: e.message, lead: e.lead, problems: e.problems, quickStart: e.quickStart } satisfies QuickStartBroken, { status: 422 });
       throw e;
     }
   });

@@ -1,5 +1,5 @@
 // Code tasks in the UI: applying live events, status groups and durations (pure, shared by hook, list and tests).
-import type { CodeTaskPublic, CodeTaskStatus, TaskEvent, TaskStep } from './protocol';
+import type { CodeTaskPublic, CodeTaskStatus, CommandPhase, NewSandboxRequest, QuickStartSetup, StartKind, TaskEvent, TaskStep } from './protocol';
 
 const LOG_LINES = 200;
 
@@ -153,3 +153,30 @@ export function suggestTargetPath(repo: string): string {
 }
 /** A preview start path (.lotse/sandbox.json "previewPath"): a storefront path beginning with "/", without host, spaces or backslashes */
 export const PREVIEW_PATH = /^\/(?!\/)[A-Za-z0-9._~!$&'()*+,;=:@%/?-]{0,299}$/;
+
+// ---- Quick starts (A22): a quick start is a saved request of the start dialog ----
+/** The dialog's request → what a quick start keeps: no chat, title or decision on the repository file's commands; a one-off upload is not
+ *  kept (keepDump false: demo data). The server checks it again like a start. */
+export function quickSetupOf(kind: StartKind, req: Omit<NewSandboxRequest, 'chatId'>, keepDump: boolean): QuickStartSetup {
+  const { title: _title, skipRepoHash: _skip, dumpId, ...rest } = req; // eslint-disable-line @typescript-eslint/no-unused-vars -- left out on purpose
+  return { kind, ...rest, ...(dumpId && keepDump ? { dumpId } : {}) };
+}
+/** What the dialog shows for a quick start (prefill): its first step, project, plugin name, own setup, "Erweitert" and the data */
+export interface StartDraft {
+  kind: StartKind; repo: string; baseBranch: string; pluginName: string;
+  /** "ändern" → own setup of an existing project */ custom: boolean; targetPath: string | null;
+  commands: { label: string; command: string; phase: CommandPhase }[]; vars: { key: string; value: string }[];
+  dumpId: string | null; image: string; previewPath: string; notes: string;
+  /** "Erweitert" opens: something in it is set */ advanced: boolean;
+}
+export function draftOf(s: QuickStartSetup): StartDraft {
+  const none = s.kind === 'none' || s.source === 'none';
+  const kind: StartKind = none ? 'none' : s.kind;
+  const d: Omit<StartDraft, 'advanced'> = {
+    kind, repo: none ? '' : s.repo, baseBranch: none ? '' : s.baseBranch, pluginName: s.pluginName ?? '',
+    custom: kind === 'existing' && s.mode === 'custom', targetPath: s.mode === 'custom' || kind === 'custom' ? s.targetPath ?? null : null,
+    commands: (s.commands ?? []).map(c => ({ label: c.label, command: c.command, phase: c.phase })), vars: (s.env ?? []).map(v => ({ key: v.key, value: v.value })),
+    dumpId: s.dumpId ?? null, image: s.image ?? '', previewPath: s.previewPath ?? '', notes: s.notes ?? '',
+  };
+  return { ...d, advanced: kind === 'custom' || d.custom || !!(d.commands.length || d.vars.length || d.image || d.previewPath || d.notes) };
+}

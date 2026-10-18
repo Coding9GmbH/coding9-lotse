@@ -14,8 +14,12 @@ export interface MenuItem {
   danger?: boolean;
 }
 
-/** Overflow menu ("⋯"): a button with a popup list of actions or links. Closes on Escape, a click outside and after a choice. */
-export function Menu({ label, items, className, align = 'end' }: { label: string; items: MenuItem[]; className?: string; align?: 'start' | 'end' }) {
+/** Overflow menu ("⋯"): a button with a popup list of actions or links. Closes on Escape, a click outside and after a choice.
+ *  `trigger`: the button's content instead of "⋯" (its class: triggerClassName); `up`: the list opens above the button; `onOpen`: called
+ *  each time it opens. */
+export function Menu({ label, items, className, align = 'end', trigger, triggerClassName, up = false, disabled = false, title, onOpen }: {
+  label: string; items: MenuItem[]; className?: string; align?: 'start' | 'end'; trigger?: React.ReactNode; triggerClassName?: string; up?: boolean; disabled?: boolean; title?: string; onOpen?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const btn = useRef<HTMLButtonElement>(null);
@@ -40,10 +44,10 @@ export function Menu({ label, items, className, align = 'end' }: { label: string
   if (!items.length) return null;
   return (
     <div ref={ref} className={[styles.menu, className].filter(Boolean).join(' ')}>
-      <button ref={btn} type="button" className={styles.trigger} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined}
-        aria-label={label} title={label} onClick={() => setOpen(o => !o)}><IconMore size={18} /></button>
+      <button ref={btn} type="button" className={triggerClassName ?? styles.trigger} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined}
+        aria-label={label} title={title ?? label} disabled={disabled} onClick={() => { if (!open) onOpen?.(); setOpen(!open); }}>{trigger ?? <IconMore size={18} />}</button>
       {open && (
-        <ul id={id} role="menu" aria-label={label} className={styles.list} data-align={align} onKeyDown={move}>
+        <ul id={id} role="menu" aria-label={label} className={styles.list} data-align={align} data-up={up || undefined} onKeyDown={move}>
           {items.map(it => (
             <li key={it.key} role="none">
               {it.href

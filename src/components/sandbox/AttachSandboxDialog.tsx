@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
-import type { CodeTaskPublic, CommandPhase, GithubBranch, GithubRepo, LibraryDumpPublic, NewSandboxRequest, RepoOwner, RepoProbe } from '@/lib/protocol';
+import type { CodeTaskPublic, CommandPhase, GithubBranch, GithubRepo, LibraryDumpPublic, NewSandboxRequest, QuickStartPublic, QuickStartSetup, RepoOwner, RepoProbe, StartKind } from '@/lib/protocol';
 import { useI18n } from '@/lib/i18n/I18nProvider';
-import { PLUGIN_NAME, PREVIEW_PATH, REPO_NAME, SANDBOX_DOCS, pluginNameFromRepo, suggestTargetPath, targetPathProblem } from '@/lib/sandbox-task';
+import { PLUGIN_NAME, PREVIEW_PATH, REPO_NAME, SANDBOX_DOCS, draftOf, pluginNameFromRepo, quickSetupOf, suggestTargetPath, targetPathProblem, type StartDraft } from '@/lib/sandbox-task';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { DumpUpload } from './DumpUpload';
@@ -12,8 +12,7 @@ import { RepoFileCard } from './RepoFileCard';
 import { Term } from './Term';
 import styles from './Sandbox.module.css';
 
-/** What the sandbox is for (step "Was?"): an existing project (detected), a new plugin, no project at all, or an own setup */
-export type StartKind = 'existing' | 'new' | 'none' | 'custom';
+export type { StartKind };
 type Data = 'demo' | 'stored' | 'upload';
 const ENV_KEY = /^[A-Z_][A-Z0-9_]{0,63}$/;
 const KINDS: StartKind[] = ['existing', 'new', 'none', 'custom'];
@@ -26,14 +25,20 @@ const KINDS: StartKind[] = ['existing', 'new', 'none', 'custom'];
  *     shows them with "Befehle erlauben" / "Ohne diese Befehle". A new plugin: an empty project or "Neues Projekt anlegen", plus its
  *     technical name. Without a project: only the plugin's name. "Erweitert" (folded; open for an own setup): target folder, own
  *     commands and variables of this sandbox.
- *  3. Daten – demo data (default), a stored database (the environment's default preselected) or a dump upload.
+ *  3. Daten – demo data (default), a stored database (the environment's default preselected) or a dump upload; "Als Schnellstart
+ *     speichern" keeps the choice (A22).
  * Plain words first, the technical term small. Errors say what to do next. Creating attaches the sandbox to `chatId` and starts it.
+ * Quick starts (A22) are this dialog's saved request: one is picked at the top of step 1 (the default one preselected), `quick` prefills
+ * the dialog (a quick start that cannot start as saved, with its problems), and `editing` turns the dialog into the quick start's editor
+ * (the last button saves it; no chat needed).
  */
-export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated, dockerDown = false }: {
-  open: boolean; onClose: () => void; chatId: string; initial?: { repo: string; baseBranch: string; title?: string; pluginName?: string } | null; onCreated: (task: CodeTaskPublic) => void; dockerDown?: boolean;
+export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCreated, dockerDown = false, quick = null, editing = null, onSaved }: {
+  open: boolean; onClose: () => void; chatId?: string; initial?: { repo: string; baseBranch: string; title?: string; pluginName?: string } | null; onCreated?: (task: CodeTaskPublic) => void; dockerDown?: boolean;
+  /** prefill from a quick start; problems: why it could not start as saved (shown on top) */ quick?: { id?: string; name?: string; setup: QuickStartSetup; message?: string; problems?: string[]; step?: number } | null;
+  /** edit a quick start (id null = a new one) instead of starting a sandbox */ editing?: { id: string | null; name: string } | null; onSaved?: (q: QuickStartPublic) => void;
 }) {
   const { t: all, locale } = useI18n();
-  const t = all.sandbox.create, ts = all.sandbox.start;
+  const t = all.sandbox.create, ts = all.sandbox.start, tq = all.sandbox.quick;
   const [step, setStep] = useState(0);
   const [kind, setKind] = useState<StartKind>('existing');
   const [repos, setRepos] = useState<GithubRepo[] | null>(null);
@@ -71,14 +76,26 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
   const [stored, setStored] = useState<LibraryDumpPublic[] | null>(null);
   const [storedId, setStoredId] = useState('');
   const [uploadId, setUploadId] = useState<string | null>(null);
-  // the dialog stays mounted: a new opening (or another AI offer) starts from its own preset
-  const [shown, setShown] = useState({ open, initial });
-  if (shown.open !== open || shown.initial !== initial) {
-    setShown({ open, initial });
+  const [uploadKept, setUploadKept] = useState(false); // the upload is stored for further sandboxes (a quick start may keep it)
+  // quick starts (A22): the list, the one picked at the top, "Als Schnellstart speichern" (name, default), the environment's presets
+  const [quicks, setQuicks] = useState<QuickStartPublic[] | null>(null);
+  const [picked, setPicked] = useState('');
+  const [save, setSave] = useState<{ name: string; isDefault: boolean } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [qsName, setQsName] = useState('');
+  const [envPre, setEnvPre] = useState({ repo: '', baseBranch: '' });
+  const [branchTick, setBranchTick] = useState(0); // a preset with the same repository again: reload its branches anyway
+  const isEdit = !!editing;
+  // the dialog stays mounted: a new opening (or another AI offer, another quick start) starts from its own preset
+  const [shown, setShown] = useState({ open, initial, quick });
+  if (shown.open !== open || shown.initial !== initial || shown.quick !== quick) {
+    setShown({ open, initial, quick });
     if (open) {
-      setStep(initial?.repo ? 1 : 0); setKind('existing'); setName({ value: '', editedFor: '' }); setForm(f => ({ ...f, title: initial?.title?.slice(0, 120) ?? '' }));
+      setStep(quick?.step ?? (initial?.repo ? 1 : 0)); setKind('existing'); setName({ value: '', editedFor: '' }); setForm(f => ({ ...f, title: initial?.title?.slice(0, 120) ?? '' }));
       setNewRepo(null); setRepoNote(null); setError(null); setModeOpen(false); setCustom(false); setTarget({ value: '', edited: false }); setCommands([]); setVars([]); setAdvanced(false); setExtra({ image: '', previewPath: '', notes: '' });
-      setSkipHash(null); setData('demo'); setStoredId(''); setUploadId(null); setStored(null);
+      setSkipHash(null); setData('demo'); setStoredId(''); setUploadId(null); setUploadKept(false); setStored(null);
+      setPicked(quick?.id ?? ''); setSave(null); setSaved(null); setQsName(editing?.name ?? '');
     }
   }
   const usesRepo = kind !== 'none';
@@ -102,25 +119,55 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
     finally { setCreatingRepo(false); }
   }
 
-  // On open: repositories, the stored databases and the presets (AI proposal first, then the environment's defaults)
+  /** Prefill from a quick start: its first step, project and branch (once the branches are known), plugin name, own setup, "Erweitert"
+   *  and the data (a stored database only while it is still stored) */
+  function applyDraft(d: StartDraft, list: GithubRepo[] | null, dumps: LibraryDumpPublic[] | null) {
+    setKind(d.kind); setError(null); setNewRepo(null); setRepoNote(null); setSkipHash(null);
+    setCustom(d.custom); setModeOpen(d.custom); setTarget(d.targetPath ? { value: d.targetPath, edited: true } : { value: '', edited: false });
+    setCommands(d.commands); setVars(d.vars); setExtra({ image: d.image, previewPath: d.previewPath, notes: d.notes }); setAdvanced(d.advanced);
+    // a saved name survives the probe of its own repo@branch, like a typed one
+    setName(d.pluginName ? { value: d.pluginName, editedFor: d.kind === 'none' ? 'none' : `${d.repo}@${d.baseBranch}` } : { value: '', editedFor: '' });
+    if (d.kind !== 'none') { setBranches(null); setWant(d.baseBranch); setBranchTick(n => n + 1); setForm(f => ({ ...f, repo: list?.some(r => r.fullName === d.repo) ? d.repo : '', baseBranch: '' })); }
+    const keep = !!d.dumpId && !!dumps?.some(x => x.id === d.dumpId);
+    setData(keep ? 'stored' : 'demo'); setUploadId(null);
+    if (keep) setStoredId(d.dumpId!); else if (dumps?.[0]) setStoredId(dumps[0].id);
+  }
+  /** "Schnellstart" at the top of step 1: its setup, or back to the environment's presets */
+  function pick(id: string) {
+    setPicked(id); setSaved(null);
+    const q = quicks?.find(x => x.id === id);
+    applyDraft(draftOf(q ? q.setup : { kind: 'existing', repo: envPre.repo, baseBranch: envPre.baseBranch }), repos, stored);
+  }
+
+  // On open: repositories, the stored databases, the quick starts and the presets (a quick start given or the default one, else the
+  // AI's proposal, else the environment's defaults)
   useEffect(() => {
     if (!open) return;
     let live = true;
     const env = api.sandbox.env().then(v => v.env, () => null);
-    void Promise.all([env, api.sandbox.storedDbs().then(r => r.dumps, () => [] as LibraryDumpPublic[])]).then(([v, dumps]) => {
+    const dumpsP = api.sandbox.storedDbs().then(r => r.dumps, () => [] as LibraryDumpPublic[]);
+    const quicksP = isEdit ? Promise.resolve([] as QuickStartPublic[]) : api.sandbox.quickStarts().then(r => r.quickStarts, () => [] as QuickStartPublic[]);
+    const reposP = repos ? Promise.resolve(repos) : api.github.repos().then(r => r.repos);
+    void Promise.all([env, dumpsP, quicksP]).then(([v, dumps, list]) => {
       if (!live) return;
-      setStored(dumps); setEnvImage(v?.image ?? '');
-      const preset = v?.defaultDumpId && dumps.some(d => d.id === v.defaultDumpId) ? v.defaultDumpId : '';
-      if (preset) { setStoredId(preset); setData('stored'); } else if (dumps[0]) setStoredId(dumps[0].id);
+      setStored(dumps); setEnvImage(v?.image ?? ''); setQuicks(list); setEnvPre({ repo: v?.defaultRepo ?? '', baseBranch: v?.defaultBranch ?? '' });
+      const def = quick || initial?.repo ? null : list.find(q => q.default) ?? null;
+      const seed = quick?.setup ?? def?.setup ?? null;
+      if (def) setPicked(def.id);
+      if (!seed) {
+        const preset = v?.defaultDumpId && dumps.some(d => d.id === v.defaultDumpId) ? v.defaultDumpId : '';
+        if (preset) { setStoredId(preset); setData('stored'); } else if (dumps[0]) setStoredId(dumps[0].id);
+      }
+      return reposP.catch(e => { if (live) setError(errorText(e)); return [] as GithubRepo[]; }).then(repoList => {
+        if (!live) return;
+        setRepos(repoList);
+        if (seed) { applyDraft(draftOf(seed), repoList, dumps); return; }
+        const p = initial?.repo ? { repo: initial.repo, baseBranch: initial.baseBranch } : { repo: v?.defaultRepo ?? '', baseBranch: v?.defaultBranch ?? '' };
+        if (p.repo && repoList.some(r => r.fullName === p.repo)) { setBranches(null); setWant(p.baseBranch); setForm(f => ({ ...f, repo: p.repo, baseBranch: '' })); }
+      });
     });
-    const pre = initial?.repo ? Promise.resolve({ repo: initial.repo, baseBranch: initial.baseBranch }) : env.then(v => ({ repo: v?.defaultRepo ?? '', baseBranch: v?.defaultBranch ?? '' }));
-    Promise.all([repos ? Promise.resolve(repos) : api.github.repos().then(r => r.repos), pre]).then(([list, p]) => {
-      if (!live) return;
-      setRepos(list);
-      if (p.repo && list.some(r => r.fullName === p.repo)) { setBranches(null); setWant(p.baseBranch); setForm(f => ({ ...f, repo: p.repo, baseBranch: '' })); }
-    }).catch(e => { if (live) { setRepos([]); setError(errorText(e)); } });
     return () => { live = false; };
-  }, [open, initial]); // eslint-disable-line react-hooks/exhaustive-deps -- repos only as a cache
+  }, [open, initial, quick]); // eslint-disable-line react-hooks/exhaustive-deps -- repos only as a cache
   useEffect(() => {
     if (!form.repo) return;
     let live = true;
@@ -132,7 +179,7 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
       setForm(f => ({ ...f, baseBranch: pick ?? r.branches[0]?.name ?? '' }));
     }).catch(e => { if (live) { setBranches([]); setError(errorText(e)); } });
     return () => { live = false; };
-  }, [form.repo, repos, want]);
+  }, [form.repo, repos, want, branchTick]);
 
   useEffect(() => {
     if (!open || !probeKey) return;
@@ -188,14 +235,11 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
     finally { setDeciding(false); }
   }
 
-  async function submit(e?: React.FormEvent) {
-    e?.preventDefault();
-    if (step < 2) { if (stepOk[step]) setStep(step + 1); return; }
-    if (!stepOk.every(Boolean)) return;
-    setBusy(true); setError(null);
+  /** The dialog's request without the chat: what starting sends and what a quick start keeps (quickSetupOf) */
+  function request(): Omit<NewSandboxRequest, 'chatId'> {
     const dumpId = data === 'stored' ? storedId : data === 'upload' ? uploadId : null;
-    const req: NewSandboxRequest = {
-      chatId, repo: usesRepo ? form.repo : '', baseBranch: usesRepo ? form.baseBranch : '',
+    return {
+      repo: usesRepo ? form.repo : '', baseBranch: usesRepo ? form.baseBranch : '',
       ...(form.title.trim() ? { title: form.title.trim() } : {}), ...(dumpId ? { dumpId } : {}), ...(newPlugin ? { pluginName: pluginName.trim() } : {}),
       ...(kind === 'none' ? { source: 'none' as const } : {}),
       ...(ownSetup ? { mode: 'custom' as const, targetPath: targetValue } : {}),
@@ -206,9 +250,35 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
       ...(usesRepo && extra.notes.trim() ? { notes: extra.notes.trim() } : {}),
       ...(file && fileState === 'skipped' ? { skipRepoHash: file.hash } : {}),
     };
+  }
+  /** What a quick start keeps of this choice; a one-off upload cannot be kept (null: say so) */
+  const quickSetup = (): QuickStartSetup | null => (data === 'upload' && !uploadKept ? null : quickSetupOf(kind, request(), data !== 'demo'));
+
+  /** "Als Schnellstart speichern" (start dialog) and "Schnellstart speichern" (editing one) */
+  async function saveQuick(name: string, isDefault = false) {
+    const setup = quickSetup();
+    if (!setup) { setError(tq.uploadOnce); return; }
+    setSaving(true); setError(null); setSaved(null);
     try {
-      const { task } = await api.sandbox.createTask(req);
-      onCreated(task);
+      const { quickStart } = editing?.id ? await api.sandbox.updateQuickStart(editing.id, { name: name.trim(), setup })
+        : await api.sandbox.createQuickStart({ name: name.trim(), setup, ...(isDefault ? { isDefault } : {}) });
+      setQuicks(l => [...(l ?? []).filter(q => q.id !== quickStart.id), quickStart]);
+      onSaved?.(quickStart);
+      if (isEdit) { onClose(); return; }
+      setPicked(quickStart.id); setSave(null); setSaved(tq.saved(quickStart.name));
+    } catch (err) { setError(tq.saveFailed(errorText(err))); }
+    finally { setSaving(false); }
+  }
+
+  async function submit(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (step < 2) { if (stepOk[step]) setStep(step + 1); return; }
+    if (!stepOk.every(Boolean)) return;
+    if (isEdit) { await saveQuick(qsName); return; }
+    setBusy(true); setError(null);
+    try {
+      const { task } = await api.sandbox.createTask({ chatId, ...request() });
+      onCreated?.(task);
       onClose();
     } catch (err) { setError(t.failed(errorText(err))); }
     finally { setBusy(false); }
@@ -220,23 +290,30 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
     return detected.kind === 'plugin' ? d.plugin(detected.name ?? '') : detected.kind === 'theme' ? d.theme(detected.name ?? '')
       : detected.kind === 'project' ? d.project(detected.plugins ?? 0) : detected.kind === 'new' ? d.new : d.unknown;
   };
-  const ready = !busy && !uploading && !dockerDown;
+  const ready = !busy && !uploading && !saving && (isEdit || !dockerDown);
+  const nameFor = () => form.title.trim() || (kind === 'none' ? pluginName.trim() : form.repo.split('/').pop() ?? '') || tq.defaultName;
   const last = step === 2;
   const dataName = data === 'demo' ? ts.dataDemo : data === 'stored' ? stored?.find(d => d.id === storedId)?.name ?? ts.dataStored : ts.dataUpload;
   const sourceName = kind === 'none' ? ts.localSource(pluginName.trim()) : form.repo ? `${form.repo}${form.baseBranch ? ` @ ${form.baseBranch}` : ''}` : '–';
 
   return (
-    <Dialog open={open} onClose={onClose} title={t.title} wide footer={
+    <Dialog open={open} onClose={onClose} title={editing ? (editing.id ? tq.editTitle(editing.name) : tq.newTitle) : t.title} wide footer={
       <>
         <Button variant="ghost" onClick={onClose}>{t.cancel}</Button>
         {step > 0 && <Button onClick={() => setStep(step - 1)} disabled={busy}>{ts.back}</Button>}
-        <Button variant="primary" type="submit" form="sbx-attach" busy={busy} disabled={!ready || !stepOk[step] || (last && !stepOk.every(Boolean))}>
-          {last ? (busy ? t.submitting : t.submit) : ts.next}
+        <Button variant="primary" type="submit" form="sbx-attach" busy={busy || (isEdit && saving)} disabled={!ready || !stepOk[step] || (last && (!stepOk.every(Boolean) || (isEdit && !qsName.trim())))}>
+          {last ? (isEdit ? tq.saveSubmit : busy ? t.submitting : t.submit) : ts.next}
         </Button>
       </>
     }>
       <form id="sbx-attach" className={styles.form} onSubmit={e => void submit(e)}>
-        {dockerDown && <p className={styles.alert} role="alert">{t.dockerDown} <a href={SANDBOX_DOCS[locale]} target="_blank" rel="noreferrer">{t.guide}</a></p>}
+        {quick?.problems?.length ? (
+          <div className={styles.alert} role="alert">
+            <p>{quick.message}</p>
+            <ul className={styles.qsProblems}>{quick.problems.map(p => <li key={p}>{p}</li>)}</ul>
+          </div>
+        ) : null}
+        {dockerDown && !isEdit && <p className={styles.alert} role="alert">{t.dockerDown} <a href={SANDBOX_DOCS[locale]} target="_blank" rel="noreferrer">{t.guide}</a></p>}
         <ol className={styles.wizSteps} aria-label={ts.stepsLabel}>
           {ts.stepNames.map((n, i) => (
             <li key={n}>
@@ -248,6 +325,16 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
         </ol>
 
         {step === 0 && <>
+          {!isEdit && !!quicks?.length && (
+            <label className={styles.field}>
+              <span className={styles.label}>{tq.pick}</span>
+              <select value={picked} onChange={e => pick(e.target.value)} aria-describedby="sbx-qs-hint">
+                <option value="">{tq.pickNone}</option>
+                {quicks.map(q => <option key={q.id} value={q.id}>{q.name}{q.default ? ` (${tq.isDefault})` : ''}</option>)}
+              </select>
+              <span id="sbx-qs-hint" className={styles.fieldNote}>{tq.pickHint}</span>
+            </label>
+          )}
           <fieldset className={styles.kindList}>
             <legend>{ts.what}</legend>
             {KINDS.map(k => (
@@ -258,10 +345,15 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
             ))}
           </fieldset>
           <p className={`${styles.hint} ${styles.kindLead}`} role="note">{t.lead[kind]}</p>
-          <label className={styles.field}>
-            <span className={styles.label}>{t.name}</span>
-            <input value={form.title} maxLength={120} placeholder={t.namePlaceholder} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
-          </label>
+          {isEdit
+            ? <label className={styles.field}>
+              <span className={styles.label}>{tq.nameLabel}</span>
+              <input value={qsName} maxLength={80} required onChange={e => setQsName(e.target.value)} />
+            </label>
+            : <label className={styles.field}>
+              <span className={styles.label}>{t.name}</span>
+              <input value={form.title} maxLength={120} placeholder={t.namePlaceholder} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
+            </label>}
         </>}
 
         {step === 1 && kind === 'none' && (
@@ -423,10 +515,31 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
             </div>
             <div className={styles.dataOpt}>
               <label><input type="radio" name="sbx-data" checked={data === 'upload'} onChange={() => setData('upload')} /><span><b>{ts.dataUpload}</b><small>{ts.dataUploadText}</small></span></label>
-              {data === 'upload' && <DumpUpload onChange={d => setUploadId(d?.id ?? null)} onBusy={setUploading} disabled={busy} />}
+              {data === 'upload' && <DumpUpload onChange={d => { setUploadId(d?.id ?? null); setUploadKept(!!d?.library); }} onBusy={setUploading} disabled={busy} />}
             </div>
           </fieldset>
           <p className={styles.wizSummary}>{ts.summary(ts.kinds[kind].title, sourceName, dataName)}</p>
+          {!isEdit && (
+            <div className={styles.qsSave}>
+              {!save && <button type="button" className={styles.textBtn} disabled={!stepOk.every(Boolean) || uploading} onClick={() => { setSave({ name: nameFor(), isDefault: false }); setSaved(null); }}>{tq.save}</button>}
+              {save && (
+                <div role="group" aria-label={tq.save} className={styles.qsSaveBox}>
+                  <label className={styles.field}>
+                    <span className={styles.label}>{tq.saveName}</span>
+                    <input value={save.name} maxLength={80} autoFocus onChange={e => setSave(x => x && { ...x, name: e.target.value })}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (save.name.trim()) void saveQuick(save.name, save.isDefault); } }} />
+                  </label>
+                  <label className={styles.toggle}><input type="checkbox" checked={save.isDefault} onChange={e => setSave(x => x && { ...x, isDefault: e.target.checked })} /> {tq.saveDefault}</label>
+                  <p className={styles.fieldHint}>{tq.saveHint}</p>
+                  <div className={styles.footRow}>
+                    <Button size="sm" variant="primary" busy={saving} disabled={!save.name.trim() || saving} onClick={() => void saveQuick(save.name, save.isDefault)}>{tq.saveSubmit}</Button>
+                    <Button size="sm" variant="ghost" disabled={saving} onClick={() => setSave(null)}>{tq.cancel}</Button>
+                  </div>
+                </div>
+              )}
+              {saved && <p className={styles.okBox} role="status">✓ {saved}</p>}
+            </div>
+          )}
         </>}
         {error && <p className={styles.bad} role="alert">{error}</p>}
       </form>

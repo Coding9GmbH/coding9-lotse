@@ -5,7 +5,7 @@ import type { KnowledgeDoc, KnowledgeLink, KnowledgeRule, RuleScope, RuleTarget 
 import { createLineSplitter } from './ndjson';
 import type { CodexLoginState, GithubBranch, GithubPublic, GithubRepo, GithubTestResult, GscPublic, GscTestResult, SeoImpactList, SeoMark, SeoOverview, SistrixOverview, SistrixPublic, SistrixTestResult,
   AccessLogRow, AppConfig, AuditRow, CategoryRow, ChatRequest, ChatSummary, Health, ProductRow,
-  CodeTaskPublic, ConsoleSessionPublic, DumpPublic, LibraryDumpPublic, NewSandboxRequest, PluginZipCheck, RepoOwner, RepoProbe, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
+  CodeTaskPublic, ConsoleSessionPublic, DumpPublic, LibraryDumpPublic, NewSandboxRequest, QuickStartBroken, QuickStartPublic, QuickStartSetup, PluginZipCheck, RepoOwner, RepoProbe, TaskDiff, PublicSettings, SandboxCheckEvent, SandboxEnvPatch, SandboxEnvView, SettingsPatch, ShopCheckState, StagedImage, Styleguide, TestResult, UndoOutcome, UsageStatus,
   PrStatus, PublishRequest, PublishResult } from './protocol';
 
 export class ApiError extends Error {
@@ -124,6 +124,22 @@ export const api = {
     deleteDump: (id: string) => request<{ ok: true }>(`/api/sandbox/dumps/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     /** "Gespeicherte Datenbanken": complete stored databases (metadata only) */
     storedDbs: () => request<{ dumps: LibraryDumpPublic[] }>('/api/sandbox/dumps'),
+    /** "Schnellstarts" (A22): saved setups of the start dialog */
+    quickStarts: () => request<{ quickStarts: QuickStartPublic[] }>('/api/sandbox/quick-starts'),
+    /** save the dialog's choice, a sandbox's setup (fromTask) or a copy (duplicateOf) */
+    createQuickStart: (p: { name?: string; setup?: QuickStartSetup; fromTask?: string; duplicateOf?: string; isDefault?: boolean }) =>
+      request<{ quickStart: QuickStartPublic }>('/api/sandbox/quick-starts', json('POST', p)),
+    updateQuickStart: (id: string, p: { name?: string; setup?: QuickStartSetup; isDefault?: boolean }) =>
+      request<{ quickStart: QuickStartPublic }>(`/api/sandbox/quick-starts/${encodeURIComponent(id)}`, json('PATCH', p)),
+    deleteQuickStart: (id: string) => request<{ ok: true }>(`/api/sandbox/quick-starts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    /** one click: started in this chat, or (422) why it cannot start as saved – the dialog then opens prefilled */
+    startQuickStart: async (id: string, chatId: string): Promise<{ task: CodeTaskPublic; warnings: string[] } | { broken: QuickStartBroken }> => {
+      const r = await fetch(`/api/sandbox/quick-starts/${encodeURIComponent(id)}/start`, withHeader(json('POST', { chatId })));
+      const body = await r.json().catch(() => null) as ({ task: CodeTaskPublic; warnings: string[] } & QuickStartBroken) | null;
+      if (r.status === 422 && body?.problems) return { broken: body };
+      if (!r.ok || !body?.task) throw new ApiError(body?.error ?? `HTTP ${r.status}`, r.status);
+      return { task: body.task, warnings: body.warnings ?? [] };
+    },
     /** "Pull Request erstellen/aktualisieren": title and description only, the server fixes branch and base */
     publish: (id: string, p: PublishRequest) => request<PublishResult>(`/api/sandbox/tasks/${encodeURIComponent(id)}/publish`, json('POST', p)),
     prStatus: (id: string) => request<{ pr: PrStatus | null }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/pr`),

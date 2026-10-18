@@ -12,7 +12,7 @@ import { chatReducer, initialChatState, isHome, isStillRunning, pendingQuestion,
 import { defaultPlaceholder, placeholderFor, suggestions } from '@/lib/labels';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { CHAT_COOKIE, setupReady } from '@/lib/nav';
-import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, CheckFinding, CodeTaskPublic, Health, PublishResult, Target } from '@/lib/protocol';
+import type { AppConfig, CategoryRow, ChatDetail, ChatEvent, CheckFinding, CodeTaskPublic, Health, LibraryDumpPublic, PublishResult, QuickStartPublic, QuickStartSetup, Target } from '@/lib/protocol';
 import { liveSrc, withBust } from '@/lib/urls';
 import { PLUGIN_NAME, displayStatus, statusTone } from '@/lib/sandbox-task';
 import { INTL_LOCALE } from '@/lib/i18n';
@@ -24,7 +24,8 @@ import { ChatLog } from '@/components/chat/ChatLog';
 import { Chips } from '@/components/chat/Chips';
 import { Composer } from '@/components/chat/Composer';
 import { Button } from '@/components/ui/Button';
-import { IconClose, IconCode } from '@/components/ui/icons';
+import { IconChevron, IconClose, IconCode } from '@/components/ui/icons';
+import { Menu, type MenuItem } from '@/components/ui/Menu';
 import { HomeContent, HomeHead } from '@/components/chat/Home';
 import { StatusLine } from '@/components/chat/StatusLine';
 import { TargetCard } from '@/components/chat/TargetCard';
@@ -33,6 +34,8 @@ import { AuditDialog } from '@/components/dialogs/AuditDialog';
 import { StyleguideDialog } from '@/components/dialogs/StyleguideDialog';
 import { AttachSandboxDialog } from '@/components/sandbox/AttachSandboxDialog';
 import { SandboxPanel } from '@/components/sandbox/SandboxPanel';
+import { quickSummary } from '@/components/sandbox/QuickStarts';
+import sbStyles from '@/components/sandbox/Sandbox.module.css';
 import { offerTitle, type SandboxOfferActions } from '@/components/sandbox/CommandCard';
 import type { PrFeedbackActions } from '@/components/sandbox/PrFeedbackCard';
 import type { PrProposal } from '@/components/sandbox/PublishCard';
@@ -60,7 +63,8 @@ const store = (key: string, value: string) => { try { window.localStorage.setIte
 export function Workspace({ initialChatId, initialChat }: { initialChatId: string; initialChat: ChatDetail | null }) {
   const shell = useShell();
   const { health, setup, chats, reloadChats: loadHistory, setActiveChatId, setContextName, setStyleguide: shareStyleguide } = shell;
-  const { locale, t: { workspace: t, context: tc, sandbox: { code: tsb, task: tst } } } = useI18n();
+  const { locale, t: all } = useI18n();
+  const { workspace: t, context: tc, sandbox: { code: tsb, task: tst, quick: tsq } } = all;
   // Initial state straight from the server data (stored chat, styleguide), so nothing jumps on load
   const [state, dispatch] = useReducer(chatReducer, null, () => {
     const base = { ...initialChatState, locale, styleguide: shell.styleguide };
@@ -84,6 +88,9 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const [sbxTask, setSbxTask] = useState<CodeTaskPublic | null>(null);
   const [sbxDialog, setSbxDialog] = useState<{ repo: string; baseBranch: string; title?: string; pluginName?: string } | null | false>(false);
   const [sbxBusy, setSbxBusy] = useState(false);
+  // quick starts (A22): the "Sandbox" button's menu, and a quick start that could not start as saved (the dialog opens prefilled)
+  const [quicks, setQuicks] = useState<{ list: QuickStartPublic[]; dumps: LibraryDumpPublic[] } | null>(null);
+  const [sbxQuick, setSbxQuick] = useState<{ id: string; name: string; setup: QuickStartSetup; message: string; problems: string[]; step: number } | null>(null);
   // "Prüfen und veröffentlichen" on a proposal card: that proposal (otherwise the latest) in the "Pull Request" tab, opened
   const [picked, setPicked] = useState<PrProposal | null>(null);
   const [openPr, setOpenPr] = useState(0);
@@ -402,6 +409,28 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       loadHistory();
     }
   };
+  const loadQuicks = () => {
+    void Promise.all([api.sandbox.quickStarts(), api.sandbox.storedDbs().catch(() => ({ dumps: [] as LibraryDumpPublic[] }))])
+      .then(([q, d]) => setQuicks({ list: q.quickStarts, dumps: d.dumps }), e => reportError(errorText(e)));
+  };
+  /** One click in the menu: starts the quick start in this chat; if it cannot start as saved, the dialog opens prefilled with why */
+  const startQuick = (q: QuickStartPublic) => {
+    if (!chatId) return;
+    setSbxBusy(true);
+    dispatch({ type: 'status', text: tsq.starting(q.name) });
+    api.sandbox.startQuickStart(q.id, chatId).then(r => {
+      if ('broken' in r) {
+        dispatch({ type: 'status', text: null });
+        const fields = r.broken.problems.map(p => p.field);
+        setSbxQuick({ id: q.id, name: q.name, setup: r.broken.quickStart.setup, message: r.broken.lead, problems: r.broken.problems.map(p => p.message), step: fields.every(f => f === 'dump') ? 2 : 1 });
+        setSbxDialog(null);
+        return;
+      }
+      attached(r.task);
+      dispatch({ type: 'status', text: tsq.started(q.name, quickSummary(q.setup, all, quicks?.dumps ?? null)) });
+      for (const w of r.warnings) reportError(w);
+    }).catch(e => { dispatch({ type: 'status', text: null }); reportError(errorText(e)); }).finally(() => setSbxBusy(false));
+  };
   // Docker known to be down: starting a sandbox would fail at its first step
   const sbxBlocked = shell.health?.sandbox?.docker === false ? tsb.buttonDockerDown : null;
   const sandboxActions: SandboxOfferActions | undefined = shell.sandbox ? {
@@ -460,8 +489,19 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const overlay = pv && previewOpen; // narrow viewport: preview above the chat (desktop shows it on the right anyway)
 
   const contextChip = <ContextChip target={target} onPick={() => setContextOpen(true)} onClear={() => selectTarget(null)} />;
+  const quickItems: MenuItem[] = [
+    ...(quicks ? quicks.list.map(q => ({ key: q.id, onSelect: () => startQuick(q), disabled: sbxBusy,
+      label: <span className={sbStyles.qsItem}><b>{q.name}{q.default ? ` (${tsq.isDefault})` : ''}</b><small>{quickSummary(q.setup, all, quicks.dumps)}</small></span> })) : []),
+    ...(quicks && !quicks.list.length ? [{ key: 'empty', label: tsq.menuEmpty, disabled: true }] : []),
+    ...(!quicks ? [{ key: 'loading', label: '…', disabled: true }] : []),
+    { key: 'manage', label: tsq.manage, href: '/sandbox-coding#sbx-quick' },
+  ];
   const sandboxButton = shell.sandbox && !taskId && (
-    <Button size="sm" className={styles.sbxBtn} title={sbxBlocked ?? tsb.buttonTitle} onClick={() => setSbxDialog(null)} disabled={!chatId || !!sbxBlocked}><IconCode size={15} />{tsb.button}</Button>
+    <span className={styles.sbxSplit}>
+      <Button size="sm" className={styles.sbxBtn} title={sbxBlocked ?? tsb.buttonTitle} onClick={() => { setSbxQuick(null); setSbxDialog(null); }} disabled={!chatId || !!sbxBlocked}><IconCode size={15} />{tsb.button}</Button>
+      <Menu label={tsq.menu} title={sbxBlocked ?? tsq.menuTitle} items={quickItems} up align="start" onOpen={loadQuicks} disabled={!chatId || !!sbxBlocked || sbxBusy}
+        trigger={<IconChevron size={14} />} triggerClassName={styles.sbxCaret} />
+    </span>
   );
   const hideSbxHint = () => { setSbxHint(false); store(SBX_HINT_KEY, '1'); };
   const sandboxHint = home && shell.sandbox && sbxHint && !locked && (
@@ -569,7 +609,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       </main>
 
       <AuditDialog audit={state.draft?.audit ?? null} open={auditOpen} onClose={() => setAuditOpen(false)} />
-      {chatId && shell.sandbox && <AttachSandboxDialog open={sbxDialog !== false} onClose={() => setSbxDialog(false)} chatId={chatId} initial={sbxDialog || null} onCreated={attached} dockerDown={!!sbxBlocked} />}
+      {chatId && shell.sandbox && <AttachSandboxDialog open={sbxDialog !== false} onClose={() => { setSbxDialog(false); setSbxQuick(null); }} chatId={chatId} initial={sbxDialog || null} quick={sbxQuick} onCreated={attached} dockerDown={!!sbxBlocked} />}
       <StyleguideDialog sg={sg} open={sgOpen} onClose={() => setSgOpen(false)}
         onSaved={s => dispatch({ type: 'set_styleguide', sg: s })} onReanalyze={onboard} />
     </div>
