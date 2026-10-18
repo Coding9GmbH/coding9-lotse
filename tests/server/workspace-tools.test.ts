@@ -61,8 +61,9 @@ test('Codex read tools stay confined: no .env, no paths outside', async () => {
   assert.match((await call('search_files', { pattern: 'APP_SECRET' }, codex)).text, /Keine Treffer/);
 });
 
-test('sandbox_bash: any command line via bash -lc as www-data in /var/www/html, full sync first, under the task lock, preview reload', async () => {
+test('sandbox_bash: any command line via bash -lc as www-data in /var/www/html, synced first (in full only when needed), under the task lock, preview reload', async () => {
   // a step holding the lock runs first: the command waits for it
+  const n0 = fake.calls.length, mirror = `rm -rf -- ${PLUGIN_DIR}`;
   const order: string[] = [];
   let release!: () => void;
   const held = J.withTaskLock(task.id, () => new Promise<void>(r => { release = () => { order.push('lock'); r(); }; }));
@@ -78,14 +79,21 @@ test('sandbox_bash: any command line via bash -lc as www-data in /var/www/html, 
   const run = all.at(-1)!;
   assert.deepEqual(run.argv, ['bash', '-lc', 'bin/console theme:compile && bin/console cache:clear']);
   assert.equal(run.user, 'www-data');
-  assert.deepEqual(all.at(-2)!.argv, ['rm', '-rf', '--', PLUGIN_DIR], 'the full sync ran right before');
+  // the container has the worktree already (every edit was synced): no full mirror, which would wipe what was made inside the container
+  assert.ok(!fake.calls.slice(n0).some(c => c.op === 'exec' && c.argv?.join(' ') === mirror));
   const cmd = events.filter(e => e.t === 'command');
   assert.deepEqual(cmd.slice(-2).map(e => e.t === 'command' && [e.status, e.command]), [['running', 'bin/console theme:compile && bin/console cache:clear'], ['ok', 'bin/console theme:compile && bin/console cache:clear']]);
   assert.equal(events.at(-1)?.t, 'preview_reload');
 
+  // a worktree changed outside the tools: mirrored in full right before the command
+  write('src/Resources/out-of-band.txt', 'x\n');
+  const n1 = fake.calls.length;
   const ls = await call('sandbox_bash', { command: 'ls var/log', timeout_sec: 5 });
   assert.equal(ls.error, false);
   assert.notEqual(events.at(-1)?.t, 'preview_reload', 'no reload for a read-only command');
+  const after = fake.calls.slice(n1).filter(c => c.op === 'exec').map(c => c.argv!.join(' '));
+  assert.deepEqual(after.slice(-2), [mirror, 'bash -lc ls var/log'], 'the full sync ran right before');
+  fs.rmSync(path.join(T.taskPaths(task.id).worktree, 'src/Resources/out-of-band.txt'));
 });
 
 test('command output is redacted (stored PAT, ghp_ token, secret env value printed by env) and a failure is an error with the tail', async () => {

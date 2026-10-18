@@ -448,6 +448,72 @@ test('Sandbox Coding: the agent edits the header template natively, compiles the
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
 });
 
+// A24: files made inside the container reach the project only by taking them over. The user makes some in the console ("Konsole"),
+// "Änderungen" → "Aus dem Container übernehmen" compares, shows the diff, keeps a token and .env.local out and takes the chosen file
+// over; then the AI changes a file with sandbox_bash and takes it over itself with pull_from_container (file card in the chat).
+test('Sandbox Coding: files made in the container – in the console and by the AI – are taken over into the project', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const lotse = { 'x-lotse': '1' };
+  expect((await request.put('/api/github', { headers: lotse, data: { token: GITHUB_TOKEN } })).ok()).toBeTruthy();
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: true, defaultRepo: 'acme/shop-theme', defaultBranch: 'main' } })).ok()).toBeTruthy();
+  await page.goto('/');
+  await openSetup(page);
+  const start = page.getByRole('dialog', { name: 'Sandbox starten' });
+  await start.getByLabel('Titel (optional)').fill('Aus dem Container');
+  await next(start); await next(start);
+  await start.getByRole('button', { name: 'Sandbox starten' }).click();
+  const panel = page.getByRole('region', { name: 'Sandbox', exact: true });
+  await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+
+  // the user makes files in the container's console: a snippet, a token, a local .env
+  const snippet = 'src/Resources/snippet/de_DE/konsole.de-DE.json';
+  await panel.getByRole('tab', { name: 'Konsole' }).click();
+  const con = panel.getByRole('tabpanel', { name: 'Konsole' });
+  await con.getByRole('button', { name: 'Konsole öffnen' }).click();
+  const term = con.locator('[data-console]:not([hidden]) .xterm-rows');
+  await expect(term).toContainText(/:\/var\/www\/html\$/);
+  await con.locator('[data-console]:not([hidden]) .xterm').click();
+  for (const line of [`echo Neu aus der Konsole > custom/plugins/AcmeShopTheme/${snippet}`, `echo ${GITHUB_TOKEN} > custom/plugins/AcmeShopTheme/token.txt`, 'echo APP_SECRET=x > custom/plugins/AcmeShopTheme/.env.local']) {
+    await page.keyboard.type(line);
+    await page.keyboard.press('Enter');
+  }
+  await expect.poll(async () => ((await term.textContent()) ?? '').split(/:\/var\/www\/html\$/).length - 1).toBe(4); // three commands done, a fresh prompt
+
+  await panel.getByRole('tab', { name: /Änderungen/ }).click();
+  const changes = panel.getByRole('tabpanel', { name: /Änderungen/ });
+  const pull = changes.getByRole('region', { name: 'Aus dem Container übernehmen' });
+  await pull.getByRole('button', { name: 'Mit Container vergleichen' }).click();
+  await expect(pull.getByRole('status').filter({ hasText: '2 Dateien im Container anders als im Projekt' })).toBeVisible();
+  await expect(pull.getByRole('checkbox', { name: snippet })).toBeChecked();
+  const token = pull.getByRole('checkbox', { name: 'token.txt' });
+  await expect(token).toBeDisabled();
+  await expect(pull.getByText(/^nicht übernehmbar: .*GitHub-Token/)).toBeVisible();
+  await expect(pull.getByRole('region', { name: snippet }).getByRole('row').filter({ hasText: 'Neu aus der Konsole' })).toHaveCount(1);
+  await expect(pull.getByText(GITHUB_TOKEN)).toHaveCount(0); // the diff is redacted
+  await pull.getByText('Nicht verglichen: 1 Eintrag').click();
+  await expect(pull.getByText('.env.local', { exact: true })).toBeVisible();
+  await pull.getByRole('button', { name: '1 Datei übernehmen' }).click();
+  await expect(pull.getByRole('status').filter({ hasText: /^1 Datei ins Projekt übernommen/ })).toBeVisible();
+  await expect(pull.getByRole('status').filter({ hasText: '1 Datei im Container anders als im Projekt' })).toBeVisible(); // only the token is left
+  await expect(changes.getByText('1 Datei geändert')).toBeVisible();
+  await expect(changes.getByText('Noch nicht gespeichert: 1 Datei', { exact: true })).toBeVisible();
+
+  // the AI changes a file with a command in the container and takes it over itself
+  const input = page.getByRole('textbox', { name: 'Nachricht an Lotse' });
+  await input.fill('Bitte übernehmen. [e2e:bash echo Hallo aus dem Container > custom/plugins/AcmeShopTheme/README.md] [e2e:pull README.md]');
+  await page.getByRole('button', { name: 'Senden' }).click();
+  await expect(page.getByRole('group', { name: 'Geändert: README.md, 1 Zeilen hinzu, 1 entfernt' })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText('Fertig: 2 Schritte.')).toBeVisible({ timeout: 30_000 });
+  await changes.getByRole('button', { name: 'Aktualisieren' }).click();
+  await expect(changes.getByText('2 Dateien geändert')).toBeVisible();
+
+  page.once('dialog', d => void d.accept());
+  await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByRole('menuitem', { name: 'Sandbox abschließen' }).click();
+  await expect(panel).toHaveCount(0);
+  expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
+});
+
 // Publishing (scripted model): the AI edits the header, commits it locally ([e2e:commit], shown in "Änderungen") and proposes a
 // pull request ([e2e:pr]); the proposal card opens the "Freigabe" (pull request) tab prefilled (no screenshots: nobody took one), only the
 // click there pushes the commit to lotse/… and opens the PR (GitHub fake); the PR card shows number and link in the chat and the

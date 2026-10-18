@@ -6,13 +6,14 @@ import { parseDiff, type DiffFile } from '@/lib/diff-parse';
 import type { TaskDiff } from '@/lib/protocol';
 import { useI18n, useT } from '@/lib/i18n/I18nProvider';
 import { IconChevron, IconRefresh } from '@/components/ui/icons';
+import { ContainerPull } from './ContainerPull';
 import { Term } from './Term';
 import styles from './Sandbox.module.css';
 
 const anchor = (i: number) => `sbx-diff-${i}`;
 
-/** "Änderungen": the AI's local commits (newest first, published or local), the files not committed yet and the whole workspace against
- *  the base branch (redacted on the server), per file with +/− counts and line numbers.
+/** "Änderungen": files made inside the container to take over (ContainerPull), the AI's local commits (newest first, published or local),
+ *  the files not committed yet and the whole workspace against the base branch (redacted on the server), per file with +/− counts and line numbers.
  *  Reloads by itself when `refresh` changes (a file card arrived, a turn ended); the icon reloads by hand. */
 export function DiffPanel({ taskId, refresh }: { taskId: string; refresh: number }) {
   const tc = useT().sandbox.code, t = tc.diff, tech = tc.tech;
@@ -43,6 +44,7 @@ export function DiffPanel({ taskId, refresh }: { taskId: string; refresh: number
         </button>
       </div>
       {error && <p className={styles.bad} role="alert">{t.failed(error)}</p>}
+      <ContainerPull taskId={taskId} onTaken={() => { setLoading(true); setTick(n => n + 1); }} />
       {commits.length > 0 && (
         <section className={styles.dfCommits} aria-labelledby="sbx-commits-h">
           <h3 id="sbx-commits-h" className={styles.label}><Term tech={tech.commits}>{t.commits}</Term></h3>
@@ -86,7 +88,7 @@ export function DiffPanel({ taskId, refresh }: { taskId: string; refresh: number
   );
 }
 
-function FileDiff({ id, file: f, open, onToggle }: { id: string; file: DiffFile; open: boolean; onToggle: () => void }) {
+export function FileDiff({ id, file: f, open, onToggle }: { id: string; file: DiffFile; open: boolean; onToggle: () => void }) {
   const t = useT().sandbox.code.diff;
   return (
     <section id={id} className={styles.dfFile} aria-label={f.path}>

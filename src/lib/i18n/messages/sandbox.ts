@@ -1,6 +1,6 @@
 // Namensraum "sandbox". `de` legt die Form fest, `en` muss dieselben Schlüssel haben (Texte mit Platzhaltern als Funktionen).
 // Reiter „Sandbox Coding“ (src/components/sandbox): Bereitschaft, Umgebung (Image, Variablen, eigene Befehle), Aufgaben.
-import type { CodeTaskStatus, ConsoleCloseReason, CommandPhase, InternetPolicy, PluginZipProblem, PluginZipWarning, ProjectPart, PublishStep, QuarantineCode, SandboxCommandKey, SandboxStepKey, ShotDevice, TaskStepState } from '../../protocol';
+import type { CodeTaskStatus, ConsoleCloseReason, ContainerSkipReason, CommandPhase, InternetPolicy, PluginZipProblem, PluginZipWarning, ProjectPart, PublishStep, QuarantineCode, SandboxCommandKey, SandboxStepKey, ShotDevice, TaskStepState } from '../../protocol';
 
 const steps: Record<SandboxStepKey, string> = {
   'check-image': 'Image prüfen',
@@ -494,6 +494,26 @@ export const de = {
       uncommitted: (n: number) => `Noch nicht gespeichert: ${n === 1 ? '1 Datei' : `${n} Dateien`}`,
       uncommittedHint: 'Diese Änderungen kommen beim Freigeben als letzter gespeicherter Schritt dazu.',
       total: 'Alle Änderungen gegenüber dem Basis-Branch',
+    },
+    pull: {
+      heading: 'Aus dem Container übernehmen',
+      lead: 'Dateien, die in der Konsole oder von der KI per Befehl im Container entstanden sind (z. B. bin/console plugin:create, composer require, eine Migration), gehören erst nach dem Übernehmen zum Projekt. Verglichen werden nur die Ordner, die Lotse in den Container überträgt.',
+      compare: 'Mit Container vergleichen',
+      comparing: 'Vergleiche …',
+      none: 'Keine Unterschiede: Container und Projekt stimmen überein.',
+      found: (n: number) => (n === 1 ? '1 Datei im Container anders als im Projekt' : `${n} Dateien im Container anders als im Projekt`),
+      noBaseline: 'Diese Sandbox wurde eingerichtet, bevor Lotse sich den Ausgangsstand des Containers merkte: Dateien des Images können als neu erscheinen – nur übernehmen, was zur Aufgabe gehört.',
+      all: 'Alle auswählen',
+      take: (n: number) => (n === 1 ? '1 Datei übernehmen' : `${n} Dateien übernehmen`),
+      taking: 'Übernehme …',
+      taken: (n: number) => `${n === 1 ? '1 Datei' : `${n} Dateien`} ins Projekt übernommen – noch nicht gespeichert: Die KI speichert sie mit dem nächsten Schritt, sonst kommen sie beim Freigeben dazu.`,
+      refused: 'Nicht übernommen:',
+      blocked: 'nicht übernehmbar',
+      skippedHeading: (n: number) => `Nicht verglichen: ${n === 1 ? '1 Eintrag' : `${n} Einträge`}`,
+      skipped: { symlink: 'Symlink', special: 'Gerätedatei oder FIFO', protected: 'geschützt (.env, Schlüssel, .git)', 'too-large': 'zu groß (höchstens 5 MB)', unreadable: 'nicht lesbar', name: 'ungewöhnlicher Dateiname', more: 'über dem Limit eines Vergleichs (300 Dateien)' } as Record<ContainerSkipReason, string>,
+      failed: (e: string) => `Vergleich fehlgeschlagen: ${e}`,
+      takeFailed: (e: string) => `Übernehmen fehlgeschlagen: ${e}`,
+      folders: (list: string) => `Verglichen: ${list}`,
     },
     zip: {
       heading: 'Plugin als ZIP',
@@ -1466,6 +1486,26 @@ export const en: typeof de = {
       uncommitted: n => `Not saved yet: ${n === 1 ? '1 file' : `${n} files`}`,
       uncommittedHint: 'These changes become one last saved step when submitting.',
       total: 'All changes against the base branch',
+    },
+    pull: {
+      heading: 'Take over from the container',
+      lead: 'Files made in the console or by the AI with a command inside the container (e.g. bin/console plugin:create, composer require, a migration) only become part of the project once taken over. Only the folders Lotse transfers into the container are compared.',
+      compare: 'Compare with container',
+      comparing: 'Comparing…',
+      none: 'No differences: container and project match.',
+      found: n => (n === 1 ? '1 file differs in the container' : `${n} files differ in the container`),
+      noBaseline: 'This sandbox was set up before Lotse remembered the container’s starting state: files of the image may appear as new – only take over what belongs to the task.',
+      all: 'Select all',
+      take: n => (n === 1 ? 'Take over 1 file' : `Take over ${n} files`),
+      taking: 'Taking over…',
+      taken: n => `${n === 1 ? '1 file' : `${n} files`} taken into the project – not saved yet: the AI saves them with its next step, otherwise they are added when submitting.`,
+      refused: 'Not taken over:',
+      blocked: 'cannot be taken over',
+      skippedHeading: n => `Not compared: ${n === 1 ? '1 entry' : `${n} entries`}`,
+      skipped: { symlink: 'symlink', special: 'device file or FIFO', protected: 'protected (.env, keys, .git)', 'too-large': 'too large (at most 5 MB)', unreadable: 'not readable', name: 'unusual file name', more: 'beyond the limit of one comparison (300 files)' },
+      failed: e => `Comparison failed: ${e}`,
+      takeFailed: e => `Taking over failed: ${e}`,
+      folders: list => `Compared: ${list}`,
     },
     zip: {
       heading: 'Plugin as ZIP',
