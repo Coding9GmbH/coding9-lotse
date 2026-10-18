@@ -1,6 +1,6 @@
 // Namensraum "sandbox". `de` legt die Form fest, `en` muss dieselben Schlüssel haben (Texte mit Platzhaltern als Funktionen).
 // Reiter „Sandbox Coding“ (src/components/sandbox): Bereitschaft, Umgebung (Image, Variablen, eigene Befehle), Aufgaben.
-import type { CodeTaskStatus, ConsoleCloseReason, CommandPhase, InternetPolicy, PluginZipProblem, PluginZipWarning, ProjectPart, PublishStep, SandboxCommandKey, SandboxStepKey, ShotDevice, TaskStepState } from '../../protocol';
+import type { CodeTaskStatus, ConsoleCloseReason, CommandPhase, InternetPolicy, PluginZipProblem, PluginZipWarning, ProjectPart, PublishStep, QuarantineCode, SandboxCommandKey, SandboxStepKey, ShotDevice, TaskStepState } from '../../protocol';
 
 const steps: Record<SandboxStepKey, string> = {
   'check-image': 'Image prüfen',
@@ -577,6 +577,16 @@ export const de = {
     parts: { storefront: 'Storefront-Templates', styles: 'Styles', js: 'JavaScript', admin: 'Administration', php: 'PHP-Code', settings: 'Einstellungen', migrations: 'Migrationen', snippets: 'Texte' } as Record<ProjectPart, string>,
     quarantined: (n: number) => (n === 1 ? '1 Konfigurationsdatei wird in der Sandbox nicht geladen' : `${n} Konfigurationsdateien werden in der Sandbox nicht geladen`),
     overrides: 'In der Sandbox umgestellt (externe Dienste → lokal)',
+    envDefaults: (names: string) => `Umgebungsvariablen ohne Wert in der Sandbox: ${names}`,
+    reasons: {
+      yaml: (d: string) => `kein gültiges YAML: ${d}`,
+      extension: (d: string) => `braucht eine Erweiterung, die das Image nicht hat (${d})`,
+      option: (d: string) => `Shopware startet damit nicht: unbekannte Option ${d}`,
+      class: (d: string) => `Shopware startet damit nicht: Klasse ${d} fehlt im Image`,
+      mailer: () => 'Shopware startet damit nicht: „dsn“ und „transports“ des Mailers zugleich',
+      unchecked: () => 'PHP- oder XML-Konfiguration – Lotse kann sie nicht prüfen und lädt sie deshalb nicht',
+      reserved: (d: string) => `diesen Namen braucht die Sandbox für ihre eigene Datei – als config/services_${d}.yaml wird sie geladen`,
+    } as Record<QuarantineCode, (detail: string) => string>,
     missing: 'Pakete, die im Image fehlen (offline nicht installiert)',
     mismatch: (project: string, image: string, suggest: string) => `Das Projekt nutzt Shopware ${project}, das Image enthält ${image}. Besser in der Umgebung das passende Image ${suggest} wählen – oder trotzdem fortfahren (Plugins und Konfiguration können dann scheitern).`,
   },
@@ -963,6 +973,16 @@ export const en: typeof de = {
     parts: { storefront: 'storefront templates', styles: 'styles', js: 'JavaScript', admin: 'administration', php: 'PHP code', settings: 'settings', migrations: 'migrations', snippets: 'texts' },
     quarantined: n => (n === 1 ? '1 configuration file is not loaded in the sandbox' : `${n} configuration files are not loaded in the sandbox`),
     overrides: 'Switched in the sandbox (external services → local)',
+    envDefaults: names => `Environment variables without a value in the sandbox: ${names}`,
+    reasons: {
+      yaml: d => `not valid YAML: ${d}`,
+      extension: d => `needs an extension the image does not have (${d})`,
+      option: d => `Shopware does not start with it: unknown option ${d}`,
+      class: d => `Shopware does not start with it: class ${d} is missing in the image`,
+      mailer: () => 'Shopware does not start with it: the mailer’s “dsn” and “transports” together',
+      unchecked: () => 'PHP or XML configuration – Lotse cannot check it and therefore does not load it',
+      reserved: d => `the sandbox needs this name for its own file – as config/services_${d}.yaml it is loaded`,
+    },
     missing: 'Packages the image lacks (not installed offline)',
     mismatch: (project, image, suggest) => `The project uses Shopware ${project}, the image contains ${image}. Better choose the matching image ${suggest} in the environment – or continue anyway (plugins and configuration may fail then).`,
   },

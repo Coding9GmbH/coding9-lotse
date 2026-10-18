@@ -298,6 +298,11 @@ export interface TaskLayout { kind: 'plugin' | 'theme' | 'project'; name: string
 export type ProjectPart = 'storefront' | 'styles' | 'js' | 'admin' | 'php' | 'settings' | 'migrations' | 'snippets';
 /** A plugin of a project: below custom/plugins/<dir> or (static) custom/static-plugins/<dir>, installed by its technical name */
 export interface ProjectPlugin { name: string; dir: string; static?: boolean; theme?: boolean; composerName?: string; label?: string; parts: ProjectPart[] }
+/** Why a config file of a project is not loaded in the sandbox: invalid YAML, an extension the image lacks, an option or class Shopware
+ *  did not boot with, the mailer's dsn next to transports, PHP/XML config (not checked), the override's own file name */
+export type QuarantineCode = 'yaml' | 'extension' | 'option' | 'class' | 'mailer' | 'unchecked' | 'reserved';
+/** A config file not loaded in the sandbox; detail = Symfony's message, the extension(s), the option path, the class, APP_ENV */
+export interface ConfigHold { file: string; code: QuarantineCode; detail?: string }
 /** A full Shopware project repository (A19), "Overlay" mode: the image's Shopware stays, the project's plugins, apps, config/packages,
  *  config/services*.yaml and src/ are synced over it. The runtime part (appEnv, extensions, envNames) is read from the container during
  *  the setup; quarantined config files are not loaded in the sandbox (no extension for them, or Shopware did not boot with them). */
@@ -310,9 +315,10 @@ export interface ProjectInfo {
   versionMismatch?: { project: string; image: string; suggest: string };
   /** theme plugin the setup assigned to the storefront (null: none or the dump's assignment) */ theme?: string | null;
   appEnv?: string; extensions?: string[]; envNames?: string[]; extraEnv?: string[];
-  quarantined?: { file: string; reason: string }[];
-  /** config files the boot check took out (Shopware did not start with them); kept until a new setup */ held?: { file: string; reason: string }[];
-  /** what the sandbox override (config/packages/<env>/zz_lotse_sandbox.yaml) switched to local, one line each */ overrides?: string[];
+  quarantined?: ConfigHold[];
+  /** config files the boot check took out (Shopware did not start with them); kept until a new setup */ held?: ConfigHold[];
+  /** what the sandbox override (config/services_<env>.yml, loaded last) switched to local, one line each ("framework.lock → flock") */ overrides?: string[];
+  /** %env(NAME)% the project uses that the container does not define: empty in the sandbox */ envDefaults?: string[];
   /** composer packages the project requires that the image does not have */ missingPackages?: string[];
 }
 export interface CodeTaskPublic {

@@ -118,18 +118,21 @@ test('sync rules: plugin and app folders as units, config/packages, config/servi
   for (const f of ['config/packages/shopware.yaml', 'config/packages/dev/x.yml', 'config/services.yaml', 'config/services_dev.yaml', 'src/Kernel.php', 'src/Subscriber/A.php'])
     assert.deepEqual(P.projectSyncPath(f), { kind: 'file' }, f);
   for (const f of ['composer.json', 'composer.lock', 'config/bundles.php', 'config/routes.yaml', 'config/jwt/private.pem', '.env', '.env.local', 'config/packages/.env', 'vendor/autoload.php', 'var/cache/x',
-    'public/index.php', 'custom/plugins/AcmeTheme/.env', 'custom/plugins/X/node_modules/a.js', 'custom/plugins', 'config/packages/dev/zz_lotse_sandbox.yaml', 'README.md', 'bin/console', 'config/packages/a.txt'])
+    'public/index.php', 'custom/plugins/AcmeTheme/.env', 'custom/plugins/X/node_modules/a.js', 'custom/plugins', 'README.md', 'bin/console', 'config/packages/a.txt'])
     assert.equal(P.projectSyncPath(f), null, f);
   assert.ok(P.isProjectConfig('config/packages/shopware.yaml') && P.isProjectConfig('config/services.yaml'));
   assert.ok(!P.isProjectConfig('config/packages/x.php') && !P.isProjectConfig('src/a.yaml'));
   assert.ok(P.loadedIn('config/packages/a.yaml', 'dev') && P.loadedIn('config/packages/dev/a.yaml', 'dev') && P.loadedIn('config/services_dev.yaml', 'dev'));
+  assert.ok(P.loadedIn('config/packages/dev/redis/cache.yaml', 'dev'), 'Shopware loads config/packages/<env>/** recursively');
+  assert.ok(P.isUncheckedConfig('config/packages/redis.php') && P.isUncheckedConfig('config/packages/dev/sentry.xml') && !P.isUncheckedConfig('config/packages/a.yaml'));
   assert.ok(!P.loadedIn('config/packages/prod/a.yaml', 'dev') && !P.loadedIn('config/services_prod.yaml', 'dev'));
 });
 
 test('config plan: production services switched to local, unknown extensions quarantined, env defaults, override as YAML', () => {
   const rels = Object.keys(PROJECT_CONFIG).filter(f => f !== 'config/bundles.php');
   const plan = P.planConfig(parsedOf(rels), rawOf(rels), RT);
-  assert.deepEqual([...plan.quarantine], [['config/packages/sentry.yaml', 'keine Erweiterung für „sentry“ im Image']]);
+  assert.deepEqual([...plan.quarantine], [['config/packages/sentry.yaml', { code: 'extension', detail: 'sentry' }]]);
+  assert.equal(P.reasonText(plan.quarantine.get('config/packages/sentry.yaml')!), 'keine Erweiterung für „sentry“ im Image');
   const o = plan.override as any;
   assert.equal(o.framework.cache.app, 'cache.adapter.filesystem');
   assert.equal(o.framework.session.handler_id, null);
@@ -148,7 +151,9 @@ test('config plan: production services switched to local, unknown extensions qua
   assert.deepEqual(plan.envDefaults, ['MESSENGER_TRANSPORT_DSN', 'OPENSEARCH_URL', 'REDIS_CACHE_URL', 'REDIS_SESSION_URL', 'S3_PRIVATE_BUCKET', 'S3_PUBLIC_BUCKET', 'SMTP_PASSWORD', 'SMTP_USER']);
   assert.equal(o.parameters['env(S3_PUBLIC_BUCKET)'], '');
   assert.ok(plan.notes.includes('shopware.filesystem.public: amazon-s3 → local'));
-  assert.deepEqual(plan.files.map(f => f.rel), ['config/services.yaml', 'config/packages/elasticsearch.yaml', 'config/packages/framework.yaml', 'config/packages/mailer.yaml', 'config/packages/monolog.yaml', 'config/packages/shopware.yaml']);
+  // Symfony's load order: config/packages/*, then config/services.yaml
+  assert.deepEqual(plan.files.map(f => f.rel), ['config/packages/elasticsearch.yaml', 'config/packages/framework.yaml', 'config/packages/mailer.yaml', 'config/packages/monolog.yaml', 'config/packages/shopware.yaml', 'config/services.yaml']);
+  assert.equal(P.overrideFile('dev'), 'config/services_dev.yml', 'the very last file Shopware loads');
   const yaml = P.overrideYaml(plan, 'dev');
   assert.match(yaml, /^# Written by Lotse for the sandbox only/);
   assert.match(yaml, /\nframework:\n {4}cache:\n {8}app: 'cache\.adapter\.filesystem'\n/);
@@ -171,10 +176,11 @@ test('config plan: when@<env>, held files, YAML errors, extra env names, quoting
     'config/packages/d.yaml': { data: { storefront: { htmlPurifier: { cacheEnabled: true } } } },
     'config/packages/prod/e.yaml': { data: { sentry: {} } },
   };
-  const plan = P.planConfig(parsed, { 'config/packages/b.yaml': "framework:\n  lock: '%env(LOCK_DSN)%'\n" }, { ...RT, extraEnv: ['FROM_PHP_CONFIG', 'APP_URL'] }, { 'config/packages/d.yaml': 'Shopware startet damit nicht' });
+  const plan = P.planConfig(parsed, { 'config/packages/b.yaml': "framework:\n  lock: '%env(LOCK_DSN)%'\n" }, { ...RT, extraEnv: ['FROM_PHP_CONFIG', 'APP_URL'] }, { 'config/packages/d.yaml': { code: 'option', detail: 'storefront.htmlPurifier' } });
   assert.deepEqual([...plan.quarantine.keys()].sort(), ['config/packages/a.yaml', 'config/packages/c.yaml', 'config/packages/d.yaml']);
-  assert.match(plan.quarantine.get('config/packages/a.yaml')!, /frosh_tools/);
-  assert.match(plan.quarantine.get('config/packages/c.yaml')!, /^YAML-Fehler: Malformed/);
+  assert.deepEqual(plan.quarantine.get('config/packages/a.yaml'), { code: 'extension', detail: 'frosh_tools' });
+  assert.match(P.reasonText(plan.quarantine.get('config/packages/c.yaml')!), /^YAML-Fehler: Malformed/);
+  assert.equal(P.reasonText(plan.quarantine.get('config/packages/d.yaml')!), 'Shopware startet damit nicht: unbekannte Option „storefront.htmlPurifier“');
   assert.equal((plan.override as any).framework.lock, 'flock');
   assert.deepEqual(plan.envDefaults, ['FROM_PHP_CONFIG', 'LOCK_DSN'], 'APP_URL is defined by the container');
   assert.equal(P.toYaml({ a: { 'b.c': "it's", 'env(X)': true, n: 3, l: ['x', 'y'], e: {} } }), "a:\n    b.c: 'it''s'\n    'env(X)': true\n    n: 3\n    l: ['x', 'y']\n    e: {}\n");
@@ -192,10 +198,10 @@ test('container facts and the boot check: extensions, APP_ENV, env names, the fi
     { rel: 'config/services.yaml', data: { services: {} }, raw: "services:\n  Sentry\\SentryBundle\\Client: ~\n" },
   ];
   assert.deepEqual(P.bootFinding('In ArrayNode.php line 1:\n  Unrecognized option "htmlPurifier" under "storefront". Available options are "theme".', fx, 'dev'),
-    { file: 'config/packages/storefront.yaml', reason: 'Shopware startet damit nicht: unbekannte Option „htmlPurifier“ unter „storefront“' });
-  assert.deepEqual(P.bootFinding('There is no extension able to load the configuration for "storefront" (in …)', fx, 'dev'), { file: 'config/packages/storefront.yaml', reason: 'keine Erweiterung für „storefront“ im Image' });
+    { file: 'config/packages/storefront.yaml', code: 'option', detail: 'storefront.htmlPurifier' });
+  assert.deepEqual(P.bootFinding('There is no extension able to load the configuration for "storefront" (in …)', fx, 'dev'), { file: 'config/packages/storefront.yaml', code: 'extension', detail: 'storefront' });
   assert.deepEqual(P.bootFinding('Environment variable not found: "REDIS_URL".', fx, 'dev'), { env: 'REDIS_URL' });
-  assert.deepEqual(P.bootFinding('Attempted to load class "Client" from namespace "Sentry\\SentryBundle".', fx, 'dev'), { file: 'config/services.yaml', reason: 'Shopware startet damit nicht: Klasse Sentry\\SentryBundle\\Client fehlt im Image' });
+  assert.deepEqual(P.bootFinding('Attempted to load class "Client" from namespace "Sentry\\SentryBundle".', fx, 'dev'), { file: 'config/services.yaml', code: 'class', detail: 'Sentry\\SentryBundle\\Client' });
   assert.equal(P.bootFinding('Something else entirely', fx, 'dev'), null);
   assert.equal(P.bootError('\nIn X.php line 3:\n\n  Unrecognized option "a" under "b"\n'), 'Unrecognized option "a" under "b"');
   // measured: the console names the exception class first, Symfony's message follows
@@ -239,14 +245,14 @@ test('setup of a project: overlay synced (never .env, composer files, bundles.ph
   assert.equal(done.layout!.kind, 'project');
   assert.equal(p.appEnv, 'dev');
   assert.ok(p.extensions!.includes('shopware') && !p.extensions!.includes('sentry'));
-  assert.deepEqual(p.quarantined, [{ file: 'config/packages/sentry.yaml', reason: 'keine Erweiterung für „sentry“ im Image' }]);
+  assert.deepEqual(p.quarantined, [{ file: 'config/packages/sentry.yaml', code: 'extension', detail: 'sentry' }]);
   assert.ok(p.overrides!.some(o => /cache\.app: cache\.adapter\.redis → cache\.adapter\.filesystem/.test(o)));
-  assert.ok(p.overrides!.some(o => /^Umgebungsvariablen ohne Wert in der Sandbox: .*S3_PUBLIC_BUCKET/.test(o)));
+  assert.ok(p.envDefaults!.includes('S3_PUBLIC_BUCKET'));
   assert.deepEqual(p.missingPackages, ['frosh/tools', 'sentry/sentry-symfony']);
   assert.equal(p.theme, 'AcmeTheme');
   const log = step('install-plugin').log.join('\n');
   assert.match(log, /Nicht geladen: config\/packages\/sentry\.yaml/);
-  assert.match(log, /Sandbox-Anpassungen \(config\/packages\/…\/zz_lotse_sandbox\.yaml\): .*shopware\.cart\.storage\.type: redis → mysql/);
+  assert.match(log, /Sandbox-Anpassungen \(config\/services_dev\.yml\): .*shopware\.cart\.storage\.type: redis → mysql/);
   assert.match(log, /Warnung: Diese Pakete verlangt das Projekt, sie fehlen aber im Image[^\n]*frosh\/tools, sentry\/sentry-symfony/);
   assert.match(log, /Shopware startet mit der Konfiguration des Projekts ✓/);
   assert.match(log, /Plugins installiert und aktiv: AcmeStorefrontTweaks, AcmeTheme, AcmeErpConnector/);
@@ -272,7 +278,7 @@ test('setup of a project: overlay synced (never .env, composer files, bundles.ph
   for (const f of ['.env', 'composer.json', 'composer.lock', 'config/bundles.php', 'config/packages/sentry.yaml', 'public/index.php', 'var/.htaccess', 'README.md', 'bin/console', '.github/workflows/deploy.yml'])
     assert.ok(!fsys.has(`${ROOT}/${f}`), `${f} must not be synced`);
   assert.ok(![...fsys.values()].some(b => b.toString('utf8').includes('never-in-the-container')), 'no .env content anywhere');
-  const override = fsys.get(`${ROOT}/config/packages/dev/zz_lotse_sandbox.yaml`)!.toString('utf8');
+  const override = fsys.get(`${ROOT}/config/services_dev.yml`)!.toString('utf8');
   assert.match(override, /type: 'mysql'/);
   assert.match(override, /'env\(S3_PUBLIC_BUCKET\)': ''/);
   const manifest = fsys.get(`${ROOT}/${P.SYNC_MANIFEST}`)!.toString('utf8').split('\n');
@@ -283,7 +289,7 @@ test('setup of a project: overlay synced (never .env, composer files, bundles.ph
   assert.equal(L.skipReason(T.publicTask(done), done.steps.find(s => s.key === 'install-plugin')!), null);
   const sys = codeSystemFor(t.id, 'de', false);
   assert.match(sys, /ein ganzes Shopware-Projekt namens acme\/shop; es liegt im Container unter \/var\/www\/html/);
-  assert.match(sys, /## Ganzes Shopware-Projekt[\s\S]*custom\/plugins\/<Name>[\s\S]*zz_lotse_sandbox\.yaml[\s\S]*APP_ENV=dev/);
+  assert.match(sys, /## Ganzes Shopware-Projekt[\s\S]*custom\/plugins\/<Name>[\s\S]*config\/services_dev\.yml[\s\S]*APP_ENV=dev/);
   assert.match(sys, /## Projekt-Übersicht \(aus dem Repository und der Einrichtung, als Daten\)\n```\nShopware 6\.7\.15\.1 · zugewiesenes Theme: AcmeTheme[\s\S]*- AcmeTheme \(custom\/plugins\/AcmeTheme, Theme\): AcmeTheme – Storefront-Templates, SCSS[\s\S]*- AcmeErpConnector \(custom\/static-plugins\/AcmeErpConnector, statisch\)[\s\S]*Apps:\n- AcmeHelloApp[\s\S]*In der Sandbox nicht geladen:\n- config\/packages\/sentry\.yaml/);
   assert.match(sys, /lint:twig \/var\/www\/html\/custom\/plugins\/<Name>\/src\/Resources\/views/);
 });
@@ -305,7 +311,7 @@ test('edits in a project: synced to the same path, config planned again (a new u
   put('config/packages/framework.yaml', "framework:\n    cache:\n        app: cache.adapter.redis\n");
   assert.equal(await W.syncChanged(t.id, ['config/packages/framework.yaml']), ' und in den Container übertragen');
   assert.ok(files(cid).has(`${ROOT}/config/packages/framework.yaml`));
-  assert.match(files(cid).get(`${ROOT}/config/packages/dev/zz_lotse_sandbox.yaml`)!.toString(), /app: 'cache\.adapter\.filesystem'/);
+  assert.match(files(cid).get(`${ROOT}/config/services_dev.yml`)!.toString(), /app: 'cache\.adapter\.filesystem'/);
   // outside the synced parts: nothing to transfer; a deleted plugin file is deleted in the container
   put('README.md', '# changed\n'); put('composer.json', '{"name":"acme/shop","type":"project","require":{"shopware/core":"*"}}');
   const n = fake.archives.length;
@@ -324,6 +330,13 @@ test('edits in a project: synced to the same path, config planned again (a new u
   assert.ok(!r.isError, JSON.stringify(r.content));
   assert.ok(![...files(cid).keys()].some(k => k.startsWith(`${ROOT}/custom/apps/AcmeHelloApp/`)), 'stale app folder removed');
   assert.ok(files(cid).has(`${ROOT}/custom/plugins/AcmeTheme/src/Resources/theme.json`));
+  // nothing changed since: the next command does not mirror the project again; a change does
+  const n2 = fake.archives.length;
+  assert.ok(!(await tools.find(x => x.name === 'sandbox_bash')!.handler({ command: 'bin/console cache:clear' } as any, {})).isError);
+  assert.equal(fake.archives.length, n2, 'no upload without a change');
+  put('custom/plugins/AcmeTheme/src/Resources/app/storefront/src/scss/base.scss', '.acme-footer { color: #00c; }\n');
+  assert.ok(!(await tools.find(x => x.name === 'sandbox_bash')!.handler({ command: 'bin/console cache:clear' } as any, {})).isError);
+  assert.ok(fake.archives.length > n2, 'changed: mirrored again');
   const env = await tools.find(x => x.name === 'get_environment')!.handler({} as any, {});
   const data = JSON.parse((env.content[0] as { text: string }).text);
   assert.equal(data.containerPath, '/var/www/html');
@@ -338,7 +351,12 @@ test('ZIP of one plugin of a project: chosen by folder, only that folder; unknow
   const theme = Z.checkPluginZip(t, 'custom/plugins/AcmeTheme');
   assert.equal(theme.ok, true, JSON.stringify(theme.problems));
   assert.equal(theme.name, 'AcmeTheme');
-  assert.throws(() => Z.checkPluginZip(t, 'custom/plugins/Nope'), /gibt es im Projekt nicht/);
+  assert.throws(() => Z.checkPluginZip(t, 'custom/plugins/Nope'), /Unknown plugin folder/);
+  for (const [lang, text] of [['de', 'Dieses Plugin gibt es im Projekt nicht.'], ['en', 'The project has no such plugin.']]) {
+    const nope = await zipRoute.GET(new Request(`http://127.0.0.1/api/sandbox/tasks/${t.id}/plugin-zip?check=1&plugin=custom%2Fplugins%2FNope`, { headers: { 'accept-language': lang } }), { params: Promise.resolve({ id: t.id }) });
+    assert.equal(nope.status, 400);
+    assert.equal(((await nope.json()) as { error: string }).error, text);
+  }
   const res = await zipRoute.GET(new Request(`http://127.0.0.1/api/sandbox/tasks/${t.id}/plugin-zip?plugin=${encodeURIComponent('custom/plugins/AcmeTheme')}`), { params: Promise.resolve({ id: t.id }) });
   assert.equal(res.status, 200);
   assert.match(res.headers.get('content-disposition') ?? '', /AcmeTheme-1\.0\.0\.zip/);
@@ -399,8 +417,8 @@ test('the boot check takes out the file Shopware names, defines missing env vars
   assert.match(log, /Shopware startet nicht \(Unrecognized option "lock" under "framework"[^\n]*\) – config\/packages\/framework\.yaml wird in der Sandbox nicht geladen/);
   assert.match(log, /Umgebungsvariable FROM_PHP fehlt – in der Sandbox leer gesetzt/);
   assert.match(log, /Shopware startet nach 2 Anpassung\(en\) ✓/);
-  assert.deepEqual(cur.layout!.project!.held, [{ file: 'config/packages/framework.yaml', reason: 'Shopware startet damit nicht: unbekannte Option „lock“ unter „framework“' }]);
-  assert.match(files(cur.containerId!).get(`${ROOT}/config/packages/dev/zz_lotse_sandbox.yaml`)!.toString(), /'env\(FROM_PHP\)': ''/);
+  assert.deepEqual(cur.layout!.project!.held, [{ file: 'config/packages/framework.yaml', code: 'option', detail: 'framework.lock' }]);
+  assert.match(files(cur.containerId!).get(`${ROOT}/config/services_dev.yml`)!.toString(), /'env\(FROM_PHP\)': ''/);
   assert.ok(!files(cur.containerId!).has(`${ROOT}/config/packages/framework.yaml`));
   await J.finishTask(t.id);
 
@@ -458,6 +476,153 @@ test('plugin repositories are unchanged: synced to custom/plugins/<Name>, never 
   assert.ok(argv.some(a => a.join(' ') === 'bin/console plugin:install --activate -- AcmeTheme'));
   assert.ok(!argv.some(a => a[0] === 'php' || a.includes('cache:pool:clear') || a.includes('composer')), 'no project steps');
   assert.ok(fake.archives.filter(a => a.id === cur.containerId).every(a => a.dir === '/var/www/html/custom/plugins' || a.dir === '/var/www'));
-  assert.ok(![...files(cur.containerId!).keys()].some(k => k.includes('zz_lotse_sandbox')));
+  assert.ok(!files(cur.containerId!).has(`${ROOT}/config/services_dev.yml`) && !argv.some(a => a[3] === 'lotse-restore'), 'no project override, no image backup');
   await J.finishTask(t.id);
+});
+
+// ---- review round: symlinks out of the worktree, config Shopware loads after the override, one budget, the image's own files ----
+const S = await import('../../src/server/sandbox/sync');
+const { readTarEntries } = await import('../../src/server/sandbox/tar');
+const { spawnSync } = await import('node:child_process');
+const { getTemplate } = await import('../../src/server/sandbox/templates');
+/** A runner on a host folder standing for /var/www/html: archives are unpacked there, the restore script runs there for real, the
+ *  config is "parsed" by the fake YAML parser. Records every archive's file paths. */
+function hostRunner(root: string) {
+  const stage = path.join(root, '..', 'stage'), put: string[][] = [], argvs: string[][] = [];
+  const runner: any = {
+    exec: async (_id: string, argv: string[]) => {
+      argvs.push(argv);
+      if (argv[0] === 'cat') { const f = path.join(root, argv[1].replace(`${ROOT}/`, '')); return fs.existsSync(f) ? { exitCode: 0, output: fs.readFileSync(f, 'utf8') } : { exitCode: 1, output: '' }; }
+      if (argv[0] === 'bash' && argv[3] === 'lotse-restore') { const r = spawnSync('bash', argv.slice(1), { cwd: root, encoding: 'utf8' }); return { exitCode: r.status ?? 1, output: `${r.stdout}${r.stderr}` }; }
+      if (argv[0] === 'php') { const out: Record<string, unknown> = {}; for (const rel of argv.slice(4)) out[rel] = { data: fakeYaml(fs.readFileSync(path.join(stage, 'lotse-config', rel), 'utf8')) }; return { exitCode: 0, output: JSON.stringify(out) }; }
+      if (argv[0] === 'rm') { fs.rmSync(stage, { recursive: true, force: true }); return { exitCode: 0, output: '' }; }
+      return { exitCode: 0, output: '' };
+    },
+    putArchive: async (_id: string, dir: string, tar: Buffer) => {
+      const base = dir === ROOT ? root : stage, files: string[] = [];
+      for (const e of readTarEntries(tar)) {
+        const to = path.join(base, e.path);
+        if (e.type === 'dir') fs.mkdirSync(to, { recursive: true });
+        else if (e.type === 'file') { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.writeFileSync(to, e.data); files.push(e.path); }
+      }
+      if (dir === ROOT) put.push(files);
+    },
+  };
+  return { runner, put, argvs };
+}
+const sync = (wt: string, runner: unknown, runtime: typeof RT | null = RT) => ({ runner: runner as any, containerId: 'c1', worktree: wt, target: ROOT, user: 'www-data', project: { runtime, held: {} } });
+
+test('symlinked folders of a project are never read: custom/plugins, custom, src, config/packages, a plugin\'s inner folder', async () => {
+  const outside = fs.mkdtempSync(path.join(tmp, 'host-'));
+  fs.mkdirSync(path.join(outside, 'Secret/src'), { recursive: true });
+  fs.writeFileSync(path.join(outside, 'Secret/composer.json'), JSON.stringify({ type: 'shopware-platform-plugin', extra: { 'shopware-plugin-class': 'Secret\\Secret' } }));
+  fs.writeFileSync(path.join(outside, 'Secret/hosts.yml'), 'oauth_token: gho_SECRET\n');
+  fs.writeFileSync(path.join(outside, 'creds.txt'), 'AWS_SECRET=xyz\n');
+  fs.writeFileSync(path.join(outside, 'redis.yaml'), 'framework:\n    lock: redis://prod\n');
+  for (const variant of ['plugins', 'custom', 'config']) {
+    const wt = dir({ 'composer.json': '{"type":"project","require":{"shopware/core":"*"}}', 'custom/apps/Ok/manifest.xml': '<manifest><meta><name>Ok</name></meta></manifest>', 'custom/apps/Ok/inner/a.txt': 'ok\n' });
+    if (variant === 'plugins') { fs.symlinkSync(outside, path.join(wt, 'custom/plugins')); fs.symlinkSync(outside, path.join(wt, 'src')); }
+    if (variant === 'custom') { fs.rmSync(path.join(wt, 'custom'), { recursive: true }); fs.symlinkSync(outside, path.join(wt, 'custom')); }
+    if (variant === 'config') { fs.mkdirSync(path.join(wt, 'config')); fs.symlinkSync(outside, path.join(wt, 'config/packages')); fs.symlinkSync(outside, path.join(wt, 'custom/apps/Ok/linked')); }
+    const c = S.projectContent(wt);
+    assert.ok(!c.units.some(u => /Secret/.test(u)) && !c.files.length, `${variant}: ${JSON.stringify(c)}`);
+    const d = P.detectProject(wt);
+    assert.deepEqual([d.plugins.length, d.configFiles, d.src], [0, [], false], variant);
+    const root = fs.mkdtempSync(path.join(tmp, 'root-')), h = hostRunner(root);
+    await S.syncProjectAll(sync(wt, h.runner));
+    const all = h.put.flat();
+    assert.ok(!all.some(f => /creds|hosts|redis/.test(f)), `${variant}: ${all.join(', ')}`);
+    assert.ok(!fs.readdirSync(root, { recursive: true }).some(f => /creds|hosts|redis\.yaml/.test(String(f))), variant);
+    // edits below a symlinked folder: nothing read, the container's copy goes
+    if (variant !== 'custom') {
+      const r = await S.syncProjectPaths(sync(wt, h.runner), variant === 'config' ? ['config/packages/redis.yaml'] : ['src/creds.txt']);
+      assert.equal(r.put, 0, variant);
+      assert.ok(!h.put.flat().some(f => /creds|redis/.test(f)), variant);
+    }
+  }
+  // ZIP: no plugin of a symlinked folder to choose
+  const t = T.getTask(projectTask)!, wt = T.taskPaths(t.id).worktree;
+  fs.symlinkSync(path.join(outside), path.join(wt, 'custom/static-plugins/Linked'));
+  assert.ok(!Z.zipChoices(t)!.some(c => /Linked|Secret/.test(c.dir)));
+  fs.rmSync(path.join(wt, 'custom/static-plugins/Linked'));
+});
+
+test('config Shopware loads after config/packages is analysed too, the override is loaded last, PHP/XML config is not loaded', () => {
+  const parsed = {
+    'config/services.yaml': { data: { services: {}, framework: { cache: { app: 'cache.adapter.redis' } }, shopware: { cart: { storage: { type: 'redis' } } } } },
+    'config/services_dev.yaml': { data: { 'when@dev': { shopware: { number_range: { increment_storage: 'redis' } } } } },
+    'config/packages/dev/redis/cache.yaml': { data: { framework: { lock: 'redis://x' } } },
+    'config/packages/dev/redis/sentry.yaml': { data: { sentry: { dsn: 'x' } } },
+    'config/packages/prod/redis/cache.yaml': { data: { framework: { session: { handler_id: 'redis://x' } } } },
+    'config/services_dev.yml': { data: { services: {} } },
+  };
+  const plan = P.planConfig(parsed, {}, RT, {}, ['config/packages/redis.php', 'config/packages/dev/sentry.xml', 'config/packages/prod/x.php']);
+  const o = plan.override as any;
+  assert.equal(o.framework.cache.app, 'cache.adapter.filesystem', 'services.yaml');
+  assert.equal(o.shopware.cart.storage.type, 'mysql', 'services.yaml');
+  assert.equal(o.shopware.number_range.increment_storage, 'mysql', 'services_dev.yaml, when@dev');
+  assert.equal(o.framework.lock, 'flock', 'config/packages/dev/redis/');
+  assert.equal(o.framework.session, undefined, 'prod is not loaded');
+  assert.deepEqual(Object.fromEntries(plan.quarantine), {
+    'config/packages/redis.php': { code: 'unchecked' }, 'config/packages/dev/sentry.xml': { code: 'unchecked' },
+    'config/packages/dev/redis/sentry.yaml': { code: 'extension', detail: 'sentry' }, 'config/services_dev.yml': { code: 'reserved', detail: 'dev' },
+  });
+  assert.deepEqual(plan.files.map(f => f.rel), ['config/packages/dev/redis/cache.yaml', 'config/services.yaml', 'config/services_dev.yaml']);
+  assert.match(P.reasonText({ code: 'unchecked' }), /PHP-\/XML-Konfiguration/);
+});
+
+test('mailer: transports are switched one by one (Symfony refuses dsn next to transports), the boot check names that conflict', () => {
+  const plan = P.planConfig({ 'config/packages/mailer.yaml': { data: { framework: { mailer: { transports: { main: '%env(MAILER_DSN)%', backup: 'smtp://b' } } } } } }, {}, RT);
+  assert.deepEqual((plan.override as any).framework.mailer, { dsn: null, transports: { main: 'smtp://127.0.0.1:1025', backup: 'smtp://127.0.0.1:1025' } });
+  assert.match(P.overrideYaml(plan, 'dev'), /\n {8}dsn: ~\n {8}transports:\n {12}main: 'smtp:\/\/127\.0\.0\.1:1025'\n/);
+  assert.deepEqual((P.planConfig({ 'config/packages/mailer.yaml': { data: { framework: { mailer: { dsn: 'smtp://x' } } } } }, {}, RT).override as any).framework.mailer, { dsn: 'smtp://127.0.0.1:1025' });
+  const fx = [{ rel: 'config/packages/a.yaml', data: { framework: { mailer: { dsn: 'x' } } }, raw: '' }, { rel: 'config/packages/b.yaml', data: { framework: { mailer: { transports: { m: 'y' } } } }, raw: '' }];
+  const msg = 'Symfony\\Component\\Config\\Definition\\Exception\\InvalidConfigurationException {#1\n  #message: "Invalid configuration for path "framework.mailer": "dsn" and "transports" cannot be used together."\n';
+  assert.deepEqual(P.bootFinding(msg, fx, 'dev'), { file: 'config/packages/b.yaml', code: 'mailer' });
+  assert.equal(P.bootError(msg), 'Invalid configuration for path "framework.mailer": "dsn" and "transports" cannot be used together.');
+});
+
+test('one budget for a whole project sync: many plugin folders together hit the limit before anything is uploaded or removed', async () => {
+  const wt = dir({ 'composer.json': '{"type":"project","require":{"shopware/core":"*"}}' });
+  for (const u of ['A', 'B']) for (let i = 0; i < 10_001; i++) { const f = path.join(wt, `custom/plugins/${u}/f${i}`); if (i === 0) fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, ''); }
+  const h = hostRunner(fs.mkdtempSync(path.join(tmp, 'root-')));
+  await assert.rejects(S.syncProjectAll(sync(wt, h.runner, null)), /Zu viele Dateien im Repository/);
+  assert.equal(h.put.length, 0, 'nothing uploaded');
+  assert.ok(!h.argvs.some(a => a[3] === 'lotse-restore'), 'nothing removed');
+  assert.throws(() => S.projectStamp(wt), /Zu viele Dateien/);
+});
+
+test('the image\'s own config comes back when the project\'s file of that name is quarantined or deleted', async () => {
+  const root = fs.mkdtempSync(path.join(tmp, 'root-'));
+  for (const [f, c] of Object.entries({ 'config/packages/lock.yaml': "framework:\n    lock: '%env(LOCK_DSN)%'\n", 'config/services.yaml': 'services: {}\n' })) { fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true }); fs.writeFileSync(path.join(root, f), c); }
+  const wt = dir({ 'composer.json': '{"type":"project","require":{"shopware/core":"*"}}', 'config/packages/lock.yaml': 'frosh_tools:\n    x: 1\n', 'config/services.yaml': 'services:\n    App\\: ~\n' });
+  const h = hostRunner(root), read = (f: string) => fs.readFileSync(path.join(root, f), 'utf8');
+  await S.syncProjectAll(sync(wt, h.runner));
+  assert.match(read('config/packages/lock.yaml'), /LOCK_DSN/, 'quarantined: the image\'s file stays');
+  assert.match(read('config/services.yaml'), /App/, 'the project\'s file is loaded');
+  assert.match(read(P.overrideFile('dev')), /^# Written by Lotse/);
+  fs.writeFileSync(path.join(wt, 'config/packages/lock.yaml'), 'framework:\n    lock: flock\n');
+  await S.syncProjectAll(sync(wt, h.runner));
+  assert.match(read('config/packages/lock.yaml'), /lock: flock/);
+  fs.rmSync(path.join(wt, 'config/packages/lock.yaml')); fs.rmSync(path.join(wt, 'config/services.yaml'));
+  await S.syncProjectAll(sync(wt, h.runner));
+  assert.match(read('config/packages/lock.yaml'), /LOCK_DSN/, 'deleted in the repository: the image\'s version is back');
+  assert.equal(read('config/services.yaml'), 'services: {}\n');
+  // an edit that quarantines the file: the same through syncProjectPaths
+  fs.writeFileSync(path.join(wt, 'config/packages/lock.yaml'), 'framework:\n    lock: flock\n');
+  await S.syncProjectPaths(sync(wt, h.runner), ['config/packages/lock.yaml']);
+  assert.match(read('config/packages/lock.yaml'), /flock/);
+  fs.writeFileSync(path.join(wt, 'config/packages/lock.yaml'), 'frosh_tools: {}\n');
+  await S.syncProjectPaths(sync(wt, h.runner), ['config/packages/lock.yaml']);
+  assert.match(read('config/packages/lock.yaml'), /LOCK_DSN/);
+});
+
+test('install step: 15 minutes only for a project; composer.lock with a branch instead of a version says so', () => {
+  const step = getTemplate('dockware').steps.find(s => s.id === 'install-plugin')!;
+  assert.equal(step.timeoutFor!({ kind: 'project', name: 'x', pluginDir: '' }), 15 * 60_000);
+  assert.equal(step.timeoutFor!({ kind: 'plugin', name: 'x', pluginDir: '' }), 5 * 60_000);
+  assert.equal(step.timeoutMs, 5 * 60_000);
+  const wt = dir({ 'composer.lock': JSON.stringify({ packages: [{ name: 'shopware/core', version: '6.7.x-dev' }] }) });
+  assert.deepEqual(P.lockInfo(wt), { version: null, raw: '6.7.x-dev' });
+  assert.deepEqual(P.lockInfo(dir({})), { version: null, raw: null });
 });

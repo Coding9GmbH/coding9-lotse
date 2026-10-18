@@ -10,7 +10,7 @@ import type { ContainerSpec } from '../runner';
 import type { TaskLayout } from '@/lib/protocol';
 import { PLUGIN_NAME, isEmptyRepoListing, pluginNameFromRepo } from '@/lib/sandbox-task';
 import { MANAGED, SANDBOX_NET, TASK_LABEL, sandboxAlias, taskDbVolume } from '../labels';
-import { COMPOSER_NAME, detectProject, imageVersion, isProjectComposer, projectSummary, versionMismatch } from '../project';
+import { COMPOSER_NAME, detectProject, imageVersion, isProjectComposer, lockInfo, projectSummary, versionMismatch } from '../project';
 import { installProject } from './dockware-project';
 import type { CommandArg, CommandSpec, ConsoleSpec, SandboxTemplate, SpecInput, StepCtx, TemplateStep } from './types';
 
@@ -107,7 +107,9 @@ async function projectLayout(ctx: StepCtx, l: TaskLayout): Promise<void> {
   const p = l.project!, mm = versionMismatch(p.shopwareVersion, ctx.image);
   ctx.setLayout({ ...l, project: { ...p, ...(mm ? { versionMismatch: mm } : {}) } });
   ctx.log(`Shopware-Projekt ${l.name} → /var/www/html (Overlay: Plugins, Apps, config/packages, config/services*.yaml, src/) · ${projectSummary(p)}`);
-  if (!p.shopwareVersion) ctx.log('Hinweis: Kein composer.lock mit shopware/core – die Shopware-Version des Projekts lässt sich nicht prüfen.');
+  const raw = p.shopwareVersion ? null : lockInfo(ctx.worktree).raw;
+  if (raw) ctx.log(`Hinweis: composer.lock nennt shopware/core als „${raw}“ (ein Branch, keine Versionsnummer) – die Shopware-Version des Projekts lässt sich nicht mit dem Image vergleichen.`);
+  else if (!p.shopwareVersion) ctx.log('Hinweis: Kein composer.lock mit shopware/core – die Shopware-Version des Projekts lässt sich nicht prüfen.');
   else if (!mm) ctx.log(`Shopware ${p.shopwareVersion} des Projekts passt zum Image (${imageVersion(ctx.image) ?? ctx.image}).`);
   if (!mm) return;
   if (ctx.ignoreProjectVersion) { ctx.log(`Abweichende Version (Projekt ${mm.project}, Image ${mm.image}) – „Trotzdem fortfahren“ gewählt.`); return; }
@@ -175,8 +177,8 @@ const STEPS: TemplateStep[] = [
   step('set-domain', MIN),
   step('db-snapshot', 10 * MIN, { optional: true }),
   step('preview-tidy', 3 * MIN, { optional: true }),
-  // a full project installs several plugins, apps, its theme and composer parts here (about 45 s measured)
-  step('install-plugin', 15 * MIN),
+  // a full project installs several plugins, apps, its theme and composer parts here (about 45 s measured): more time for that only
+  step('install-plugin', 5 * MIN, { timeoutFor: l => (l?.kind === 'project' ? 15 * MIN : 5 * MIN) }),
   step('custom-after-db', 0, { custom: 'after-db' }),
   step('theme-compile', 10 * MIN),
   step('custom-final', 0, { custom: 'final' }),

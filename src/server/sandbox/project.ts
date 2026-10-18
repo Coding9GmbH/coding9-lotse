@@ -7,7 +7,7 @@ import 'server-only';
 // This module is pure (files of the worktree, parsed config in, decisions out); jobs.ts, sync.ts and the template run it.
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ProjectInfo, ProjectPart, ProjectPlugin } from '@/lib/protocol';
+import type { ConfigHold, ProjectInfo, ProjectPart, ProjectPlugin, QuarantineCode } from '@/lib/protocol';
 import { PLUGIN_NAME } from '@/lib/sandbox-task';
 import { isExcluded } from './sync';
 
@@ -30,6 +30,17 @@ const readJson = (file: string): Record<string, unknown> | null => {
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {});
 const isDir = (p: string) => { try { return fs.lstatSync(p).isDirectory(); } catch { return false; } };
 const exists = (p: string) => { try { fs.lstatSync(p); return true; } catch { return false; } };
+/** Every component of `rel` below the worktree is a real directory (no symlink, nothing missing): whatever is read below it stays
+ *  inside the worktree. A repository may commit `custom/plugins -> /root/.config` or `src -> /home` – those are never read. */
+export function realDir(worktree: string, rel: string): boolean {
+  let cur = worktree;
+  for (const seg of rel.split('/').filter(x => x && x !== '.')) {
+    if (seg === '..') return false;
+    cur = path.join(cur, seg);
+    if (!isDir(cur)) return false;
+  }
+  return true;
+}
 
 /** composer.json says "a Shopware project": requires shopware/core or shopware/platform and is no plugin; type "project" or the layout
  *  of shopware/production (bin/console, custom/, config/packages). */
@@ -66,6 +77,7 @@ function pluginOf(root: string, rel: string, isStatic: boolean): ProjectPlugin |
   };
 }
 const subdirs = (root: string, rel: string) => {
+  if (!realDir(root, rel)) return [];
   try { return fs.readdirSync(path.join(root, rel), { withFileTypes: true }).filter(d => d.isDirectory() && EXT_DIR.test(d.name)).map(d => d.name).sort(); } catch { return []; }
 };
 
@@ -89,15 +101,20 @@ export function detectProject(worktree: string): ProjectInfo {
 }
 
 /** shopware/core (or shopware/platform) in composer.lock, "v6.7.15.1" → "6.7.15.1"; null without a lock or a usable version */
-export function lockVersion(worktree: string): string | null {
+export const lockVersion = (worktree: string): string | null => lockInfo(worktree).version;
+/** composer.lock's Shopware: `version` as above; `raw` = what the lock says when it has the package without a usable version number
+ *  (a branch such as "6.7.x-dev"); both null = no lock or no shopware/core in it */
+export function lockInfo(worktree: string): { version: string | null; raw: string | null } {
   const lock = readJson(path.join(worktree, 'composer.lock'));
   const pkgs = Array.isArray(lock?.packages) ? lock.packages as unknown[] : [];
+  let raw: string | null = null;
   for (const want of ['shopware/core', 'shopware/platform']) {
     const v = obj(pkgs.find(p => obj(p).name === want)).version;
     const m = typeof v === 'string' ? /^v?(\d+\.\d+\.\d+(?:\.\d+)?)/.exec(v.trim()) : null;
-    if (m) return m[1];
+    if (m) return { version: m[1], raw: null };
+    if (typeof v === 'string' && v.trim() && raw === null) raw = v.trim().replace(/[^\w.@+-]/g, '').slice(0, 60);
   }
-  return null;
+  return { version: null, raw };
 }
 /** Shopware version of an image tag (dockware/shopware:6.7.15.1-amd64 → 6.7.15.1), null if the tag has none */
 export const imageVersion = (image: string): string | null => /:(\d+(?:\.\d+){1,3})(?:-[a-z0-9]+)?$/.exec(image)?.[1] ?? null;
@@ -111,8 +128,11 @@ export function versionMismatch(project: string | null, image: string): ProjectI
 }
 
 // ---- What is synced into the container (paths relative to the repository = relative to /var/www/html) ----
-/** Never synced, even inside the synced folders: the sandbox override Lotse writes itself */
-export const overrideFile = (appEnv: string) => `config/packages/${appEnv}/zz_lotse_sandbox.yaml`;
+/** The sandbox override Lotse writes itself. Shopware's Kernel (6.7.15.1) loads config/packages/*, config/packages/<env>/**, then
+ *  config/services.{php,xml,yaml,yml} and last config/services_<env>.{php,xml,yaml,yml}, each glob sorted: services_<env>.yml is the
+ *  very last file, so the override wins over every project file (also extension config in services*.yaml). A project file of that
+ *  exact name is not loaded (quarantine "reserved"). */
+export const overrideFile = (appEnv: string) => `config/services_${appEnv}.yml`;
 /** Where the setup keeps the list of what it synced (to remove what disappeared from the repository at the next full sync) */
 export const SYNC_MANIFEST = 'var/lotse-project-sync.txt';
 /**
@@ -124,13 +144,15 @@ export function projectSyncPath(rel: string): { kind: 'unit'; unit: string } | {
   if (!rel || isExcluded(rel) || rel.split('/').some(s => s === '..' || s === '')) return null;
   const s = rel.split('/');
   if (s[0] === 'custom' && ['plugins', 'static-plugins', 'apps'].includes(s[1]) && s.length >= 3 && EXT_DIR.test(s[2])) return { kind: 'unit', unit: s.slice(0, 3).join('/') };
-  if (s[0] === 'config' && s[1] === 'packages' && s.length >= 3) return /\.(ya?ml|php|xml)$/i.test(rel) && !/\/zz_lotse_sandbox\.yaml$/.test(rel) ? { kind: 'file' } : null;
+  if (s[0] === 'config' && s[1] === 'packages' && s.length >= 3) return /\.(ya?ml|php|xml)$/i.test(rel) ? { kind: 'file' } : null;
   if (s[0] === 'config' && s.length === 2 && /^services(_[a-z0-9]+)?\.ya?ml$/i.test(s[1])) return { kind: 'file' };
   if (s[0] === 'src' && s.length >= 2) return { kind: 'file' };
   return null;
 }
 /** A config file Lotse checks before loading it (YAML below config/packages or config/services*.yaml) */
 export const isProjectConfig = (rel: string) => projectSyncPath(rel)?.kind === 'file' && rel.startsWith('config/') && /\.ya?ml$/i.test(rel);
+/** A config file Lotse cannot check (PHP or XML below config/packages): never loaded in the sandbox where Shopware would load it */
+export const isUncheckedConfig = (rel: string) => projectSyncPath(rel)?.kind === 'file' && rel.startsWith('config/packages/') && /\.(php|xml)$/i.test(rel);
 
 /** config/packages/** and config/services*.yaml of the worktree (YAML, PHP, XML), sorted */
 export function configFiles(worktree: string): string[] {
@@ -144,8 +166,8 @@ export function configFiles(worktree: string): string[] {
       else if (d.isFile() && projectSyncPath(r) && out.length < MAX_CONFIG) out.push(r);
     }
   };
-  walk('config/packages', 0);
-  try { for (const n of fs.readdirSync(path.join(worktree, 'config')).sort()) if (projectSyncPath(`config/${n}`) && fs.lstatSync(path.join(worktree, 'config', n)).isFile()) out.push(`config/${n}`); } catch { /* no config/ */ }
+  if (realDir(worktree, 'config/packages')) walk('config/packages', 0);
+  if (realDir(worktree, 'config')) try { for (const n of fs.readdirSync(path.join(worktree, 'config')).sort()) if (projectSyncPath(`config/${n}`) && fs.lstatSync(path.join(worktree, 'config', n)).isFile()) out.push(`config/${n}`); } catch { /* no config/ */ }
   return out;
 }
 
@@ -166,22 +188,40 @@ export function rootKeys(data: unknown, env: string): string[] {
   return [...keys];
 }
 const ALWAYS = ['parameters', 'services', 'imports'];
-/** Loaded in this environment: config/packages/*, config/packages/<env>/*, config/services.yaml and services_<env>.yaml */
+/** Loaded in this environment: config/packages/*, config/packages/<env>/** (any depth), config/services.yaml and services_<env>.yaml */
 export function loadedIn(rel: string, env: string): boolean {
   const s = rel.split('/');
-  if (s[0] === 'config' && s[1] === 'packages') return s.length === 3 || (s.length === 4 && s[2] === env);
+  if (s[0] === 'config' && s[1] === 'packages') return s.length === 3 || (s.length >= 4 && s[2] === env);
   if (s[0] === 'config' && s.length === 2) return /^services\.ya?ml$/i.test(s[1]) || new RegExp(`^services_${env}\\.ya?ml$`, 'i').test(s[1]);
   return false;
 }
 
+/** Why a config file is not loaded in the sandbox (a code the UI words in its language, plus a detail such as Symfony's message) */
+export type Quarantine = Omit<ConfigHold, 'file'>;
+/** The reason in plain German, for the setup log and the agent's prompt (the UI words the code itself) */
+export function reasonText(q: Quarantine): string {
+  const d = q.detail ?? '';
+  const texts: Record<QuarantineCode, string> = {
+    yaml: `YAML-Fehler: ${d}`,
+    extension: `keine Erweiterung für ${d.split(', ').map(k => `„${k}“`).join(', ')} im Image`,
+    option: `Shopware startet damit nicht: unbekannte Option „${d}“`,
+    class: `Shopware startet damit nicht: Klasse ${d} fehlt im Image`,
+    mailer: 'Shopware startet damit nicht: „dsn“ und „transports“ des Mailers zugleich',
+    unchecked: 'PHP-/XML-Konfiguration – Lotse kann sie nicht prüfen und lädt sie in der Sandbox deshalb nicht',
+    reserved: `diesen Dateinamen braucht die Sandbox für ihre eigene Konfiguration – als ${d ? `config/services_${d}.yaml` : '.yaml'} wird sie geladen`,
+  };
+  return texts[q.code] ?? q.code;
+}
+
 /** The analysis of the project's config for the sandbox */
 export interface ConfigPlan {
-  /** files not synced (not loaded) in the sandbox, with the reason in plain German */ quarantine: Map<string, string>;
+  /** files not synced (not loaded) in the sandbox, with the reason */ quarantine: Map<string, Quarantine>;
   /** the override object (YAML is written by toYaml) */ override: Record<string, unknown>;
   /** what was switched, one line each (setup log, get_environment) */ notes: string[];
   /** %env(NAME)% the project uses and the container does not define: default '' */ envDefaults: string[];
   /** the YAML files that are loaded (parsed data and raw text), for the boot check */ files: { rel: string; data: unknown; raw: string }[];
 }
+const MAIL_CATCHER = 'smtp://127.0.0.1:1025';
 const LOCAL_LOG = new Set(['stream', 'rotating_file', 'fingers_crossed', 'buffer', 'console', 'null', 'group', 'whatfailuregroup', 'fallbackgroup', 'filter', 'deduplication', 'service', 'error_log', 'syslog', 'test']);
 const set = (o: Record<string, unknown>, keys: string[], v: unknown) => {
   let cur = o;
@@ -197,30 +237,35 @@ function merge(a: unknown, b: unknown): unknown {
 }
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
+/** Symfony's load order (Shopware's Kernel): config/packages/*, config/packages/<env>/**, config/services.*, config/services_<env>.* */
+const loadRank = (rel: string) => (rel.startsWith('config/packages/') ? (rel.split('/').length === 3 ? 0 : 1) : /^config\/services\./i.test(rel) ? 2 : 3);
+const byLoadOrder = (a: string, b: string) => loadRank(a) - loadRank(b) || (a < b ? -1 : a > b ? 1 : 0);
+
 /**
  * Decides, from the parsed YAML files and the raw texts (both of the worktree), what the sandbox does with the project's config:
- * - quarantine: files that do not parse, need an extension the image lacks (sentry:, frosh_tools: – Symfony refuses to boot), plus
- *   `stuck` (files Shopware did not boot with, found by the setup's boot check)
+ * - quarantine: files that do not parse, need an extension the image lacks (sentry:, frosh_tools: – Symfony refuses to boot), PHP/XML
+ *   below config/packages (`unchecked`: cannot be analysed), a file named like the override, plus `stuck` (files Shopware did not boot
+ *   with, found by the setup's boot check)
  * - override: external services switched to local or off, only for what the project configures (measured: each of these breaks the
  *   storefront or the boot when left as it is: Redis cache/session/cart/number ranges, S3 filesystems, OpenSearch, gelf logging)
  * - env defaults: '' for each %env(NAME)% the container does not define (else the first bin/console fails)
  */
-export function planConfig(parsed: ParsedConfig, raw: Record<string, string>, rt: ProjectRuntime, stuck: Record<string, string> = {}): ConfigPlan {
+export function planConfig(parsed: ParsedConfig, raw: Record<string, string>, rt: ProjectRuntime, stuck: Record<string, Quarantine> = {}, unchecked: string[] = []): ConfigPlan {
   const env = rt.appEnv, allowed = new Set([...rt.extensions, ...ALWAYS]);
-  const quarantine = new Map<string, string>(), notes: string[] = [], o: Record<string, unknown> = {};
+  const quarantine = new Map<string, Quarantine>(), notes: string[] = [], o: Record<string, unknown> = {};
   const refs = new Set<string>(), files: ConfigPlan['files'] = [];
   let merged: Record<string, unknown> = {};
-  // root files first, then the environment's folder (Symfony's order); config/services*.yaml define services, not extension config
-  const order = Object.keys(parsed).filter(f => loadedIn(f, env)).sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
-  for (const f of order) {
+  for (const f of unchecked.filter(x => isUncheckedConfig(x) && loadedIn(x, env)).sort(byLoadOrder)) quarantine.set(f, stuck[f] ?? { code: 'unchecked' });
+  // Symfony's order; extension config in config/services*.yaml counts too (loaded after config/packages)
+  for (const f of Object.keys(parsed).filter(x => loadedIn(x, env)).sort(byLoadOrder)) {
     if (stuck[f]) { quarantine.set(f, stuck[f]); continue; }
+    if (f === overrideFile(env)) { quarantine.set(f, { code: 'reserved', detail: env }); continue; }
     const p = parsed[f];
-    if (p.error !== undefined) { quarantine.set(f, `YAML-Fehler: ${p.error.slice(0, 200)}`); continue; }
+    if (p.error !== undefined) { quarantine.set(f, { code: 'yaml', detail: p.error.slice(0, 200) }); continue; }
     const unknown = rootKeys(p.data, env).filter(k => !allowed.has(k));
-    if (unknown.length) { quarantine.set(f, `keine Erweiterung für „${unknown.slice(0, 3).join('“, „')}“ im Image`); continue; }
+    if (unknown.length) { quarantine.set(f, { code: 'extension', detail: unknown.slice(0, 3).join(', ') }); continue; }
     files.push({ rel: f, data: p.data, raw: raw[f] ?? '' });
     for (const m of (raw[f] ?? '').matchAll(/%env\((?:[\w-]+:)*([A-Za-z_][A-Za-z0-9_]*)\)%/g)) refs.add(m[1]);
-    if (!f.startsWith('config/packages/')) continue;
     for (const [k, v] of Object.entries(obj(p.data))) {
       if (k.startsWith('when@')) { if (k === `when@${env}`) for (const [k2, v2] of Object.entries(obj(v))) merged = merge(merged, { [k2]: v2 }) as Record<string, unknown>; continue; }
       merged = merge(merged, { [k]: v }) as Record<string, unknown>;
@@ -236,10 +281,14 @@ export function planConfig(parsed: ParsedConfig, raw: Record<string, string>, rt
     if (/redis|memcache|pdo|doctrine|couchbase/i.test(adapter)) { set(o, ['framework', 'cache', 'pools', pool, 'adapter'], 'cache.app'); note(`framework.cache.pools.${pool}: ${adapter} → cache.app`); }
   }
   const session = obj(fw.session);
-  if ('handler_id' in session && session.handler_id !== null) { set(o, ['framework', 'session', 'handler_id'], null); note('framework.session.handler_id → Dateien (PHP-Standard)'); }
+  if ('handler_id' in session && session.handler_id !== null) { set(o, ['framework', 'session', 'handler_id'], null); note('framework.session.handler_id → ~'); }
   if (fw.lock !== undefined) { set(o, ['framework', 'lock'], 'flock'); note('framework.lock → flock'); }
-  const mailer = obj(fw.mailer);
-  if (mailer.dsn !== undefined || mailer.transports !== undefined) { set(o, ['framework', 'mailer', 'dsn'], 'smtp://127.0.0.1:1025'); note('framework.mailer → Mailcatcher der Sandbox (smtp://127.0.0.1:1025)'); }
+  // the sandbox's mail catcher; Symfony refuses "dsn" next to "transports" (6.7.15.1): with transports each one, and dsn emptied
+  const mailer = obj(fw.mailer), transports = Object.keys(obj(mailer.transports));
+  if (transports.length) {
+    set(o, ['framework', 'mailer', 'dsn'], null);
+    for (const name of transports) { set(o, ['framework', 'mailer', 'transports', name], MAIL_CATCHER); note(`framework.mailer.transports.${name} → ${MAIL_CATCHER}`); }
+  } else if (mailer.dsn !== undefined) { set(o, ['framework', 'mailer', 'dsn'], MAIL_CATCHER); note(`framework.mailer.dsn → ${MAIL_CATCHER}`); }
   for (const [name, t] of Object.entries(obj(obj(fw.messenger).transports))) {
     const dsn = typeof t === 'string' ? t : str(obj(t).dsn);
     if (dsn.startsWith('shopware-webhook://') || dsn.startsWith('sync://')) continue;
@@ -272,23 +321,23 @@ export function planConfig(parsed: ParsedConfig, raw: Record<string, string>, rt
     set(o, ['shopware', 'filesystem', name], { type: 'local', ...(name === 'private' || name === 'temp' ? {} : { url: '%env(APP_URL)%' }), config: { root } });
     note(`shopware.filesystem.${name}: ${type} → local`);
   }
-  if (str(obj(sw.cdn).url)) { set(o, ['shopware', 'cdn', 'url'], ''); note('shopware.cdn.url → leer'); }
+  if (str(obj(sw.cdn).url)) { set(o, ['shopware', 'cdn', 'url'], ''); note("shopware.cdn.url → ''"); }
 
   // --- search, theme config, logging ---
   // the image has no search server: whatever the project says about it, the sandbox searches with MySQL
   if (merged.elasticsearch !== undefined || refs.has('OPENSEARCH_URL') || refs.has('SHOPWARE_ES_HOSTS')) {
     o.elasticsearch = { enabled: false, indexing_enabled: false, throw_exception: false, administration: { enabled: false } };
-    note('elasticsearch/OpenSearch → aus (MySQL-Suche)');
+    note('elasticsearch.enabled → false');
   }
   const theme = obj(obj(merged.storefront).theme);
   if (/StaticFile/.test(str(theme.config_loader_id)) || /StaticFile/.test(str(theme.available_theme_provider))) {
     set(o, ['storefront', 'theme', 'config_loader_id'], 'Shopware\\Storefront\\Theme\\ConfigLoader\\DatabaseConfigLoader');
     set(o, ['storefront', 'theme', 'available_theme_provider'], 'Shopware\\Storefront\\Theme\\ConfigLoader\\DatabaseAvailableThemeProvider');
-    note('storefront.theme: Konfiguration aus Dateien → aus der Datenbank');
+    note('storefront.theme.config_loader_id → DatabaseConfigLoader');
   }
   for (const [name, cfg] of Object.entries(obj(obj(merged.monolog).handlers))) {
     const type = str(obj(cfg).type);
-    if (type && !LOCAL_LOG.has(type)) { set(o, ['monolog', 'handlers', name, 'type'], 'null'); note(`monolog.handlers.${name}: ${type} → aus`); }
+    if (type && !LOCAL_LOG.has(type)) { set(o, ['monolog', 'handlers', name, 'type'], 'null'); note(`monolog.handlers.${name}: ${type} → null`); }
   }
 
   // --- env defaults ---
@@ -318,8 +367,8 @@ export function toYaml(o: Record<string, unknown>, indent = 0): string {
   }).join('');
 }
 /** The override file as written into the container */
-export const overrideYaml = (plan: ConfigPlan, appEnv: string) => `# Written by Lotse for the sandbox only – never part of the repository. Loaded after config/packages/*.yaml and the other files
-# in config/packages/${appEnv}/: external services (Redis, OpenSearch, message queues, S3/CDN, SMTP, remote logging) → local or off.
+export const overrideYaml = (plan: ConfigPlan, appEnv: string) => `# Written by Lotse for the sandbox only – never part of the repository. Loaded last (after config/packages/**, config/services.*
+# and the other config/services_${appEnv}.* files): external services (Redis, OpenSearch, message queues, S3/CDN, SMTP, remote logging) → local or off.
 ${Object.keys(plan.override).length ? toYaml(plan.override) : '{}\n'}`;
 
 /** PHP run in the container (php -r, as www-data): parses the staged config files below /tmp/lotse-config with the image's own
@@ -366,31 +415,37 @@ export const ENV_NAMES_ARGV = ['bash', '-c', 'env | cut -d= -f1; for f in .env .
 
 // ---- Boot check: which config file kept Shopware from booting ----
 /** What a failed `bin/console about` says, as a decision: quarantine a file (with the reason), define an env default, or nothing known */
-export type BootFinding = { file: string; reason: string } | { env: string } | null;
+export type BootFinding = ConfigHold | { env: string } | null;
 const has = (o: unknown, keys: string[]): boolean => { let cur: unknown = o; for (const k of keys) { const c = obj(cur); if (!(k in c)) return false; cur = c[k]; } return true; };
+const byPathIn = (f: { data: unknown }, keys: string[], env: string) => has(f.data, keys) || has(obj(f.data)[`when@${env}`], keys);
 /**
  * Finds the config file the boot error points at: "Unrecognized option X under Y" (the file whose Y has X, else the first with root Y),
- * "no extension able to load the configuration for X", a class that does not exist (the file that names it), or "Environment variable
- * not found: X" (an env default instead). Only files that are synced now count (`files`: parsed data and raw text).
+ * "no extension able to load the configuration for X", the mailer's "dsn" next to "transports", a class that does not exist (the file
+ * that names it), or "Environment variable not found: X" (an env default instead). Only files that are synced now count (`files`: parsed data and raw text).
  */
 export function bootFinding(output: string, files: { rel: string; data: unknown; raw: string }[], env: string): BootFinding {
   const missingEnv = /Environment variable not found: "([A-Za-z_][A-Za-z0-9_]*)"/.exec(output);
   if (missingEnv) return { env: missingEnv[1] };
-  const byPath = (keys: string[]) => files.find(f => has(f.data, keys) || has(obj(f.data)[`when@${env}`], keys));
+  const byPath = (keys: string[]) => files.find(f => byPathIn(f, keys, env));
   const unrec = /Unrecognized options? "([^"]+)" under "([^"]+)"/.exec(output);
   if (unrec) {
     const under = unrec[2].split('.').filter(Boolean), opt = unrec[1].split(',')[0].trim();
     const hit = byPath([...under, opt]) ?? byPath(under.slice(0, 1));
-    if (hit) return { file: hit.rel, reason: `Shopware startet damit nicht: unbekannte Option „${opt}“ unter „${unrec[2]}“` };
+    if (hit) return { file: hit.rel, code: 'option', detail: [...under, opt].join('.').slice(0, 200) };
   }
   const ext = /no extension able to load the configuration for "([^"]+)"/.exec(output);
-  if (ext) { const hit = byPath([ext[1]]); if (hit) return { file: hit.rel, reason: `keine Erweiterung für „${ext[1]}“ im Image` }; }
+  if (ext) { const hit = byPath([ext[1]]); if (hit) return { file: hit.rel, code: 'extension', detail: ext[1].slice(0, 100) }; }
+  // "dsn" and "transports" of the mailer in different files: the last file that sets one of them
+  if (/"dsn" and "transports" cannot be used together/.test(output)) {
+    const hit = files.filter(f => byPathIn(f, ['framework', 'mailer', 'dsn'], env) || byPathIn(f, ['framework', 'mailer', 'transports'], env)).at(-1);
+    if (hit) return { file: hit.rel, code: 'mailer' };
+  }
   const cls = /(?:Attempted to load class "([^"]+)" from namespace "([^"]+)"|[Cc]lass "([^"]+)" (?:not found|does not exist)|Class ([A-Za-z_\\][A-Za-z0-9_\\]+) does not exist)/.exec(output);
   if (cls) {
     const fq = cls[1] ? `${cls[2]}\\${cls[1]}` : (cls[3] ?? cls[4]).replace(/^\\/, '');
     const short = fq.split('\\').pop() ?? fq;
     const hit = files.find(f => f.raw.includes(fq) || f.raw.includes(fq.replace(/\\/g, '\\\\'))) ?? files.find(f => new RegExp(`\\b${short}\\b`).test(f.raw));
-    if (hit) return { file: hit.rel, reason: `Shopware startet damit nicht: Klasse ${fq.slice(0, 120)} fehlt im Image` };
+    if (hit) return { file: hit.rel, code: 'class', detail: fq.slice(0, 120) };
   }
   return null;
 }
@@ -398,7 +453,7 @@ export function bootFinding(output: string, files: { rel: string; data: unknown;
  *  class (the console prints "Symfony\…\InvalidConfigurationException {#9979" first, measured with 6.7.15.1) */
 export function bootError(output: string): string {
   const lines = output.split('\n').map(l => l.trim()).filter(l => l && !/^(#\d|In \S+ line|Exception trace|Stack trace|\{#?\d*$|[-=]+$)/.test(l));
-  const specific = /Unrecognized options?|no extension able|Environment variable not found|Attempted to load|does not exist|not found|Invalid .*DSN|Unsupported|Missing dependency|cURL error|Connection refused/i;
+  const specific = /Unrecognized options?|no extension able|cannot be used together|Environment variable not found|Attempted to load|does not exist|not found|Invalid .*DSN|Unsupported|Missing dependency|cURL error|Connection refused/i;
   const generic = /Exception|Error/i, classOnly = /^[\w\\]+(Exception|Error)\b[^:]*$/;
   const line = lines.find(l => specific.test(l)) ?? lines.find(l => generic.test(l) && !classOnly.test(l)) ?? lines.find(l => generic.test(l)) ?? lines[0] ?? '';
   return line.replace(/^#message:\s*"(.*)"$/, '$1').slice(0, 400);
@@ -429,7 +484,7 @@ export function pickTheme(worktree: string, plugins: ProjectPlugin[]): string | 
   if (themes.length <= 1) return themes[0]?.name ?? null;
   const parents = new Set<string>();
   for (const t of themes) {
-    const views = readJson(path.join(worktree, t.dir, 'src/Resources/theme.json'))?.views;
+    const views = realDir(worktree, `${t.dir}/src/Resources`) ? readJson(path.join(worktree, t.dir, 'src/Resources/theme.json'))?.views : undefined;
     for (const v of Array.isArray(views) ? views : []) if (typeof v === 'string' && v.startsWith('@') && v.slice(1) !== t.name) parents.add(v.slice(1));
   }
   return themes.map(t => t.name).sort().find(n => !parents.has(n)) ?? themes[0].name;
@@ -441,7 +496,7 @@ export const STOREFRONT_TYPE = '8A243080F92E4C719546314B577CF82B';
 export function projectSummary(p: ProjectInfo): string {
   const pl = p.plugins.map(x => `${x.name}${x.theme ? ' (Theme)' : x.static ? ' (statisch)' : ''}`);
   return [`${p.plugins.length} Plugins${pl.length ? `: ${pl.join(', ')}` : ''}`, `${p.apps.length} Apps${p.apps.length ? `: ${p.apps.map(a => a.name).join(', ')}` : ''}`,
-    `${p.configFiles.length} Konfigurationsdateien`, p.src ? 'Projekt-Code in src/' : 'kein src/', `Shopware ${p.shopwareVersion ?? 'unbekannt (kein composer.lock)'}`].join(' · ');
+    `${p.configFiles.length} Konfigurationsdateien`, p.src ? 'Projekt-Code in src/' : 'kein src/', `Shopware ${p.shopwareVersion ?? 'unbekannt'}`].join(' · ');
 }
 
 // ---- Publishing and committing in a project ----

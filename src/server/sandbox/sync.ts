@@ -4,9 +4,13 @@ import 'server-only';
 // secret files (.env, keys, auth.json …), node_modules and symlinks that point outside the workspace.
 // Deletions in the container only with the fixed argv ['rm', '-f', '--', <target>/<guarded relative path>].
 // A full Shopware project (project.ts) is synced into the shop's root instead, only its plugin and app folders, config files and src/.
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CONFIG_STAGE, PROJECT_PARSE_PHP, SYNC_MANIFEST, isProjectConfig, overrideFile, overrideYaml, parseConfigOutput, planConfig, projectSyncPath, type ConfigPlan, type ProjectRuntime } from './project';
+import {
+  CONFIG_STAGE, PROJECT_PARSE_PHP, SYNC_MANIFEST, isProjectConfig, isUncheckedConfig, overrideFile, overrideYaml, parseConfigOutput, planConfig, projectSyncPath, realDir,
+  type ConfigPlan, type ProjectRuntime, type Quarantine,
+} from './project';
 import type { SandboxRunner } from './runner';
 import { writeTar, type TarEntry } from './tar';
 
@@ -34,11 +38,22 @@ export function guardRel(rel: string): string {
 
 const inside = (child: string, parent: string) => { const r = path.relative(parent, child); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };
 
+/** What one sync may transfer in total – for a project all plugin and app folders, config files and src/ together. Charged before a
+ *  file is read, so a huge repository fails before Lotse holds it in memory. */
+export interface SyncBudget { files: number; bytes: number }
+export const syncBudget = (): SyncBudget => ({ files: 0, bytes: 0 });
+function charge(b: SyncBudget, bytes: number) {
+  b.files++; b.bytes += bytes;
+  if (b.files > MAX_FILES) throw new Error(`Zu viele Dateien im Repository (mehr als ${MAX_FILES}).`);
+  if (b.bytes > MAX_BYTES) throw new Error(`Repository zu groß für die Sandbox (mehr als ${MAX_BYTES / 1024 / 1024} MB).`);
+}
+
 /** One workspace entry as tar entry below `prefix`; null = skipped (excluded, outside symlink, special file). */
-function entryFor(root: string, rel: string, prefix: string): TarEntry | null {
+function entryFor(root: string, rel: string, prefix: string, b: SyncBudget = syncBudget()): TarEntry | null {
   const abs = path.join(root, rel);
   const st = fs.lstatSync(abs);
   const p = `${prefix}/${rel}`;
+  charge(b, st.isFile() ? st.size : 0);
   if (st.isSymbolicLink()) {
     const link = fs.readlinkSync(abs);
     let real: string;
@@ -52,20 +67,17 @@ function entryFor(root: string, rel: string, prefix: string): TarEntry | null {
   return { path: p, type: 'file', data: fs.readFileSync(abs), mode: st.mode & 0o111 ? 0o755 : 0o644 };
 }
 
-/** All transferable entries of the workspace (directories first, sorted), with limits. */
-export function collectAll(root: string, prefix: string): TarEntry[] {
+/** All transferable entries of the workspace (directories first, sorted), within the limits (`b`: shared by the caller's other
+ *  folders). Symlinks are kept only when they point inside `root`. */
+export function collectAll(root: string, prefix: string, b: SyncBudget = syncBudget()): TarEntry[] {
   const out: TarEntry[] = [{ path: prefix, type: 'dir' }];
-  let bytes = 0;
   const walk = (dir: string) => {
-    for (const d of fs.readdirSync(path.join(root, dir), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const d of fs.readdirSync(path.join(root, dir), { withFileTypes: true }).sort((x, y) => x.name.localeCompare(y.name))) {
       const rel = dir ? `${dir}/${d.name}` : d.name;
       if (isExcluded(rel)) continue;
-      const e = entryFor(root, rel, prefix);
+      const e = entryFor(root, rel, prefix, b);
       if (!e) continue;
       out.push(e);
-      bytes += e.data?.length ?? 0;
-      if (out.length > MAX_FILES) throw new Error(`Zu viele Dateien im Repository (mehr als ${MAX_FILES}).`);
-      if (bytes > MAX_BYTES) throw new Error(`Repository zu groß für die Sandbox (mehr als ${MAX_BYTES / 1024 / 1024} MB).`);
       if (e.type === 'dir') walk(rel);
     }
   };
@@ -76,7 +88,7 @@ export function collectAll(root: string, prefix: string): TarEntry[] {
 export interface SyncTarget { runner: SandboxRunner; containerId: string; worktree: string; /** absolute directory in the container, e.g. /var/www/html/custom/plugins/AcmeTheme */ target: string; user: string; signal?: AbortSignal;
   /** a full project (target = the shop's root): what the container said during the setup (null = not asked yet: config files are not
    *  synced) and the files the boot check took out */
-  project?: { runtime: ProjectRuntime | null; held: Record<string, string> } }
+  project?: { runtime: ProjectRuntime | null; held: Record<string, Quarantine> } }
 
 const checkTarget = (t: string) => {
   if (!/^\/var\/www\/html\/custom\/plugins\/[A-Z][A-Za-z0-9]{1,60}$/.test(t)) throw new Error('Ungültiges Zielverzeichnis im Container.');
@@ -102,16 +114,17 @@ export async function syncAll(s: SyncTarget): Promise<{ files: number; bytes: nu
 export async function syncPaths(s: SyncTarget, rels: string[]): Promise<{ put: number; removed: number; config?: ConfigPlan | null }> {
   if (s.project) return syncProjectPaths(s, rels);
   const { parent, base } = checkTarget(s.target);
-  const entries: TarEntry[] = [], dirs = new Set<string>(), gone: string[] = [];
+  const entries: TarEntry[] = [], dirs = new Set<string>(), gone: string[] = [], b = syncBudget();
   for (const raw of rels) {
     const rel = guardRel(raw);
     const abs = path.join(s.worktree, rel);
     if (!inside(path.resolve(abs), path.resolve(s.worktree))) throw new Error('Pfad außerhalb des Arbeitsordners.');
-    if (!fs.existsSync(abs) && !isLink(abs)) { gone.push(rel); continue; }
+    // below a symlinked folder (or gone): nothing to read, the container's copy goes
+    if (!realDir(s.worktree, path.posix.dirname(rel)) || (!fs.existsSync(abs) && !isLink(abs))) { gone.push(rel); continue; }
     const segs = rel.split('/');
     for (let i = 1; i < segs.length; i++) { const d = segs.slice(0, i).join('/'); if (!dirs.has(d)) { dirs.add(d); entries.push({ path: `${base}/${d}`, type: 'dir' }); } }
-    const e = entryFor(s.worktree, rel, base);
-    if (e?.type === 'dir') { entries.push(...collectAll(path.join(s.worktree, rel), `${base}/${rel}`)); continue; }
+    const e = entryFor(s.worktree, rel, base, b);
+    if (e?.type === 'dir') { entries.push(...collectAll(path.join(s.worktree, rel), `${base}/${rel}`, b)); continue; }
     if (e) entries.push(e);
   }
   if (entries.length) await s.runner.putArchive(s.containerId, parent, writeTar([{ path: base, type: 'dir' }, ...entries], WWW_DATA));
@@ -125,16 +138,19 @@ const ROOT = '/var/www/html';
 const checkRoot = (t: string) => { if (t !== ROOT) throw new Error('Ungültiges Zielverzeichnis im Container.'); };
 const lstatOr = (p: string) => { try { return fs.lstatSync(p); } catch { return null; } };
 
-/** What a project syncs right now: the plugin and app folders (units) and the single files (config, src/), relative paths, sorted */
+/** What a project syncs right now: the plugin and app folders (units) and the single files (config, src/), relative paths, sorted.
+ *  Folders the repository has as symlinks (custom/plugins -> /root/.config, src -> /home …) are never read: every path component
+ *  from the worktree down must be a real directory; units and folders below are taken only as real directories (lstat). */
 export function projectContent(worktree: string): { units: string[]; files: string[] } {
   const units: string[] = [], files: string[] = [];
   for (const base of ['custom/plugins', 'custom/static-plugins', 'custom/apps']) {
     let names: fs.Dirent[] = [];
-    try { names = fs.readdirSync(path.join(worktree, base), { withFileTypes: true }); } catch { /* none */ }
+    if (realDir(worktree, base)) try { names = fs.readdirSync(path.join(worktree, base), { withFileTypes: true }); } catch { /* none */ }
     for (const d of names.sort((a, b) => a.name.localeCompare(b.name))) { const r = `${base}/${d.name}`; if (d.isDirectory() && projectSyncPath(`${r}/x`)?.kind === 'unit') units.push(r); }
   }
   const walk = (rel: string) => {
     let names: fs.Dirent[] = [];
+    if (!realDir(worktree, rel)) return;
     try { names = fs.readdirSync(path.join(worktree, rel), { withFileTypes: true }); } catch { return; }
     for (const d of names.sort((a, b) => a.name.localeCompare(b.name))) {
       const r = `${rel}/${d.name}`;
@@ -145,7 +161,7 @@ export function projectContent(worktree: string): { units: string[]; files: stri
     }
   };
   walk('config/packages'); walk('src');
-  try { for (const n of fs.readdirSync(path.join(worktree, 'config')).sort()) { const r = `config/${n}`; if (projectSyncPath(r)?.kind === 'file' && lstatOr(path.join(worktree, r))?.isFile()) files.push(r); } } catch { /* no config/ */ }
+  if (realDir(worktree, 'config')) try { for (const n of fs.readdirSync(path.join(worktree, 'config')).sort()) { const r = `config/${n}`; if (projectSyncPath(r)?.kind === 'file' && lstatOr(path.join(worktree, r))?.isFile()) files.push(r); } } catch { /* no config/ */ }
   return { units, files };
 }
 
@@ -154,21 +170,40 @@ const parents = (rel: string, seen: Set<string>, out: TarEntry[]) => {
   const segs = rel.split('/');
   for (let i = 1; i < segs.length; i++) { const d = segs.slice(0, i).join('/'); if (!seen.has(d)) { seen.add(d); out.push({ path: d, type: 'dir' }); } }
 };
-const rmAll = async (s: SyncTarget, rels: string[]) => {
-  for (let i = 0; i < rels.length; i += 200) {
-    const r = await s.runner.exec(s.containerId, ['rm', '-rf', '--', ...rels.slice(i, i + 200).map(x => `${ROOT}/${x}`)], { user: s.user, timeoutMs: 120_000, signal: s.signal });
+/** Where the first project sync keeps the image's own config/ and src/ (a project file of the same name overwrites them) */
+export const IMAGE_BACKUP = 'var/lotse-image';
+/** Removes paths of the shop's root (arguments, relative, checked by projectSyncPath) and puts the image's own version back where it
+ *  had one – a quarantined or deleted project file must not take the image's file (e.g. config/packages/lock.yaml) with it. The first
+ *  call keeps the image's config/ and src/ in IMAGE_BACKUP (before any project file is written). Constant script, run in /var/www/html. */
+export const RESTORE_SH = `B=${IMAGE_BACKUP}
+if [ ! -e "$B/.complete" ]; then rm -rf "$B" && mkdir -p "$B" || exit 1; for d in config src; do if [ -e "$d" ]; then cp -a "$d" "$B/" || exit 1; fi; done; touch "$B/.complete" || exit 1; fi
+s=0
+for r in "$@"; do
+  rm -rf -- "$r" || s=1
+  if [ -e "$B/$r" ]; then mkdir -p -- "$(dirname -- "$r")" && cp -a -- "$B/$r" "$r" || s=1; fi
+done
+exit $s`;
+const restoreAll = async (s: SyncTarget, rels: string[]) => {
+  for (let i = 0; i === 0 || i < rels.length; i += 200) {
+    const r = await s.runner.exec(s.containerId, ['bash', '-c', RESTORE_SH, 'lotse-restore', ...rels.slice(i, i + 200)], { user: s.user, workdir: ROOT, timeoutMs: 120_000, signal: s.signal });
     if (r.exitCode !== 0) throw new Error(`Löschen im Container fehlgeschlagen: ${r.output.trim().slice(-200)}`);
   }
 };
+/** Size limit of one config file Lotse reads to check it */
+const CONFIG_MAX = 1024 * 1024;
 
 /** The project's YAML config, parsed by the container's Symfony (staged below /tmp, never loaded by Shopware), planned (project.ts).
  *  null = the container was not asked yet (setup before the probe): no config file is synced then. */
 async function planProjectConfig(s: SyncTarget): Promise<{ plan: ConfigPlan; yaml: string[] } | null> {
   const rt = s.project?.runtime;
   if (!rt) return null;
-  const yaml = projectContent(s.worktree).files.filter(isProjectConfig).filter(r => lstatOr(path.join(s.worktree, r))?.isFile());
+  const content = projectContent(s.worktree);
+  const sized = (r: string) => { const st = lstatOr(path.join(s.worktree, r)); return !!st?.isFile() && st.size <= CONFIG_MAX; };
+  const yaml = content.files.filter(isProjectConfig).filter(sized);
   const raw: Record<string, string> = {};
   for (const r of yaml) raw[r] = fs.readFileSync(path.join(s.worktree, r), 'utf8');
+  // too large to check: not loaded either
+  const tooLarge = content.files.filter(r => isProjectConfig(r) && !yaml.includes(r));
   let parsed = {};
   if (yaml.length) {
     const seen = new Set<string>(), entries: TarEntry[] = [{ path: 'lotse-config', type: 'dir' }];
@@ -181,7 +216,8 @@ async function planProjectConfig(s: SyncTarget): Promise<{ plan: ConfigPlan; yam
       parsed = parseConfigOutput(r.output);
     } finally { await s.runner.exec(s.containerId, ['rm', '-rf', '--', CONFIG_STAGE], { user: s.user, timeoutMs: 30_000 }).catch(() => {}); }
   }
-  return { plan: planConfig(parsed, raw, rt, s.project?.held ?? {}), yaml };
+  for (const r of tooLarge) parsed = { ...parsed, [r]: { error: `größer als ${CONFIG_MAX / 1024 / 1024} MB` } };
+  return { plan: planConfig(parsed, raw, rt, s.project?.held ?? {}, content.files.filter(isUncheckedConfig)), yaml };
 }
 /** Lotse's own files written with every project sync: the sandbox override and the list of what was synced */
 function lotseFiles(s: SyncTarget, plan: ConfigPlan | null, content: { units: string[]; files: string[] }, seen: Set<string>, out: TarEntry[]) {
@@ -205,20 +241,18 @@ export async function syncProjectAll(s: SyncTarget): Promise<{ files: number; by
   const old = await s.runner.exec(s.containerId, ['cat', `${ROOT}/${SYNC_MANIFEST}`], { user: s.user, timeoutMs: 30_000, signal: s.signal }).catch(() => ({ exitCode: 1, output: '' }));
   const now = new Set([...content.units, ...content.files.filter(f => syncedFile(s, plan, f))]);
   const stale = old.exitCode === 0 ? old.output.split('\n').map(l => /^[uf] (.+)$/.exec(l.trim())?.[1]).filter((r): r is string => !!r && !!projectSyncPath(r) && !now.has(r)) : [];
-  // units first: a mirror; quarantined files: Shopware must not load them (synced before, or the image's own file of that name)
-  await rmAll(s, [...content.units, ...stale, ...(plan ? [...plan.quarantine.keys()] : [])]);
-  const seen = new Set<string>(), entries: TarEntry[] = [];
-  let bytes = 0;
-  for (const u of content.units) { parents(`${u}/x`, seen, entries); for (const e of collectAll(path.join(s.worktree, u), u)) { entries.push(e); bytes += e.data?.length ?? 0; } }
+  // read (within one budget for everything) before anything in the container is removed
+  const seen = new Set<string>(), entries: TarEntry[] = [], b = syncBudget();
+  for (const u of content.units) { parents(`${u}/x`, seen, entries); entries.push(...collectAll(path.join(s.worktree, u), u, b)); }
   for (const f of content.files) {
     if (!syncedFile(s, plan, f)) continue;
-    const e = entryFor(s.worktree, f, '.');
+    const e = entryFor(s.worktree, f, '.', b);
     if (!e || e.type === 'dir') continue;
-    parents(f, seen, entries); entries.push({ ...e, path: f }); bytes += e.data?.length ?? 0;
-    if (entries.length > MAX_FILES) throw new Error(`Zu viele Dateien im Repository (mehr als ${MAX_FILES}).`);
-    if (bytes > MAX_BYTES) throw new Error(`Repository zu groß für die Sandbox (mehr als ${MAX_BYTES / 1024 / 1024} MB).`);
+    parents(f, seen, entries); entries.push({ ...e, path: f });
   }
   lotseFiles(s, plan, content, seen, entries);
+  // units: a mirror; quarantined files: Shopware must not load them (synced before); the image's own file of that name comes back
+  await restoreAll(s, [...content.units, ...stale, ...(plan ? [...plan.quarantine.keys()] : [])]);
   const tar = writeTar(entries, WWW_DATA);
   await s.runner.putArchive(s.containerId, ROOT, tar);
   return { files: entries.filter(e => e.type === 'file').length, bytes: tar.length, config: plan };
@@ -231,22 +265,44 @@ export async function syncProjectPaths(s: SyncTarget, rels: string[]): Promise<{
   const guarded = rels.map(guardRel).filter(r => projectSyncPath(r) || (lstatOr(path.join(s.worktree, r))?.isDirectory() && /^(custom\/(plugins|static-plugins|apps)\/[^/]+|src|config\/packages)(\/|$)/.test(r)));
   if (!guarded.length) return { put: 0, removed: 0, config: null };
   const planned = guarded.some(r => r.startsWith('config/')) ? await planProjectConfig(s) : null, plan = planned?.plan ?? null;
-  const seen = new Set<string>(), entries: TarEntry[] = [], gone: string[] = [];
+  const seen = new Set<string>(), entries: TarEntry[] = [], gone: string[] = [], b = syncBudget();
   for (const rel of guarded) {
     const abs = path.join(s.worktree, rel);
     if (!inside(path.resolve(abs), path.resolve(s.worktree))) throw new Error('Pfad außerhalb des Arbeitsordners.');
-    if (!fs.existsSync(abs) && !isLink(abs)) { gone.push(rel); continue; }
+    // below a symlinked folder (or gone): nothing to read, the container's copy goes
+    if (!realDir(s.worktree, path.posix.dirname(rel)) || (!fs.existsSync(abs) && !isLink(abs))) { gone.push(rel); continue; }
     if (plan?.quarantine.has(rel) || (!s.project?.runtime && rel.startsWith('config/'))) continue;
-    const e = entryFor(s.worktree, rel, '.');
+    const e = entryFor(s.worktree, rel, '.', b);
     if (!e) continue;
     parents(rel, seen, entries);
-    if (e.type === 'dir') { for (const x of collectAll(abs, rel)) if (x.type !== 'file' || projectSyncPath(x.path)) entries.push(x); continue; }
+    if (e.type === 'dir') { for (const x of collectAll(abs, rel, b)) if (x.type !== 'file' || projectSyncPath(x.path)) entries.push(x); continue; }
     entries.push({ ...e, path: rel });
   }
   lotseFiles(s, plan, projectContent(s.worktree), seen, entries);
-  await s.runner.putArchive(s.containerId, ROOT, writeTar(entries, WWW_DATA));
-  // a changed file that is quarantined now: its earlier version must not stay loaded
+  // a changed file that is quarantined now: its earlier version must not stay loaded (removed first: the override may have its name)
   const remove = [...gone, ...(plan ? [...plan.quarantine.keys()].filter(f => guarded.includes(f)) : [])];
-  if (remove.length) await rmAll(s, remove);
-  return { put: entries.filter(e => e.type !== 'dir' && e.path !== SYNC_MANIFEST && !e.path.endsWith('/zz_lotse_sandbox.yaml')).length, removed: gone.length, config: plan };
+  if (remove.length) await restoreAll(s, remove);
+  await s.runner.putArchive(s.containerId, ROOT, writeTar(entries, WWW_DATA));
+  const own = s.project?.runtime ? overrideFile(s.project.runtime.appEnv) : null;
+  return { put: entries.filter(e => e.type !== 'dir' && e.path !== SYNC_MANIFEST && e.path !== own).length, removed: gone.length, config: plan };
+}
+
+/** A fingerprint of what a full project sync would transfer (paths, sizes, modes, modification times – nothing is read): unchanged
+ *  means the container already has it, so sandbox_bash can skip the full mirror. Within the same limits as the sync. */
+export function projectStamp(worktree: string): string {
+  const h = createHash('sha256'), b = syncBudget(), content = projectContent(worktree);
+  const add = (rel: string) => { const st = lstatOr(path.join(worktree, rel)); h.update(`${rel}\0${st ? `${st.mode}:${st.size}:${st.mtimeMs}` : '-'}\n`); charge(b, 0); };
+  const walk = (unit: string, dir: string) => {
+    let names: fs.Dirent[] = [];
+    try { names = fs.readdirSync(path.join(worktree, unit, dir), { withFileTypes: true }); } catch { return; }
+    for (const d of names.sort((x, y) => x.name.localeCompare(y.name))) {
+      const rel = dir ? `${dir}/${d.name}` : d.name;
+      if (isExcluded(rel)) continue;
+      add(`${unit}/${rel}`);
+      if (d.isDirectory()) walk(unit, rel);
+    }
+  };
+  for (const u of content.units) { add(u); walk(u, ''); }
+  for (const f of content.files) add(f);
+  return h.digest('hex');
 }

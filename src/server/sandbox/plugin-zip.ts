@@ -14,7 +14,7 @@ import type { PluginZipCheck, PluginZipProblem, PluginZipWarning } from '@/lib/p
 import { PLUGIN_NAME } from '@/lib/sandbox-task';
 import { scanSecrets } from '../settings';
 import { zipStream, type ZipEntry } from '../zip-write';
-import { detectProject } from './project';
+import { detectProject, realDir } from './project';
 import { secretIn } from './publish';
 import { taskPaths, type CodeTask } from './tasks';
 import { isBinary, isDenied } from './workspace-fs';
@@ -83,13 +83,14 @@ export function zipChoices(t: CodeTask): { dir: string; name: string }[] | null 
   if (t.layout?.kind !== 'project') return null;
   return detectProject(taskPaths(t.id).worktree).plugins.map(p => ({ dir: p.dir, name: p.name }));
 }
-/** The folder the ZIP is built from: the repository, or (a project) the chosen plugin's folder – the first one when none is chosen.
- *  Throws for a folder that is not one of the project's plugins. */
+/** The folder the ZIP is built from: the repository, or (a project) the chosen plugin's folder – the first one when none is chosen;
+ *  only a real folder of the worktree (detectProject never follows symlinked folders). Throws for a folder that is not one of the
+ *  project's plugins (the route answers that in the user's language before). */
 function zipRoot(t: CodeTask, plugin?: string | null): { root: string; choices: { dir: string; name: string }[] | null; plugin?: string } {
   const wt = taskPaths(t.id).worktree, choices = zipChoices(t);
   if (!choices) return { root: wt, choices: null };
-  const pick = plugin ? choices.find(c => c.dir === plugin) : choices[0];
-  if (plugin && !pick) throw Object.assign(new Error('Dieses Plugin gibt es im Projekt nicht.'), { status: 400 });
+  const pick = plugin ? choices.find(c => c.dir === plugin && realDir(wt, c.dir)) : choices.find(c => realDir(wt, c.dir));
+  if (plugin && !pick) throw Object.assign(new Error('Unknown plugin folder.'), { status: 400 });
   return { root: pick ? path.join(wt, pick.dir) : path.join(wt, 'custom', 'plugins', '.none'), choices, ...(pick ? { plugin: pick.dir } : {}) };
 }
 
