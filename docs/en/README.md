@@ -13,7 +13,7 @@
 
 Code tasks in a development environment with git and a test shop of its own (Docker), in which Claude Code or Codex work. Where to find what:
 
-- **Using it:** [A sandbox in the chat](user-guide.md#sandbox-coding-a-sandbox-in-the-chat) (tabs, data, console, working with the AI, submitting for review), [Start sandbox: every case](user-guide.md#start-sandbox-every-case) (plugin, new plugin, whole project, own setup, without a project, `.lotse/sandbox.json`, notes for the AI), [Whole Shopware project](user-guide.md#whole-shopware-project), [Without a developer: build your own plugin](user-guide.md#without-a-developer-build-your-own-plugin)
+- **Using it:** [A sandbox in the chat](user-guide.md#sandbox-coding-a-sandbox-in-the-chat) (tabs, data, console, working with the AI, submitting for review), [Start sandbox: every case](user-guide.md#start-sandbox-every-case) (plugin, new plugin, whole project, own setup, without a project, `.lotse/sandbox.json`, notes for the AI), [Quick starts](user-guide.md#quick-starts-saved-setups), [Whole Shopware project](user-guide.md#whole-shopware-project), [Without a developer: build your own plugin](user-guide.md#without-a-developer-build-your-own-plugin)
 - **Running it:** [Enable Sandbox Coding](self-hosting.md#enable-sandbox-coding) (Docker, networks, variables, setup steps, dumps)
 - **Understanding and reviewing it:** [Chats with a sandbox](architecture.md#chats-with-a-sandbox-sandbox-coding) (tools, console, publishing, every case), [`SECURITY.en.md`](../../SECURITY.en.md) (security model)
 

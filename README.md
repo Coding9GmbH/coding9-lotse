@@ -146,6 +146,7 @@ Für Code statt Shop-Daten: Eine Sandbox ist eine **Entwicklungsumgebung mit Git
 
 - **Fälle:** bestehendes Plugin oder Theme, neues Plugin (auch in einem neu angelegten GitHub-Projekt), ganzes Shopware-Projekt (Aufbau wie `shopware/production`), eigenes Setup (Zielordner und Befehle legst du fest) oder ganz ohne Projekt mit lokalem Git. Ein Repository kann seine Einrichtung in `.lotse/sandbox.json` beschreiben; Befehle daraus laufen erst nach deiner Freigabe.
 - **Daten:** Demo-Daten, eine gespeicherte Datenbank (weitere Sandboxes starten per Snapshot ohne Import) oder ein hochgeladener, bereinigter Dump.
+- **Schnellstarts:** ein Setup einmal speichern, danach mit einem Klick neben „Sandbox starten“ wieder starten (vorher geprüft, ohne geheime Werte).
 - **Konsole:** eine eigene Shell im Container (`bin/console`, Logs, Composer) – nur für Menschen, nicht für die KI.
 - **Veröffentlichen:** nur per Klick, als Pull Request auf einen eigenen Branch `lotse/…` oder als Plugin-ZIP zum Hochladen in den Shop. Rückmeldungen zum Pull Request gibst du mit einem Klick an die KI weiter.
 - **Voraussetzungen:** standardmäßig aus (Einstellungen → Sandbox). Braucht Docker-Zugriff – das ist Root-Zugriff auf den Host – und auf einem Server `LOTSE_PASSWORD`. Die Container sind offline, Internet gibt es nur nach Freigabe.
