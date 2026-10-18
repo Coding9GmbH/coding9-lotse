@@ -39,6 +39,9 @@ export interface TtySession {
   /** raw input (keystrokes, pasted text) */
   write(data: string | Buffer): void;
   resize(cols: number, rows: number): Promise<void>;
+  /** flow control: stop reading the output (the shell blocks once the buffers are full), and read again */
+  pause(): void;
+  resume(): void;
   /** drops the connection; the shell in the container may keep running (console.ts ends it with its own exec) */
   close(): void;
   /** raw terminal output (one TTY stream, not multiplexed); chunks that arrived before the first listener are delivered to it */

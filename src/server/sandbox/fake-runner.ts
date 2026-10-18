@@ -16,7 +16,8 @@ type ExecScript = (argv: readonly string[], id: string) => Partial<ExecResult> |
 export { readTar, readTarEntries, type TarRecord } from './tar';
 
 /** A console in the fake: a line-editing echo shell that knows a few commands (enough for tests and e2e, see FakeRunner.openTty). */
-export interface FakeTty { containerId: string; argv: string[]; opts: TtyOpts; cols: number; rows: number; alive: boolean; input: string; end: () => void }
+export interface FakeTty { containerId: string; argv: string[]; opts: TtyOpts; cols: number; rows: number; alive: boolean; input: string; end: () => void;
+  /** flow control (TtySession.pause): output waits in `held` until resume */ paused?: boolean; held?: Buffer[] }
 const FAKE_PLUGINS = `Shopware Plugin Service
 =======================
 
@@ -28,15 +29,19 @@ const FAKE_PLUGINS = `Shopware Plugin Service
 
  1 plugins, 1 installed, 1 active , 0 upgradeable
 `;
+/** The user the shell runs as: a root wrapper that drops privileges (templates: console.start, setpriv) names it in its script. */
+const shellUser = (t: FakeTty) => (t.opts.user === 'root' && /setpriv\b/.test(t.argv.join(' ')) && /\bid -u (\w+)/.exec(t.argv.join(' '))?.[1]) || t.opts.user;
 function fakeShell(t: FakeTty, line: string): string | null {
   const cmd = line.trim();
   if (cmd === 'exit' || cmd === 'logout') return null;
   if (!cmd) return '';
-  if (cmd === 'whoami') return `${t.opts.user === 'dockware' ? 'www-data' : t.opts.user}\r\n`;
+  if (cmd === 'whoami') return `${shellUser(t) === 'dockware' ? 'www-data' : shellUser(t)}\r\n`;
   if (cmd === 'pwd') return `${t.opts.workdir}\r\n`;
   if (cmd === 'stty size') return `${t.rows} ${t.cols}\r\n`;
   if (cmd === 'sudo -n true') return '';
   if (/^(bin\/console|php bin\/console) plugin:list\b/.test(cmd)) return FAKE_PLUGINS.replace(/\n/g, '\r\n');
+  const yes = /^yes \| head -c (\d+)$/.exec(cmd); // a lot of output (flow control)
+  if (yes) return 'y\r\n'.repeat(Math.ceil(Math.min(Number(yes[1]), 8 << 20) / 3));
   if (cmd.startsWith('echo ')) return `${cmd.slice(5)}\r\n`;
   if (/^printf '\\e\[3[0-7]m/.test(cmd)) return '\x1b[32mgrün\x1b[0m\r\n';
   return `\x1b[2m(fake) ${cmd}\x1b[0m\r\n`;
@@ -200,10 +205,11 @@ export class FakeRunner implements SandboxRunner {
     if ((argv[0] === 'bin/console' && argv[1] === 'theme:compile') || (argv[0] === 'bash' && /\btheme:compile\b/.test(argv.at(-1) ?? ''))) {
       c.compiled = [...c.files].filter(([k]) => k.startsWith(PLUGINS) && /\/Resources\/views\/storefront\/.+\.html\.twig$/.test(k)).sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => renderTwig(v.toString('utf8')));
     }
-    // the console's stop command names the pid file the shell wrapper wrote (templates: console.stop); the "all" variant ends every one
-    const all = argv.join(' ').includes('.lotse-console-*.pid');
+    // the console's stop command names the session id its shell wrapper got (templates: console.start/stop); the "all" variant
+    // (a loop over every pid file) ends every one
+    const all = /for f in \S*\*\.pid/.test(argv.join(' '));
     let ended = 0;
-    for (const t of this.ttys) if (t.alive && t.containerId === id && (all || argv.some(a => /\.lotse-console-[a-f0-9]+\.pid$/.test(a) && t.argv.includes(a)))) { t.end(); ended++; }
+    for (const t of this.ttys) if (t.alive && t.containerId === id && (all || argv.some(a => /^[a-f0-9]{24}$/.test(a) && t.argv.includes(a)))) { t.end(); ended++; }
     if (all) return { exitCode: 0, output: `${ended}\n`, truncated: false };
     if (argv[0] === 'rm' && argv[argv.length - 2] === '--') { const target = argv[argv.length - 1]; for (const k of [...c.files.keys()]) if (k === target || k.startsWith(`${target}/`)) c.files.delete(k); }
     const r = this.script(argv, id) ?? dockwareAnswers(argv) ?? {};
@@ -216,10 +222,10 @@ export class FakeRunner implements SandboxRunner {
     if (!c.running) throw new Error('Container läuft nicht.');
     const data: ((b: Buffer) => void)[] = [], ends: (() => void)[] = [];
     let early: Buffer[] | null = [];
-    const emit = (text: string) => { if (!t.alive || !text) return; const b = Buffer.from(text); if (early) early.push(b); else for (const fn of data) fn(b); };
+    const emit = (text: string) => { if (!t.alive || !text) return; const b = Buffer.from(text); if (early) early.push(b); else if (t.paused) (t.held ??= []).push(b); else for (const fn of data) fn(b); };
     const t: FakeTty = { containerId: c.id, argv: [...argv], opts: o, cols: o.cols, rows: o.rows, alive: true, input: '', end: () => { if (!t.alive) return; t.alive = false; for (const fn of ends) fn(); } };
     this.ttys.push(t);
-    const prompt = () => emit(`\x1b[32m${o.user === 'dockware' ? 'www-data' : o.user}@sandbox\x1b[0m:\x1b[34m${o.workdir.replace('/var/www', '~')}\x1b[0m$ `);
+    const prompt = () => emit(`\x1b[32m${shellUser(t) === 'dockware' ? 'www-data' : shellUser(t)}@sandbox\x1b[0m:\x1b[34m${o.workdir.replace('/var/www', '~')}\x1b[0m$ `);
     let line = '';
     prompt();
     return {
@@ -236,6 +242,8 @@ export class FakeRunner implements SandboxRunner {
         }
       },
       resize: async (cols, rows) => { this.calls.push({ op: 'ttyResize', id, detail: { cols, rows } }); t.cols = cols; t.rows = rows; },
+      pause: () => { t.paused = true; },
+      resume: () => { t.paused = false; const b = t.held ?? []; t.held = []; for (const x of b) for (const fn of data) fn(x); },
       close: () => t.end(),
       onData: fn => { data.push(fn); if (early) { const b = early; early = null; for (const x of b) fn(x); } },
       onEnd: fn => { if (!t.alive) fn(); else ends.push(fn); },

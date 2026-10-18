@@ -195,13 +195,19 @@ function ConsoleTerm({ taskId, sid, label, visible, onEnd, typer }: {
         try {
           const r = await listenConsole(taskId, sid, next, ac.signal);
           if (r.status === 404 || r.status === 403) { done = true; ends.current('gone'); return; }
+          if (r.status === 409) { setNote(words.current.busy); await new Promise(res => setTimeout(res, 5000)); continue; }
           if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
           setNote(null); wait = 500; sendSize();
           const reader = r.body.getReader();
           const split = createLineSplitter(line => {
             let ev: ConsoleEvent;
             try { ev = JSON.parse(line) as ConsoleEvent; } catch { return; }
-            if (ev.t === 'out') { if (ev.seq < next) return; next = ev.seq + 1; term?.write(bytes(ev.data)); return; }
+            if (ev.t === 'out') {
+              if (ev.seq < next) return;
+              // dropped for falling behind (a flood of output, a slow connection): the server kept only the end
+              if (next > 0 && ev.seq > next) term?.write(`\r\n\x1b[2m[${words.current.skipped}]\x1b[0m\r\n`);
+              next = ev.seq + 1; term?.write(bytes(ev.data)); return;
+            }
             done = true;
             term?.write(`\r\n\x1b[2m[${words.current.ended[ev.reason]}]\x1b[0m\r\n`);
             ends.current(ev.reason);

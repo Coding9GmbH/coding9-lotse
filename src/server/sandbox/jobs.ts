@@ -18,7 +18,7 @@ import { chatExists, noteChatEvent } from '../sessions';
 import { redact } from '../settings';
 import { singleton } from '../state';
 import { errMsg, pool } from '../util';
-import { closeAllConsoles, closeTaskConsoles } from './console';
+import { closeAllConsoles, closeTaskConsoles, endConsoleShells } from './console';
 import { assertAttachable, deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
 import { getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
 import { revokeInternet, type RevokeReason } from './internet';
@@ -116,7 +116,8 @@ async function stopContainer(t: CodeTask, why: RevokeReason = 'pause') {
     // services first (the template's clean shutdown, e.g. MySQL), then docker stop with the template's grace period; a failure only costs time
     const g = getTemplate(t.template).gracefulStop;
     if (g) await getRunner().exec(t.containerId, g.argv, { user: g.user, workdir: '/', timeoutMs: g.timeoutMs }).catch(e => log.warn('Dienste im Container nicht sauber beendet', { task: t.id, error: e }));
-    await getRunner().stop(t.containerId, g?.stopTimeoutSec);
+    // a failed stop leaves the container running: the console shells closed above (without ending them) must not run on unheld
+    await getRunner().stop(t.containerId, g?.stopTimeoutSec).catch(async (e: unknown) => { await endConsoleShells(t.id); throw e; });
     forgetUpstream(t.containerId);
     const fresh = getTask(t.id);
     if (fresh) { fresh.containerRunning = false; saveTask(fresh, false); }

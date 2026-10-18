@@ -312,6 +312,8 @@ export class DockerEngine implements SandboxRunner {
     return {
       write: d => { if (!ended) sock.write(d); },
       resize,
+      pause: () => { sock.pause(); },
+      resume: () => { if (!ended) sock.resume(); },
       close: () => { sock.destroy(); end(); },
       onData: fn => { data.push(fn); if (early) { const b = early; early = null; for (const c of b) fn(c); } },
       onEnd: fn => { if (ended) fn(); else ends.push(fn); },

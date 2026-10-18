@@ -235,17 +235,38 @@ export function buildSpec(o: SpecInput): ContainerSpec {
 }
 
 /** Console shells as the image's own user "dockware" (uid 33 like www-data, so files keep their owner; member of sudo, so sudo works as
- *  in a normal Dockware shell – www-data cannot sudo). A login shell in the shop root. The wrapper records the shell's pid: with a TTY
- *  Docker starts it as a session leader, so the pid is the session id that stop ends (HUP first, then KILL for what ignores it).
- *  The pid file is checked for a plain number above 1 (the shell's user can write it). */
-const CONSOLE_STOP = 'p=$(cat "$1" 2>/dev/null); rm -f "$1"; case "$p" in ""|*[!0-9]*|0|1) exit 0;; esac; pkill -HUP -s "$p"; sleep 1; pkill -KILL -s "$p"; exit 0';
-const CONSOLE_STOP_ALL = 'n=0; for f in /tmp/.lotse-console-*.pid; do [ -f "$f" ] || continue; p=$(cat "$f" 2>/dev/null); rm -f "$f"; case "$p" in ""|*[!0-9]*|0|1) continue;; esac; pkill -KILL -s "$p" && n=$((n+1)); done; echo "$n"; exit 0';
+ *  in a normal Dockware shell – www-data cannot sudo). The AI's execs share uid 33, so the shell must not read anything uid 33 can write
+ *  on its own: the wrapper starts as root, writes the rc file and the pid file into a root-owned directory, then drops to dockware
+ *  (setpriv, no fork: the pid stays the session leader of the TTY) and starts an interactive bash without profile, ~/.bashrc,
+ *  ~/.inputrc, history file and BASH_ENV, with the system-wide files only; nvm (in /var/www) loads when it is typed.
+ *  The pid file holds pid and start time: stop only ends that very session (HUP first, then KILL for what ignores it, also sudo jobs). */
+export const CONSOLE_DIR = '/run/lotse-console';
+const CONSOLE_RC = [
+  '# Lotse console: written by root on every start; the shell reads no file the sandbox user (uid 33) can change',
+  '# /etc/bash.bashrc ran already (Debian bash reads it for every interactive shell); /etc/profile adds the image environment',
+  'p1=$PS1; PS1=; [ -r /etc/profile ] && . /etc/profile; PS1=$p1; unset p1',
+  '# the image points BASH_ENV at /var/www/.bashrc, which uid 33 can write: no script the user starts here sources it',
+  'unset BASH_ENV HISTFILE',
+  'nvm() { unset -f nvm; . /var/www/.nvm/nvm.sh && nvm "$@"; }',
+].join('\n');
+const CONSOLE_START = [
+  `set -eu; s=$1; d=${CONSOLE_DIR}`,
+  '[ -d "$d" ] || mkdir -m 755 "$d"; [ "$(stat -c %u "$d")" = 0 ]; umask 022',
+  'printf \'%s\\n\' "$2" > "$d/bashrc"',
+  'st=$(cat /proc/$$/stat); set -- ${st##*) }; echo "$$ ${20}" > "$d/$s.pid"',
+  'u=$(id -u dockware); g=$(id -g dockware); gs=$(id -G dockware | tr " " ,)',
+  'exec env -u BASH_ENV -u ENV HOME=/var/www USER=dockware LOGNAME=dockware SHELL=/bin/bash INPUTRC=/etc/inputrc setpriv --reuid="$u" --regid="$g" --groups="$gs" bash --noprofile --rcfile "$d/bashrc" -i',
+].join('\n');
+/** `leader <pid file>`: removes the file; true (and $p set) if the recorded process still runs with the recorded start time */
+const LEADER = 'leader() { p=; t=; read -r p t < "$1" || :; rm -f "$1"; case "$p" in ""|*[!0-9]*|0|1) return 1;; esac; st=$(cat "/proc/$p/stat" 2>/dev/null) || return 1; set -- ${st##*) }; [ "${20}" = "$t" ]; }';
+const CONSOLE_STOP = `${LEADER}; f=${CONSOLE_DIR}/$1.pid; [ -f "$f" ] && leader "$f" || exit 0; pkill -HUP -s "$p"; sleep 1; pkill -KILL -s "$p"; exit 0`;
+const CONSOLE_STOP_ALL = `${LEADER}; n=0; for f in ${CONSOLE_DIR}/*.pid; do [ -f "$f" ] && leader "$f" || continue; pkill -KILL -s "$p" && n=$((n+1)); done; echo "$n"; exit 0`;
 export const CONSOLE: ConsoleSpec = {
   user: 'dockware',
   workdir: '/var/www/html',
   env: ['TERM=xterm-256color', 'COLORTERM=truecolor', 'LANG=C.UTF-8'],
-  shell: pidFile => ['bash', '-c', 'echo $$ > "$0" && exec bash -l', pidFile],
-  stop: pidFile => ({ argv: ['sh', '-c', CONSOLE_STOP, 'sh', pidFile], user: 'root' }),
+  start: sid => ({ argv: ['sh', '-c', CONSOLE_START, 'sh', sid, CONSOLE_RC], user: 'root' }),
+  stop: sid => ({ argv: ['sh', '-c', CONSOLE_STOP, 'sh', sid], user: 'root' }),
   stopAll: { argv: ['sh', '-c', CONSOLE_STOP_ALL], user: 'root' },
 };
 

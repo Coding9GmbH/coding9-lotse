@@ -503,6 +503,8 @@ export const de = {
     keys: 'Kopieren: Text markieren und Strg+Umschalt+C (Mac: ⌘C) · Einfügen: Strg+Umschalt+V (Mac: ⌘V) · Strg+C bricht einen Befehl ab',
     idle: (min: number) => `Ohne Eingabe schließt Lotse eine Konsole nach ${min} Minuten.`,
     reconnecting: 'Verbindung unterbrochen – verbinde neu …',
+    busy: 'Diese Konsole ist schon in zwei anderen Fenstern offen – schließe eines davon, dann verbindet sie sich hier.',
+    skipped: 'Zu viel Ausgabe – ein Teil wurde übersprungen',
     failed: (e: string) => `Konsole nicht geöffnet: ${e}`,
     ended: {
       user: 'Konsole geschlossen.',
@@ -832,6 +834,8 @@ export const en: typeof de = {
     keys: 'Copy: select text and press Ctrl+Shift+C (Mac: ⌘C) · Paste: Ctrl+Shift+V (Mac: ⌘V) · Ctrl+C stops a command',
     idle: min => `Without input Lotse closes a console after ${min} minutes.`,
     reconnecting: 'Connection lost – reconnecting …',
+    busy: 'This console is already open in two other windows – close one of them and it connects here.',
+    skipped: 'Too much output – part of it was skipped',
     failed: e => `Console not opened: ${e}`,
     ended: {
       user: 'Console closed.',
