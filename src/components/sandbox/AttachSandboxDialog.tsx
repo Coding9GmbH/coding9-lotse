@@ -147,7 +147,8 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
   const detected = probed?.detected ?? null;
   const file = probed?.repoFile && !('error' in probed.repoFile) ? probed.repoFile : null;
   const fileError = probed?.repoFile && 'error' in probed.repoFile ? probed.repoFile.error : null;
-  // an own setup: chosen in step 1, by "ändern", by the repository file, or forced because Lotse does not know the layout
+  // an own setup: chosen in step 1, by "ändern", by the repository file (then there is no "ändern": the file decided), or forced because
+  // Lotse does not know the layout
   const ownSetup = kind === 'custom' || (kind === 'existing' && (custom || file?.mode === 'custom' || detected?.kind === 'unknown'));
   const newPlugin = kind === 'none' || (kind !== 'custom' && !ownSetup && probed?.empty === true);
   // a typed target survives; otherwise the repository file's or /opt/<name>
@@ -188,8 +189,9 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
       ...(form.title.trim() ? { title: form.title.trim() } : {}), ...(dumpId ? { dumpId } : {}), ...(newPlugin ? { pluginName: pluginName.trim() } : {}),
       ...(kind === 'none' ? { source: 'none' as const } : {}),
       ...(ownSetup ? { mode: 'custom' as const, targetPath: targetValue } : {}),
-      ...(commands.length ? { commands: commands.map(c => ({ label: c.label.trim(), command: c.command.trim(), phase: c.phase })) } : {}),
-      ...(vars.length ? { env: vars.map(v => ({ key: v.key.trim(), value: v.value })) } : {}),
+      // own commands and variables only where "Erweitert" shows them (not for a sandbox without a project)
+      ...(usesRepo && commands.length ? { commands: commands.map(c => ({ label: c.label.trim(), command: c.command.trim(), phase: c.phase })) } : {}),
+      ...(usesRepo && vars.length ? { env: vars.map(v => ({ key: v.key.trim(), value: v.value })) } : {}),
       ...(file && fileState === 'skipped' ? { skipRepoHash: file.hash } : {}),
     };
     try {
@@ -311,13 +313,13 @@ export function AttachSandboxDialog({ open, onClose, chatId, initial, onCreated,
             ? <p className={styles.chip} data-tone={detected.kind === 'unknown' || (kind === 'new' && !probed.empty) ? 'warn' : undefined} role="status">
               {ownSetup && detected.kind !== 'unknown' ? ts.detected.custom : detectedText()}
               {file?.mode === 'custom' && !custom && <small>{ts.detected.file}</small>}
-              {kind === 'existing' && detected.kind !== 'unknown' && <button type="button" aria-expanded={modeOpen} onClick={() => setModeOpen(o => !o)}>{ts.change}</button>}
+              {kind === 'existing' && detected.kind !== 'unknown' && file?.mode !== 'custom' && <button type="button" aria-expanded={modeOpen} onClick={() => setModeOpen(o => !o)}>{ts.change}</button>}
             </p>
             : <p className={styles.fieldNote} role="status">{ts.probeFailed}</p>)}
-          {modeOpen && kind === 'existing' && detected && detected.kind !== 'unknown' && (
+          {modeOpen && kind === 'existing' && detected && detected.kind !== 'unknown' && file?.mode !== 'custom' && (
             <fieldset className={styles.modeList}>
               <legend>{ts.modeLabel}</legend>
-              <label><input type="radio" name="sbx-mode" checked={!custom} onChange={() => setCustom(false)} />{ts.modeAuto(file?.mode === 'custom' ? `${ts.detected.custom}, ${ts.detected.file}` : detectedText())}</label>
+              <label><input type="radio" name="sbx-mode" checked={!custom} onChange={() => setCustom(false)} />{ts.modeAuto(detectedText())}</label>
               <label><input type="radio" name="sbx-mode" checked={custom} onChange={() => { setCustom(true); setAdvanced(true); }} />{ts.modeCustom}</label>
             </fieldset>
           )}

@@ -10,10 +10,11 @@ import 'server-only';
 // - the user's consoles (console.ts) close with every stop, a new setup and finish
 import fs from 'node:fs';
 import path from 'node:path';
+import { messages, type Locale } from '@/lib/i18n';
 import type { ChatEvent, CodeTaskStatus } from '@/lib/protocol';
 import { errorSummary } from '@/lib/sandbox-task';
 import { codeTaskDelete } from '../db';
-import { cloneRepo, initLocalRepo } from '../git';
+import { cloneRepo, initLocalRepo, localCommits, pendingChanges } from '../git';
 import { log } from '../log';
 import { chatExists, noteChatEvent } from '../sessions';
 import { redact } from '../settings';
@@ -156,6 +157,22 @@ export function runSteps(id: string, fromStep?: string, o: { ignoreVersion?: boo
     .finally(() => { jobs().setup.delete(id); });
   jobs().setup.set(id, { ac, done });
   return t;
+}
+
+/** A sandbox without a project and not yet bound to a GitHub project ("Als GitHub-Projekt anlegen") has its work only locally: a setup
+ *  from "Repository klonen" (or before) would wipe it and start an empty repository again. Refused while there are commits or changes on top
+ *  of the start commit; the start route asks before runSteps (git is async). */
+export async function assertLocalWorkKept(id: string, fromStep: string | undefined, locale: Locale): Promise<void> {
+  const t = mustTask(id);
+  if (t.setup?.source !== 'none' || t.repo) return;
+  const clone = t.steps.findIndex(s => s.key === 'clone');
+  if (clone < 0 || t.steps[clone].state !== 'done') return;
+  const from = fromStep ? t.steps.findIndex(s => s.id === fromStep) : t.steps.findIndex(s => s.state !== 'done' && s.state !== 'skipped');
+  if (from < 0 || from > clone) return;
+  const p = taskPaths(id);
+  if (!fs.existsSync(p.gitDir)) return;
+  const [commits, pending] = await Promise.all([localCommits(p.worktree, p.gitDir, t.baseBranch).catch(() => []), pendingChanges(p.worktree, p.gitDir).catch(() => [])]);
+  if (commits.length || pending.length) throw new TaskConflict(messages(locale).server.localWorkOnly);
 }
 
 /** Stop the running setup: the current step becomes "interrupted", the container is stopped (retry continues there). */
@@ -312,7 +329,8 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
       removeShotFiles(t.id); t.shots = []; // a fresh base: earlier screenshots no longer show it
       fs.rmSync(p.workspace, { recursive: true, force: true });
       fs.rmSync(p.gitDir, { recursive: true, force: true });
-      if (t.setup?.source === 'none') return initLocalRepo(t.baseBranch, p.worktree, p.gitDir, LOTSE_AUTHOR);
+      // without a project an empty local repository – until "Als GitHub-Projekt anlegen" bound the task: from then on GitHub has its base
+      if (t.setup?.source === 'none' && !t.repo) return initLocalRepo(t.baseBranch, p.worktree, p.gitDir, LOTSE_AUTHOR);
       return cloneRepo(t.repo, t.baseBranch, p.worktree, p.gitDir, { signal });
     },
     createContainer: async () => {

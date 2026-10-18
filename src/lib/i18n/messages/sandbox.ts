@@ -454,7 +454,7 @@ export const de = {
       handOffText: (n: number, count: number) => `Bitte setze die Rückmeldung zu Pull Request #${n} um (${count === 1 ? '1 Punkt' : `${count} Punkte`}).`,
       handedOver: 'An die KI übergeben.',
       finish: 'Sandbox abschließen',
-      detached: 'Die Sandbox ist abgeschlossen. Für weitere Änderungen eine neue Sandbox starten (Datenbank-Dump erneut hochladen).',
+      detached: 'Die Sandbox ist abgeschlossen. Für weitere Änderungen eine neue Sandbox starten (eine gespeicherte Datenbank lässt sich wieder auswählen).',
       open: 'Auf GitHub ansehen',
     },
     shots: {
@@ -1281,7 +1281,7 @@ export const en: typeof de = {
       handOffText: (n, count) => `Please address the feedback on pull request #${n} (${count === 1 ? '1 item' : `${count} items`}).`,
       handedOver: 'Handed over to the AI.',
       finish: 'Finish sandbox',
-      detached: 'The sandbox is finished. For further changes, start a new sandbox (upload the database dump again).',
+      detached: 'The sandbox is finished. For further changes, start a new sandbox (a stored database can be picked again).',
       open: 'View on GitHub',
     },
     shots: {

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { messages } from '@/lib/i18n';
+import { requestLocale } from '@/lib/i18n/locales';
 import { currentActor } from '@/server/actor';
 import { assertBaseBranch, assertRepoName } from '@/server/git';
 import { jsonError, parseJson } from '@/server/http';
@@ -22,7 +24,7 @@ export function POST(req: Request) {
     try { assertRepoName(repo); await assertBaseBranch(branch); } catch (e) { return jsonError(400, errMsg(e)); }
     forgetProbes(repo);
     const now = await probeRepo(repo, branch), f = now.repoFile;
-    if (!f || 'error' in f || f.hash !== hash) return jsonError(409, '.lotse/sandbox.json hat sich inzwischen geändert – bitte die Befehle erneut prüfen.');
+    if (!f || 'error' in f || f.hash !== hash) return jsonError(409, messages(requestLocale(req)).server.repoFileChanged);
     approveRepoFile(repo, hash, currentActor(), f.commands.map(c => c.label));
     forgetProbes(repo);
     return Response.json(await probeRepo(repo, branch));

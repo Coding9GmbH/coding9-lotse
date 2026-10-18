@@ -70,7 +70,7 @@ export function StepTimeline({ task, onRetry, onIgnoreVersion, onRepoFile, busy 
                   <span className={styles.tlLabel}>{label}</span>
                   <span className={styles.muted}>{skip ? t.willSkip[skip] : t.stepState[s.state]}{sec !== null && s.state !== 'skipped' ? ` · ${formatSeconds(sec)}` : ''}</span>
                   {!autoLog && hasLog && <button type="button" className={styles.tlLogBtn} aria-expanded={logs.has(s.id)} onClick={() => toggleLog(s.id)}>{t.log} ({s.log.length})</button>}
-                  {canRetryFrom(task, s) && !waitsForFile && <Button size="sm" variant="primary" onClick={() => onRetry(s.id)} disabled={busy}>{t.retryFrom}</Button>}
+                  {canRetryFrom(task, s) && !(waitsForFile && onRepoFile) && <Button size="sm" variant="primary" onClick={() => onRetry(s.id)} disabled={busy}>{t.retryFrom}</Button>}
                 </div>
                 {summary && <p className={styles.tlError}>{summary}</p>}
                 {s.error && summary !== s.error.trim() && !hasLog && <details className={styles.tlLog}><summary>{t.fullError}</summary><pre>{s.error}</pre></details>}

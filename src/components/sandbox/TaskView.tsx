@@ -46,6 +46,10 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
     setBusy(true); setNotice(null);
     try { setTask((await api.sandbox.taskAction(id, action, body)).task); } catch (e) { setNotice(t.actionFailed(errorText(e))); } finally { setBusy(false); }
   }
+  async function repoFile(decision: 'approve' | 'skip', hash: string) {
+    setBusy(true); setNotice(null);
+    try { setTask((await api.sandbox.taskRepoFile(id, decision, hash)).task); } catch (e) { setNotice(t.actionFailed(errorText(e))); } finally { setBusy(false); }
+  }
   async function remove() {
     if (!task || !window.confirm(t.removeConfirm(task.title))) return;
     setBusy(true);
@@ -98,7 +102,7 @@ export function TaskView({ id, idleMinutes }: { id: string; idleMinutes: number 
         <section className={styles.card} aria-labelledby="sbx-steps">
           <div className={styles.cardHead}><h2 id="sbx-steps">{t.steps}</h2></div>
           <ProjectSummary task={task} />
-          <StepTimeline task={task} busy={busy} onRetry={stepId => void act('start', { fromStep: stepId })} onIgnoreVersion={stepId => void act('start', { fromStep: stepId, ignoreVersion: true })} />
+          <StepTimeline task={task} busy={busy} onRepoFile={(decision, hash) => void repoFile(decision, hash)} onRetry={stepId => void act('start', { fromStep: stepId })} onIgnoreVersion={stepId => void act('start', { fromStep: stepId, ignoreVersion: true })} />
         </section>
         <Dialog open={replacing} onClose={() => { setReplacing(false); setNewDump(null); }} title={all.sandbox.dump.replaceTitle} wide footer={
           <>

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { messages } from '@/lib/i18n';
+import { requestLocale } from '@/lib/i18n/locales';
 import { currentActor } from '@/server/actor';
 import { jsonError, parseJson } from '@/server/http';
 import { auditTask, taskRoute } from '@/server/sandbox/api';
@@ -19,7 +21,7 @@ export function POST(req: Request, { params }: { params: Promise<{ id: string }>
     const body = await parseJson(req, schema);
     if (!body.ok) return body.res;
     const t = mustTask((await params).id), { decision, hash } = body.data;
-    if (t.repoFile?.state !== 'pending' || t.repoFile.hash !== hash) return jsonError(409, 'Für diese Sandbox wartet keine Entscheidung zu diesen Befehlen (mehr).');
+    if (t.repoFile?.state !== 'pending' || t.repoFile.hash !== hash) return jsonError(409, messages(requestLocale(req)).server.repoFileNoDecision);
     if (decision === 'approve') { approveRepoFile(t.repo, hash, currentActor(), t.repoFile.commands.map(c => c.label)); forgetProbes(t.repo); }
     else { t.setup = { ...(t.setup ?? { source: 'repo', mode: 'auto', commands: [], env: [] }), skipRepoHash: hash }; saveTask(t, false); }
     const next = runSteps(t.id, 'detect-layout');

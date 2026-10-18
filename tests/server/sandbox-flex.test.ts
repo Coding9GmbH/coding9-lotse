@@ -28,8 +28,10 @@ makePluginRepo(tmp, { repo: 'acme/plain-lib', composer: { name: 'acme/plain-lib'
 makePluginRepo(tmp, { repo: 'acme/bad-file', name: 'AcmeBad', files: { '.lotse/sandbox.json': JSON.stringify({ mode: 'custom', targetPath: '/etc/passwd-dir' }) } });
 process.env.LOTSE_GITHUB_CLONE_BASE = `file://${plugin.remoteBase}`;
 const TOKEN = `github_pat_${'FlexRepo12'.repeat(8)}_abc`;
+const noRemote = new Set<string>(); // repositories GitHub "creates" without a git remote behind them: the push fails
+const bareRepo = (fullName: string) => execFileSync('git', ['init', '--bare', '-q', path.join(plugin.remoteBase, `${fullName}.git`)]);
 const gh = await startFakeGithub({ token: TOKEN, repos: ['acme/flex-plugin', 'acme/node-app', 'acme/plain-lib', 'acme/bad-file'].map(fullName => ({ fullName })),
-  onCreateRepo: r => { execFileSync('git', ['init', '--bare', '-q', path.join(plugin.remoteBase, `${r.fullName}.git`)]); } });
+  onCreateRepo: r => { if (!noRemote.has(r.fullName)) bareRepo(r.fullName); } });
 process.env.LOTSE_GITHUB_API_BASE = gh.base;
 
 const { FakeRunner } = await import('../../src/server/sandbox/fake-runner');
@@ -51,6 +53,7 @@ const approveRoute = await import('../../src/app/api/sandbox/repo-file/route');
 const taskFileRoute = await import('../../src/app/api/sandbox/tasks/[id]/repo-file/route');
 const projectRoute = await import('../../src/app/api/sandbox/tasks/[id]/github-project/route');
 const publishRoute = await import('../../src/app/api/sandbox/tasks/[id]/publish/route');
+const startRoute = await import('../../src/app/api/sandbox/tasks/[id]/start/route');
 
 allowFileRemotesForTests(true);
 saveGithub({ token: TOKEN });
@@ -292,8 +295,24 @@ test('without a project: local git with a new plugin, commits, ZIP-ready layout;
   const early = await publishRoute.POST(new Request('http://x', json({ title: 'Versandhinweis', body: '' })), params(t.id));
   assert.equal(early.status, 409);
   assert.match(JSON.stringify(await early.json()), /Als GitHub-Projekt anlegen/);
+  // its work is only here: a new setup from "Repository klonen" (or before) would wipe it
+  const cloneStep = t.steps.find(s => s.key === 'clone')!.id;
+  const again = await startRoute.POST(new Request('http://x', { ...json({ fromStep: cloneStep }), headers: { 'content-type': 'application/json', 'accept-language': 'en' } }), params(t.id));
+  assert.equal(again.status, 409);
+  assert.match(JSON.stringify(await again.json()), /no GitHub project yet/);
+  assert.equal(T.getTask(t.id)!.status, 'ready');
+  // the push fails after GitHub created the repository: it stays remembered, the next click with the same name fills it
+  noRemote.add('octo-lotse/versandhinweis');
+  const failed = await projectRoute.POST(new Request('http://x', json({ owner: 'octo-lotse', name: 'versandhinweis' })), params(t.id));
+  assert.equal(failed.status, 502);
+  assert.match(JSON.stringify(await failed.json()), /ist angelegt, aber der Startstand/);
+  assert.equal(T.getTask(t.id)!.repo, '');
+  assert.equal(T.getTask(t.id)!.createdRepo, 'octo-lotse/versandhinweis');
+  bareRepo('octo-lotse/versandhinweis');
   const mk = await projectRoute.POST(new Request('http://x', json({ owner: 'octo-lotse', name: 'versandhinweis' })), params(t.id));
   assert.equal(mk.status, 201, JSON.stringify(await mk.clone().json()));
+  assert.equal(((await (await fetch(`${gh.base}/__fake/calls`)).json()) as any[]).filter(x => x.method === 'POST' && x.path === '/user/repos').length, 1, 'created once');
+  assert.equal(T.getTask(t.id)!.createdRepo, null);
   assert.equal(((await mk.json()) as any).task.repo, 'octo-lotse/versandhinweis');
   const call = ((await (await fetch(`${gh.base}/__fake/calls`)).json()) as any[]).find(x => x.method === 'POST' && x.path === '/user/repos');
   assert.equal(call.body.auto_init, false);
@@ -306,5 +325,14 @@ test('without a project: local git with a new plugin, commits, ZIP-ready layout;
   assert.ok(t.prNumber);
   const branches = execFileSync('git', ['ls-remote', path.join(plugin.remoteBase, 'octo-lotse/versandhinweis.git')], { encoding: 'utf8' });
   assert.match(branches, new RegExp(`refs/heads/${t.branch}`));
+  // bound to the project: a new setup from "Repository klonen" clones GitHub's main (no new, unrelated start commit)
+  const remoteMain = execFileSync('git', ['--git-dir', path.join(plugin.remoteBase, 'octo-lotse/versandhinweis.git'), 'rev-parse', 'refs/heads/main'], { encoding: 'utf8' }).trim();
+  J.runSteps(t.id, cloneStep);
+  await settled(t.id);
+  t = T.getTask(t.id)!;
+  assert.equal(t.status, 'ready', t.error ?? '');
+  const p = T.taskPaths(t.id);
+  assert.equal(execFileSync('git', ['--git-dir', p.gitDir, 'rev-parse', 'refs/remotes/origin/main'], { encoding: 'utf8' }).trim(), remoteMain);
+  assert.match(execFileSync('git', ['--git-dir', p.gitDir, 'config', 'remote.origin.url'], { encoding: 'utf8' }), /octo-lotse\/versandhinweis/);
   await J.deleteTask(t.id);
 });
