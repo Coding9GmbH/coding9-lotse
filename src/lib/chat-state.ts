@@ -5,7 +5,7 @@
 import { DEFAULT_LOCALE, INTL_LOCALE, messages, type Locale } from './i18n';
 import { parseAttachments, type Attachment, type FileAttachment } from './attachments';
 import { toolLabel } from './labels';
-import type { ChangeSet, ChatDetail, ChatEvent, DraftAudit, FileChangeKind, PrFeedbackItem, PublishedInfo, Styleguide, Target, UndoOutcome } from './protocol';
+import type { ChangeSet, ChatDetail, ChatEvent, DraftAudit, FileChangeKind, PrFeedbackItem, PublishedInfo, SandboxLineState, Styleguide, Target, UndoOutcome } from './protocol';
 import { asList, shopProxyPath } from './urls';
 
 export type StepState = 'run' | 'done' | 'bad';
@@ -33,7 +33,7 @@ export type LogItem =
   // chats with an attached sandbox (Sandbox Coding)
   | { kind: 'file'; key: string; path: string; change: FileChangeKind; added: number; removed: number }
   | { kind: 'command'; key: string; id: string; command: string; args?: Record<string, string>; status: 'running' | 'ok' | 'failed'; exitCode?: number; tail?: string; ms?: number }
-  | { kind: 'sandbox'; key: string; state: 'waking' | 'ready' | 'failed' | 'approval' | 'finished'; message?: string }
+  | { kind: 'sandbox'; key: string; state: SandboxLineState; message?: string; paused?: string[]; max?: number }
   | { kind: 'publish'; key: string; title: string; body: string }
   | { kind: 'pr'; key: string; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
   | { kind: 'sandbox_offer'; key: string; id: string; repo: string; baseBranch: string; reason: string; pluginName?: string; quickStartId?: string }
@@ -247,8 +247,8 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
     }
     case 'sandbox_status': {
       // waking → ready/failed: one line that changes, not two
-      const next = update(s, 'sandbox', i => i.state === 'waking' && s.items.at(-1)?.key === i.key, i => ({ ...i, state: ev.state, message: ev.message }));
-      return next !== s ? next : push(s, { kind: 'sandbox', state: ev.state, message: ev.message })[0];
+      const next = ev.state === 'displaced' ? s : update(s, 'sandbox', i => i.state === 'waking' && s.items.at(-1)?.key === i.key, i => ({ ...i, state: ev.state, message: ev.message }));
+      return next !== s ? next : push(s, { kind: 'sandbox', state: ev.state, message: ev.message, ...(ev.paused ? { paused: ev.paused, max: ev.max } : {}) })[0];
     }
     case 'preview_reload': return live ? { ...s, previewReload: s.previewReload + 1 } : s;
     case 'publish_proposal': return push(s, { kind: 'publish', title: ev.title, body: ev.body })[0];

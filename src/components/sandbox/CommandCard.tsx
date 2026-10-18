@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { LogItem } from '@/lib/chat-state';
-import type { LibraryDumpPublic, QuickStartPublic } from '@/lib/protocol';
+import type { LibraryDumpPublic, QuickStartPublic, SandboxLineState } from '@/lib/protocol';
 import { offerChoice, type StartChoice } from '@/lib/sandbox-task';
 import { INTL_LOCALE } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/I18nProvider';
@@ -45,9 +45,10 @@ export function CommandCard({ c }: { c: Command }) {
 }
 
 /** Status of the task's container (waking → ready, a failed setup, a setup waiting for the approval of the repository's commands,
- *  finished): a static check once finished. */
-export function SandboxStatusLine({ state, message }: { state: 'waking' | 'ready' | 'failed' | 'approval' | 'finished'; message?: string }) {
+ *  finished, other sandboxes paused for this one): a static check once finished. */
+export function SandboxStatusLine({ state, message, paused, max }: { state: SandboxLineState; message?: string; paused?: string[]; max?: number }) {
   const t = useI18n().t.sandbox.code.sandbox;
+  if (state === 'displaced') return <p className={`${styles.sbx} ${styles.sbx_ready}`} role="status"><i aria-hidden="true" />{t.displaced(paused ?? [], max ?? 0)}</p>;
   return (
     <p className={`${styles.sbx} ${styles[`sbx_${state}`]}`} role="status">
       {state === 'finished' ? <IconCheck size={13} className={styles.sbxCheck} /> : <i aria-hidden="true" />}{t[state]}{state === 'failed' && message ? `: ${message}` : ''}

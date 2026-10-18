@@ -390,3 +390,16 @@ test('routes: refused while the sandbox is not set up, finished or busy', async 
   assert.equal((await pullRoute.GET(new Request(url(fresh.id)), ctx(fresh.id))).status, 409);
   assert.equal((await takeOver(fresh.id, [{ path: 'a', sha: null }])).status, 409);
 });
+
+test('LOTSE_SANDBOX_MAX: the chat of the sandbox that starts says which one was paused for it', async () => {
+  process.env.LOTSE_SANDBOX_MAX = '1';
+  try {
+    assert.equal(T.getTask(plugin.id)!.status, 'ready');
+    const t = T.createTask({ chatId: crypto.randomUUID(), title: 'Theme ändern', repo: 'acme/shop-theme', baseBranch: 'main' });
+    getSession(t.chatId!);
+    J.runSteps(t.id);
+    const ev = getSession(t.chatId!).events.find(e => e.t === 'sandbox_status' && e.state === 'displaced');
+    assert.deepEqual(ev, { t: 'sandbox_status', state: 'displaced', paused: ['Plugin bauen'], max: 1 });
+    await settled(t.id);
+  } finally { delete process.env.LOTSE_SANDBOX_MAX; }
+});

@@ -607,7 +607,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
 
         {taskId ? (
           <SandboxPanel key={taskId} taskId={taskId} className={styles.right} reload={state.previewReload} busy={busy} files={state.items.filter(i => i.kind === 'file').length}
-            onClose={overlay ? () => setPreviewOpen(false) : undefined} onTask={onSandboxTask} onChatEvent={liveEvent} proposal={proposal} openPr={openPr} onPublished={published}
+            onClose={overlay ? () => setPreviewOpen(false) : undefined} onTask={onSandboxTask} onQuickSaved={() => void loadQuicks()} onChatEvent={liveEvent} proposal={proposal} openPr={openPr} onPublished={published}
             feedbackOpen={feedbackOpen} chatHidden={chatHidden} onToggleChat={overlay ? undefined : () => setChatHidden(h => !h)}
             onSendNotes={text => { if (busyRef.current) setInput(text); else { setPreviewOpen(false); void run(text); } }} />
         ) : <PreviewPane className={styles.right} tab={state.tab} onTab={t => dispatch({ type: 'set_tab', tab: t })} draft={state.draft}
@@ -617,7 +617,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
       </main>
 
       <AuditDialog audit={state.draft?.audit ?? null} open={auditOpen} onClose={() => setAuditOpen(false)} />
-      {chatId && shell.sandbox && <AttachSandboxDialog open={sbxDialog !== false} onClose={() => { setSbxDialog(false); setSbxQuick(null); }} chatId={chatId} initial={sbxDialog || null} quick={sbxQuick} onCreated={attached} dockerDown={!!sbxBlocked} />}
+      {chatId && shell.sandbox && <AttachSandboxDialog open={sbxDialog !== false} onClose={() => { setSbxDialog(false); setSbxQuick(null); }} chatId={chatId} initial={sbxDialog || null} quick={sbxQuick} onCreated={attached} dockerDown={!!sbxBlocked} onSaved={() => void loadQuicks()} />}
       <StyleguideDialog sg={sg} open={sgOpen} onClose={() => setSgOpen(false)}
         onSaved={s => dispatch({ type: 'set_styleguide', sg: s })} onReanalyze={onboard} />
     </div>
