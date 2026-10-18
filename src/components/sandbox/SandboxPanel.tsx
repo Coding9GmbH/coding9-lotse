@@ -59,6 +59,11 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
   const [seen, setSeen] = useState<string | null>(null);
   const [acting, setActing] = useState<Action | 'internet' | 'db' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // "Setup als Schnellstart speichern" (A22): name and default while the small dialog is open, then the confirmation
+  const [saveQuick, setSaveQuick] = useState<{ name: string; isDefault: boolean } | null>(null);
+  const [quickSaved, setQuickSaved] = useState<string | null>(null);
+  const [quickError, setQuickError] = useState<string | null>(null);
+  const [savingQuick, setSavingQuick] = useState(false);
   const [replacing, setReplacing] = useState(false);
   const [newDump, setNewDump] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -126,6 +131,15 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
     setActing('db'); setNotice(null);
     try { setTask((await api.sandbox.replaceDb(task.id, newDump)).task); setReplacing(false); setNewDump(null); } catch (e) { setNotice(t.actionFailed(errorText(e))); } finally { setActing(null); }
   }
+  async function storeQuick() {
+    if (!task || !saveQuick?.name.trim()) return;
+    setSavingQuick(true); setQuickError(null);
+    try {
+      const { quickStart } = await api.sandbox.createQuickStart({ fromTask: task.id, name: saveQuick.name.trim(), ...(saveQuick.isDefault ? { isDefault: true } : {}) });
+      setSaveQuick(null); setQuickSaved(all.sandbox.quick.saved(quickStart.name));
+    } catch (e) { setQuickError(all.sandbox.quick.saveFailed(errorText(e))); }
+    finally { setSavingQuick(false); }
+  }
   const copyBranch = () => {
     if (!task) return;
     void navigator.clipboard?.writeText(task.branch).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {});
@@ -156,6 +170,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
     // phones: one compact row (title, status, ⋯), the lifecycle action moves into the menu
     ...(life && phone ? [{ key: 'life', label: lifeLabel, onSelect: () => void act(life), disabled: busyAct }] : []),
     ...(canReplace ? [{ key: 'db', label: all.sandbox.dump.replace, onSelect: () => setReplacing(true), disabled: busyAct }] : []),
+    ...(task.setup ? [{ key: 'quick', label: all.sandbox.quick.fromTask, onSelect: () => { setSaveQuick({ name: task.title, isDefault: false }); setQuickError(null); setQuickSaved(null); } }] : []),
     { key: 'all', label: t.back, onSelect: () => router.push('/sandbox-coding') },
     ...(s !== 'done' ? [{ key: 'finish', label: t.actions.finish, onSelect: () => void act('finish'), disabled: busyAct, danger: true }] : []),
   ];
@@ -201,6 +216,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
         ))}
       </div>
       {notice && <p className={`${styles.bad} ${styles.panelNote}`} role="alert">{notice}</p>}
+      {quickSaved && <p className={`${styles.ok} ${styles.panelNote}`} role="status">✓ {quickSaved}</p>}
       <div ref={body} className={styles.panelBody} data-tab={shown}>
         <div role="tabpanel" id="sbx-panel-preview" aria-labelledby="sbx-tab-preview" hidden={shown !== 'preview'} className={styles.pvPanel}>
           <SandboxPreview task={task} reload={reload} inTabs onSendNotes={onSendNotes}
@@ -246,6 +262,22 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
           </div>
         )}
       </div>
+      <Dialog open={!!saveQuick} onClose={() => setSaveQuick(null)} title={all.sandbox.quick.fromTask} footer={
+        <>
+          <Button variant="ghost" onClick={() => setSaveQuick(null)}>{all.sandbox.quick.cancel}</Button>
+          <Button variant="primary" type="submit" form="sbx-quick-from-task" busy={savingQuick} disabled={!saveQuick?.name.trim() || savingQuick}>{all.sandbox.quick.saveSubmit}</Button>
+        </>
+      }>
+        <form id="sbx-quick-from-task" className={styles.form} onSubmit={e => { e.preventDefault(); void storeQuick(); }}>
+          <p className={styles.hint}>{all.sandbox.quick.fromTaskLead}</p>
+          <label className={styles.field}>
+            <span className={styles.label}>{all.sandbox.quick.saveName}</span>
+            <input value={saveQuick?.name ?? ''} maxLength={80} autoFocus onChange={e => setSaveQuick(x => x && { ...x, name: e.target.value })} />
+          </label>
+          <label className={styles.toggle}><input type="checkbox" checked={!!saveQuick?.isDefault} onChange={e => setSaveQuick(x => x && { ...x, isDefault: e.target.checked })} /> {all.sandbox.quick.saveDefault}</label>
+          {quickError && <p className={styles.bad} role="alert">{quickError}</p>}
+        </form>
+      </Dialog>
       <Dialog open={replacing} onClose={() => { setReplacing(false); setNewDump(null); }} title={all.sandbox.dump.replaceTitle} wide footer={
         <>
           <Button variant="ghost" onClick={() => { setReplacing(false); setNewDump(null); }}>{all.sandbox.create.cancel}</Button>

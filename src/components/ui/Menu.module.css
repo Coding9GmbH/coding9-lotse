@@ -8,3 +8,4 @@
 .item:hover, .item:focus-visible { background: var(--bg); text-decoration: none; }
 .item[aria-disabled="true"] { color: var(--mute); cursor: default; opacity: .6; }
 .danger { color: var(--warn); }
+.list[data-up] { top: auto; bottom: calc(100% + 4px); }

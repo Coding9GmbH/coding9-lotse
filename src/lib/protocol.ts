@@ -330,7 +330,7 @@ export interface QuickStartPublic {
 /** Why a quick start cannot start as saved (checked on every use); the dialog then opens prefilled with these messages */
 export interface QuickStartProblem { field: 'github' | 'repo' | 'branch' | 'dump' | 'image' | 'setup'; message: string }
 /** POST /api/sandbox/quick-starts/<id>/start answers 422 with these */
-export interface QuickStartBroken { error: string; problems: QuickStartProblem[]; quickStart: QuickStartPublic }
+export interface QuickStartBroken { error: string; /** the error's first sentence ("… bitte prüfen und anpassen:") */ lead: string; problems: QuickStartProblem[]; quickStart: QuickStartPublic }
 /** The user's choices in "Sandbox starten" for a task (stored on it) */
 export interface TaskSetupPublic { source: 'repo' | 'none'; mode: SandboxMode; targetPath?: string; commands: number; env: string[] }
 /** .lotse/sandbox.json of the task as the setup read it; state: commands approved, skipped by the user, waiting for a decision, or none */

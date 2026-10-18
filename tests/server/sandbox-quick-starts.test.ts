@@ -181,6 +181,7 @@ test('checked on every use: project, branch, stored database, image, GitHub – 
     assert.equal(r.status, 422);
     assert.deepEqual(r.body.problems.map((p: any) => p.field), ['repo', 'dump', 'image']);
     assert.match(r.body.error, /^Der Schnellstart „Wird kaputt“ lässt sich so nicht starten/);
+    assert.equal(r.body.lead, 'Der Schnellstart „Wird kaputt“ lässt sich so nicht starten – bitte prüfen und anpassen:');
     assert.match(r.body.problems[0].message, /Kein Zugriff auf acme\/qs-gone/);
     assert.equal(r.body.problems[1].message, 'Die gespeicherte Datenbank dieses Schnellstarts gibt es nicht mehr.');
     assert.match(r.body.problems[2].message, /^Image: .*nur ein anderer Tag von dockware\/play/);

@@ -180,7 +180,7 @@ export async function checkQuickStart(q: QuickStartPublic, locale: Locale = DEFA
 
 /** A quick start that cannot start as saved: the route answers 422 with the problems, the browser opens the dialog prefilled */
 export class QuickStartBrokenError extends Error {
-  constructor(message: string, readonly problems: QuickStartProblem[], readonly quickStart: QuickStartPublic) { super(message); }
+  constructor(readonly lead: string, readonly problems: QuickStartProblem[], readonly quickStart: QuickStartPublic) { super(`${lead} ${problems.map(p => p.message).join(' ')}`); }
 }
 
 /** One click in the "Sandbox" menu: checks the quick start, then starts it in this chat like the dialog would (title = its name).
@@ -188,7 +188,7 @@ export class QuickStartBrokenError extends Error {
 export async function startQuickStart(id: string, chatId: string, locale: Locale = DEFAULT_LOCALE): Promise<{ task: CodeTask; warnings: string[] }> {
   const q = getQuickStart(id, locale);
   const { problems, warnings } = await checkQuickStart(q, locale);
-  if (problems.length) throw new QuickStartBrokenError(`${M(locale).broken(q.name)} ${problems.map(p => p.message).join(' ')}`, problems, q);
+  if (problems.length) throw new QuickStartBrokenError(M(locale).broken(q.name), problems, q);
   const s = q.setup, kind = s.kind;
   const task = await startSandbox({
     chatId, goal: '', title: q.name, repo: s.repo, baseBranch: s.baseBranch, source: kind === 'none' ? 'none' : 'repo', mode: kind === 'custom' ? 'custom' : s.mode ?? 'auto',

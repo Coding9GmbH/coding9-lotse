@@ -3,13 +3,14 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
-import type { CodeTaskPublic, CommandPhase, InternetPolicy, LibraryDumpPublic, SandboxEnvPatch, SandboxEnvView } from '@/lib/protocol';
+import type { CodeTaskPublic, CommandPhase, InternetPolicy, LibraryDumpPublic, QuickStartPublic, SandboxEnvPatch, SandboxEnvView } from '@/lib/protocol';
 import { SANDBOX_DOCS, isBusy } from '@/lib/sandbox-task';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useShell } from '@/components/shell/ShellProvider';
 import { Button } from '@/components/ui/Button';
 import { IconArrowUp, IconClose, IconPlus } from '@/components/ui/icons';
 import { SandboxOff } from './SandboxOff';
+import { QuickStarts } from './QuickStarts';
 import { StoredDbs } from './StoredDbs';
 import { TaskList } from './TaskList';
 import styles from './Sandbox.module.css';
@@ -49,6 +50,10 @@ export function SandboxView() {
   const on = view?.env.status.enabled;
   const reloadDbs = useCallback(() => { void api.sandbox.storedDbs().then(r => setDbs({ list: r.dumps, error: null }), e => setDbs(d => ({ ...d, error: errorText(e) }))); }, []);
   useEffect(() => { if (on) reloadDbs(); }, [on, reloadDbs]);
+  // quick starts (A22): saved setups of the start dialog
+  const [quick, setQuick] = useState<{ list: QuickStartPublic[] | null; error: string | null }>({ list: null, error: null });
+  const reloadQuick = useCallback(() => { void api.sandbox.quickStarts().then(r => setQuick({ list: r.quickStarts, error: null }), e => setQuick(q => ({ ...q, error: errorText(e) }))); }, []);
+  useEffect(() => { if (on) reloadQuick(); }, [on, reloadQuick]);
 
   // "#sbx-env" (a link from a failed setup command, the readiness list) opens the collapsed environment
   const openEnv = () => { const d = document.getElementById('sbx-env'); if (d instanceof HTMLDetailsElement) d.open = true; };
@@ -75,6 +80,8 @@ export function SandboxView() {
             ]} />
 
             <Tasks />
+
+            <QuickStarts list={quick.list} dumps={dbs.list} error={quick.error} onChanged={reloadQuick} />
 
             <StoredDbs dumps={dbs.list} error={dbs.error} onChanged={() => { reloadDbs(); void reload(); }} />
 
