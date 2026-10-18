@@ -3,7 +3,7 @@ import 'server-only';
 // Exec results are scripted; each started container gets a small node:http "storefront" that serves the synced files.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { ArchiveStream, ContainerInfo, ContainerSpec, ExecOpts, ExecResult, NetworkInfo, NetworkOpts, PullProgress, SandboxRunner, TtyOpts, TtySession } from './runner';
+import { assertTtySize, ttyEmitter, type ArchiveStream, type ContainerInfo, type ContainerSpec, type ExecOpts, type ExecResult, type NetworkInfo, type NetworkOpts, type PullProgress, type SandboxRunner, type TtyOpts, type TtySession } from './runner';
 import { MANAGED, assertAllowedImage, assertContainerPath, assertEgressNetwork, assertId, assertManaged, assertNetworkName, assertSafeSpec, isManaged } from './guards';
 import { EGRESS_NET, ROLE_LABEL, SANDBOX_NET, SHOT_ROLE } from './labels';
 import { SHOT_DIR, SHOT_OUT, type ShotJob } from './screenshot-spec';
@@ -220,12 +220,13 @@ export class FakeRunner implements SandboxRunner {
     this.enter('openTty', { id, argv: [...argv], user: o.user, detail: { workdir: o.workdir, env: o.env, cols: o.cols, rows: o.rows } });
     const c = this.managed(id);
     if (!c.running) throw new Error('Container läuft nicht.');
-    const data: ((b: Buffer) => void)[] = [], ends: (() => void)[] = [];
-    let early: Buffer[] | null = [];
-    const emit = (text: string) => { if (!t.alive || !text) return; const b = Buffer.from(text); if (early) early.push(b); else if (t.paused) (t.held ??= []).push(b); else for (const fn of data) fn(b); };
-    const t: FakeTty = { containerId: c.id, argv: [...argv], opts: o, cols: o.cols, rows: o.rows, alive: true, input: '', end: () => { if (!t.alive) return; t.alive = false; for (const fn of ends) fn(); } };
+    assertTtySize(o.cols, o.rows);
+    const out = ttyEmitter();
+    const emit = (text: string) => { if (!t.alive || !text) return; const b = Buffer.from(text); if (t.paused) (t.held ??= []).push(b); else out.emit(b); };
+    const t: FakeTty = { containerId: c.id, argv: [...argv], opts: o, cols: o.cols, rows: o.rows, alive: true, input: '', end: () => { if (!t.alive) return; t.alive = false; out.end(); } };
     this.ttys.push(t);
-    const prompt = () => emit(`\x1b[32m${shellUser(t) === 'dockware' ? 'www-data' : shellUser(t)}@sandbox\x1b[0m:\x1b[34m${o.workdir.replace('/var/www', '~')}\x1b[0m$ `);
+    // like the PS1 of the dockware console rc: the console user, the container's host name, the full directory
+    const prompt = () => emit(`\x1b[32m${shellUser(t)}@${c.spec.Hostname ?? 'sandbox'}\x1b[0m:\x1b[34m${o.workdir}\x1b[0m$ `);
     let line = '';
     prompt();
     return {
@@ -234,19 +235,19 @@ export class FakeRunner implements SandboxRunner {
         const text = d.toString();
         t.input += text;
         for (const ch of text) {
-          if (ch === '\r' || ch === '\n') { emit('\r\n'); const out = fakeShell(t, line); line = ''; if (out === null) { emit('logout\r\n'); t.end(); return; } emit(out); prompt(); }
+          if (ch === '\r' || ch === '\n') { emit('\r\n'); const reply = fakeShell(t, line); line = ''; if (reply === null) { emit('logout\r\n'); t.end(); return; } emit(reply); prompt(); }
           else if (ch === '\x7f') { if (line) { line = line.slice(0, -1); emit('\b \b'); } }
           else if (ch === '\x03') { line = ''; emit('^C\r\n'); prompt(); }
           else if (ch === '\x04' && !line) { emit('logout\r\n'); t.end(); return; }
           else if (ch >= ' ') { line += ch; emit(ch); }
         }
       },
-      resize: async (cols, rows) => { this.calls.push({ op: 'ttyResize', id, detail: { cols, rows } }); t.cols = cols; t.rows = rows; },
+      resize: async (cols, rows) => { assertTtySize(cols, rows); this.calls.push({ op: 'ttyResize', id, detail: { cols, rows } }); t.cols = cols; t.rows = rows; },
       pause: () => { t.paused = true; },
-      resume: () => { t.paused = false; const b = t.held ?? []; t.held = []; for (const x of b) for (const fn of data) fn(x); },
+      resume: () => { t.paused = false; const b = t.held ?? []; t.held = []; for (const x of b) out.emit(x); },
       close: () => t.end(),
-      onData: fn => { data.push(fn); if (early) { const b = early; early = null; for (const x of b) fn(x); } },
-      onEnd: fn => { if (!t.alive) fn(); else ends.push(fn); },
+      onData: out.onData,
+      onEnd: out.onEnd,
     };
   }
   async putArchive(id: string, dir: string, archive: Buffer | ArchiveStream) {

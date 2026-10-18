@@ -55,6 +55,13 @@ export function sandboxReferer(referer: string | null, host: string): string | n
  *  waking a sandbox whose last start failed, so a page that keeps reloading itself cannot retry forever. */
 export const SANDBOX_WAKE_PATH = '/__lotse/wake';
 export const sandboxWakeSrc = (prefix: string, path = '/') => `${sandboxSrc(prefix, SANDBOX_WAKE_PATH)}?to=${encodeURIComponent(sandboxSrc('', path))}`;
-/** `to` of the wake path → a path below the preview prefix ('/' when it is anything else) */
-export const wakeTarget = (to: string | null) => (to && to.startsWith('/') && !to.startsWith('//') && !to.includes('\\') && !to.startsWith(SANDBOX_WAKE_PATH) ? sandboxSrc('', to) : '/');
+/** `to` of the wake path → a path below the preview prefix ('/' when it is anything else). Checked after normalising the way the
+ *  browser resolves the redirect ("/./", "/%2e/", "/a/../"), so the wake path itself never comes back as its own target. */
+export function wakeTarget(to: string | null): string {
+  if (!to || !to.startsWith('/') || to.startsWith('//') || to.includes('\\')) return '/';
+  const p = sandboxSrc('', to);
+  let resolved: string;
+  try { resolved = new URL(p, 'http://x').pathname; } catch { return '/'; }
+  return resolved.startsWith(SANDBOX_WAKE_PATH) ? '/' : p;
+}
 

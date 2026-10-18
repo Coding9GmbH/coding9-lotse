@@ -49,6 +49,31 @@ export interface TtySession {
   /** the stream ended: the shell exited, the container stopped or close() */
   onEnd(fn: () => void): void;
 }
+/** Terminal size a runner passes to Docker: whole numbers 1–1000 (console.ts narrows it further); anything else is refused. */
+export function assertTtySize(cols: unknown, rows: unknown): void {
+  const ok = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 1000;
+  if (!ok(cols) || !ok(rows)) throw new Error('Ungültige Terminalgröße.');
+}
+/** Bytes of TTY output kept for a session until its first onData listener (the end of them; normally just the first prompt) */
+export const TTY_EARLY_MAX = 256 * 1024;
+/** Output and end fan-out of a TtySession, shared by the runners: chunks that arrive before the first onData listener are kept
+ *  (at most TTY_EARLY_MAX bytes, the newest) and handed to it; the end listeners run once, also when registered afterwards. */
+export function ttyEmitter() {
+  const data: ((b: Buffer) => void)[] = [], ends: (() => void)[] = [];
+  let early: Buffer[] | null = [], size = 0, done = false;
+  return {
+    get ended() { return done; },
+    emit(b: Buffer) {
+      if (done || !b.length) return;
+      if (!early) { for (const fn of data) fn(b); return; }
+      early.push(b); size += b.length;
+      while (size > TTY_EARLY_MAX) { const over = size - TTY_EARLY_MAX, first = early[0]; if (first.length <= over) { early.shift(); size -= first.length; } else { early[0] = first.subarray(over); size -= over; } }
+    },
+    end() { if (done) return; done = true; for (const fn of ends.splice(0)) fn(); },
+    onData(fn: (b: Buffer) => void) { data.push(fn); if (early) { const b = early; early = null; size = 0; for (const c of b) fn(c); } },
+    onEnd(fn: () => void) { if (done) fn(); else ends.push(fn); },
+  };
+}
 /** A large archive streamed from disk (dump import): length is the exact byte count. */
 export interface ArchiveStream { stream: Readable; length: number }
 

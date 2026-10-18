@@ -14,7 +14,7 @@ const S = await sandboxForTests();
 const { fake, J, T, E, until, readyTask } = S;
 const C = await import('../../src/server/sandbox/console');
 const R = await import('../../src/server/sandbox/reconcile');
-const { CONSOLE } = await import('../../src/server/sandbox/templates/dockware');
+const { CONSOLE, CONSOLE_PROCS, CONSOLE_SUDOERS } = await import('../../src/server/sandbox/templates/dockware');
 const { SANDBOX_TOOL_NAMES, sandboxToolNames } = await import('../../src/server/sandbox/workspace-tools');
 const db = await import('../../src/server/db');
 const listRoute = await import('../../src/app/api/sandbox/tasks/[id]/console/route');
@@ -71,7 +71,7 @@ test('open: the template shell as dockware in the shop root (root wrapper, pid f
 
   const v = await watch(t.id, session.id);
   assert.equal(v.status, 200);
-  await until(() => v.text.includes('www-data@sandbox'));
+  await until(() => v.text.includes('dockware@lotse-'));
   assert.equal((await send(t.id, session.id, { input: 'bin/console plugin:list\r' })).status, 204);
   await until(() => v.text.includes('AcmeTheme'));
   assert.equal((await send(t.id, session.id, { resize: { cols: 100, rows: 30 } })).status, 204);
@@ -140,7 +140,7 @@ test('close by the user: the template stop command as root ends the shell sessio
   await until(() => late.end !== null);
   assert.deepEqual(late.end, { t: 'end', reason: 'user' });
   assert.equal((await send(t.id, sid, { input: 'ls\r' })).status, 404);
-  assert.deepEqual(audits().filter(a => a.taskId === t.id).map(a => [a.event, a.reason ?? null]), [['open', null], ['close', 'user']]);
+  assert.deepEqual(audits().filter(a => a.taskId === t.id).map(a => [a.event, a.reason ?? null, a.user]), [['open', null, 'dockware'], ['close', 'user', 'dockware']], 'both rows name the shell user');
   // the shell ending by itself ("exit")
   const sid2 = (await (await open(t.id)).json() as any).session.id as string;
   const v2 = await watch(t.id, sid2);
@@ -217,7 +217,7 @@ test('after a Lotse restart: shells nobody holds are ended in every running task
   const kill = fake.calls.slice(n).find(c => c.op === 'exec' && c.id === t.containerId)!;
   assert.deepEqual([kill.user, kill.argv], ['root', CONSOLE.stopAll.argv]);
   assert.ok(gone);
-  assert.deepEqual(audits().filter(a => a.taskId === t.id).map(a => [a.event, a.reason, a.shells]), [['close', 'lotse-restart', 1]]);
+  assert.deepEqual(audits().filter(a => a.taskId === t.id).map(a => [a.event, a.reason, a.shells, a.user]), [['close', 'lotse-restart', 1, 'dockware']]);
   assert.equal(await C.killOrphanConsoles(), 0, 'nothing left: no audit');
   assert.equal(audits().filter(a => a.taskId === t.id).length, 1);
   await J.pauseTask(t.id);
@@ -247,7 +247,34 @@ test('dockware wrapper: root writes rc and pid file into a root-owned directory,
   for (const argv of [CONSOLE.stop(sid).argv, CONSOLE.stopAll.argv]) {
     assert.match(argv[2], /\/run\/lotse-console\//);
     assert.match(argv[2], /\[ "\$\{20\}" = "\$t" \]/);
+    assert.match(argv[2], /freeze "\$p"; .*sig KILL/, 'the whole process tree, frozen first');
+    assert.doesNotMatch(argv[2], /pkill -s/, 'not just the session: sudo (use_pty) runs its command in a new one');
   }
+  // the prompt names the console user and the full shop directory, as the tab and the audit do
+  assert.match(rc, /^PS1='.*dockware@\\h.*\$PWD.*'$/m);
+  // the sudo audit warning: allowed commands of the sudo group are not logged (nowhere to log to), checked by visudo before use
+  assert.equal(CONSOLE_SUDOERS, 'Defaults:%sudo !log_allowed');
+  assert.match(script, /visudo -cqf "\$d\/sudoers" && mv -f "\$d\/sudoers" "\$c"/);
+  assert.doesNotMatch(script, /use_pty|!syslog|AUDIT/);
+});
+
+test('dockware stop: the console\'s whole process tree is found (also children in a new session, like sudo with use_pty) and killed', { skip: process.platform !== 'linux' }, async () => {
+  const { spawn, execFileSync } = await import('node:child_process');
+  // a "console": session leader sh with a job in its session, a job in a new session (setsid, like sudo's command) and a daemon
+  // that detaches completely (double fork) – that one is not the console's any more and stays
+  const leader = spawn('setsid', ['sh', '-c', 'sleep 300 & setsid sleep 301 & (setsid sleep 302 &); wait'], { stdio: 'ignore' });
+  const pids = (pat: string) => execFileSync('sh', ['-c', `pgrep -f '^sleep ${pat}$' || :`]).toString().split(/\s+/).filter(Boolean);
+  await until(() => pids('30[012]').length === 3);
+  const session = execFileSync('sh', ['-c', `ps -o sid= -p ${pids('300')[0]}`]).toString().trim();
+  const found = execFileSync('sh', ['-c', `${CONSOLE_PROCS}; procs "$1" ""`, 'sh', session]).toString().trim().split(' ').map(x => x.split(':')[0]);
+  for (const p of [...pids('300'), ...pids('301')]) assert.ok(found.includes(p), `sleep ${p} belongs to the console`);
+  for (const p of pids('302')) assert.ok(!found.includes(p), 'a detached daemon is left alone');
+  const stop = CONSOLE.stop('0'.repeat(24)).argv[2], kill = stop.slice(0, stop.indexOf('; f='));
+  execFileSync('sh', ['-c', `${kill}; a=; freeze "$1"; sig KILL`, 'sh', session]);
+  await until(() => pids('30[01]').length === 0);
+  assert.equal(pids('302').length, 1);
+  for (const p of pids('302')) process.kill(Number(p), 'SIGKILL');
+  leader.kill('SIGKILL');
 });
 
 test('flow control: output capped per second (socket paused, then resumed), a view that falls behind is dropped, at most two views', async () => {

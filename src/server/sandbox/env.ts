@@ -207,10 +207,12 @@ export function dockerState(force = false): Promise<SandboxDocker> {
 }
 export const forgetDockerState = () => { dockerCache().value = null; };
 
-/** Switched off: stop (not remove) every running Lotse container, a few at once; code, database and changes stay. */
+/** containers stopped at the same time when Sandbox Coding is switched off (here and in jobs.suspendAll) */
+export const STOP_CONCURRENCY = 4;
+/** Switched off: stop (not remove) every running Lotse container, at most STOP_CONCURRENCY at once; code, database and changes stay. */
 export async function stopRunningSandboxes(): Promise<number> {
   const r = getRunner();
-  const ok = await pool((await r.list()).filter(c => c.running), 4, c => r.stop(c.id).then(() => true, () => false));
+  const ok = await pool((await r.list()).filter(c => c.running), STOP_CONCURRENCY, c => r.stop(c.id).then(() => true, () => false));
   return ok.filter(Boolean).length;
 }
 

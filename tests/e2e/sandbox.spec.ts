@@ -191,7 +191,7 @@ test('Sandbox Coding: console in the container – type, quick commands, reattac
   await expect(tab.getByText(/Benutzer „dockware“ im Shop-Verzeichnis, sudo geht/)).toBeVisible();
   await tab.getByRole('button', { name: 'Konsole öffnen' }).click();
   const term = tab.locator('[data-console]:not([hidden]) .xterm-rows');
-  await expect(term).toContainText('www-data@sandbox');
+  await expect(term).toContainText(/dockware@lotse-sbx-[\w-]+:\/var\/www\/html\$/);
   await tab.locator('[data-console]:not([hidden]) .xterm').click();
   await page.keyboard.type('whoami');
   await page.keyboard.press('Enter');
@@ -206,11 +206,16 @@ test('Sandbox Coding: console in the container – type, quick commands, reattac
   // a second console, then back to the first
   await tab.getByRole('button', { name: '+ Neue Konsole' }).click();
   await expect(tab.getByRole('tab', { name: 'Konsole 2' })).toHaveAttribute('aria-selected', 'true');
-  await expect(term).toContainText('www-data@sandbox');
+  await expect(term).toContainText(/dockware@lotse-sbx-[\w-]+:\/var\/www\/html\$/);
   await expect(term).not.toContainText('AcmeTheme');
   await tab.getByRole('button', { name: 'Konsole 2 schließen' }).click();
   await expect(tab.getByRole('tab', { name: 'Konsole 2' })).toHaveCount(0);
   await expect(term).toContainText('AcmeTheme');
+  // numbering restarts: the next one is "Konsole 2" again, not "Konsole 3"
+  await tab.getByRole('button', { name: '+ Neue Konsole' }).click();
+  await expect(tab.getByRole('tab', { name: 'Konsole 2' })).toHaveAttribute('aria-selected', 'true');
+  await tab.getByRole('button', { name: 'Konsole 2 schließen' }).click();
+  await expect(tab.getByRole('tab', { name: 'Konsole 2' })).toHaveCount(0);
 
   // reload: the session is still open and shows what was there
   await page.reload();
@@ -227,8 +232,10 @@ test('Sandbox Coding: console in the container – type, quick commands, reattac
   await expect(tab.getByRole('status').filter({ hasText: 'Die Sandbox wurde pausiert – Konsole geschlossen.' })).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Fortsetzen' })).toBeVisible();
   await tab.getByRole('button', { name: 'Neu öffnen' }).click();
+  await expect(tab.getByText('Die Sandbox wurde pausiert – Konsole geschlossen.')).toHaveCount(0); // not the old console while it starts
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 15_000 });
-  await expect(term).toContainText('www-data@sandbox');
+  await expect(tab.getByRole('tab', { name: 'Konsole 1' })).toHaveAttribute('aria-selected', 'true');
+  await expect(term).toContainText(/dockware@lotse-sbx-[\w-]+:\/var\/www\/html\$/);
   await expect(tab.getByRole('tab', { name: /Konsole \d/ })).toHaveCount(1);
   await tab.getByRole('button', { name: /Konsole \d schließen/ }).click();
   await expect(tab.getByRole('button', { name: 'Konsole öffnen' })).toBeVisible();
