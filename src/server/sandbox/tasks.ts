@@ -63,6 +63,9 @@ export const taskPaths = (id: string) => {
 // ---- Store + live listeners ----
 interface Live { listeners: Map<string, Set<(ev: TaskEvent) => void>>; saveTimers: Map<string, NodeJS.Timeout> }
 const live = () => singleton<Live>('sandboxTasksLive', () => ({ listeners: new Map(), saveTimers: new Map() }));
+/** Tasks whose container is being stopped right now (pause, idle, room for another task): memory only, a restart reconciles with Docker. */
+const stopping = () => singleton<Set<string>>('sandboxTasksStopping', () => new Set());
+export const markStopping = (id: string, on: boolean) => { if (on) stopping().add(id); else stopping().delete(id); };
 
 /** Rows of tasks created before a template rename carry the old id. */
 const loaded = (t: CodeTask) => { t.template = canonicalTemplateId(t.template); return t; };
@@ -143,7 +146,7 @@ export function publicTask(t: CodeTask, o: { logs?: boolean } = {}): CodeTaskPub
     id: t.id, title: t.title, goal: t.goal, repo: t.repo, baseBranch: t.baseBranch, branch: t.branch, template: t.template,
     status: t.status, layout: t.layout, error: t.error,
     steps: t.steps.map(({ id, key, label, state, startedAt, endedAt, log, error }) => ({ id, key, ...(label ? { label } : {}), state, ...(startedAt ? { startedAt } : {}), ...(endedAt ? { endedAt } : {}), log: o.logs === false ? [] : log, ...(error ? { error } : {}) })),
-    container: t.containerId ? { running: t.containerRunning } : null,
+    container: t.containerId ? { running: t.containerRunning } : null, ...(stopping().has(t.id) ? { stopping: true } : {}),
     preview: previewPath(t.id), dump: t.dump ? publicTaskDump(t.dump) : null, prUrl: t.prUrl, createdAt: t.createdAt, updatedAt: t.updatedAt, lastActiveAt: t.lastActiveAt, finishedAt: t.finishedAt,
     chatId: t.chatId, pluginName: t.pluginName ?? null, pr: t.prNumber && t.prUrl ? { number: t.prNumber, url: t.prUrl, title: t.prTitle ?? t.title, ...(t.prWatch?.number === t.prNumber && t.prWatch.state !== 'open' ? { state: t.prWatch.state } : {}) } : null, publish: t.publish ?? null,
     internet: t.internet ? { since: t.internet.since } : null,

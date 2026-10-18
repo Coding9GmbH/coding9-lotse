@@ -7,6 +7,7 @@ import { codexLoggedIn } from './codex';
 import path from 'node:path';
 import { dataDir, kvGet, kvSet, seal, unseal } from './db';
 import { DEFAULT_SCOPES, SCOPES, SCOPE_KEYS, type Scopes } from './policy';
+import { plausibleSecret, redactWeak } from './secret-values';
 import type { ShopwareConfig } from './shopware';
 
 const env = process.env;
@@ -172,21 +173,38 @@ const encodings = (v: string | null | undefined): (string | null | undefined)[] 
   const b = Buffer.from(v), hex = b.toString('hex');
   return [v, b.toString('base64').replace(/=+$/, ''), b.toString('base64url'), hex, hex.toUpperCase()];
 };
-/** Every stored secret Lotse knows (connections, keys, GitHub token, secret sandbox variables in common encodings). */
-export function knownSecrets(): string[] {
+/** Every stored value Lotse treats as a secret (connections, keys, GitHub token, secret sandbox variables), raw. */
+function storedSecrets(): { values: string[]; sandbox: string[] } {
   const g = getSettings();
   const shopSecrets = (['shopify', 'magento', 'openmage'] as const).flatMap(k => secretKeys(k).map(f => g[k][f]));
   const sistrixKey = unseal(kvGet<{ key?: string }>('sistrix')?.key);
   const githubToken = unseal(kvGet<{ token?: string }>('github')?.token); // also as the Basic credential git sends
   const githubBasic = githubToken ? Buffer.from(`x-access-token:${githubToken}`).toString('base64') : null;
-  // sandbox env vars marked secret, also base64/hex encoded: code in the container can read them (defense in depth only, no guarantee)
-  const sandboxSecrets = (kvGet<{ envVars?: { secret?: boolean; value?: string }[] }>('sandbox')?.envVars ?? []).filter(v => v.secret).map(v => unseal(v.value)).flatMap(encodings);
-  return [g.shopware.password, g.shopware.clientSecret, ...shopSecrets, g.ai.apiKey, g.image.openaiKey, sistrixKey, githubToken, githubBasic, ...sandboxSecrets].filter((v): v is string => !!v && v.length > 3);
+  const sandbox = (kvGet<{ envVars?: { secret?: boolean; value?: string }[] }>('sandbox')?.envVars ?? []).filter(v => v.secret).map(v => unseal(v.value)).filter((v): v is string => !!v);
+  const values = [g.shopware.password, g.shopware.clientSecret, ...shopSecrets, g.ai.apiKey, g.image.openaiKey, sistrixKey, githubToken, githubBasic].filter((v): v is string => !!v);
+  return { values, sandbox };
 }
+/**
+ * The stored secrets searched for as plain text: only plausible ones (secret-values.ts – a shop password "shopware" would hit every
+ * composer.json and blank out normal words), secret sandbox variables also base64/hex encoded (code in the container can read
+ * them; defense in depth only, no guarantee).
+ */
+function secretSets(): { plain: string[]; weak: string[] } {
+  const { values, sandbox } = storedSecrets();
+  const plain = [...values.filter(plausibleSecret), ...sandbox.filter(plausibleSecret).flatMap(encodings)].filter((v): v is string => !!v && v.length > 3);
+  // too weak or common to search for everywhere ("shopware", "admin123"): removed only as a credential value
+  const weak = [...new Set([...values, ...sandbox].filter(v => v.length > 3 && !plausibleSecret(v)))];
+  return { plain, weak };
+}
+export const knownSecrets = (): string[] => secretSets().plain;
+/** Stored secrets too weak or common to search for everywhere ("shopware", "admin123"): redact() removes them only as a credential value. */
+export const weakSecrets = (): string[] => secretSets().weak;
 
 export function redact(text: unknown): string {
   let t = String(text ?? '');
-  for (const v of knownSecrets()) t = t.split(v).join('•••');
+  const { plain, weak } = secretSets();
+  for (const v of plain) t = t.split(v).join('•••');
+  for (const v of weak) t = redactWeak(t, v);
   return t.replace(/Bearer\s+[A-Za-z0-9._~+/=-]{12,}/g, 'Bearer •••').replace(/(Authorization:\s*Basic\s+)[A-Za-z0-9+/=]{8,}/gi, '$1•••').replace(/sk-[A-Za-z0-9_-]{16,}/g, 'sk-•••')
     .replace(/\b(github_pat_|gh[pousr]_)[A-Za-z0-9_]{16,}/g, '$1•••').replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, '$1•••@');
 }

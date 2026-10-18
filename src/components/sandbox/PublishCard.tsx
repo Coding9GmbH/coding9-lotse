@@ -23,24 +23,27 @@ export function ErrorText({ text, details }: { text: string; details: string }) 
   );
 }
 
-/** "Pull Request" tab: the changed files, branch → base, title and description (the AI's proposal prefilled, editable) and a sticky
- *  footer with the button and the steps Screenshots → Commit → Push → Pull Request. Only this click publishes; progress and errors
- *  come with the task (task.publish), so a reload shows them too. */
-export function PublishCard({ task, proposal, onPublished }: { task: CodeTaskPublic; proposal: PrProposal | null; onPublished: (r: PublishResult) => void }) {
+/** "Pull Request" tab: the changed files, branch → base, title and description (the AI's proposal prefilled, editable), `children`
+ *  (the screenshots) and a footer that sticks to the bottom of the tab with the button and the steps Screenshots → Commit → Push →
+ *  Pull Request. Only this click publishes; progress and errors come with the task (task.publish), so a reload shows them too.
+ *  Published already: "aktualisieren" only when something changed since the last push (or title/description were edited).
+ *  Blocked by the secret scan: the findings with file and line; when all may be false positives, "Trotzdem veröffentlichen" (audited). */
+export function PublishCard({ task, proposal, onPublished, children }: { task: CodeTaskPublic; proposal: PrProposal | null; onPublished: (r: PublishResult) => void; children?: React.ReactNode }) {
   const t = useI18n().t.sandbox.code.pr;
   const [title, setTitle] = useState(proposal?.title ?? task.pr?.title ?? task.title);
   const [body, setBody] = useState(proposal?.body ?? task.goal);
   const [taken, setTaken] = useState(proposal?.key ?? null);
-  const [files, setFiles] = useState<TaskDiff['files'] | null>(null);
+  const [diff, setDiff] = useState<TaskDiff | null>(null);
+  const [edited, setEdited] = useState(false);
   const [tick, setTick] = useState(0);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // a newer proposal of the AI replaces the fields (the user reviews it before clicking)
-  if (proposal && proposal.key !== taken) { setTaken(proposal.key); setTitle(proposal.title); setBody(proposal.body); }
+  if (proposal && proposal.key !== taken) { setTaken(proposal.key); setTitle(proposal.title); setBody(proposal.body); setEdited(true); }
   useEffect(() => {
     let off = false;
-    api.sandbox.diff(task.id).then(d => { if (!off) setFiles(d.files); }, e => { if (!off) setError(errorText(e)); });
+    api.sandbox.diff(task.id).then(d => { if (!off) setDiff(d); }, e => { if (!off) setError(errorText(e)); });
     return () => { off = true; };
   }, [task.id, tick]);
 
@@ -49,12 +52,18 @@ export function PublishCard({ task, proposal, onPublished }: { task: CodeTaskPub
   const failed = !sending && task.publish?.state === 'failed';
   const last = !sending && !error && task.publish ? (task.publish.state === 'interrupted' ? t.interrupted : failed ? t.failed(task.publish.error ?? '') : null) : null;
   const steps = publishSteps(task.publish);
-  async function publish() {
+  const files = diff?.files ?? null;
+  const findings = failed ? task.publish?.findings ?? [] : [];
+  const canOverride = findings.length > 0 && findings.every(f => f.overridable);
+  // published and nothing new since the last push: no button that would only re-send the same state
+  const upToDate = !!task.pr && diff?.unpublished === false && !edited && !failed;
+  async function publish(allowFindings?: string[]) {
     setSending(true); setError(null);
-    try { onPublished(await api.sandbox.publish(task.id, { title, body })); setTick(n => n + 1); }
+    try { onPublished(await api.sandbox.publish(task.id, { title, body, ...(allowFindings ? { allowFindings } : {}) })); setEdited(false); setTick(n => n + 1); }
     catch (e) { setError(t.failed(errorText(e))); }
     finally { setSending(false); }
   }
+  const override = () => { if (window.confirm(t.overrideConfirm(findings.length))) void publish(findings.map(f => f.id)); };
 
   return (
     <form className={styles.form} aria-label={t.heading} onSubmit={e => { e.preventDefault(); void publish(); }}>
@@ -68,13 +77,14 @@ export function PublishCard({ task, proposal, onPublished }: { task: CodeTaskPub
       </div>
       <label className={styles.field}>
         <span className={styles.label}>{t.title}</span>
-        <input value={title} maxLength={200} required onChange={e => setTitle(e.target.value)} disabled={running} />
+        <input value={title} maxLength={200} required onChange={e => { setTitle(e.target.value); setEdited(true); }} disabled={running} />
       </label>
       <label className={styles.field}>
         <span className={styles.label}>{t.body}</span>
-        <textarea value={body} rows={7} maxLength={20_000} onChange={e => setBody(e.target.value)} disabled={running} />
+        <textarea value={body} rows={7} maxLength={20_000} onChange={e => { setBody(e.target.value); setEdited(true); }} disabled={running} />
         <span className={styles.fieldHint}>{taken ? `${t.fromProposal} ` : ''}{t.bodyHint}</span>
       </label>
+      {children}
       <div className={styles.stickyFoot}>
         {(running || failed) && (
           <ol className={styles.stepper} aria-label={t.progress}>
@@ -87,10 +97,21 @@ export function PublishCard({ task, proposal, onPublished }: { task: CodeTaskPub
           </ol>
         )}
         <div className={styles.footRow}>
-          <Button variant="primary" type="submit" busy={running} disabled={running || !title.trim() || (files !== null && !files.length && !task.pr)}>{task.pr ? t.update : t.create}</Button>
+          {upToDate
+            ? <span className={styles.muted} role="status">{t.upToDate}</span>
+            : <Button variant="primary" type="submit" busy={running} disabled={running || !title.trim() || (files !== null && !files.length && !task.pr)}>{task.pr ? t.update : t.create}</Button>}
           {progress && <span className={styles.muted} role="status">{progress}</span>}
         </div>
         {(error ?? last) && <ErrorText text={(error ?? last)!} details={t.details} />}
+        {findings.length > 0 && (
+          <div className={styles.findings}>
+            <p className={styles.label}>{t.findings}</p>
+            <ul>{findings.map(f => <li key={f.id}><code>{f.file}:{f.line}</code> {f.kind}</li>)}</ul>
+            {canOverride
+              ? <p className={styles.footRow}><Button variant="danger" size="sm" onClick={override} disabled={running}>{t.override}</Button><span className={styles.fieldHint}>{t.overrideNote}</span></p>
+              : <p className={styles.fieldHint}>{t.noOverride}</p>}
+          </div>
+        )}
       </div>
     </form>
   );

@@ -258,6 +258,36 @@ test('switching off during a wake-up aborts it: paused with a stopped container,
   await J.finishTask(t.id);
 });
 
+test('pause: "stopping" until the container is stopped; a wake-up requests the storefront after the sync before it says ready', async () => {
+  const t = newTask('Pausieren und Aufwärmen');
+  J.runSteps(t.id); await settled(t.id);
+  const cid = T.getTask(t.id)!.containerId!;
+  const origStop = fake.stop.bind(fake);
+  let release!: () => void;
+  const gate = new Promise<void>(r => { release = r; });
+  fake.stop = async id => { await gate; return origStop(id); };
+  const events: { status: string; stopping?: boolean }[] = [];
+  const off = T.listen(t.id, ev => { if (ev.t === 'task') events.push({ status: ev.task.status, stopping: ev.task.stopping }); });
+  try {
+    const pausing = J.pauseTask(t.id);
+    await until(() => events.length > 0);
+    assert.deepEqual(T.publicTask(T.getTask(t.id)!).stopping, true, 'paused, container still running');
+    assert.equal(T.getTask(t.id)!.status, 'paused');
+    release(); await pausing;
+    assert.equal(T.publicTask(T.getTask(t.id)!).stopping, undefined);
+    assert.deepEqual(events.at(-1), { status: 'paused', stopping: undefined }, 'the views learn that it stopped');
+  } finally { fake.stop = origStop; off(); }
+  // the sync replaces the plugin files: the first storefront request (slow in Shopware) is made before "ready"
+  const seen: { at: number; status: string }[] = [];
+  fake.storefront = (req, _res, id) => { if (id === cid && req.url === '/') seen.push({ at: fake.calls.length, status: T.getTask(t.id)!.status }); return false; };
+  try { await J.ensureAwake(t.id); } finally { fake.storefront = null; }
+  const synced = fake.calls.findLastIndex(c => c.op === 'putArchive' && c.id === cid);
+  assert.ok(synced > 0);
+  assert.ok(seen.some(s => s.at > synced && s.status === 'waking'), JSON.stringify({ synced, seen }));
+  assert.equal(T.getTask(t.id)!.status, 'ready');
+  await J.finishTask(t.id);
+});
+
 test('a container stopped outside Lotse: resume wakes it, the sweeper marks the task paused', async () => {
   const t = newTask('Extern gestoppt');
   J.runSteps(t.id); await settled(t.id);

@@ -176,14 +176,24 @@ export async function pushBranch(t: PushTarget, o: { signal?: AbortSignal } = {}
 
 /** Raw bytes of a file in the cloned base branch (null if it is not there). Local, no auth; NOT redacted: only for checks on the
  *  server (the secret scan compares lines byte for byte), never returned to a client or the AI. */
-export function readBaseBlob(worktree: string, gitDir: string, baseBranch: string, file: string): Promise<Buffer | null> {
+export function readBaseBlob(worktree: string, gitDir: string, baseBranch: string, file: string, at?: string): Promise<Buffer | null> {
   const cwd = assertAbs(worktree, 'Arbeitsordner'), gd = assertAbs(gitDir, 'Git-Ordner');
   if (!/^[^\x00-\x1f]+$/.test(file) || file.startsWith('/') || file.split('/').includes('..')) return Promise.resolve(null);
   const env = gitEnv({ gitDir: gd, workTree: cwd });
-  return assertBaseBranch(baseBranch).then(b => new Promise(resolve => {
-    execFile('git', ['cat-file', 'blob', `refs/remotes/origin/${b}:${file}`], { cwd, env: env as NodeJS.ProcessEnv, shell: false, timeout: TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: MAX_OUTPUT, encoding: 'buffer', windowsHide: true },
+  // `at`: a commit (e.g. the last pushed one) instead of the base branch
+  return (at ? Promise.resolve(assertSha(at)) : assertBaseBranch(baseBranch).then(b => `refs/remotes/origin/${b}`)).then(ref => new Promise(resolve => {
+    execFile('git', ['cat-file', 'blob', `${ref}:${file}`], { cwd, env: env as NodeJS.ProcessEnv, shell: false, timeout: TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: MAX_OUTPUT, encoding: 'buffer', windowsHide: true },
       (err, stdout) => resolve(err ? null : stdout));
   }));
+}
+
+/** Whether the worktree differs from the last pushed commit: uncommitted changes (also new files) or a HEAD other than `sha`. */
+export async function changedSince(worktree: string, gitDir: string, sha: string): Promise<boolean> {
+  const o = { cwd: assertAbs(worktree, 'Arbeitsordner'), gitDir: assertAbs(gitDir, 'Git-Ordner') };
+  return serialIndex(o.gitDir, async () => {
+    if ((await runGit(['rev-parse', 'HEAD'], o)).stdout.trim() !== assertSha(sha)) return true;
+    return !!(await runGit(['status', '--porcelain', '--untracked-files=all'], o)).stdout.trim();
+  });
 }
 
 /** Working tree (including new files) against the cloned base branch: numstat, name-status and the patch. Read-only, no auth.

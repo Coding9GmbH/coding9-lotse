@@ -2,7 +2,7 @@ import 'server-only';
 // Changes of a task's workspace against its base branch: for the agent (git_diff) and the "Änderungen" tab.
 // Secret and denied paths never appear, the patch is redacted and capped.
 import type { TaskDiff } from '@/lib/protocol';
-import { diffAgainstBase } from '../git';
+import { changedSince, diffAgainstBase } from '../git';
 import { redact } from '../settings';
 import { taskPaths, type CodeTask } from './tasks';
 import { isDenied } from './workspace-fs';
@@ -35,7 +35,9 @@ export function parseDiff(raw: { numstat: string; status: string; patch: string 
   return { files, diff, truncated };
 }
 
-export async function taskDiff(t: Pick<CodeTask, 'id' | 'baseBranch'>, maxBytes: number): Promise<TaskDiff> {
+export async function taskDiff(t: Pick<CodeTask, 'id' | 'baseBranch' | 'pushedSha'>, maxBytes: number, o: { sincePush?: boolean } = {}): Promise<TaskDiff> {
   const p = taskPaths(t.id);
-  return parseDiff(await diffAgainstBase(p.worktree, p.gitDir, t.baseBranch), maxBytes);
+  const d = parseDiff(await diffAgainstBase(p.worktree, p.gitDir, t.baseBranch), maxBytes);
+  // published before: is there anything new since that push ("Pull Request aktualisieren" only then)
+  return o.sincePush && t.pushedSha ? { ...d, unpublished: await changedSince(p.worktree, p.gitDir, t.pushedSha) } : d;
 }

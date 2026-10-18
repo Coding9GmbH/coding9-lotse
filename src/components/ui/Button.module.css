@@ -2,7 +2,7 @@
 .primary { background: var(--coral); border-color: var(--coral); color: var(--dark); font-weight: 600; }
 .primary:hover { background: var(--coral); border-color: var(--coral); }
 .primary:disabled, .primary:disabled:hover { background: var(--line); border-color: var(--line); color: var(--mute); opacity: 1; } /* neutral, not a faded coral that looks broken */
-.primary[aria-busy="true"]:disabled { background: var(--coral); border-color: var(--coral); color: var(--dark); opacity: .7; }
+.primary[aria-busy="true"]:disabled { opacity: 1; } /* busy looks like disabled (neutral); the step or spinner next to it says what runs */
 .ghost { background: transparent; border-color: transparent; color: var(--mute); }
 .ghost:hover { border-color: var(--line); color: var(--ink); }
 .danger { color: var(--warn); }

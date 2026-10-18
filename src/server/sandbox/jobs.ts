@@ -30,7 +30,7 @@ import { streamFileTar } from './tar';
 import { getTemplate, resolveCommand } from './templates';
 import { waitReady } from './templates/dockware';
 import type { StepCtx } from './templates/types';
-import { appendLog, emitTask, getTask, httpStatusOf, listTasks, mustTask, now, publishRunning, sandboxOrigin, saveTask, setTaskDump, taskPaths, turnRunning, type CodeTask, type StoredStep } from './tasks';
+import { appendLog, emitTask, getTask, httpStatusOf, listTasks, markStopping, mustTask, now, publicTask, publishRunning, sandboxOrigin, saveTask, setTaskDump, taskPaths, turnRunning, type CodeTask, type StoredStep } from './tasks';
 
 export class TaskConflict extends Error { readonly status = 409; }
 /** Statuses in which the task's container is about to run even if it is not started yet. */
@@ -97,14 +97,23 @@ function makeRoom(self: string): CodeTask[] {
 }
 const stopVictims = (victims: CodeTask[]) => Promise.all(victims.map(v => withTaskLock(v.id, () => stopContainer(v)).catch(e => log.warn('Sandbox pausieren fehlgeschlagen', { task: v.id, error: e }))));
 
+/** The container is stopped (or stopping failed): the task is no longer "stopping", the views learn it. */
+function stopped(id: string) {
+  markStopping(id, false);
+  const t = getTask(id);
+  if (t) emitTask(id, { t: 'task', task: publicTask(t) });
+}
 async function stopContainer(t: CodeTask, why: RevokeReason = 'pause') {
   if (!t.containerId) return;
-  // internet ends with the stop; a failed detach does not keep the container running (waking detaches again before the start)
-  await revokeInternet(t.id, why).catch(e => log.warn('Internetzugang nicht gesperrt', { task: t.id, error: e }));
-  await getRunner().stop(t.containerId);
-  forgetUpstream(t.containerId);
-  const fresh = getTask(t.id);
-  if (fresh) { fresh.containerRunning = false; saveTask(fresh); }
+  markStopping(t.id, true); // a paused task whose container still runs: the views show "Pausiere …", no "Fortsetzen" yet
+  try {
+    // internet ends with the stop; a failed detach does not keep the container running (waking detaches again before the start)
+    await revokeInternet(t.id, why).catch(e => log.warn('Internetzugang nicht gesperrt', { task: t.id, error: e }));
+    await getRunner().stop(t.containerId);
+    forgetUpstream(t.containerId);
+    const fresh = getTask(t.id);
+    if (fresh) { fresh.containerRunning = false; saveTask(fresh, false); }
+  } finally { stopped(t.id); }
 }
 
 // ---- Setup ----
@@ -305,8 +314,9 @@ export async function pauseTask(id: string): Promise<CodeTask> {
   const t = mustTask(id);
   if (setupRunning(id)) throw new TaskConflict('Die Einrichtung läuft noch – erst „Stoppen“.');
   if (t.status !== 'ready') throw new TaskConflict('Nur eine bereite Aufgabe kann pausiert werden.');
-  t.status = 'paused'; saveTask(t);
-  await withTaskLock(id, () => stopContainer(t));
+  t.status = 'paused';
+  markStopping(id, true); saveTask(t); // "Pausiere …" from the first event on, until stopContainer is done (publicTask.stopping)
+  try { await withTaskLock(id, () => stopContainer(t)); } finally { stopped(id); }
   return mustTask(id);
 }
 
@@ -365,12 +375,19 @@ async function wake(id: string, abort: AbortSignal) {
     t.containerRunning = true; saveTask(t);
     await waitReady(ctx);
     await ctx.syncAll();
+    // The sync replaced the plugin's files, so Shopware recompiles its templates on the next storefront request (several seconds on a
+    // just started container). That request is made here: "ready" means the preview loads at once – until then /sbx answers with
+    // "Umgebung startet …", which reloads itself; otherwise the first real load kept that page on screen for those seconds.
+    const warm = await ctx.httpStatus('/').catch(() => 0);
+    if (warm !== 200) ctx.log(`Storefront nach dem Start: ${warm ? `HTTP ${warm}` : 'keine Antwort'}`);
     if (abort.aborted || getTask(id)?.status !== 'waking') throw new Error('Abgebrochen.');
     t.status = 'ready'; t.lastActiveAt = now(); saveTask(t);
   } catch (e) {
     const fresh = getTask(id);
     if (!fresh || fresh.status === 'done') throw e;
-    fresh.status = 'paused'; fresh.containerRunning = t.containerRunning;
+    // what Docker says, not what the wake assumed: a container that exited while starting (e.g. its database failed) is not running
+    const info = t.containerId ? await getRunner().inspect(t.containerId).catch(() => undefined) : undefined;
+    fresh.status = 'paused'; fresh.containerRunning = info === undefined ? t.containerRunning : !!info?.running;
     fresh.error = abort.aborted ? null : `Fortsetzen fehlgeschlagen: ${redact(errMsg(e)).slice(0, 500)}`;
     saveTask(fresh);
     throw e;

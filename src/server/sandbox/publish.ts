@@ -4,13 +4,16 @@ import 'server-only';
 // - branch and base come from the task (fixed at creation), never from the request; only refs/heads/lotse/* is written,
 //   a re-push uses --force-with-lease on exactly the SHA Lotse pushed last (git.ts)
 // - preflight before anything is written: changes exist, paths stay in the repository, no .github/workflows or
-//   .github/actions (nor action.yml anywhere), no secret files, limits on files and size, a secret scan of the added lines (tokens, private keys, every secret Lotse knows)
+//   .github/actions (nor action.yml anywhere), no secret files, limits on files and size, a secret scan of the added lines (tokens, private keys,
+//   every plausible secret Lotse stores, as a token of its own – secret-values.ts); a finding names file and line, and the ones that
+//   may be false positives (stored values, URLs with credentials) can be published anyway by an explicit, audited click of the user
 // - audit "started" before the first write and a result row afterwards, both with the actor; the token never appears
 // - after screenshots of the sandbox before the commit (screenshots.ts); a failure never blocks, the body only mentions them
 // - idempotent: a retry after a failure or a restart continues (nothing new to commit, push is a no-op, the open PR is reused)
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { PrStatus, PublishStep, TaskPr } from '@/lib/protocol';
+import type { PrStatus, PublishStep, SecretFinding, TaskPr } from '@/lib/protocol';
 import { currentActor } from '../actor';
 import { auditAdd } from '../db';
 import { DEFAULT_LOCALE, messages, type Locale } from '@/lib/i18n';
@@ -18,6 +21,7 @@ import { GitError, commitAll, diffAgainstBase, pushBranch, readBaseBlob, runGit,
 import { checkSummary, createPull, findOpenPull, getPull, githubConnected, updatePull, type Pull } from '../github';
 import { log } from '../log';
 import { knownSecrets, redact } from '../settings';
+import { findToken, plausibleSecret } from '../secret-values';
 import { noteChatEvent } from '../sessions';
 import { singleton } from '../state';
 import { errMsg } from '../util';
@@ -30,30 +34,40 @@ export const PUBLISH_LIMITS = { files: 300, fileBytes: 5 * 1024 * 1024, totalByt
 export const LOTSE_AUTHOR: GitIdentity = { name: 'Lotse', email: 'lotse@users.noreply.github.com' };
 const FOOTER = '\n\n---\n_Erstellt mit Lotse in einer Sandbox (Shopware-Container); Titel und Beschreibung vor dem Veröffentlichen vom Nutzer geprüft._';
 
-class PublishBlocked extends Error { readonly status = 422; }
+class PublishBlocked extends Error {
+  readonly status = 422;
+  constructor(message: string, readonly findings?: SecretFinding[]) { super(message); }
+}
 const fail = (status: number, message: string) => Object.assign(new Error(message), { status });
 
 // ---- Preflight ----
-/** Secret-looking content: tokens of common services, private keys, URLs with credentials. Plus every secret Lotse stores. */
-const SECRET_PATTERNS: [RegExp, string][] = [
-  [/-----BEGIN [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----/, 'privater Schlüssel'],
-  [/\b(github_pat_[A-Za-z0-9_]{22,}|gh[pousr]_[A-Za-z0-9]{30,})/, 'GitHub-Token'],
-  [/\b(AKIA|ASIA)[0-9A-Z]{16}\b/, 'AWS-Zugangsschlüssel'],
-  [/\bsk-ant-[A-Za-z0-9_-]{20,}/, 'Anthropic-API-Schlüssel'],
-  [/\bsk-(proj-|svcacct-)?[A-Za-z0-9_-]{32,}/, 'OpenAI-API-Schlüssel'],
-  [/\bxox[abposr]-[A-Za-z0-9-]{10,}/, 'Slack-Token'],
-  [/\bAIza[0-9A-Za-z_-]{35}\b/, 'Google-API-Schlüssel'],
-  [/\bSWIA[A-Z0-9]{20,}\b/, 'Shopware-Integrationsschlüssel'],
-  [/\bshp(at|ca|pa|ss)_[a-fA-F0-9]{32}\b/, 'Shopify-Token'],
-  [/\b[a-z][a-z0-9+.-]*:\/\/[^\s/@:'"]+:[^\s/@'"]{3,}@[^\s/]+/i, 'Adresse mit Zugangsdaten'],
+/** Secret-looking content: tokens of common services, private keys, URLs with credentials (overridable: may be a placeholder). Plus every secret Lotse stores. */
+const SECRET_PATTERNS: [RegExp, string, boolean][] = [
+  [/-----BEGIN [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----/, 'privater Schlüssel', false],
+  [/\b(github_pat_[A-Za-z0-9_]{22,}|gh[pousr]_[A-Za-z0-9]{30,})/, 'GitHub-Token', false],
+  [/\b(AKIA|ASIA)[0-9A-Z]{16}\b/, 'AWS-Zugangsschlüssel', false],
+  [/\bsk-ant-[A-Za-z0-9_-]{20,}/, 'Anthropic-API-Schlüssel', false],
+  [/\bsk-(proj-|svcacct-)?[A-Za-z0-9_-]{32,}/, 'OpenAI-API-Schlüssel', false],
+  [/\bxox[abposr]-[A-Za-z0-9-]{10,}/, 'Slack-Token', false],
+  [/\bAIza[0-9A-Za-z_-]{35}\b/, 'Google-API-Schlüssel', false],
+  [/\bSWIA[A-Z0-9]{20,}\b/, 'Shopware-Integrationsschlüssel', false],
+  [/\bshp(at|ca|pa|ss)_[a-fA-F0-9]{32}\b/, 'Shopify-Token', false],
+  [/\b[a-z][a-z0-9+.-]*:\/\/[^\s/@:'"]+:[^\s/@'"]{3,}@[^\s/]+/i, 'Adresse mit Zugangsdaten', true],
 ];
-/** What a text contains that must not be published (kind of secret), or null. */
-export function findSecret(text: string, known: string[] = knownSecrets()): string | null {
-  for (const [re, what] of SECRET_PATTERNS) if (re.test(text)) return what;
-  // files are read as latin1 (byte for byte): a non-ASCII secret appears there as its UTF-8 bytes
-  for (const v of known) if (v.length >= 8 && (text.includes(v) || text.includes(Buffer.from(v, 'utf8').toString('latin1')))) return 'ein in Lotse gespeichertes Geheimnis';
+export const STORED_SECRET = 'ein in Lotse gespeichertes Geheimnis';
+/** What a text contains that must not be published (kind of secret, and whether the user may publish it anyway), or null. */
+export function secretIn(text: string, known: string[] = knownSecrets()): { what: string; overridable: boolean } | null {
+  for (const [re, what, overridable] of SECRET_PATTERNS) if (re.test(text)) return { what, overridable };
+  // only plausible secrets, as a token of their own: a shop password "shopware" must not hit "shopware/core" in every composer.json.
+  // Files are read as latin1 (byte for byte): a non-ASCII secret appears there as its UTF-8 bytes
+  for (const v of known) {
+    if (!plausibleSecret(v)) continue;
+    if (findToken(text, v) !== -1 || findToken(text, Buffer.from(v, 'utf8').toString('latin1')) !== -1) return { what: STORED_SECRET, overridable: true };
+  }
   return null;
 }
+/** What a text contains that must not be published (kind of secret), or null. */
+export const findSecret = (text: string, known: string[] = knownSecrets()): string | null => secretIn(text, known)?.what ?? null;
 
 export interface Changed { path: string; status: string }
 /** Paths of git's --name-status output (renames/copies: both). */
@@ -76,20 +90,41 @@ export function blockReason(files: Changed[]): string | null {
   return null;
 }
 
-/** Secret scan of one file: every line that is new against the base version (removing a leaked key must stay possible). */
-export function scanFile(file: string, content: string, baseLines: Set<string>, known: string[] = knownSecrets()): string | null {
-  for (const line of content.split('\n')) {
-    if (baseLines.has(line)) continue;
-    const what = findSecret(line, known);
-    if (what) return `Veröffentlichen blockiert: In „${file.slice(0, 120)}“ steht etwas, das wie ein Geheimnis aussieht (${what}). Bitte entfernen und erneut versuchen.`;
-  }
-  return null;
+/** A finding's id: file and the line's content (not its number – an approval stays valid while other lines move, and ends when the line changes). */
+const findingId = (file: string, line: string) => createHash('sha256').update(`${file}\n${line}`).digest('hex').slice(0, 16);
+const FINDINGS_MAX = 20;
+
+/**
+ * Secret scan of one file: every line that is new against the base version (removing a leaked key must stay possible). A stored
+ * value that the base version of the file already contains is no new leak (e.g. a word that is also someone's password).
+ */
+export function scanFindings(file: string, content: string, baseLines: Set<string>, known: string[] = knownSecrets(), baseText = ''): SecretFinding[] {
+  const fresh = baseText ? known.filter(v => !baseText.includes(v) && !baseText.includes(Buffer.from(v, 'utf8').toString('latin1'))) : known;
+  const out: SecretFinding[] = [];
+  content.split('\n').forEach((line, i) => {
+    if (out.length >= FINDINGS_MAX || baseLines.has(line)) return;
+    const hit = secretIn(line, fresh);
+    if (hit) out.push({ id: findingId(file, line), file: file.slice(0, 300), line: i + 1, kind: hit.what, overridable: hit.overridable });
+  });
+  return out;
+}
+/** The blocking message for findings (the first one named, the rest counted). */
+export function findingsText(found: SecretFinding[]): string {
+  const [f] = found, more = found.length - 1;
+  return `Veröffentlichen blockiert: In „${f.file.slice(0, 120)}“ (Zeile ${f.line}) steht etwas, das wie ein Geheimnis aussieht (${f.kind})${more ? ` – dazu ${more === 1 ? 'eine weitere Stelle' : `${more} weitere Stellen`}` : ''}. Bitte entfernen und erneut versuchen${found.every(x => x.overridable) ? ' – oder nach Prüfung „Trotzdem veröffentlichen“' : ''}.`;
+}
+/** Secret scan of one file as a message (first finding), or null. */
+export function scanFile(file: string, content: string, baseLines: Set<string>, known: string[] = knownSecrets(), baseText = ''): string | null {
+  const found = scanFindings(file, content, baseLines, known, baseText);
+  return found.length ? findingsText(found) : null;
 }
 
 /** Sizes, symlinks and the secret scan on the files as they are on disk (git's own output is redacted, so it cannot be scanned). */
-async function checkOnDisk(t: CodeTask, files: Changed[], known: string[]): Promise<string | null> {
+async function checkOnDisk(t: CodeTask, files: Changed[], known: string[]): Promise<{ why: string | null; findings: SecretFinding[] }> {
   const { worktree, gitDir } = taskPaths(t.id), realRoot = fs.realpathSync(worktree);
+  const findings: SecretFinding[] = [];
   let total = 0;
+  const stop = (why: string) => ({ why, findings: [] });
   for (const f of files) {
     if (f.status === 'D') continue;
     const abs = path.join(worktree, f.path);
@@ -98,28 +133,39 @@ async function checkOnDisk(t: CodeTask, files: Changed[], known: string[]): Prom
     if (st.isSymbolicLink()) {
       let real = '';
       try { real = fs.realpathSync(abs); } catch { /* dangling */ }
-      if (!real || !(real === realRoot || real.startsWith(realRoot + path.sep))) return `„${f.path.slice(0, 120)}“ ist ein Symlink aus dem Repository heraus und wird nicht veröffentlicht.`;
+      if (!real || !(real === realRoot || real.startsWith(realRoot + path.sep))) return stop(`„${f.path.slice(0, 120)}“ ist ein Symlink aus dem Repository heraus und wird nicht veröffentlicht.`);
       continue;
     }
     if (!st.isFile()) continue;
-    if (st.size > PUBLISH_LIMITS.fileBytes) return `„${f.path.slice(0, 120)}“ ist zu groß (${Math.round(st.size / 1024 / 1024)} MB, höchstens ${PUBLISH_LIMITS.fileBytes / 1024 / 1024} MB je Datei).`;
+    if (st.size > PUBLISH_LIMITS.fileBytes) return stop(`„${f.path.slice(0, 120)}“ ist zu groß (${Math.round(st.size / 1024 / 1024)} MB, höchstens ${PUBLISH_LIMITS.fileBytes / 1024 / 1024} MB je Datei).`);
     total += st.size;
-    if (total > PUBLISH_LIMITS.totalBytes) return `Die Änderungen sind zu groß (höchstens ${PUBLISH_LIMITS.totalBytes / 1024 / 1024} MB).`;
-    const base = f.status === 'A' ? null : await readBaseBlob(worktree, gitDir, t.baseBranch, f.path); // unredacted: same bytes as on disk
-    const why = scanFile(f.path, fs.readFileSync(abs).toString('latin1'), new Set(base ? base.toString('latin1').split('\n') : []), known);
-    if (why) return why;
+    if (total > PUBLISH_LIMITS.totalBytes) return stop(`Die Änderungen sind zu groß (höchstens ${PUBLISH_LIMITS.totalBytes / 1024 / 1024} MB).`);
+    if (findings.length >= FINDINGS_MAX) continue;
+    const base = await readBaseBlob(worktree, gitDir, t.baseBranch, f.path); // unredacted: same bytes as on disk
+    const baseText = base ? base.toString('latin1') : '';
+    // lines Lotse already pushed (a finding the user published anyway) do not block the next update again
+    const pushed = t.pushedSha ? await readBaseBlob(worktree, gitDir, t.baseBranch, f.path, t.pushedSha) : null;
+    const lines = new Set([...(baseText ? baseText.split('\n') : []), ...(pushed ? pushed.toString('latin1').split('\n') : [])]);
+    findings.push(...scanFindings(f.path, fs.readFileSync(abs).toString('latin1'), lines, known, baseText));
   }
-  return null;
+  return { why: null, findings: findings.slice(0, FINDINGS_MAX) };
 }
 
-/** Everything that would be published, checked; throws PublishBlocked with the reason. */
-export async function preflight(t: CodeTask): Promise<Changed[]> {
+/**
+ * Everything that would be published, checked; throws PublishBlocked with the reason (and the secret findings, if that is the reason).
+ * `allow`: ids of findings the user publishes anyway ("Trotzdem veröffentlichen"); only overridable ones count, returned as `overridden`.
+ */
+export async function preflight(t: CodeTask, allow: readonly string[] = []): Promise<{ files: Changed[]; overridden: SecretFinding[] }> {
   const p = taskPaths(t.id);
   const raw = await diffAgainstBase(p.worktree, p.gitDir, t.baseBranch);
   const files = changedPaths(raw.status);
-  const why = blockReason(files) ?? await checkOnDisk(t, files, knownSecrets());
+  const early = blockReason(files);
+  if (early) throw new PublishBlocked(early);
+  const { why, findings } = await checkOnDisk(t, files, knownSecrets());
   if (why) throw new PublishBlocked(why);
-  return files;
+  const ok = new Set(allow), open = findings.filter(f => !(f.overridable && ok.has(f.id)));
+  if (open.length) throw new PublishBlocked(findingsText(open), open);
+  return { files, overridden: findings };
 }
 
 // ---- Errors in plain language ----
@@ -179,7 +225,7 @@ const cleanBody = (s: string) => s.replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x
 export interface PublishOutcome { task: CodeTask; pr: TaskPr; action: 'created' | 'updated'; files: number }
 
 /** Checks what can be checked synchronously, then runs the publish (registered at once: a second click gets 409). */
-export function publishTask(id: string, input: { title: string; body: string }, locale: Locale = DEFAULT_LOCALE): Promise<PublishOutcome> {
+export function publishTask(id: string, input: { title: string; body: string; allowFindings?: string[] }, locale: Locale = DEFAULT_LOCALE): Promise<PublishOutcome> {
   const t = mustTask(id);
   if (!githubConnected()) throw fail(400, 'GitHub ist nicht verbunden (Einstellungen → Integrationen).');
   if (publishRunning(id)) throw new TaskConflict(messages(locale).server.publishRunning);
@@ -191,21 +237,24 @@ export function publishTask(id: string, input: { title: string; body: string }, 
   if (!title) throw fail(400, 'Titel fehlt.');
   const secret = findSecret(`${title}\n${body}`);
   if (secret) throw new PublishBlocked(`Titel oder Beschreibung enthalten etwas, das wie ein Geheimnis aussieht (${secret}).`);
-  return markPublishing(id, run(id, title, body, currentActor(t.chatId), locale));
+  return markPublishing(id, run(id, title, body, currentActor(t.chatId), locale, input.allowFindings ?? []));
 }
 
 /** Re-read, change and save the task: the setup, the idle sweeper or a wake-up may have saved it meanwhile. */
 function update(id: string, fn: (t: CodeTask) => void): CodeTask { const t = mustTask(id); fn(t); saveTask(t); return t; }
 
-async function run(id: string, title: string, body: string, actor: string | null, locale: Locale): Promise<PublishOutcome> {
+async function run(id: string, title: string, body: string, actor: string | null, locale: Locale, allow: readonly string[]): Promise<PublishOutcome> {
   const t = mustTask(id), p = taskPaths(id);
   let step: PublishStep = 'check', started = false;
   const at = (s: PublishStep) => { step = s; update(id, x => { x.publish = { state: 'running', step: s, at: now() }; }); };
   const base = { kind: 'code-pr', taskId: t.id, chatId: t.chatId, title: `Pull Request: ${title}`, repo: t.repo, branch: t.branch, base: t.baseBranch };
   try {
     at('check');
-    const files = await preflight(t);
-    auditAdd({ ...base, decision: 'approved', status: 'started', files: files.length }, actor); // before the first write
+    const { files, overridden } = await preflight(t, allow);
+    // published anyway after the user's explicit click: where and what kind, never the value
+    const override = overridden.length ? { secretOverride: overridden.map(f => ({ file: f.file, line: f.line, kind: f.kind })) } : {};
+    auditAdd({ ...base, decision: 'approved', status: 'started', files: files.length, ...override }, actor); // before the first write
+    if (overridden.length) log.warn('Veröffentlichen trotz Geheimnis-Fund freigegeben', { task: id, findings: overridden.map(f => `${f.file}:${f.line}`) });
     started = true;
     at('screenshots');
     await captureAfter(id);
@@ -242,7 +291,8 @@ async function run(id: string, title: string, body: string, actor: string | null
     return { task, pr: done, action, files: paths.length };
   } catch (e) {
     const blocked = e instanceof PublishBlocked, msg = blocked ? e.message : errorText(step, e, t, locale);
-    update(id, x => { x.publish = { state: 'failed', step, error: msg.slice(0, 2000), at: now() }; });
+    const findings = blocked && e.findings?.length ? { findings: e.findings } : {};
+    update(id, x => { x.publish = { state: 'failed', step, error: msg.slice(0, 2000), at: now(), ...findings }; });
     if (started) auditAdd({ ...base, decision: 'approved', status: 'failed', step, error: msg.split('\n')[0].slice(0, 300) }, actor);
     else if (blocked) auditAdd({ ...base, decision: 'rejected', reason: msg.slice(0, 300) }, actor);
     log.warn('Veröffentlichen fehlgeschlagen', { task: id, step, error: msg });

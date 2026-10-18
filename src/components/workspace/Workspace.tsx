@@ -125,6 +125,13 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
 
   // Language changed: the chat's status texts follow it
   useEffect(() => { dispatch({ type: 'set_locale', locale }); }, [locale]);
+  // back to a wide viewport (rotated, window resized): the overlay state ends, so its close button does not stay in the side panel
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1100px)');
+    const on = () => { if (!mq.matches) setPreviewOpen(false); };
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
 
   const { target, busy, styleguide: sg } = state;
   // After a turn: fetch the cost brake state again (budget notice above the input)

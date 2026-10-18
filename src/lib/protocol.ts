@@ -291,6 +291,7 @@ export interface CodeTaskPublic {
   id: string; title: string; goal: string; repo: string; baseBranch: string; branch: string; template: string;
   status: CodeTaskStatus; steps: TaskStep[]; layout: TaskLayout | null; error: string | null;
   /** a container exists and is running (null = none) */ container: { running: boolean } | null;
+  /** its container is being stopped right now (paused, not stopped yet): "Pausiere …", no "Fortsetzen" until it is */ stopping?: boolean;
   /** path prefix of the storefront preview (/sbx/<id>.<key>) */ preview: string;
   /** uploaded database dump of the task (metadata only) */ dump: TaskDumpPublic | null;
   prUrl: string | null; createdAt: string; updatedAt: string; lastActiveAt: string; finishedAt: string | null;
@@ -310,14 +311,18 @@ export interface TaskPr { number: number; url: string; title: string; /** seen b
 /** One piece of PR feedback: review (state APPROVED/CHANGES_REQUESTED/COMMENTED), comment on the PR, line comment (path/line), failed check (name) */
 export interface PrFeedbackItem { kind: 'review' | 'comment' | 'line' | 'check'; id: string; author?: string; state?: string; name?: string; path?: string; line?: number; body: string; url?: string }
 export type PublishStep = 'check' | 'screenshots' | 'commit' | 'push' | 'pr';
-export interface TaskPublish { state: 'running' | 'failed' | 'interrupted'; step: PublishStep; error?: string; at: string }
-/** POST /api/sandbox/tasks/[id]/publish: title and description only (branch and base are fixed by the server) */
-export interface PublishRequest { title: string; body: string }
+/** Something in a changed file that looks like a secret (file, line, kind – never the value). overridable: may be a false positive
+ *  (a stored value, a URL with credentials) and can be published anyway by the user, by id (hash of file and line content). */
+export interface SecretFinding { id: string; file: string; line: number; kind: string; overridable: boolean }
+export interface TaskPublish { state: 'running' | 'failed' | 'interrupted'; step: PublishStep; error?: string; at: string; /** the secret scan blocked: what it found */ findings?: SecretFinding[] }
+/** POST /api/sandbox/tasks/[id]/publish: title and description only (branch and base are fixed by the server); allowFindings = ids
+ *  of secret findings the user publishes anyway ("Trotzdem veröffentlichen", audited) */
+export interface PublishRequest { title: string; body: string; allowFindings?: string[] }
 export interface PublishResult { task: CodeTaskPublic; pr: TaskPr; action: 'created' | 'updated'; /** changed files in the pull request */ files: number }
 /** GET /api/sandbox/tasks/[id]/pr: live state from GitHub (cached briefly); checks null = not readable with the token */
 export interface PrStatus { number: number; url: string; title: string; state: 'open' | 'closed' | 'merged'; draft: boolean; checks: { total: number; success: number; failure: number; pending: number } | null; fetchedAt: string }
 /** GET /api/sandbox/tasks/[id]/diff: changes in the workspace against the base branch (redacted, capped) */
-export interface TaskDiff { files: { path: string; added: number; removed: number; status: 'added' | 'modified' | 'deleted' | 'renamed' }[]; diff: string; truncated: boolean }
+export interface TaskDiff { files: { path: string; added: number; removed: number; status: 'added' | 'modified' | 'deleted' | 'renamed' }[]; diff: string; truncated: boolean; /** pushed before: changes since that push exist (missing = never pushed) */ unpublished?: boolean }
 /** Dump of a task: imported once and deleted right after the import (also on failure). versionMismatch blocks until "Trotzdem fortfahren". */
 export interface TaskDumpPublic { name: string; size: number; sha256: string | null; imported: boolean; deleted: boolean; ignoreVersion: boolean; versionMismatch?: { dump: string; image: string } }
 /** An uploaded dump (GET/POST /api/sandbox/dumps…): metadata, never the content */
