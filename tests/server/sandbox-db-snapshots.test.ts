@@ -176,7 +176,7 @@ test('a copy that fails on restore falls back to the import; a failed snapshot c
   for (const t of [a, b, c]) await J.finishTask(t.id);
 });
 
-test('a volume with the snapshot name that is not Lotse\'s: no quick start and no snapshot, the import runs, the volume is not touched', async () => {
+test('a volume with the snapshot name that is not Lotse\'s: no restore and no snapshot, the import runs, the volume is not touched', async () => {
   const d = await stored('foreign.sql'), snap = SP.snapshotVolume(d.id, IMAGE);
   // recorded snapshot whose volume was replaced outside Lotse by an unlabelled one of the same name
   const a = await runTask(d.id, 'Snapshot anlegen');
@@ -221,7 +221,7 @@ test('a new image invalidates the snapshot (removed by the sweep, the next task 
   const a = await runTask(d.id, 'Vor dem Image-Wechsel');
   const snap = SP.snapshotVolume(d.id, IMAGE);
   assert.ok(fake.volumes.has(snap));
-  // the list shows the quick start for the configured image only
+  // the list shows the snapshot for the configured image only
   let list = await (await dumpsRoute.GET(req('/api/sandbox/dumps'))).json() as any;
   assert.equal(list.dumps.find((x: any) => x.id === d.id).snapshot, true);
   // environment: a new image tag → stale snapshot removed (route triggers the sweep)
