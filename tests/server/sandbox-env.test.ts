@@ -44,7 +44,8 @@ test('off by default; LOTSE_SANDBOX=0 and an open bind without password block it
   // stored on, but the environment changed afterwards: still blocked
   assert.equal(E.sandboxStatus({ HOSTNAME: '0.0.0.0' }).reason, 'open-bind');
   // network mode: the task containers share the network with Lotse; without the pinned subnet they would count as local
-  assert.match(E.sandboxStatus({ AICB_DOCKER: '1', LOTSE_BIND: '127.0.0.1' }).message ?? '', /LOTSE_SANDBOX_SUBNET/);
+  assert.equal(E.sandboxStatus({ AICB_DOCKER: '1', LOTSE_BIND: '127.0.0.1' }).enabled, true, 'default subnet');
+  assert.match(E.sandboxStatus({ AICB_DOCKER: '1', LOTSE_BIND: '127.0.0.1', LOTSE_SANDBOX_SUBNET: 'kaputt' }).message ?? '', /LOTSE_SANDBOX_SUBNET/);
   assert.equal(E.sandboxStatus({ AICB_DOCKER: '1', LOTSE_BIND: '127.0.0.1', LOTSE_SANDBOX_SUBNET: 'kaputt' }).reason, 'open-bind');
   assert.equal(E.sandboxStatus({ AICB_DOCKER: '1', LOTSE_BIND: '127.0.0.1', LOTSE_SANDBOX_SUBNET: '10.213.0.0/24' }).enabled, true);
   assert.equal(E.sandboxStatus({ AICB_DOCKER: '1', LOTSE_BIND: '127.0.0.1', LOTSE_PASSWORD: 'pw' }).enabled, true);

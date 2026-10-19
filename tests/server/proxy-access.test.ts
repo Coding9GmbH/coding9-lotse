@@ -41,8 +41,8 @@ test('sandbox subnet: task containers never reach the Lotse API, even with Host:
   process.env.AICB_DOCKER = '1'; process.env.LOTSE_BIND = '127.0.0.1';
   const write = (peer: string, extra: Record<string, string> = {}) => call('/api/settings', { host: 'localhost', 'x-lotse': '1', [PEER_HEADER]: peer, ...extra }, 'PUT');
   try {
-    delete process.env.LOTSE_SANDBOX_SUBNET;
-    assert.equal(hostAllowed('localhost', null, '10.213.0.5'), true, 'without the subnet a private hop counts as the local gateway (why the sandbox stays locked then)');
+    process.env.LOTSE_SANDBOX_SUBNET = '10.99.0.0/24';
+    assert.equal(hostAllowed('localhost', null, '10.213.0.5'), true, 'on another subnet a private hop counts as the local gateway');
     process.env.LOTSE_SANDBOX_SUBNET = '10.213.0.0/24';
     assert.equal((await write('10.213.0.5')).status, 403, 'container peer');
     assert.equal((await write('::ffff:10.213.0.77')).status, 403, 'IPv4 in IPv6');
@@ -50,12 +50,13 @@ test('sandbox subnet: task containers never reach the Lotse API, even with Host:
     assert.equal((await call('/api/chats', { host: 'lotse', [PEER_HEADER]: '10.213.0.9' })).status, 403, 'any host name');
     assert.equal((await write('10.213.1.5')).status, 200, 'other private hop (Docker gateway) still local');
     assert.equal((await write('172.17.0.1', { 'x-forwarded-for': '10.213.0.5' })).status, 403, 'container behind a hop');
-    assert.equal(fromSandbox('10.213.0.5', null, {}), false, 'unset: no filter');
+    assert.equal(fromSandbox('10.213.0.5', null, {}), true, 'unset: default subnet');
     assert.equal(fromSandbox('10.213.0.5', null, { LOTSE_SANDBOX_SUBNET: 'nonsense' }), false);
   } finally {
     for (const [k, v] of [['AICB_DOCKER', prevEnv.d], ['LOTSE_BIND', prevEnv.b], ['LOTSE_SANDBOX_SUBNET', prevEnv.s]] as const) if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
   assert.equal(sandboxSubnet({ LOTSE_SANDBOX_SUBNET: ' 10.213.0.0/24 ' }), '10.213.0.0/24');
+  assert.equal(sandboxSubnet({}), '10.213.0.0/24');
   for (const bad of ['10.213.0.0', '10.213.0.0/33', '10.213.0.0/0', '300.1.1.1/24', 'fd00::/64']) assert.equal(sandboxSubnet({ LOTSE_SANDBOX_SUBNET: bad }), null, bad);
   assert.equal(inCidr('10.213.0.255', '10.213.0.0/24'), true);
   assert.equal(inCidr('10.213.1.0', '10.213.0.0/24'), false);
