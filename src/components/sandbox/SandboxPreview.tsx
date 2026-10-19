@@ -90,6 +90,10 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
   const [current, setCurrent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadSeen, setLoadSeen] = useState(frameKey);
+  // the theme was compiled or the cache cleared (setup, the chat): the frame loads again – the page open now, not the first one
+  const bust = `${previewBust(task)}|${reload}`;
+  const [bustSeen, setBustSeen] = useState(bust);
+  if (bust !== bustSeen) { setBustSeen(bust); if (current && current !== path) { setPath(current); setTyped(current); } }
   if (frameKey !== loadSeen) { setLoadSeen(frameKey); setLoading(true); }
   const typing = useRef(false);
   const pageRef = useRef(onPage);

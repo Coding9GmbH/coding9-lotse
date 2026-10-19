@@ -305,12 +305,15 @@ test('"Bilder vom Live-Shop": a media file missing in the sandbox (404) comes fr
   assert.deepEqual([...new Uint8Array(await r.arrayBuffer())], [0x89, 0x50, 0x4e, 0x47]);
   assert.equal(live.at(-1), 'https://live.example/media/ab/cd/bild.png', 'the path only, no query');
   assert.equal((await call(`${pre(t)}/thumbnail/ab/bild_400x400.png`)).status, 200);
-  // other paths, SVG and what the live shop lacks: the sandbox's 404
+  // other paths and what the live shop lacks: the sandbox's 404
   const n = live.length;
   assert.equal((await call(`${pre(t)}/account/login`)).status, 404);
   assert.equal((await call(`${pre(t)}/theme/abc/app.css`)).status, 404);
   assert.equal(live.length, n, 'only /media/ and /thumbnail/ fall back');
-  assert.equal((await call(`${pre(t)}/media/logo.svg`)).status, 404);
+  const svg = await call(`${pre(t)}/media/e1/logo.svg`);
+  assert.equal(svg.status, 200, 'SVG too');
+  assert.equal(svg.headers.get('content-type'), 'image/svg+xml');
+  assert.match(svg.headers.get('content-security-policy') ?? '', /default-src 'none'; sandbox$/, 'its script never runs');
   assert.equal((await call(`${pre(t)}/media/missing.png`)).status, 404);
   // the sandbox's own file wins
   answer = (_q, res) => { res.writeHead(200, { 'content-type': 'image/png' }); res.end('own'); };

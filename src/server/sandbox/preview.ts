@@ -12,15 +12,15 @@ import { getTask, previewKey, previewPath, sandboxOrigin, TASK_ID, type CodeTask
 /** Media and thumbnails of the shop (a dump brings their database rows, not the files): only these paths fall back to the live shop */
 export const MEDIA_PATH = /^\/(?:media|thumbnail)\/(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9._~!$&'()*+,;=:@%/-]{1,500}$/;
 /** "Bilder vom Live-Shop": a media file the sandbox does not have (404) is fetched from the live shop the user named for this sandbox
- *  (never the repository) – server side, so the preview keeps its CSP (img-src 'self') and the container stays offline. Only images
- *  (no SVG: it could carry script), with downloadImage's checks (public address or a sales channel domain, at most 3 checked
- *  redirects, size cap). null = no live shop set or nothing usable there: the sandbox's own 404 stands. */
+ *  (never the repository) – server side, so the preview keeps its CSP (img-src 'self') and the container stays offline. Only images,
+ *  with downloadImage's checks (public address or a sales channel domain, at most 3 checked redirects, size cap). An SVG may carry
+ *  script: served with CSP sandbox (no allow-scripts), so neither as <img> nor opened directly does it run. null = no live shop set or
+ *  nothing usable there: the sandbox's own 404 stands. */
 export async function liveMedia(t: CodeTask, rel: string, head = false): Promise<Response | null> {
   const origin = t.setup?.mediaOrigin;
   if (!origin || !MEDIA_PATH.test(rel)) return null;
   try {
     const { buf, mime } = await downloadImage(origin + rel);
-    if (mime === 'image/svg+xml') return null;
     return new Response(head ? null : new Uint8Array(buf), { status: 200, headers: { 'content-type': mime, 'content-length': String(buf.length), 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" } });
   } catch { return null; }
 }
