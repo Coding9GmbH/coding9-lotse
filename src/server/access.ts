@@ -20,9 +20,10 @@ export function inCidr(ip: string, entry: string): boolean {
   const a = ipv4(ip), b = ipv4(net), n = Number(bits);
   return a !== null && b !== null && /^\d+$/.test(bits) && n >= 0 && n <= 32 && (n === 0 || (a >>> (32 - n)) === (b >>> (32 - n)));
 }
-/** LOTSE_SANDBOX_SUBNET: IPv4 CIDR of the internal network lotse-sandbox (pinned in docker-compose.sandbox.yml).
- *  Task containers live there; requests from it are never trusted (see proxy.ts). null = unset or invalid. */
-export const sandboxSubnet = (env: Record<string, string | undefined> = process.env): string | null => cidr(env.LOTSE_SANDBOX_SUBNET);
+export const DEFAULT_SANDBOX_SUBNET = '10.213.0.0/24';
+/** LOTSE_SANDBOX_SUBNET: IPv4 CIDR of the internal network lotse-sandbox (same default as docker-compose.sandbox.yml).
+ *  Task containers live there; requests from it are never trusted (see proxy.ts). Unset = default; null = invalid. */
+export const sandboxSubnet = (env: Record<string, string | undefined> = process.env): string | null => env.LOTSE_SANDBOX_SUBNET?.trim() ? cidr(env.LOTSE_SANDBOX_SUBNET) : DEFAULT_SANDBOX_SUBNET;
 /** LOTSE_SANDBOX_EGRESS_SUBNET: IPv4 CIDR of lotse-sandbox-egress, the network a task container joins only while internet is allowed
  *  (pinned in docker-compose.sandbox.yml). Requests from it are never trusted either. null = unset or invalid. */
 export const egressSubnet = (env: Record<string, string | undefined> = process.env): string | null => cidr(env.LOTSE_SANDBOX_EGRESS_SUBNET);

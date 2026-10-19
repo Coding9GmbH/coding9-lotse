@@ -53,7 +53,7 @@ const envOff = (env: Record<string, string | undefined>) => /^(0|false|off|no)$/
 export const SANDBOX_OFF = 'Sandbox Coding ist in den Einstellungen ausgeschaltet.';
 const ENV_OFF = 'Sandbox Coding ist per LOTSE_SANDBOX=0 abgeschaltet.';
 const OPEN_BIND = 'Sandbox Coding bleibt gesperrt: Lotse ist ohne LOTSE_PASSWORD aus dem Netzwerk erreichbar. Erst LOTSE_PASSWORD setzen.';
-const OPEN_SUBNET = 'Sandbox Coding bleibt gesperrt: Die Aufgaben-Container könnten Lotse ohne Login erreichen, weil LOTSE_SANDBOX_SUBNET fehlt. docker-compose.sandbox.yml verwenden (make sandbox-up) oder LOTSE_PASSWORD setzen.';
+const OPEN_SUBNET = 'Sandbox Coding bleibt gesperrt: Die Aufgaben-Container könnten Lotse ohne Login erreichen, weil LOTSE_SANDBOX_SUBNET ungültig ist. docker-compose.sandbox.yml verwenden (make sandbox-up) oder LOTSE_PASSWORD setzen.';
 /** Lotse shares the network lotse-sandbox with the task containers: without the pinned subnet the proxy cannot tell them apart from the local gateway. */
 const openToSandbox = (env: Record<string, string | undefined>) => !env.LOTSE_PASSWORD && networkMode(env) === 'network' && !sandboxSubnet(env);
 const blockedReason = (env: Record<string, string | undefined>) => (exposedWithoutPassword(env) ? OPEN_BIND : openToSandbox(env) ? OPEN_SUBNET : null);
