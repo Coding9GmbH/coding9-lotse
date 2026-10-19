@@ -5,6 +5,11 @@ Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die V
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
 Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag geschrieben (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
+## [0.9.4] – 2026-10-19
+
+### Geändert
+- Sandbox Coding: Große Repositorys lassen sich in den Test-Shop übertragen – die Meldung „Zu viele Dateien im Repository (mehr als 20000)“ entfällt. Die Dateien werden beim Hochladen nacheinander gelesen statt vorab im Speicher gehalten; begrenzt ist nur noch die Gesamtgröße (2 GB statt 256 MB).
+
 ## [0.9.3] – 2026-10-19
 
 ### Geändert
@@ -234,6 +239,7 @@ Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag gesch
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
+[0.9.4]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.0...v0.9.1

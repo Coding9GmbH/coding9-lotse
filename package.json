@@ -1,6 +1,6 @@
 {
   "name": "lotse",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "type": "module",
   "scripts": {
     "start": "next start -H 127.0.0.1 -p 3333",
