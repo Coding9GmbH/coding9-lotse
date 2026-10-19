@@ -14,6 +14,8 @@
 // composer install replaces the image's vendor/ – after a human allowed internet for it (the setup waits, internet.ts), offline again
 // right after. Then steps 1 and 4–6 as above, with the database migrated to the project's Shopware first.
 // Every argv is constant or built from validated names (plugin names, composer package names, sales channel ids from MySQL).
+import fs from 'node:fs';
+import path from 'node:path';
 import type { ProjectInfo, TaskLayout } from '@/lib/protocol';
 import { PLUGIN_NAME, composerAuthWanted } from '@/lib/sandbox-task';
 import {
@@ -61,11 +63,33 @@ const project = (ctx: StepCtx): { l: TaskLayout; p: ProjectInfo } => {
 const save = (ctx: StepCtx, l: TaskLayout, p: ProjectInfo) => ctx.setLayout({ ...l, project: p });
 const lines = (s: string) => s.split('\n').map(x => x.trim()).filter(Boolean);
 
+/** Config files in the container that configure the extension a failed boot names as missing, but are not in the project's repository
+ *  (so they come from the image): removed; the paths removed. */
+export async function removeImageLeftovers(ctx: StepCtx, output: string): Promise<string[]> {
+  const ext = /Container extension "([a-z0-9_]+)" is not registered|no extension able to load the configuration for "([a-z0-9_]+)"/.exec(output);
+  const name = ext?.[1] ?? ext?.[2];
+  if (!name) return [];
+  const found = await ctx.run(['grep', '-rlE', `^[[:space:]]*${name}:`, '--', 'config/packages'], { ...ANY, quiet: true });
+  const root = ctx.projectRoot();
+  const files = lines(found.output).filter(f => /^config\/packages\/[\w./-]+$/.test(f) && !f.split('/').includes('..') && !fs.existsSync(path.join(root, f)));
+  for (const f of files) await ctx.run(['rm', '-f', '--', f], { quiet: true });
+  return files;
+}
+
 /** Step 1: the clean image's APP_ENV, extension aliases and environment names; on a retry (config already synced, the console may not
  *  boot) what an earlier run read is kept. */
 async function readRuntime(ctx: StepCtx, p: ProjectInfo): Promise<ProjectInfo> {
   const about = await ctx.run(bin('about'), { ...ANY, quiet: true });
-  const dbg = await ctx.run(['bash', '-c', 'bin/console debug:config 2>&1'], { ...ANY, quiet: true });
+  let dbg = await ctx.run(['bash', '-c', 'bin/console debug:config 2>&1'], { ...ANY, quiet: true });
+  // An installed project replaces the image's vendor/ and bundles.php, but the image's own config files stay: one that configures a
+  // bundle the project does not have ("Container extension "web_profiler" is not registered") is a leftover of the image – removed.
+  for (let round = 0; round < BOOT_ROUNDS && dbg.exitCode !== 0; round++) {
+    const gone = await removeImageLeftovers(ctx, dbg.output);
+    if (!gone.length) break;
+    ctx.log(`Konfiguration des Images, die eine Erweiterung des Projekts nicht kennt, entfernt: ${gone.join(', ')}`);
+    await ctx.run(CLEAR_CACHE, { quiet: true });
+    dbg = await ctx.run(['bash', '-c', 'bin/console debug:config 2>&1'], { ...ANY, quiet: true });
+  }
   const extensions = dbg.exitCode === 0 ? parseExtensions(dbg.output) : p.extensions;
   if (!extensions?.length) throw new Error(`Shopware im Container antwortet nicht auf bin/console: ${bootError(dbg.output) || `Exit-Code ${dbg.exitCode}`}`);
   const envNames = parseEnvNames((await ctx.run(ENV_NAMES_ARGV, { quiet: true })).output);

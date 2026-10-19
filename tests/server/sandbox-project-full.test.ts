@@ -192,3 +192,19 @@ test('overlay: chosen in .lotse/sandbox.json, or the fallback when the environme
     await J.finishTask(b);
   } finally { E.saveSandbox({ enabled: true, internet: 'approval' }); }
 });
+
+test('a config file of the image for a bundle the project does not register is removed; the project\'s own files stay', async () => {
+  const { removeImageLeftovers } = await import('../../src/server/sandbox/templates/dockware-project');
+  const root = fs.mkdtempSync(path.join(tmp, 'leftover-'));
+  fs.mkdirSync(path.join(root, 'config/packages'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'config/packages/web_profiler.yaml'), 'web_profiler: {}\n'); // the project's own file of that name
+  const ran: string[][] = [];
+  const ctx: any = {
+    projectRoot: () => root,
+    run: async (argv: string[]) => { ran.push(argv); return { exitCode: 0, output: argv[0] === 'grep' ? 'config/packages/dev/web_profiler.yaml\nconfig/packages/web_profiler.yaml\nconfig/packages/../../etc/passwd\n' : '' }; },
+  };
+  const out = 'In ContainerBuilder.php line 1:\n  Container extension "web_profiler" is not registered.';
+  assert.deepEqual(await removeImageLeftovers(ctx, out), ['config/packages/dev/web_profiler.yaml']);
+  assert.deepEqual(ran.filter(a => a[0] === 'rm'), [['rm', '-f', '--', 'config/packages/dev/web_profiler.yaml']]);
+  assert.deepEqual(await removeImageLeftovers(ctx, 'something else'), []);
+});

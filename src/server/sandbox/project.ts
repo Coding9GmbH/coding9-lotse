@@ -478,8 +478,8 @@ export function bootFinding(output: string, files: { rel: string; data: unknown;
     const hit = byPath([...under, opt]) ?? byPath(under.slice(0, 1));
     if (hit) return { file: hit.rel, code: 'option', detail: [...under, opt].join('.').slice(0, 200) };
   }
-  const ext = /no extension able to load the configuration for "([^"]+)"/.exec(output);
-  if (ext) { const hit = byPath([ext[1]]); if (hit) return { file: hit.rel, code: 'extension', detail: ext[1].slice(0, 100) }; }
+  const ext = /no extension able to load the configuration for "([^"]+)"|Container extension "([^"]+)" is not registered/.exec(output);
+  if (ext) { const n = ext[1] ?? ext[2]; const hit = byPath([n]); if (hit) return { file: hit.rel, code: 'extension', detail: n.slice(0, 100) }; }
   // "dsn" and "transports" of the mailer in different files: the last file that sets one of them
   if (/"dsn" and "transports" cannot be used together/.test(output)) {
     const hit = files.filter(f => byPathIn(f, ['framework', 'mailer', 'dsn'], env) || byPathIn(f, ['framework', 'mailer', 'transports'], env)).at(-1);
@@ -498,7 +498,7 @@ export function bootFinding(output: string, files: { rel: string; data: unknown;
  *  class (the console prints "Symfony\…\InvalidConfigurationException {#9979" first, measured with 6.7.15.1) */
 export function bootError(output: string): string {
   const lines = output.split('\n').map(l => l.trim()).filter(l => l && !/^(#\d|In \S+ line|Exception trace|Stack trace|\{#?\d*$|[-=]+$)/.test(l));
-  const specific = /Unrecognized options?|no extension able|cannot be used together|Environment variable not found|Attempted to load|does not exist|not found|Invalid .*DSN|Unsupported|Missing dependency|cURL error|Connection refused/i;
+  const specific = /Unrecognized options?|no extension able|is not registered|cannot be used together|Environment variable not found|Attempted to load|does not exist|not found|Invalid .*DSN|Unsupported|Missing dependency|cURL error|Connection refused/i;
   // a dumped exception names its class first ("Symfony\…\LogicException {#26063", nested ones as "-previous: …"): the message that follows says why;
   // with nested exceptions the last one is the root cause
   const generic = /Exception|Error/i, classOnly = /^(?:-?previous:\s*)?[\w\\]+(Exception|Error)\b[^:]*$/, message = /^#message:\s*"/;
