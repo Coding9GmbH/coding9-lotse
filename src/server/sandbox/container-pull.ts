@@ -29,14 +29,14 @@ import { runGit } from '../git';
 import { log } from '../log';
 import { redact } from '../settings';
 import { pool } from '../util';
-import { SYNC_MANIFEST, overrideFile, projectSyncPath, realDir } from './project';
+import { SYNC_MANIFEST, overrideFile, projectBase, projectSyncPath, realDir, underRoot, withRoot } from './project';
 import { commitVerdict } from './publish';
 import { getRunner, type SandboxRunner } from './runner';
 import { IMAGE_BACKUP, isExcluded, isSecretPath } from './sync';
 import { TarError, archivePath, readTarStrict } from './tar';
 import { unifiedDiff } from './line-diff';
 import { getTemplate } from './templates';
-import { noteInSync, syncTaskAll } from './task-sync';
+import { noteInSync, rootOf as projectRoot, syncTaskAll } from './task-sync';
 import { publishRunning, taskPaths, type CodeTask } from './tasks';
 import { isBinary, isDenied } from './workspace-fs';
 
@@ -168,6 +168,9 @@ export async function listContainer(runner: SandboxRunner, containerId: string, 
 
 // ---- What is compared, per kind of task ----
 const ROOT = '/var/www/html';
+/** The folder of the worktree the container's files are compared with: a project's subfolder (layout.root) or the worktree itself.
+ *  Everything below is relative to it (= to /var/www/html); what the user and the AI see carries the subfolder in front (repository paths). */
+const workBase = (t: CodeTask) => projectBase(taskPaths(t.id).worktree, projectRoot(t));
 const PROJECT_ROOTS = ['custom/plugins', 'custom/static-plugins', 'custom/apps', 'config', 'src'];
 export interface Scope { roots: Root[]; /** a worktree path this kind of task syncs (and may take over) */ accept: (rel: string) => boolean;
   /** paths left out on both sides (Lotse's own files, project config the sandbox does not load) */ ignore: (rel: string) => boolean }
@@ -178,8 +181,11 @@ async function keptDirs(t: CodeTask): Promise<string[]> {
   let out = '';
   try { out = (await runGit(['-c', 'core.quotePath=false', 'ls-files', '-z'], { cwd: p.worktree, gitDir: p.gitDir })).stdout; } catch { return []; }
   const keep = new Set<string>();
+  const root = projectRoot(t);
   for (const f of out.split('\0')) {
-    const segs = f.split('/');
+    const inner = underRoot(root, f);
+    if (inner === null) continue;
+    const segs = inner.split('/');
     for (let i = 0; i < segs.length - 1; i++) if (SKIP_DIRS.includes(segs[i])) { keep.add(segs.slice(0, i + 1).join('/')); }
     if (keep.size > PULL_LIMITS.keep) break;
   }
@@ -254,7 +260,7 @@ export async function captureBaseline(t: CodeTask, signal?: AbortSignal): Promis
   const l = await listContainer(getRunner(), t.containerId, tpl.execUser, scope.roots, signal);
   const files: Record<string, string> = {}, work: Record<string, string> = {};
   for (const [rel, e] of l.entries) if (e.kind === 'file' && e.sha) files[rel] = e.sha; else if (e.kind === 'link' || e.kind === 'special' || e.kind === 'unreadable') files[rel] = e.kind;
-  for (const [rel, w] of worktreeEntries(taskPaths(t.id).worktree, scope.roots)) if (w.kind === 'file' && w.size <= PULL_LIMITS.fileBytes) work[rel] = sha(fs.readFileSync(w.abs));
+  for (const [rel, w] of worktreeEntries(workBase(t), scope.roots)) if (w.kind === 'file' && w.size <= PULL_LIMITS.fileBytes) work[rel] = sha(fs.readFileSync(w.abs));
   fs.mkdirSync(taskPaths(t.id).workspace, { recursive: true });
   fs.writeFileSync(baselineFile(t.id), JSON.stringify({ container: t.containerId, files, work } satisfies Baseline), { mode: 0o600 });
 }
@@ -304,7 +310,7 @@ interface Compared { candidates: Candidate[]; skipped: ContainerChanges['skipped
 async function compare(t: CodeTask, signal?: AbortSignal, locale: Locale = DEFAULT_LOCALE): Promise<Compared> {
   if (!t.containerId || !t.containerRunning) throw new Error(pullText(locale).notRunning);
   await syncTaskAll(t, signal, { ifChanged: true }); // the worktree's own changes are no container changes
-  const scope = await scopeOf(t, locale), tpl = getTemplate(t.template), worktree = taskPaths(t.id).worktree;
+  const scope = await scopeOf(t, locale), tpl = getTemplate(t.template), worktree = workBase(t);
   const listing = await listContainer(getRunner(), t.containerId, tpl.execUser, scope.roots, signal, locale);
   const work = worktreeEntries(worktree, scope.roots, locale), baseline = readBaseline(t.id);
   const own = baseline?.container === t.containerId ? baseline : null, base = own?.files ?? null, baseWork = own?.work ?? null;
@@ -373,7 +379,7 @@ async function checks(t: CodeTask, cands: Candidate[], got: Fetched, locale: Loc
     if (got.tooLarge.has(c.path)) { out.set(c.path, L.grewTooLarge(PULL_LIMITS.fileBytes / 1024 / 1024)); return; }
     if (c.status !== 'deleted' && !bytes) { out.set(c.path, L.unreadable); return; }
     if (bytes && sha(bytes) !== c.sha) { out.set(c.path, L.changedMeanwhile); return; }
-    const v = await commitVerdict(t, [{ path: c.path, status: c.status === 'added' ? 'A' : c.status === 'deleted' ? 'D' : 'M' }], h, async () => bytes, locale);
+    const v = await commitVerdict(t, [{ path: withRoot(projectRoot(t), c.path), status: c.status === 'added' ? 'A' : c.status === 'deleted' ? 'D' : 'M' }], h, async () => bytes, locale);
     if (v?.why) out.set(c.path, v.why);
     else if (v?.findings) { const [f] = v.findings; out.set(c.path, L.secret(f.file.slice(0, 120), f.line, kind(f.kind), v.findings.length - 1)); }
   });
@@ -383,7 +389,7 @@ async function checks(t: CodeTask, cands: Candidate[], got: Fetched, locale: Loc
 /** "Aus dem Container übernehmen" → "Vergleichen": what differs, with a diff of the text files and why some cannot be taken over. */
 export async function containerChanges(t: CodeTask, signal?: AbortSignal, locale: Locale = DEFAULT_LOCALE): Promise<ContainerChanges> {
   const c = await compare(t, signal, locale);
-  const tpl = getTemplate(t.template), cands = c.candidates.slice(0, PULL_LIMITS.files);
+  const tpl = getTemplate(t.template), cands = c.candidates.slice(0, PULL_LIMITS.files), root = projectRoot(t), P = (p: string) => withRoot(root, p);
   for (const x of c.candidates.slice(PULL_LIMITS.files)) c.skipped.push({ path: x.path, reason: 'more' });
   const got = await fetchFiles(getRunner(), t.containerId!, tpl.execUser, c.scope.roots, cands.filter(x => x.status !== 'deleted').map(x => x.path), signal, locale);
   const blocked = await checks(t, cands, got, locale);
@@ -394,16 +400,16 @@ export async function containerChanges(t: CodeTask, signal?: AbortSignal, locale
     const binary = (!!old && isBinary(old)) || (!!now && isBinary(now));
     let added = 0, removed = 0;
     if (!binary) {
-      const d = unifiedDiff(x.path, textOf(old), x.status === 'deleted' ? null : textOf(now));
+      const d = unifiedDiff(P(x.path), textOf(old), x.status === 'deleted' ? null : textOf(now));
       added = d.added; removed = d.removed;
       const patch = redact(d.patch);
       if (bytes + Buffer.byteLength(patch) > PULL_LIMITS.diff) truncated = true;
       else { patches.push(patch); bytes += Buffer.byteLength(patch); }
-    } else patches.push(`diff --git a/${x.path} b/${x.path}\nBinary files differ\n`);
+    } else patches.push(`diff --git a/${P(x.path)} b/${P(x.path)}\nBinary files differ\n`);
     const why = blocked.get(x.path);
-    changes.push({ path: x.path, status: x.status, added, removed, size: x.size, sha: x.sha, ...(binary ? { binary: true } : {}), ...(why ? { blocked: redact(why).slice(0, 400) } : {}) });
+    changes.push({ path: P(x.path), status: x.status, added, removed, size: x.size, sha: x.sha, ...(binary ? { binary: true } : {}), ...(why ? { blocked: redact(why).slice(0, 400) } : {}) });
   }
-  return { changes, skipped: c.skipped, diff: patches.join(''), truncated, ...(c.noBaseline ? { noBaseline: true } : {}), roots: c.scope.roots.map(r => r.container), checkedAt: new Date().toISOString() };
+  return { changes, skipped: c.skipped.map(x => ({ ...x, path: P(x.path) })), diff: patches.join(''), truncated, ...(c.noBaseline ? { noBaseline: true } : {}), roots: c.scope.roots.map(r => r.container), checkedAt: new Date().toISOString() };
 }
 
 // ---- Writing into the worktree (never through a link) ----
@@ -446,45 +452,47 @@ export interface TakeItem { path: string; sha: string | null }
 export async function takeOver(t: CodeTask, sel: { items: TakeItem[] } | { all: true; under?: string[] }, o: { signal?: AbortSignal; via: 'panel' | 'ai'; locale?: Locale }): Promise<ContainerTakeOver & { skipped: ContainerChanges['skipped']; noBaseline?: boolean }> {
   const locale = o.locale ?? DEFAULT_LOCALE, L = pullText(locale);
   if (publishRunning(t.id)) throw Object.assign(new Error(L.publishing), { status: 409 });
-  const c = await compare(t, o.signal, locale), worktree = taskPaths(t.id).worktree, tpl = getTemplate(t.template);
+  const c = await compare(t, o.signal, locale), worktree = workBase(t), tpl = getTemplate(t.template), root = projectRoot(t), P = (p: string) => withRoot(root, p);
   const byPath = new Map(c.candidates.map(x => [x.path, x]));
   const refused: ContainerTakeOver['refused'] = [];
   let chosen: Candidate[], skipped = c.skipped;
   if ('items' in sel) {
     chosen = [];
     for (const it of sel.items) {
-      const x = byPath.get(it.path);
+      const x = byPath.get(underRoot(root, it.path) ?? '');
       if (!x) refused.push({ path: it.path, reason: L.noDifference });
       else if (x.sha !== it.sha) refused.push({ path: it.path, reason: L.changedSince });
       else chosen.push(x);
     }
   } else {
-    const under = sel.under?.map(u => u.replace(/^\.\/+/, '').replace(/\/+$/, '')).filter(Boolean);
-    if (c.noBaseline && !under?.length) throw Object.assign(new Error(NO_BASELINE_ALL), { status: 409 });
-    const inside = (p: string) => !under?.length || under.some(u => p === u || p.startsWith(`${u}/`));
+    const given = sel.under?.map(u => u.replace(/^\.\/+/, '').replace(/\/+$/, '')).filter(Boolean) ?? [];
+    // paths the AI names are repository paths; below a project's subfolder only the ones inside it count (an empty "under" then matches nothing)
+    const under = given.flatMap(u => { const r = underRoot(root, u); return r === null ? (root && root.startsWith(`${u}/`) || u === root ? [''] : []) : [r]; });
+    if (c.noBaseline && !given.length) throw Object.assign(new Error(NO_BASELINE_ALL), { status: 409 });
+    const inside = (p: string) => !given.length || under.some(u => !u || p === u || p.startsWith(`${u}/`));
     // only the asked-for paths: what was skipped elsewhere is not this call's business
     chosen = c.candidates.filter(x => inside(x.path)); skipped = skipped.filter(x => inside(x.path));
   }
-  for (const x of chosen.slice(PULL_LIMITS.files)) refused.push({ path: x.path, reason: L.tooManyAtOnce(PULL_LIMITS.files) });
+  for (const x of chosen.slice(PULL_LIMITS.files)) refused.push({ path: P(x.path), reason: L.tooManyAtOnce(PULL_LIMITS.files) });
   chosen = chosen.slice(0, PULL_LIMITS.files);
   const got = await fetchFiles(getRunner(), t.containerId!, tpl.execUser, c.scope.roots, chosen.filter(x => x.status !== 'deleted').map(x => x.path), o.signal, locale);
   const blocked = await checks(t, chosen, got, locale);
   const taken: ContainerTakeOver['taken'] = [];
   for (const x of chosen) {
     const why = blocked.get(x.path);
-    if (why) { refused.push({ path: x.path, reason: redact(why).slice(0, 400) }); continue; }
+    if (why) { refused.push({ path: P(x.path), reason: redact(why).slice(0, 400) }); continue; }
     const w = c.work.get(x.path), old = w?.kind === 'file' ? fs.readFileSync(w.abs) : null, now = got.data.get(x.path) ?? null;
     try {
       if (x.status === 'deleted') deleteFileSafe(worktree, x.path, L);
       else writeFileSafe(worktree, x.path, now!, (x.mode & 0o111) !== 0, L);
-    } catch (e) { refused.push({ path: x.path, reason: redact(e instanceof Error ? e.message : String(e)).slice(0, 400) }); continue; }
-    const d = (old && isBinary(old)) || (now && isBinary(now)) ? { added: 0, removed: 0 } : unifiedDiff(x.path, textOf(old), x.status === 'deleted' ? null : textOf(now));
-    taken.push({ path: x.path, status: x.status, added: d.added, removed: d.removed });
+    } catch (e) { refused.push({ path: P(x.path), reason: redact(e instanceof Error ? e.message : String(e)).slice(0, 400) }); continue; }
+    const d = (old && isBinary(old)) || (now && isBinary(now)) ? { added: 0, removed: 0 } : unifiedDiff(P(x.path), textOf(old), x.status === 'deleted' ? null : textOf(now));
+    taken.push({ path: P(x.path), status: x.status, added: d.added, removed: d.removed });
   }
   // the container had these already: nothing to transfer back (any other change of the worktree is still transferred)
-  noteInSync(t, taken.map(x => x.path));
+  noteInSync(t, taken.map(x => underRoot(root, x.path)!));
   auditAdd({ decision: 'changed', kind: 'sandbox-pull', taskId: t.id, chatId: t.chatId, via: o.via, title: `Aus dem Container übernommen: ${t.title}`, repo: t.repo,
     files: taken.map(x => x.path).slice(0, 50), ...(taken.length > 50 ? { moreFiles: taken.length - 50 } : {}), refused: refused.length });
   if (refused.length) log.info('Nicht alles aus dem Container übernommen', { task: t.id, refused: refused.length });
-  return { taken, refused, skipped, ...(c.noBaseline ? { noBaseline: true } : {}) };
+  return { taken, refused, skipped: skipped.map(x => ({ ...x, path: P(x.path) })), ...(c.noBaseline ? { noBaseline: true } : {}) };
 }

@@ -14,11 +14,12 @@ import type { RepoFileInfo } from '@/lib/protocol';
 import { PREVIEW_PATH, targetPathProblem } from '@/lib/sandbox-task';
 import { auditAdd, kvGet, kvSet } from '../db';
 import { ENV_KEY, LIMITS, imageTag } from './env';
+import { PROJECT_DIR } from './project';
 import type { SandboxTemplate } from './templates/types';
 
 export const REPO_FILE = '.lotse/sandbox.json';
 const FILE_MAX = 64 * 1024;
-const KNOWN = ['$schema', 'mode', 'targetPath', 'commands', 'env', 'image', 'previewPath', 'notes'] as const;
+const KNOWN = ['$schema', 'mode', 'targetPath', 'projectDir', 'commands', 'env', 'image', 'previewPath', 'notes'] as const;
 
 const command = z.object({
   label: z.string().trim().min(1).max(LIMITS.label),
@@ -28,6 +29,7 @@ const command = z.object({
 });
 const schema = z.object({
   mode: z.enum(['plugin', 'project', 'custom']).optional(),
+  projectDir: z.string().max(190).regex(PROJECT_DIR, 'ein Ordner des Repositorys (z. B. shop oder apps/shop), höchstens drei Ebenen, ohne führenden Punkt').optional(),
   targetPath: z.string().max(200).refine(p => !targetPathProblem(p), 'muss ein absoluter Ordner unter /var/www, /opt oder /srv sein (z. B. /opt/app)').optional(),
   commands: z.array(command).max(LIMITS.commands).default([]),
   env: z.array(z.string().regex(ENV_KEY, 'nur GROSSBUCHSTABEN, Ziffern und _')).max(LIMITS.envVars).default([]),
@@ -49,9 +51,10 @@ export function parseRepoFile(raw: Buffer): RepoFileInfo {
   if (!r.success) throw new RepoFileError(`${REPO_FILE} ist ungültig – ${issueText(r.error)}.`);
   const v = r.data;
   if (v.targetPath && v.mode && v.mode !== 'custom') throw new RepoFileError(`${REPO_FILE}: „targetPath“ gilt nur mit "mode": "custom".`);
+  if (v.projectDir && v.mode && v.mode !== 'project') throw new RepoFileError(`${REPO_FILE}: „projectDir“ gilt nur mit "mode": "project" (oder ohne mode).`);
   const ignored = Object.keys(data).filter(k => !(KNOWN as readonly string[]).includes(k)).map(k => k.slice(0, 60)).slice(0, 20);
   return {
-    hash: createHash('sha256').update(raw).digest('hex'), ...(v.mode ? { mode: v.mode } : {}), ...(v.targetPath ? { targetPath: v.targetPath } : {}),
+    hash: createHash('sha256').update(raw).digest('hex'), ...(v.mode ? { mode: v.mode } : {}), ...(v.targetPath ? { targetPath: v.targetPath } : {}), ...(v.projectDir ? { projectDir: v.projectDir } : {}),
     ...(v.image ? { image: v.image } : {}), ...(v.previewPath ? { previewPath: v.previewPath } : {}), ...(v.notes?.trim() ? { notes: v.notes.trim() } : {}),
     commands: v.commands.map(c => ({ label: c.label, command: c.command, phase: c.phase, timeoutSec: c.timeoutSec })), env: [...new Set(v.env)], ignored,
   };

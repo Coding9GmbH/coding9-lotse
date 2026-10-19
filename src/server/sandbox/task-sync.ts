@@ -7,7 +7,7 @@ import path from 'node:path';
 import type { ProjectInfo } from '@/lib/protocol';
 import { redact } from '../settings';
 import { singleton } from '../state';
-import { reasonText, type ConfigPlan, type ProjectRuntime } from './project';
+import { projectBase, reasonText, underRoot, withRoot, type ConfigPlan, type ProjectRuntime } from './project';
 import { getRunner } from './runner';
 import { projectManifest, syncAll, syncPaths, treeManifest, type SyncTarget, type TreeManifest } from './sync';
 import { getTemplate } from './templates';
@@ -17,12 +17,20 @@ import { saveTask, taskPaths, type CodeTask } from './tasks';
 export const projectRuntime = (p: ProjectInfo | undefined): ProjectRuntime | null =>
   p?.appEnv && p.extensions && p.envNames ? { appEnv: p.appEnv, extensions: p.extensions, envNames: p.envNames, ...(p.extraEnv?.length ? { extraEnv: p.extraEnv } : {}) } : null;
 
+/** The folder of the repository a full project syncs from: its subfolder (layout.root), '' = the repository's root */
+export const rootOf = (t: Pick<CodeTask, 'layout'>): string => (t.layout?.kind === 'project' ? t.layout.root ?? '' : '');
+/** Repository paths → paths inside the synced folder (the container's view); what lies outside the project's subfolder is no business of the container */
+export const projectRels = (t: Pick<CodeTask, 'layout'>, rels: string[]): string[] => {
+  const root = rootOf(t);
+  return root ? rels.flatMap(r => { const u = underRoot(root, r); return u ? [u] : []; }) : rels;
+};
+
 export function target(t: CodeTask, signal?: AbortSignal): SyncTarget {
   if (!t.layout) throw new Error('Plugin noch nicht erkannt.');
   if (!t.containerId) throw new Error('Kein Container für diese Aufgabe.');
   const tpl = getTemplate(t.template), p = t.layout.project;
   return {
-    runner: getRunner(), containerId: t.containerId, worktree: taskPaths(t.id).worktree, target: tpl.syncTarget(t.layout), user: tpl.execUser, signal,
+    runner: getRunner(), containerId: t.containerId, worktree: projectBase(taskPaths(t.id).worktree, rootOf(t)), target: tpl.syncTarget(t.layout), user: tpl.execUser, signal,
     ...(t.layout.kind === 'project' ? { project: { runtime: projectRuntime(p), held: Object.fromEntries((p?.held ?? []).map(({ file, ...q }) => [file, q])) } } : {}),
     ...(t.layout.kind === 'custom' ? { custom: true } : {}),
     // a new plugin, also once it settled into an ordinary one: the folder may still be missing (made by plugin:create or the first file)
@@ -139,7 +147,9 @@ export function notePending(id: string, rels: string[]) {
 /** Forget what the container had (a new container, a new clone). */
 export const forgetSync = (id: string) => writeState(id, null);
 /** Changed paths only (the agent's edits). For a project: quarantined config files newly found are named in `note` for the agent. */
-export async function syncTaskPaths(t: CodeTask, rels: string[]): Promise<{ note: string }> {
+export async function syncTaskPaths(t: CodeTask, repoRels: string[]): Promise<{ note: string }> {
+  const rels = projectRels(t, repoRels);
+  if (!rels.length) return { note: '' }; // only files outside the project's folder: nothing in the container to update
   const before = new Set((t.layout?.project?.quarantined ?? []).map(q => q.file));
   const tg = target(t), now = manifestOf(tg);
   let r: Awaited<ReturnType<typeof syncPaths>>;
@@ -147,5 +157,5 @@ export async function syncTaskPaths(t: CodeTask, rels: string[]): Promise<{ note
   note(t, r.config);
   if (!r.deferred) noteInSync(t, rels, now);
   const fresh = r.config ? [...r.config.quarantine].filter(([f]) => rels.includes(f) && !before.has(f)) : [];
-  return { note: fresh.length ? ` – in der Sandbox NICHT geladen: ${fresh.map(([f, q]) => `${f} (${redact(reasonText(q))})`).join('; ')}` : '' };
+  return { note: fresh.length ? ` – in der Sandbox NICHT geladen: ${fresh.map(([f, q]) => `${withRoot(rootOf(t), f)} (${redact(reasonText(q))})`).join('; ')}` : '' };
 }

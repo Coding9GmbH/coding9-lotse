@@ -30,7 +30,7 @@ import { fetchUpstream, sandboxUpstream } from './preview';
 import { relOf } from './native-tools';
 import { LOTSE_AUTHOR, coAuthor, commitCheck, findSecret } from './publish';
 import { getRunner } from './runner';
-import { notePending, syncTaskAll, syncTaskPaths } from './task-sync';
+import { notePending, projectRels, syncTaskAll, syncTaskPaths } from './task-sync';
 import { getTemplate } from './templates';
 import { mustTask, publishRunning, settleNewPlugin, taskPaths, type CodeTask } from './tasks';
 import { deleteText, listFiles, readText, searchFiles, type Change } from './workspace-fs';
@@ -75,7 +75,7 @@ export function pageText(html: string): { title: string; text: string } {
 export async function syncChanged(taskId: string, rels: string[]): Promise<string> {
   return withTaskLock(taskId, async () => {
     const t = mustTask(taskId);
-    if (!t.containerId || !t.containerRunning || !t.layout) { notePending(taskId, rels); return ' (Container pausiert: wird beim Fortsetzen übertragen)'; }
+    if (!t.containerId || !t.containerRunning || !t.layout) { notePending(taskId, projectRels(t, rels)); return ' (Container pausiert: wird beim Fortsetzen übertragen)'; }
     const { note } = await syncTaskPaths(t, rels);
     return ` und in den Container übertragen${note}`;
   }).catch(e => ` – Übertragung in den Container fehlgeschlagen: ${redact(e instanceof Error ? e.message : e).slice(0, 300)}`);

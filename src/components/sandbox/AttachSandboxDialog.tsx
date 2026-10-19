@@ -299,7 +299,7 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
     if (!detected) return '';
     const d = ts.detected;
     return detected.kind === 'plugin' ? d.plugin(detected.name ?? '') : detected.kind === 'theme' ? d.theme(detected.name ?? '')
-      : detected.kind === 'project' ? d.project(detected.plugins ?? 0) : detected.kind === 'new' ? d.new : d.unknown;
+      : detected.kind === 'project' ? d.project(detected.plugins ?? 0, detected.root) : detected.kind === 'new' ? d.new : d.unknown;
   };
   const ready = !busy && !uploading && !saving && (isEdit || !dockerDown);
   const nameFor = () => form.title.trim() || (kind === 'none' ? pluginName.trim() : form.repo.split('/').pop() ?? '') || tq.defaultName;

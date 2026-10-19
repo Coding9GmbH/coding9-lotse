@@ -14,7 +14,7 @@ import type { PluginZipCheck, PluginZipProblem, PluginZipWarning } from '@/lib/p
 import { PLUGIN_NAME } from '@/lib/sandbox-task';
 import { scanSecrets } from '../settings';
 import { zipStream, type ZipEntry } from '../zip-write';
-import { detectProject, realDir } from './project';
+import { detectProject, projectBase, realDir } from './project';
 import { secretIn } from './publish';
 import { taskPaths, type CodeTask } from './tasks';
 import { isBinary, isDenied } from './workspace-fs';
@@ -78,16 +78,17 @@ function readComposer(root: string, problems: PluginZipProblem[], warnings: Plug
   return out;
 }
 
-/** A project's plugins to choose from (folder relative to the repository, technical name); null for a plugin repository */
+/** A project's plugins to choose from (folder relative to the project's folder, technical name); null for a plugin repository */
 export function zipChoices(t: CodeTask): { dir: string; name: string }[] | null {
   if (t.layout?.kind !== 'project') return null;
-  return detectProject(taskPaths(t.id).worktree).plugins.map(p => ({ dir: p.dir, name: p.name }));
+  return detectProject(projectBase(taskPaths(t.id).worktree, t.layout.root)).plugins.map(p => ({ dir: p.dir, name: p.name }));
 }
 /** The folder the ZIP is built from: the repository, or (a project) the chosen plugin's folder – the first one when none is chosen;
  *  only a real folder of the worktree (detectProject never follows symlinked folders). Throws for a folder that is not one of the
  *  project's plugins (the route answers that in the user's language before). */
 function zipRoot(t: CodeTask, plugin?: string | null): { root: string; choices: { dir: string; name: string }[] | null; plugin?: string } {
-  const wt = taskPaths(t.id).worktree, choices = zipChoices(t);
+  // a project in a subfolder of the repository: the plugin folders are relative to that folder
+  const wt = t.layout?.kind === 'project' ? projectBase(taskPaths(t.id).worktree, t.layout.root) : taskPaths(t.id).worktree, choices = zipChoices(t);
   if (!choices) return { root: wt, choices: null };
   const pick = plugin ? choices.find(c => c.dir === plugin && realDir(wt, c.dir)) : choices.find(c => realDir(wt, c.dir));
   if (plugin && !pick) throw Object.assign(new Error('Unknown plugin folder.'), { status: 400 });

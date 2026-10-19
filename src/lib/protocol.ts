@@ -295,12 +295,12 @@ export interface RepoOwner { login: string; kind: 'user' | 'org' }
 export type SandboxMode = 'auto' | 'plugin' | 'project' | 'custom';
 /** What "Sandbox starten" found in repo@branch before the start: a plugin/theme, a whole project, an empty repository (new plugin), or
  *  nothing Lotse knows (unknown: then only an own setup works; reason = the detection's message) */
-export interface RepoDetected { kind: 'plugin' | 'theme' | 'project' | 'new' | 'unknown'; name?: string; plugins?: number; reason?: string }
+export interface RepoDetected { kind: 'plugin' | 'theme' | 'project' | 'new' | 'unknown'; name?: string; plugins?: number; /** project in a subfolder of the repository */ root?: string; reason?: string }
 /** A command a repository's .lotse/sandbox.json asks to run during the setup (shown to the user; runs only after their approval) */
 export interface RepoFileCommand { label: string; command: string; phase: CommandPhase; timeoutSec: number }
 /** .lotse/sandbox.json as Lotse read it. hash = SHA-256 of the file: an approval of its commands holds for exactly this content. */
 export interface RepoFileInfo {
-  hash: string; mode?: Exclude<SandboxMode, 'auto'>; targetPath?: string; image?: string; previewPath?: string; notes?: string;
+  hash: string; mode?: Exclude<SandboxMode, 'auto'>; targetPath?: string; /** subfolder with the Shopware project */ projectDir?: string; image?: string; previewPath?: string; notes?: string;
   commands: RepoFileCommand[];
   /** environment variable NAMES the project needs (values only from the Lotse environment) */ env: string[];
   /** keys of the file Lotse does not know: ignored */ ignored: string[];
@@ -348,7 +348,9 @@ export interface TaskStep { id: string; key: SandboxStepKey | 'custom'; label?: 
  *  apps and configuration, synced into the shop's root; pluginDir ''). isNew: the repository was empty (README, LICENSE, .gitignore at
  *  most) and the plugin is built in the sandbox; nothing was installed during the setup. */
 export interface TaskLayout { kind: 'plugin' | 'theme' | 'project' | 'custom'; name: string; pluginDir: string; isNew?: boolean; project?: ProjectInfo;
-  /** custom ("Eigenes Setup"): absolute folder in the container the repository is synced to */ targetPath?: string }
+  /** custom ("Eigenes Setup"): absolute folder in the container the repository is synced to */ targetPath?: string;
+  /** project: the repository's subfolder that holds the Shopware project (e.g. "shop"), absent = the repository's root. Everything else in the
+   *  repository stays on the host: only this folder is synced into the container (paths there are relative to it). */ root?: string }
 /** What a project plugin brings (detected from its files): storefront templates, styles, JavaScript, administration, PHP code, settings,
  *  migrations, texts */
 export type ProjectPart = 'storefront' | 'styles' | 'js' | 'admin' | 'php' | 'settings' | 'migrations' | 'snippets';

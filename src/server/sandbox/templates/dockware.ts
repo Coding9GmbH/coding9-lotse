@@ -10,7 +10,7 @@ import type { ContainerSpec } from '../runner';
 import type { TaskLayout } from '@/lib/protocol';
 import { PLUGIN_NAME, isEmptyRepoListing, pluginNameFromRepo } from '@/lib/sandbox-task';
 import { MANAGED, SANDBOX_NET, TASK_LABEL, sandboxAlias, taskDbVolume } from '../labels';
-import { COMPOSER_NAME, detectProject, imageVersion, isProjectComposer, lockInfo, projectSummary, versionMismatch } from '../project';
+import { COMPOSER_NAME, PROJECT_DIR, detectProject, findProjectDirs, imageVersion, isProjectComposer, lockInfo, projectBase, projectSummary, versionMismatch } from '../project';
 import { installProject } from './dockware-project';
 import type { CommandArg, CommandSpec, ConsoleSpec, SandboxTemplate, SpecInput, StepCtx, TemplateStep } from './types';
 
@@ -106,8 +106,8 @@ async function importDb(ctx: StepCtx): Promise<void | 'skipped'> {
 async function projectLayout(ctx: StepCtx, l: TaskLayout): Promise<void> {
   const p = l.project!, mm = versionMismatch(p.shopwareVersion, ctx.image);
   ctx.setLayout({ ...l, project: { ...p, ...(mm ? { versionMismatch: mm } : {}) } });
-  ctx.log(`Shopware-Projekt ${l.name} → /var/www/html (Overlay: Plugins, Apps, config/packages, config/services*.yaml, src/) · ${projectSummary(p)}`);
-  const raw = p.shopwareVersion ? null : lockInfo(ctx.worktree).raw;
+  ctx.log(`Shopware-Projekt ${l.name}${l.root ? ` (Ordner ${l.root}/ im Repository)` : ''} → /var/www/html (Overlay: Plugins, Apps, config/packages, config/services*.yaml, src/) · ${projectSummary(p)}`);
+  const raw = p.shopwareVersion ? null : lockInfo(ctx.projectRoot()).raw;
   if (raw) ctx.log(`Hinweis: composer.lock nennt shopware/core als „${raw}“ (ein Branch, keine Versionsnummer) – die Shopware-Version des Projekts lässt sich nicht mit dem Image vergleichen.`);
   else if (!p.shopwareVersion) ctx.log('Hinweis: Kein composer.lock mit shopware/core – die Shopware-Version des Projekts lässt sich nicht prüfen.');
   else if (!mm) ctx.log(`Shopware ${p.shopwareVersion} des Projekts passt zum Image (${imageVersion(ctx.image) ?? ctx.image}).`);
@@ -127,7 +127,7 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
       ctx.log(`Eigenes Setup: Das Repository kommt nach ${target}. Lotse installiert und kompiliert nichts – die Einrichtung liegt in deiner Hand (eigene Befehle, Umgebungsvariablen).`);
       return;
     }
-    const l = detectLayout(ctx.worktree, { newPluginName: ctx.newPluginName, repo: ctx.repo });
+    const l = detectLayout(ctx.worktree, { newPluginName: ctx.newPluginName, repo: ctx.repo, projectDir: ctx.projectDir() });
     if (mode === 'project' && l.kind !== 'project') throw new Error(`Gewählt ist „Ganzes Shopware-Projekt“, erkannt wurde aber ${l.isNew ? 'ein leeres Repository' : `ein einzelnes ${l.kind === 'theme' ? 'Theme' : 'Plugin'} (${l.name})`}. Sandbox abschließen und mit „Automatisch“ oder „Eigenes Setup“ neu starten.`);
     if (mode === 'plugin' && l.kind === 'project') throw new Error('Gewählt ist „Plugin oder Theme“, erkannt wurde aber ein ganzes Shopware-Projekt. Sandbox abschließen und mit „Automatisch“ neu starten.');
     if (l.kind === 'project') return projectLayout(ctx, l);
@@ -225,12 +225,41 @@ const NO_PLUGIN = 'Kein Shopware-Plugin erkannt: composer.json mit type „shopw
 const NO_NAME = 'Das Repository ist leer, aber es fehlt ein gültiger technischer Name für das neue Plugin (z. B. CoNineHeaderBanner: Buchstaben und Ziffern, beginnt mit einem Großbuchstaben). Sandbox abschließen und mit Plugin-Namen neu starten.';
 
 /** Options for an empty repository: the name the user chose for the new plugin (else one derived from the repository name). */
-export interface DetectOptions { newPluginName?: string | null; repo?: string }
+export interface DetectOptions { newPluginName?: string | null; repo?: string;
+  /** the repository's subfolder that holds the Shopware project (.lotse/sandbox.json "projectDir"); empty = search for it */ projectDir?: string }
+
+const NOT_IN_DIR = (dir: string) => `In „${dir.slice(0, 80)}“ liegt kein Shopware-Projekt (composer.json mit shopware/core in „require“).`;
+const projectName = (c: Record<string, unknown>, o: DetectOptions) => {
+  const n = typeof c.name === 'string' && COMPOSER_NAME.test(c.name) ? c.name : (o.repo ?? '').split('/').pop() || 'projekt';
+  return n.slice(0, 100);
+};
+/** The layout of a project whose folder is `root` ('' = the repository's root) */
+function projectLayoutOf(worktree: string, root: string, c: Record<string, unknown>, o: DetectOptions): TaskLayout {
+  return { kind: 'project', name: projectName(c, o), pluginDir: '', ...(root ? { root } : {}), project: detectProject(projectBase(worktree, root)) };
+}
+/** The Shopware project in a subfolder the repository file named (projectDir) */
+function projectInDir(worktree: string, dir: string, o: DetectOptions): TaskLayout {
+  if (!PROJECT_DIR.test(dir)) throw new Error(`projectDir „${dir.slice(0, 80)}“ ist kein gültiger Ordnername (höchstens drei Ebenen, ohne führenden Punkt).`);
+  const base = projectBase(worktree, dir);
+  let c: Record<string, unknown> | null = null;
+  try { c = JSON.parse(fs.readFileSync(path.join(base, 'composer.json'), 'utf8')) as Record<string, unknown>; } catch { /* none */ }
+  if (!isProjectComposer(c, base)) throw new Error(NOT_IN_DIR(dir));
+  return projectLayoutOf(worktree, dir, c!, o);
+}
+/** The one Shopware project below the root; several: the repository file must say which (projectDir). null = none. */
+function inSubfolder(worktree: string, o: DetectOptions): TaskLayout | null {
+  const found = findProjectDirs(worktree);
+  if (!found.length) return null;
+  if (found.length > 1) throw new Error(`Im Repository liegen mehrere Shopware-Projekte (${found.slice(0, 5).join(', ')}). Welches gemeint ist, steht in .lotse/sandbox.json unter "projectDir" (z. B. "projectDir": "${found[0]}").`);
+  return projectInDir(worktree, found[0], o);
+}
 
 /** composer.json type shopware-platform-plugin + extra.shopware-plugin-class → plugin name; src/Resources/theme.json → theme;
  *  type project requiring shopware/core (or platform) → a full Shopware project (project.ts).
  *  An (almost) empty repository (README, LICENSE, .gitignore at most) becomes a new plugin that the AI builds in the sandbox. */
 export function detectLayout(worktree: string, o: DetectOptions = {}): TaskLayout {
+  // the repository file names the project's folder: nothing else is looked at
+  if (o.projectDir) return projectInDir(worktree, o.projectDir, o);
   const file = path.join(worktree, 'composer.json');
   const has = (rel: string) => fs.existsSync(path.join(worktree, rel));
   let st: fs.Stats | null = null;
@@ -240,16 +269,21 @@ export function detectLayout(worktree: string, o: DetectOptions = {}): TaskLayou
     if (!PLUGIN_NAME.test(name)) throw new Error(NO_NAME);
     return { kind: 'plugin', name, pluginDir: `custom/plugins/${name}`, isNew: true };
   }
-  if (!st) throw new Error(has('bin/console') || has('symfony.lock') ? NO_COMPOSER_PROJECT : NO_PLUGIN);
+  if (!st) {
+    // no composer.json in the root: the Shopware project may be in a subfolder (the root holds other things)
+    const sub = inSubfolder(worktree, o);
+    if (sub) return sub;
+    throw new Error(has('bin/console') || has('symfony.lock') ? NO_COMPOSER_PROJECT : NO_PLUGIN);
+  }
   if (!st.isFile() || st.size > 1024 * 1024) throw new Error('composer.json ist keine normale Datei oder zu groß.');
   let c: { type?: unknown; extra?: Record<string, unknown>; require?: Record<string, unknown> };
   try { c = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { throw new Error('composer.json ist kein gültiges JSON.'); }
   if (c?.type !== 'shopware-platform-plugin') {
     // a whole Shopware project (shopware/production layout): its plugins, apps and configuration are synced into the sandbox's shop
-    if (isProjectComposer(c as Record<string, unknown>, worktree)) {
-      const name = typeof (c as { name?: unknown }).name === 'string' && COMPOSER_NAME.test((c as { name: string }).name) ? (c as { name: string }).name : (o.repo ?? '').split('/').pop() || 'projekt';
-      return { kind: 'project', name: name.slice(0, 100), pluginDir: '', project: detectProject(worktree) };
-    }
+    if (isProjectComposer(c as Record<string, unknown>, worktree)) return projectLayoutOf(worktree, '', c as Record<string, unknown>, o);
+    // another composer.json in the root (tooling next to the shop): the project may still be in a subfolder
+    const sub = inSubfolder(worktree, o);
+    if (sub) return sub;
     throw new Error(c?.type === 'project' || has('bin/console') ? NOT_SHOPWARE_PROJECT : NO_PLUGIN);
   }
   const cls = c.extra?.['shopware-plugin-class'];

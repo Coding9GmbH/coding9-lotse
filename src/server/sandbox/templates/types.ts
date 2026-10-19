@@ -28,6 +28,10 @@ export interface StepCtx {
   clone: () => Promise<{ head: string }>;
   /** absolute path of the cloned worktree (read-only use: layout detection) */
   worktree: string;
+  /** the repository's subfolder that holds the Shopware project, from .lotse/sandbox.json ("projectDir"); '' = look for it */
+  projectDir: () => string;
+  /** absolute path of the project's folder in the worktree: the worktree itself, or the layout's subfolder (read-only use) */
+  projectRoot: () => string;
   /** removes an old container of the task, creates one from buildSpec and starts it */
   createContainer: () => Promise<void>;
   /** HTTP status of a storefront path, requested by Lotse with Host: localhost (the domain Dockware knows) */
@@ -143,7 +147,7 @@ export interface SandboxTemplate {
   /** container create body, pure: user or AI input never reaches it */
   buildSpec: (o: SpecInput) => ContainerSpec;
   /** what the cloned repository is (an empty one: a new plugin named `newPluginName`); throws a clear German error for unsupported layouts */
-  detectLayout: (worktree: string, o?: { newPluginName?: string | null; repo?: string }) => TaskLayout;
+  detectLayout: (worktree: string, o?: { newPluginName?: string | null; repo?: string; projectDir?: string }) => TaskLayout;
   /** absolute directory in the container the workspace is mirrored to */
   syncTarget: (l: TaskLayout) => string;
   /** user and working directory for setup commands and own commands */

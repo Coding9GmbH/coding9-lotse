@@ -73,7 +73,8 @@ export const PROJECT_CONFIG: Record<string, string> = {
 };
 /** A whole Shopware project (shopware/production layout) as bare repository: a theme, a storefront plugin, a static plugin, an app,
  *  project code in src/, production config and files that never reach the container (.env, composer.*, bundles.php, public/, var/). */
-export function makeProjectRepo(root: string, o: { repo?: string; version?: string; files?: Record<string, string | null> } = {}): PluginRepo {
+export function makeProjectRepo(root: string, o: { repo?: string; version?: string; files?: Record<string, string | null>;
+  /** the project lives in this subfolder of the repository; `rootFiles` are the other things in the repository's root (not prefixed) */ subdir?: string; rootFiles?: Record<string, string> } = {}): PluginRepo {
   const repo = o.repo ?? 'acme/shop', remoteBase = path.join(root, 'remote'), bare = path.join(remoteBase, `${repo}.git`), seed = path.join(root, `seed-${repo.replace('/', '-')}`);
   fs.mkdirSync(bare, { recursive: true });
   git(['init', '--bare', '-q', bare], root);
@@ -107,7 +108,8 @@ export function makeProjectRepo(root: string, o: { repo?: string; version?: stri
     ...PROJECT_CONFIG,
     ...o.files,
   };
-  for (const [f, c] of Object.entries(files)) { if (c === null) continue; fs.mkdirSync(path.dirname(path.join(seed, f)), { recursive: true }); fs.writeFileSync(path.join(seed, f), c); }
+  const all: Record<string, string | null> = o.subdir ? { ...Object.fromEntries(Object.entries(files).map(([f, c]) => [`${o.subdir}/${f}`, c])), ...o.rootFiles } : files;
+  for (const [f, c] of Object.entries(all)) { if (c === null) continue; fs.mkdirSync(path.dirname(path.join(seed, f)), { recursive: true }); fs.writeFileSync(path.join(seed, f), c); }
   git(['add', '-A'], seed); git(['commit', '-q', '-m', 'init'], seed); git(['push', '-q', bare, 'HEAD:refs/heads/main'], seed);
   return { remoteBase, bare, repo, name: 'acme/shop' };
 }

@@ -83,8 +83,8 @@ function logPlan(ctx: StepCtx, plan: ConfigPlan | null, appEnv: string) {
 /** Packages the project or its plugins require that the image does not have (never installed offline: a warning) */
 async function missingPackages(ctx: StepCtx, p: ProjectInfo): Promise<string[]> {
   const own = new Set(p.plugins.map(x => x.composerName).filter((x): x is string => !!x));
-  const want = new Set(requiredPackages(readComposerJson(`${ctx.worktree}/composer.json`), own));
-  for (const x of p.plugins) for (const r of requiredPackages(readComposerJson(`${ctx.worktree}/${x.dir}/composer.json`), own)) want.add(r);
+  const want = new Set(requiredPackages(readComposerJson(`${ctx.projectRoot()}/composer.json`), own));
+  for (const x of p.plugins) for (const r of requiredPackages(readComposerJson(`${ctx.projectRoot()}/${x.dir}/composer.json`), own)) want.add(r);
   if (!want.size) return [];
   const r = await ctx.run(['bash', '-c', 'for p; do [ -d "vendor/$p" ] || echo "$p"; done; exit 0', '_', ...[...want].filter(n => COMPOSER_NAME.test(n))], { quiet: true });
   return lines(r.output).filter(n => want.has(n)).sort();
@@ -151,7 +151,7 @@ async function pluginStates(ctx: StepCtx, names: string[]): Promise<Map<string, 
 export async function installProject(ctx: StepCtx): Promise<void> {
   const { l } = project(ctx);
   // detected again: a retry after the AI changed the repository installs what is there now; a new run starts the boot check over
-  let p: ProjectInfo = { ...l.project!, ...detectProject(ctx.worktree), held: [], extraEnv: [] };
+  let p: ProjectInfo = { ...l.project!, ...detectProject(ctx.projectRoot()), held: [], extraEnv: [] };
   p = await readRuntime(ctx, p);
   save(ctx, l, p);
 
@@ -162,7 +162,7 @@ export async function installProject(ctx: StepCtx): Promise<void> {
   const skip = new Set<string>();
   for (const x of p.plugins.filter(y => y.static)) {
     const own = new Set(p.plugins.map(y => y.composerName).filter((y): y is string => !!y));
-    const need = requiredPackages(readComposerJson(`${ctx.worktree}/${x.dir}/composer.json`), own).filter(n => missing.includes(n));
+    const need = requiredPackages(readComposerJson(`${ctx.projectRoot()}/${x.dir}/composer.json`), own).filter(n => missing.includes(n));
     if (need.length) { skip.add(x.name); ctx.log(`Warnung: ${x.name} braucht ${need.join(', ')} – wird in der Sandbox nicht installiert.`); }
   }
   save(ctx, l, p);
@@ -197,7 +197,7 @@ export async function installProject(ctx: StepCtx): Promise<void> {
   }
 
   // theme: without a dump the project's theme for every storefront; with one the dump's assignment stays (theme-compile compiles it)
-  const theme = dumped ? null : pickTheme(ctx.worktree, p.plugins.filter(x => names.includes(x.name)));
+  const theme = dumped ? null : pickTheme(ctx.projectRoot(), p.plugins.filter(x => names.includes(x.name)));
   if (theme) { await ctx.run(bin('theme:change', '--all', '--no-compile', '-n', '--', theme)); ctx.log(`Theme ${theme} der Storefront zugewiesen.`); }
   else if (dumped) ctx.log('Theme: bleibt, wie es im Datenbank-Dump zugewiesen ist.');
   p = { ...p, theme };

@@ -43,6 +43,44 @@ export function realDir(worktree: string, rel: string): boolean {
   return true;
 }
 
+// ---- A project in a subfolder of the repository ----
+/** The subfolder of the repository that holds the Shopware project: up to three plain folder names, no hidden folders, no "..". */
+export const PROJECT_DIR = /^[A-Za-z0-9][A-Za-z0-9._-]{0,60}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,60}){0,2}$/;
+/** Folders never searched for a project (dependencies, build output, tooling) */
+const NOT_PROJECT_DIRS = new Set(['node_modules', 'vendor', 'var', 'public', 'dist', 'build', 'coverage', 'docs', 'doc', 'tests', 'test']);
+const SEARCH_DIRS = 400;
+/** Repository path → path inside the project folder (`root` = the layout's subfolder, '' = none); null = outside the project folder */
+export const underRoot = (root: string, rel: string): string | null => (!root ? rel : rel.startsWith(`${root}/`) ? rel.slice(root.length + 1) : null);
+/** Path inside the project folder → repository path */
+export const withRoot = (root: string, rel: string): string => (root ? `${root}/${rel}` : rel);
+/** The project folder as an absolute path: the worktree itself, or its subfolder when it is a real folder (never a link out of the
+ *  worktree). Throws for a bad name or a folder that is not there. */
+export function projectBase(worktree: string, root: string | undefined): string {
+  if (!root) return worktree;
+  if (!PROJECT_DIR.test(root) || !realDir(worktree, root)) throw new Error(`Der Projektordner „${root.slice(0, 80)}“ ist kein normaler Ordner des Repositorys.`);
+  return path.join(worktree, root);
+}
+/** Folders (up to two levels below the worktree) whose composer.json says "a Shopware project", sorted; real folders only, never
+ *  through a link. A repository with other things in its root and the shop in a subfolder (shop/, apps/shop/ …). */
+export function findProjectDirs(worktree: string): string[] {
+  const out: string[] = [];
+  let seen = 0;
+  const visit = (rel: string, depth: number) => {
+    if (!realDir(worktree, rel)) return;
+    let names: fs.Dirent[] = [];
+    try { names = fs.readdirSync(path.join(worktree, rel), { withFileTypes: true }); } catch { return; }
+    for (const d of names.filter(x => x.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (++seen > SEARCH_DIRS) return;
+      if (d.name.startsWith('.') || NOT_PROJECT_DIRS.has(d.name) || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$/.test(d.name)) continue;
+      const r = rel ? `${rel}/${d.name}` : d.name;
+      if (isProjectComposer(readJson(path.join(worktree, r, 'composer.json')), path.join(worktree, r))) out.push(r);
+      else if (depth < 2) visit(r, depth + 1);
+    }
+  };
+  visit('', 1);
+  return out;
+}
+
 /** composer.json says "a Shopware project": requires shopware/core or shopware/platform and is no plugin; type "project" or the layout
  *  of shopware/production (bin/console, custom/, config/packages). */
 export function isProjectComposer(c: Record<string, unknown> | null, worktree: string): boolean {
@@ -508,9 +546,16 @@ const PROJECT_ROOT_FILES = /^(composer\.(json|lock)|symfony\.lock|package(-lock)
 /** Why a changed path of a project is not published, or null: dependencies and build output (vendor/, node_modules/, var/, public/)
  *  never, and only the parts of a project that belong to its code (custom/, config/, src/ …, composer files). Secrets, .env*, keys and
  *  workflows are refused by the general rules before. */
-export function projectPathBlock(p: string, locale: Locale = DEFAULT_LOCALE): string | null {
+export function projectPathBlock(p: string, locale: Locale = DEFAULT_LOCALE, shown: string = p): string | null {
   const segs = p.split('/'), L = messages(locale).server.check;
-  if (segs.some(s => s === 'vendor' || s === 'node_modules') || ['var', 'public'].includes(segs[0])) return L.dependency(p.slice(0, 120));
+  if (segs.some(s => s === 'vendor' || s === 'node_modules') || ['var', 'public'].includes(segs[0])) return L.dependency(shown.slice(0, 120));
   if (segs.length === 1 ? PROJECT_ROOT_FILES.test(segs[0]) : PROJECT_DIRS.has(segs[0])) return null;
-  return L.outsideProject(p.slice(0, 120));
+  return L.outsideProject(shown.slice(0, 120));
+}
+/** Like projectPathBlock for a project in a subfolder of the repository (`root`): inside the folder the project's rules apply; the rest
+ *  of the repository (other things next to the shop) is published like any repository, only dependencies (vendor/, node_modules/) never. */
+export function repoPathBlock(p: string, root: string, locale: Locale = DEFAULT_LOCALE): string | null {
+  const inner = underRoot(root, p);
+  if (inner !== null) return projectPathBlock(inner, locale, p);
+  return p.split('/').some(s => s === 'vendor' || s === 'node_modules') ? messages(locale).server.check.dependency(p.slice(0, 120)) : null;
 }

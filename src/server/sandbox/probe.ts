@@ -26,9 +26,11 @@ export const forgetProbes = (repo?: string) => { for (const k of [...cache().key
 /** What the clone says: the template's own detection (the same the setup runs) and the repository file */
 function inspect(worktree: string, repo: string): Pick<RepoProbe, 'detected' | 'repoFile'> {
   let detected: RepoDetected;
+  let projectDir = '';
+  try { projectDir = readRepoFile(worktree)?.projectDir ?? ''; } catch { /* reported below */ }
   try {
-    const l = getTemplate(DEFAULT_TEMPLATE).detectLayout(worktree, { repo });
-    detected = l.isNew ? { kind: 'new', name: l.name } : l.kind === 'project' ? { kind: 'project', name: l.name, plugins: l.project?.plugins.length ?? 0 } : { kind: l.kind === 'theme' ? 'theme' : 'plugin', name: l.name };
+    const l = getTemplate(DEFAULT_TEMPLATE).detectLayout(worktree, { repo, projectDir });
+    detected = l.isNew ? { kind: 'new', name: l.name } : l.kind === 'project' ? { kind: 'project', name: l.name, plugins: l.project?.plugins.length ?? 0, ...(l.root ? { root: l.root } : {}) } : { kind: l.kind === 'theme' ? 'theme' : 'plugin', name: l.name };
   } catch (e) { detected = { kind: 'unknown', reason: errMsg(e).slice(0, 300) }; }
   let repoFile: RepoProbe['repoFile'] = null;
   try {

@@ -622,7 +622,7 @@ export const de = {
     detected: {
       plugin: (name: string) => `Erkannt: Plugin ${name}`,
       theme: (name: string) => `Erkannt: Theme ${name}`,
-      project: (n: number) => `Erkannt: ganzer Shopware-Shop (${n === 1 ? '1 Plugin' : `${n} Plugins`})`,
+      project: (n: number, root?: string) => `Erkannt: ganzer Shopware-Shop${root ? ` im Ordner ${root}/` : ''} (${n === 1 ? '1 Plugin' : `${n} Plugins`})`,
       new: 'Erkannt: leeres Projekt → neues Plugin',
       unknown: 'Nicht erkannt → Eigenes Setup',
       custom: 'Eigenes Setup',
@@ -773,6 +773,7 @@ export const de = {
     heading: 'Ganzes Shopware-Projekt',
     lead: 'Lotse spielt die Plugins, Apps, die Konfiguration (config/packages) und den Projekt-Code (src/) in den Test-Shop ein. Dienste, die es in der Sandbox nicht gibt (Redis, OpenSearch, S3, Mailserver …), stellt Lotse dort auf lokal um – dein Repository bleibt unverändert, .env-Dateien werden nie übertragen.',
     version: (v: string | null) => (v ? `Shopware ${v} (composer.lock)` : 'Shopware-Version unbekannt (kein composer.lock)'),
+    folder: (root: string) => `Projektordner im Repository: ${root}/ – nur dieser Ordner kommt in den Test-Shop, alles andere im Repository bleibt außen vor.`,
     plugins: 'Plugins',
     apps: 'Apps',
     theme: (name: string) => `Theme: ${name}`,
@@ -1192,7 +1193,7 @@ export const en: typeof de = {
     detected: {
       plugin: name => `Detected: plugin ${name}`,
       theme: name => `Detected: theme ${name}`,
-      project: n => `Detected: whole Shopware shop (${n === 1 ? '1 plugin' : `${n} plugins`})`,
+      project: (n, root) => `Detected: whole Shopware shop${root ? ` in the folder ${root}/` : ''} (${n === 1 ? '1 plugin' : `${n} plugins`})`,
       new: 'Detected: empty project → new plugin',
       unknown: 'Not recognised → own setup',
       custom: 'Own setup',
@@ -1333,6 +1334,7 @@ export const en: typeof de = {
     heading: 'Whole Shopware project',
     lead: 'Lotse brings the plugins, apps, configuration (config/packages) and project code (src/) into the test shop. Services the sandbox does not have (Redis, OpenSearch, S3, mail server …) are switched to local there – your repository stays unchanged, .env files are never transferred.',
     version: v => (v ? `Shopware ${v} (composer.lock)` : 'Shopware version unknown (no composer.lock)'),
+    folder: root => `Project folder in the repository: ${root}/ – only this folder goes into the test shop, everything else in the repository stays outside.`,
     plugins: 'Plugins',
     apps: 'Apps',
     theme: name => `Theme: ${name}`,

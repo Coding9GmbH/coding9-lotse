@@ -14,7 +14,7 @@ export const FS_LIMITS = { read: 256 * 1024, write: 512 * 1024, list: 5000, sear
 
 const segs = (rel: string) => rel.split('/');
 /** Never readable or writable: .git, secrets, the JWT keys of a full project. */
-export const isDenied = (rel: string) => segs(rel).some(s => s.toLowerCase() === '.git') || isSecretPath(rel) || /^config\/jwt(\/|$)/.test(rel);
+export const isDenied = (rel: string) => segs(rel).some(s => s.toLowerCase() === '.git') || isSecretPath(rel) || /(^|\/)config\/jwt(\/|$)/.test(rel);
 /** Readable, but the AI does not change dependencies. */
 export const isReadOnly = (rel: string) => segs(rel).some(s => s === 'vendor' || s === 'node_modules');
 

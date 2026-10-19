@@ -29,6 +29,7 @@ import { STOP_CONCURRENCY, getSandboxConfig, maxRunning, sandboxEnabled, sandbox
 import { revokeInternet, type RevokeReason } from './internet';
 import { SANDBOX_NETWORK, ensureNetwork, networkMode, openHostPorts, probeRoute } from './network';
 import { clearJar, forgetUpstream } from './preview';
+import { projectBase } from './project';
 import { getRunner } from './runner';
 import { captureRunning, removeShotFiles } from './screenshots';
 import { TASK_LABEL } from './labels';
@@ -325,6 +326,8 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
     taskId: t.id, repo: t.repo, baseBranch: t.baseBranch, get image() { return taskImage(t); }, worktree: p.worktree, signal, log: lg,
     layout: () => t.layout,
     mode: () => effectiveMode(t),
+    projectDir: () => t.repoFile?.projectDir ?? '',
+    projectRoot: () => projectBase(p.worktree, t.layout?.root),
     targetPath: () => effectiveTarget(t),
     setLayout: l => { t.layout = l; saveTask(t, false); },
     newPluginName: t.pluginName ?? null,

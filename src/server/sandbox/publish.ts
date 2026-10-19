@@ -27,7 +27,7 @@ import { noteChatEvent } from '../sessions';
 import { singleton } from '../state';
 import { errMsg } from '../util';
 import { setupBusy, TaskConflict } from './jobs';
-import { projectPathBlock } from './project';
+import { projectPathBlock, repoPathBlock } from './project';
 import { shotNote } from './screenshots';
 import { isDenied } from './workspace-fs';
 import { markPublishing, mustTask, now, publishRunning, saveTask, taskPaths, turnRunning, type CodeTask } from './tasks';
@@ -88,7 +88,7 @@ export function changedPaths(nameStatus: string): Changed[] {
 
 /** The reason a set of changed paths must not be published (in `locale`, German by default), or null. A full project (`kind`
  *  'project') publishes only its own parts (projectPathBlock). */
-export function blockReason(files: Changed[], kind?: TaskLayout['kind'] | null, locale: Locale = DEFAULT_LOCALE): string | null {
+export function blockReason(files: Changed[], kind?: TaskLayout['kind'] | null, locale: Locale = DEFAULT_LOCALE, root = ''): string | null {
   const L = messages(locale).server.check;
   if (!files.length) return L.nothing;
   if (files.length > PUBLISH_LIMITS.files) return L.tooMany(files.length, PUBLISH_LIMITS.files);
@@ -96,7 +96,7 @@ export function blockReason(files: Changed[], kind?: TaskLayout['kind'] | null, 
     if (!p || p.startsWith('/') || p.split('/').includes('..') || p.includes('\\') || /[\x00-\x1f]/.test(p)) return L.badPath(p.slice(0, 120));
     if (/^\.github\/(workflows|actions)(\/|$)/i.test(p) || /(^|\/)action\.ya?ml$/i.test(p)) return L.workflow(p.slice(0, 120));
     if (isDenied(p)) return L.protectedFile(p.slice(0, 120));
-    const outside = kind === 'project' ? projectPathBlock(p, locale) : null;
+    const outside = kind === 'project' ? (root ? repoPathBlock(p, root, locale) : projectPathBlock(p, locale)) : null;
     if (outside) return outside;
   }
   return null;
@@ -178,7 +178,7 @@ export async function preflight(t: CodeTask, allow: readonly string[] = []): Pro
   const p = taskPaths(t.id);
   const raw = await diffAgainstBase(p.worktree, p.gitDir, t.baseBranch);
   const files = changedPaths(raw.status);
-  const early = blockReason(files, t.layout?.kind);
+  const early = blockReason(files, t.layout?.kind, DEFAULT_LOCALE, t.layout?.root ?? '');
   if (early) throw new PublishBlocked(early);
   const { why, findings } = await checkOnDisk(t, files, scanSecrets());
   if (why) throw new PublishBlocked(why);
@@ -203,7 +203,7 @@ export async function commitCheck(t: CodeTask, files: Changed[], head: string, r
 }
 /** commitCheck's verdict for showing it to the user: the reason in `locale`, or the secret findings, or null (taking files over from the container). */
 export async function commitVerdict(t: CodeTask, files: Changed[], head: string, read?: StagedReader, locale: Locale = DEFAULT_LOCALE): Promise<{ why: string; findings?: never } | { why?: never; findings: SecretFinding[] } | null> {
-  const early = blockReason(files, t.layout?.kind, locale);
+  const early = blockReason(files, t.layout?.kind, locale, t.layout?.root ?? '');
   if (early) return { why: early };
   const { why, findings } = await checkOnDisk(t, files.filter(f => f.status !== 'D'), scanSecrets(), head, read, locale);
   if (why) return { why };
