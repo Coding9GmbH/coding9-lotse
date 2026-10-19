@@ -36,7 +36,7 @@ import { mustTask, publishRunning, settleNewPlugin, taskPaths, type CodeTask } f
 import { deleteText, listFiles, readText, searchFiles, type Change } from './workspace-fs';
 
 /** MCP tools of every sandbox chat */
-export const SANDBOX_TOOL_NAMES = ['sandbox_bash', 'pull_from_container', 'delete_file', 'git_diff', 'git_commit', 'read_sandbox_page', 'get_environment', 'ask_user', 'request_internet', 'propose_publish'] as const;
+export const SANDBOX_TOOL_NAMES = ['sandbox_bash', 'pull_from_container', 'delete_file', 'git_diff', 'git_commit', 'read_sandbox_page', 'get_environment', 'ask_user', 'request_internet', 'propose_publish', 'propose_zip'] as const;
 /** Codex only: reading the worktree (Claude reads with its own Read/Glob/Grep) */
 export const CODEX_READ_TOOL_NAMES = ['list_files', 'read_file', 'search_files'] as const;
 export const sandboxToolNames = (provider: 'claude' | 'codex'): string[] => (provider === 'codex' ? [...CODEX_READ_TOOL_NAMES, ...SANDBOX_TOOL_NAMES] : [...SANDBOX_TOOL_NAMES]);
@@ -274,6 +274,13 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
       act('propose_publish', async ({ title, body }) => {
         host.emit({ t: 'publish_proposal', title: title.trim(), body: redact(body).trim() });
         return ok('Vorschlag angezeigt. Der Nutzer prüft ihn im Reiter „Freigabe“ (Pull Request) und veröffentlicht selbst (oder nicht).');
+      })),
+
+    tool('propose_zip', 'Schlägt vor, das Plugin als ZIP für den Live-Shop herunterzuladen (Shopware-Admin → Erweiterungen → Erweiterung hochladen): zeigt dem Nutzer eine Karte mit einem Hinweis. Erzeugt und lädt NICHTS selbst – den Download löst der Nutzer im Reiter „Freigabe“ aus, nachdem Lotse composer.json geprüft hat. Erst aufrufen, wenn die Änderung in der Vorschau geprüft und committet ist; composer.json (Beschreibung, Version, Anzeigename) vorher vollständig machen.',
+      { note: z.string().min(1).max(1000).describe('Kurzer Hinweis für den Nutzer, Deutsch: welches Plugin und was beim Einspielen zu beachten ist (z. B. Version erhöht, danach Plugin aktualisieren und Cache leeren)') },
+      act('propose_zip', async ({ note }) => {
+        host.emit({ t: 'zip_proposal', note: redact(note).trim() });
+        return ok('Karte angezeigt. Der Nutzer lädt das ZIP selbst im Reiter „Freigabe“ herunter; Lotse nennt dort, was in composer.json noch fehlt. Bis dahin nichts weiter tun.');
       })),
   ] as AnyTool[];
 }

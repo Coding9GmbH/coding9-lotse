@@ -413,6 +413,10 @@ export const de = {
       reviewNote: 'Freigegeben wird erst mit deinem Klick im Reiter „Freigabe“.',
       publishedAs: (n: number) => `Freigegeben als Pull Request #${n}`,
     },
+    zipProposal: {
+      heading: 'Vorschlag: Plugin als ZIP für den Live-Shop', note: 'Noch nicht heruntergeladen.', open: 'ZIP ansehen und herunterladen',
+      openNote: 'Heruntergeladen wird erst mit deinem Klick im Reiter „Freigabe“. Dort prüft Lotse vorher die composer.json.',
+    },
     pr: {
       heading: 'Zur Prüfung freigeben',
       lead: 'Bist du mit dem Ergebnis in der Vorschau zufrieden, gibst du es hier zur Prüfung frei: Lotse lädt die gespeicherten Schritte der KI ins Projekt auf GitHub hoch – was noch nicht gespeichert ist, kommt als letzter Schritt dazu – und legt eine Anfrage zur Übernahme an (Pull Request). Übernommen wird erst, wenn du oder dein Entwickler sie auf GitHub annehmt. Workflow-Dateien, geschützte Dateien und alles, was wie ein Geheimnis aussieht, lädt Lotse nicht hoch.',
@@ -1407,6 +1411,10 @@ export const en: typeof de = {
       heading: 'Proposal: submit for review', note: 'Not submitted yet.', review: 'View and submit', reviewUpdate: 'View and update the submission',
       reviewNote: 'Nothing is submitted until you click in the “Review” tab.',
       publishedAs: n => `Submitted as pull request #${n}`,
+    },
+    zipProposal: {
+      heading: 'Proposal: plugin as a ZIP for the live shop', note: 'Not downloaded yet.', open: 'View and download the ZIP',
+      openNote: 'Nothing is downloaded until you click in the “Review” tab, where Lotse checks composer.json first.',
     },
     pr: {
       heading: 'Submit for review',

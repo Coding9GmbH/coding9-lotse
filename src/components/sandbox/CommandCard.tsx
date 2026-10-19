@@ -77,6 +77,21 @@ export function PublishProposalCard({ title, body, onReview, publishedAs, update
   );
 }
 
+/** propose_zip: the AI proposes the plugin as a ZIP for the live shop. The button only opens the "Freigabe" tab (ZIP check and download
+ *  are there, by the user's click); without a sandbox attached the card is a record. */
+export function ZipProposalCard({ note, onOpen }: { note: string; onOpen?: () => void }) {
+  const t = useI18n().t.sandbox.code.zipProposal;
+  return (
+    <section className={styles.pub} aria-label={t.heading}>
+      <h3>{t.heading}</h3>
+      <Markdown text={note} className={styles.pubBody} />
+      {onOpen
+        ? <><div className={styles.pubBtns}><Button size="sm" variant="primary" onClick={onOpen}>{t.open}</Button></div><p className={styles.pubNote}>{t.openNote}</p></>
+        : <p className={styles.pubNote}>{t.note}</p>}
+    </section>
+  );
+}
+
 /** start_sandbox / chat: what a card needs to attach a sandbox to this chat. */
 export interface SandboxOfferActions {
   /** a sandbox is attached already (the card is only a record then) */ attached: boolean;

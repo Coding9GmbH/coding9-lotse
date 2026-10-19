@@ -122,6 +122,8 @@ export type ChatEvent =
   | { t: 'preview_reload' }
   /** The AI proposes to publish its changes as a pull request (card only; publishing itself comes from the user) */
   | { t: 'publish_proposal'; title: string; body: string }
+  /** The AI proposes the plugin as a ZIP for the live shop (propose_zip): a card; only the user's click in the "Freigabe" tab downloads it */
+  | { t: 'zip_proposal'; note: string }
   /** The user published the sandbox's changes: pull request created or updated (state as of that moment) */
   | { t: 'pr'; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
   /** The AI proposes to attach a sandbox to this chat (start_sandbox): a card; only the user's click creates the task */
