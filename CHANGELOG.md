@@ -5,6 +5,11 @@ Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die V
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
 Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag geschrieben (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
+## [0.9.6] – 2026-10-19
+
+### Behoben
+- Sandbox Coding: Der E2E-Test des vollständig installierten Shopware-Projekts erwartete noch die Logzeile von `composer install` ohne `COMPOSER_MEMORY_LIMIT=-1`; Verhalten und Funktion von 0.9.5 bleiben unverändert.
+
 ## [0.9.5] – 2026-10-19
 
 ### Hinzugefügt
@@ -248,6 +253,7 @@ Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag gesch
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
+[0.9.6]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.2...v0.9.3
