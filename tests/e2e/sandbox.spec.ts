@@ -743,7 +743,7 @@ test('Sandbox Coding: a whole Shopware project – plugins, apps and config brou
   await expect(steps.getByText('Shopware-Projekt erkennen')).toBeVisible();
   await steps.getByRole('listitem').filter({ hasText: 'Projekt einspielen (Plugins, Apps, Konfiguration, Theme)' }).getByText(/^Protokoll/).click();
   await expect(steps.getByText('$ bin/console plugin:install --activate -n -- AcmeStorefrontTweaks AcmeTheme AcmeErpConnector')).toBeVisible();
-  await expect(steps.getByText('$ env COMPOSER_NO_INTERACTION=1 composer install --no-interaction --no-progress --no-scripts --prefer-dist --optimize-autoloader')).toBeVisible();
+  await expect(steps.getByText('$ env COMPOSER_NO_INTERACTION=1 COMPOSER_MEMORY_LIMIT=-1 composer install --no-interaction --no-progress --no-scripts --prefer-dist --optimize-autoloader')).toBeVisible();
   await expect(steps.getByText('Internet wieder gesperrt.')).toBeVisible();
 
   // "Plugin als ZIP": one plugin of the project, chosen in the list
