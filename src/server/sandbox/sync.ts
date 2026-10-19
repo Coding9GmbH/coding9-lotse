@@ -13,11 +13,13 @@ import {
 } from './project';
 import { isEmptyRepoListing, targetPathProblem } from '@/lib/sandbox-task';
 import type { SandboxRunner } from './runner';
-import { writeTar, type TarEntry } from './tar';
+import { streamTar, writeTar, type TarEntry } from './tar';
 
 export const WWW_DATA = { uid: 33, gid: 33, uname: 'www-data', gname: 'www-data' } as const;
-const MAX_FILES = 20_000;
-const MAX_BYTES = 256 * 1024 * 1024;
+// No limit on the number of files: the archive is streamed, only one file at a time is in memory. The size is the limit.
+const MAX_BYTES = 2 * 1024 * 1024 * 1024;
+/** Upload of a whole repository takes longer than the engine's default */
+const PUT_TIMEOUT_MS = 10 * 60_000;
 
 const SECRET_NAMES = /^(\.env(\..+)?|auth\.json|\.npmrc|\.pypirc|\.netrc|\.git-credentials|\.htpasswd|id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|.+\.(pem|key|p12|pfx|jks|keystore))$/i;
 const SAFE_ENV = /^\.env\.(dist|example|sample|template)$/i;
@@ -39,13 +41,12 @@ export function guardRel(rel: string): string {
 
 const inside = (child: string, parent: string) => { const r = path.relative(parent, child); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };
 
-/** What one sync may transfer in total – for a project all plugin and app folders, config files and src/ together. Charged before a
- *  file is read, so a huge repository fails before Lotse holds it in memory. */
+/** What one sync may transfer in total – for a project all plugin and app folders, config files and src/ together. Charged from the
+ *  file's size before it is read, so a too large repository fails before anything is uploaded or removed. */
 export interface SyncBudget { files: number; bytes: number }
 export const syncBudget = (): SyncBudget => ({ files: 0, bytes: 0 });
 function charge(b: SyncBudget, bytes: number) {
   b.files++; b.bytes += bytes;
-  if (b.files > MAX_FILES) throw new Error(`Zu viele Dateien im Repository (mehr als ${MAX_FILES}).`);
   if (b.bytes > MAX_BYTES) throw new Error(`Repository zu groß für die Sandbox (mehr als ${MAX_BYTES / 1024 / 1024} MB).`);
 }
 
@@ -65,7 +66,7 @@ function entryFor(root: string, rel: string, prefix: string, b: SyncBudget = syn
   }
   if (st.isDirectory()) return { path: p, type: 'dir' };
   if (!st.isFile()) return null;
-  return { path: p, type: 'file', data: fs.readFileSync(abs), mode: st.mode & 0o111 ? 0o755 : 0o644 };
+  return { path: p, type: 'file', size: st.size, read: () => fs.readFileSync(abs), mode: st.mode & 0o111 ? 0o755 : 0o644 };
 }
 
 /** All transferable entries of the workspace (directories first, sorted), within the limits (`b`: shared by the caller's other
@@ -107,6 +108,8 @@ const ensureParent = async (s: SyncTarget, parent: string) => {
   const r = await s.runner.exec(s.containerId, ['mkdir', '-p', '--', parent], { user: 'root', timeoutMs: 30_000, signal: s.signal });
   if (r.exitCode !== 0) throw new Error(`Ordner ${parent} im Container nicht angelegt: ${r.output.trim().slice(-200)}`);
 };
+/** Uploads an archive of the worktree; its files are read while it is sent */
+const put = (s: SyncTarget, dir: string, tar: ReturnType<typeof streamTar>) => s.runner.putArchive(s.containerId, dir, tar, { timeoutMs: PUT_TIMEOUT_MS, signal: s.signal });
 const rm = (s: SyncTarget, flags: '-f' | '-rf', ...abs: string[]) =>
   s.runner.exec(s.containerId, ['rm', flags, '--', ...abs], { user: s.user, timeoutMs: 120_000, signal: s.signal }).then(r => {
     if (r.exitCode !== 0) throw new Error(`Löschen im Container fehlgeschlagen: ${r.output.trim().slice(-200)}`);
@@ -126,14 +129,14 @@ export async function syncAll(s: SyncTarget): Promise<{ files: number; bytes: nu
   if (s.custom) return syncCustomAll(s);
   const { parent, base } = checkTarget(s.target);
   const entries = collectAll(s.worktree, base);
-  const tar = writeTar(entries, WWW_DATA);
+  const tar = streamTar(entries, WWW_DATA);
   if (s.lazy && scaffoldOnly(s.worktree)) {
     if (!(await targetExists(s))) return { files: 0, bytes: 0, deferred: true };
-    await s.runner.putArchive(s.containerId, parent, tar);
+    await put(s, parent, tar);
     return { files: entries.filter(e => e.type === 'file').length, bytes: tar.length };
   }
   await rm(s, '-rf', s.target);
-  await s.runner.putArchive(s.containerId, parent, tar);
+  await put(s, parent, tar);
   return { files: entries.filter(e => e.type === 'file').length, bytes: tar.length };
 }
 
@@ -147,7 +150,7 @@ export async function syncPaths(s: SyncTarget, rels: string[]): Promise<{ put: n
     if (scaffoldOnly(s.worktree)) return { put: 0, removed: 0, deferred: true };
     // the first real file: the folder comes with everything the worktree has (the README the AI wrote before, too)
     const entries = collectAll(s.worktree, base);
-    await s.runner.putArchive(s.containerId, parent, writeTar(entries, WWW_DATA));
+    await put(s, parent, streamTar(entries, WWW_DATA));
     return { put: entries.filter(e => e.type !== 'dir').length, removed: 0 };
   }
   const entries: TarEntry[] = [], dirs = new Set<string>(), gone: string[] = [], b = syncBudget();
@@ -163,7 +166,7 @@ export async function syncPaths(s: SyncTarget, rels: string[]): Promise<{ put: n
     if (e?.type === 'dir') { entries.push(...collectAll(path.join(s.worktree, rel), `${base}/${rel}`, b)); continue; }
     if (e) entries.push(e);
   }
-  if (entries.length) await s.runner.putArchive(s.containerId, parent, writeTar([{ path: base, type: 'dir' }, ...entries], WWW_DATA));
+  if (entries.length) await put(s, parent, streamTar([{ path: base, type: 'dir' }, ...entries], WWW_DATA));
   for (const rel of gone) await rm(s, '-f', `${s.target}/${rel}`);
   return { put: entries.filter(e => e.type !== 'dir').length, removed: gone.length };
 }
@@ -179,8 +182,8 @@ export async function syncCustomAll(s: SyncTarget): Promise<{ files: number; byt
   const now = new Set(written);
   const stale = oldTarget === s.target ? oldFiles.filter(r => r && !now.has(r)).flatMap(r => { try { return [guardRel(r)]; } catch { return []; } }) : [];
   await ensureParent(s, parent);
-  const tar = writeTar(entries, WWW_DATA);
-  await s.runner.putArchive(s.containerId, parent, tar);
+  const tar = streamTar(entries, WWW_DATA);
+  await put(s, parent, tar);
   for (let i = 0; i < stale.length; i += 200) await rm(s, '-f', ...stale.slice(i, i + 200).map(r => `${s.target}/${r}`));
   await s.runner.putArchive(s.containerId, path.posix.dirname(CUSTOM_MANIFEST), writeTar([{ path: path.posix.basename(CUSTOM_MANIFEST), type: 'file', data: Buffer.from(`${[s.target, ...written].join('\n')}\n`), mode: 0o644 }], WWW_DATA));
   return { files: written.length, bytes: tar.length };
@@ -213,7 +216,6 @@ export function projectContent(worktree: string, full = false): { units: string[
       // installed completely: units are mirrored on their own, skipped folders (vendor/, var/ …) never read
       if (d.isDirectory()) { if (!full || projectSyncPath(`${r}/x`, true)?.kind === 'file') walk(r); }
       else if ((d.isFile() || d.isSymbolicLink()) && projectSyncPath(r, full)?.kind === 'file') files.push(r);
-      if (files.length > MAX_FILES) throw new Error(`Zu viele Dateien im Repository (mehr als ${MAX_FILES}).`);
     }
   };
   if (full) { walk(''); return { units, files }; }
@@ -313,8 +315,8 @@ export async function syncProjectAll(s: SyncTarget): Promise<{ files: number; by
   lotseFiles(s, plan, content, seen, entries);
   // units: a mirror; quarantined files: Shopware must not load them (synced before); the image's own file of that name comes back
   await restoreAll(s, [...content.units, ...stale, ...(plan ? [...plan.quarantine.keys()] : [])]);
-  const tar = writeTar(entries, WWW_DATA);
-  await s.runner.putArchive(s.containerId, ROOT, tar);
+  const tar = streamTar(entries, WWW_DATA);
+  await put(s, ROOT, tar);
   return { files: entries.filter(e => e.type === 'file').length, bytes: tar.length, config: plan };
 }
 
@@ -344,7 +346,7 @@ export async function syncProjectPaths(s: SyncTarget, rels: string[]): Promise<{
   // a changed file that is quarantined now: its earlier version must not stay loaded (removed first: the override may have its name)
   const remove = [...gone, ...(plan ? [...plan.quarantine.keys()].filter(f => guarded.includes(f)) : [])];
   if (remove.length) await restoreAll(s, remove);
-  await s.runner.putArchive(s.containerId, ROOT, writeTar(entries, WWW_DATA));
+  await put(s, ROOT, streamTar(entries, WWW_DATA));
   const own = s.project?.runtime ? overrideFile(s.project.runtime.appEnv) : null;
   return { put: entries.filter(e => e.type !== 'dir' && e.path !== SYNC_MANIFEST && e.path !== own).length, removed: gone.length, config: plan };
 }

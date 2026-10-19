@@ -4,7 +4,7 @@ import { Readable } from 'node:stream';
 import '../isolate-data';
 
 // Streaming tar of one large file (dump import): ustar header fields, checksum, padding, exact length, size guard.
-const { streamFileTar, writeTar } = await import('../../src/server/sandbox/tar');
+const { streamFileTar, streamTar, writeTar } = await import('../../src/server/sandbox/tar');
 const { readTarEntries } = await import('../../src/server/sandbox/fake-runner');
 const owner = { uid: 33, gid: 33, uname: 'www-data', gname: 'www-data', mtime: 1_700_000_000 };
 const collect = async (r: Readable) => { const parts: Buffer[] = []; for await (const c of r) parts.push(c as Buffer); return Buffer.concat(parts); };
@@ -37,4 +37,15 @@ test('streamFileTar: a file that is larger or smaller than announced fails the s
   await assert.rejects(collect(streamFileTar('d', 'dump', 4, Readable.from([Buffer.from('12345')]), owner).stream), /größer/);
   await assert.rejects(collect(streamFileTar('d', 'dump', 6, Readable.from([Buffer.from('12345')]), owner).stream), /kleiner/);
   assert.throws(() => streamFileTar('x'.repeat(100), 'dump', 1, Readable.from([]), owner), /zu lang/);
+});
+
+test('streamTar: byte-identical to writeTar (long paths, symlinks, lazy files), announced length exact, a file that changed size is refused', async () => {
+  const long = `${'d'.repeat(90)}/${'e'.repeat(90)}/${'f'.repeat(60)}.txt`;
+  const lazy = (path: string, text: string) => ({ path, type: 'file' as const, size: text.length, read: () => Buffer.from(text), mode: 0o644 });
+  const entries = [{ path: 'a', type: 'dir' as const }, lazy('a/x.txt', 'hello'), lazy(long, 'x'.repeat(1000)), { path: 'a/l', type: 'symlink' as const, linkTarget: 'x.txt' }, { path: 'a/empty', type: 'file' as const, data: Buffer.alloc(0) }];
+  const s = streamTar(entries, owner), got = await collect(s.stream);
+  assert.equal(got.length, s.length);
+  assert.ok(got.equals(writeTar(entries, owner)));
+  assert.deepEqual(readTarEntries(got).filter(e => e.type === 'file').map(e => e.path), ['a/x.txt', long, 'a/empty']);
+  await assert.rejects(collect(streamTar([{ path: 'g', type: 'file', size: 3, read: () => Buffer.from('four') }], owner).stream), /während der Übertragung geändert/);
 });

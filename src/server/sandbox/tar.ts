@@ -2,7 +2,8 @@
 // Regular files, directories and symlinks; owner, group and mtime are fixed by the caller. Plus a minimal reader (screenshots, tests).
 import { Readable } from 'node:stream';
 
-export interface TarEntry { path: string; type: 'file' | 'dir' | 'symlink'; data?: Buffer; mode?: number; linkTarget?: string }
+/** A file's content is `data`, or read only when the archive is written: `read` (exactly `size` bytes) – see streamTar. */
+export interface TarEntry { path: string; type: 'file' | 'dir' | 'symlink'; data?: Buffer; read?: () => Buffer; size?: number; mode?: number; linkTarget?: string }
 export interface TarOwner { uid: number; gid: number; uname: string; gname: string; mtime?: number }
 
 const BLOCK = 512;
@@ -49,25 +50,55 @@ function paxRecord(key: string, value: string): string {
   return `${len}${body}`;
 }
 
+/** PAX record (if the path or link does not fit ustar) and the header block of one entry. */
+function entryHead(e: TarEntry, size: number, owner: TarOwner): Buffer {
+  const p = e.type === 'dir' ? `${e.path.replace(/\/+$/, '')}/` : e.path;
+  const link = e.linkTarget ?? '';
+  const s = split(p);
+  const out: Buffer[] = [];
+  if (!s || Buffer.byteLength(link) > 100) {
+    const pax = Buffer.from((s ? '' : paxRecord('path', p)) + (Buffer.byteLength(link) > 100 ? paxRecord('linkpath', link) : ''), 'utf8');
+    out.push(header('PaxHeader', '', pax.length, 'x', 0o644, owner), pax, Buffer.alloc(pad(pax.length)));
+  }
+  const { name, prefix } = s ?? { name: p.slice(-100), prefix: '' };
+  const type = e.type === 'file' ? '0' : e.type === 'dir' ? '5' : '2';
+  const mode = e.mode ?? (e.type === 'dir' ? 0o755 : e.type === 'symlink' ? 0o777 : 0o644);
+  out.push(header(name, prefix, size, type, mode, owner, Buffer.byteLength(link) > 100 ? '' : link));
+  return out.length === 1 ? out[0] : Buffer.concat(out);
+}
+const sizeOf = (e: TarEntry) => (e.type !== 'file' ? 0 : e.data ? e.data.length : e.size ?? 0);
+const contentOf = (e: TarEntry): Buffer => {
+  if (e.type !== 'file') return Buffer.alloc(0);
+  const d = e.data ?? e.read?.() ?? Buffer.alloc(0);
+  if (!e.data && d.length !== (e.size ?? 0)) throw new Error(`Datei „${e.path.slice(0, 120)}“ hat sich während der Übertragung geändert.`);
+  return d;
+};
+
 export function writeTar(entries: TarEntry[], owner: TarOwner): Buffer {
   const out: Buffer[] = [];
   for (const e of entries) {
-    const p = e.type === 'dir' ? `${e.path.replace(/\/+$/, '')}/` : e.path;
-    const data = e.type === 'file' ? e.data ?? Buffer.alloc(0) : Buffer.alloc(0);
-    const link = e.linkTarget ?? '';
-    const s = split(p);
-    if (!s || Buffer.byteLength(link) > 100) {
-      const pax = Buffer.from((s ? '' : paxRecord('path', p)) + (Buffer.byteLength(link) > 100 ? paxRecord('linkpath', link) : ''), 'utf8');
-      out.push(header('PaxHeader', '', pax.length, 'x', 0o644, owner), pax, Buffer.alloc(pad(pax.length)));
-    }
-    const { name, prefix } = s ?? { name: p.slice(-100), prefix: '' };
-    const type = e.type === 'file' ? '0' : e.type === 'dir' ? '5' : '2';
-    const mode = e.mode ?? (e.type === 'dir' ? 0o755 : e.type === 'symlink' ? 0o777 : 0o644);
-    out.push(header(name, prefix, data.length, type, mode, owner, Buffer.byteLength(link) > 100 ? '' : link));
+    const data = contentOf(e);
+    out.push(entryHead(e, data.length, owner));
     if (data.length) out.push(data, Buffer.alloc(pad(data.length)));
   }
   out.push(Buffer.alloc(BLOCK * 2));
   return Buffer.concat(out);
+}
+
+/** The same archive as writeTar, produced piece by piece: a file with `read` is read when its turn comes, so only one file is in memory
+ *  at a time, however large the repository. length = exact archive size (from the sizes announced in the entries). */
+export function streamTar(entries: TarEntry[], owner: TarOwner): { stream: Readable; length: number } {
+  let length = BLOCK * 2;
+  for (const e of entries) { const n = sizeOf(e); length += entryHead(e, n, owner).length + n + pad(n); }
+  function* gen() {
+    for (const e of entries) {
+      const data = contentOf(e);
+      yield entryHead(e, data.length, owner);
+      if (data.length) { yield data; yield Buffer.alloc(pad(data.length)); }
+    }
+    yield Buffer.alloc(BLOCK * 2);
+  }
+  return { stream: Readable.from(gen(), { objectMode: false }), length };
 }
 
 /** A directory with one large file, streamed (the file is never held in memory): `<dir>/` + `<dir>/<name>`. length = exact archive size. */

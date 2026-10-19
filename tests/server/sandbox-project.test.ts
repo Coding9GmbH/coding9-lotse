@@ -503,7 +503,9 @@ function hostRunner(root: string) {
       if (argv[0] === 'rm') { fs.rmSync(stage, { recursive: true, force: true }); return { exitCode: 0, output: '' }; }
       return { exitCode: 0, output: '' };
     },
-    putArchive: async (_id: string, dir: string, tar: Buffer) => {
+    putArchive: async (_id: string, dir: string, archive: Buffer | { stream: AsyncIterable<Buffer> }) => {
+      let tar = archive as Buffer;
+      if (!Buffer.isBuffer(archive)) { const parts: Buffer[] = []; for await (const c of archive.stream) parts.push(Buffer.from(c)); tar = Buffer.concat(parts); }
       const base = dir === ROOT ? root : stage, files: string[] = [];
       for (const e of readTarEntries(tar)) {
         const to = path.join(base, e.path);
@@ -587,14 +589,26 @@ test('mailer: transports are switched one by one (Symfony refuses dsn next to tr
   assert.equal(P.bootError(msg), 'Invalid configuration for path "framework.mailer": "dsn" and "transports" cannot be used together.');
 });
 
-test('one budget for a whole project sync: many plugin folders together hit the limit before anything is uploaded or removed', async () => {
+test('no limit on the number of files: more than 20,000 in several plugin folders are streamed in one archive', async () => {
   const wt = dir({ 'composer.json': '{"type":"project","require":{"shopware/core":"*"}}' });
-  for (const u of ['A', 'B']) for (let i = 0; i < 10_001; i++) { const f = path.join(wt, `custom/plugins/${u}/f${i}`); if (i === 0) fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, ''); }
+  for (const u of ['A', 'B']) for (let i = 0; i < 10_001; i++) { const f = path.join(wt, `custom/plugins/${u}/f${i}`); if (i === 0) fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, String(i)); }
   const h = hostRunner(fs.mkdtempSync(path.join(tmp, 'root-')));
-  await assert.rejects(S.syncProjectAll(sync(wt, h.runner, null)), /Zu viele Dateien im Repository/);
+  const r = await S.syncProjectAll(sync(wt, h.runner, null));
+  assert.equal(h.put.length, 1);
+  assert.ok(h.put[0].filter(f => f.startsWith('custom/plugins/')).length === 20_002);
+  assert.ok(r.files >= 20_002);
+  assert.equal(Object.keys(S.projectManifest(wt)).filter(k => k.startsWith('custom/plugins/A/f')).length, 10_001);
+});
+
+test('one size budget for a whole project sync: a too large file hits the limit before anything is uploaded or removed', async () => {
+  const wt = dir({ 'composer.json': '{"type":"project","require":{"shopware/core":"*"}}' });
+  fs.mkdirSync(path.join(wt, 'custom/plugins/A'), { recursive: true });
+  fs.writeFileSync(path.join(wt, 'custom/plugins/A/big.bin'), '');
+  fs.truncateSync(path.join(wt, 'custom/plugins/A/big.bin'), 2 * 1024 * 1024 * 1024 + 1); // sparse
+  const h = hostRunner(fs.mkdtempSync(path.join(tmp, 'root-')));
+  await assert.rejects(S.syncProjectAll(sync(wt, h.runner, null)), /zu groß/);
   assert.equal(h.put.length, 0, 'nothing uploaded');
   assert.ok(!h.argvs.some(a => a[3] === 'lotse-restore'), 'nothing removed');
-  assert.throws(() => S.projectManifest(wt), /Zu viele Dateien/);
 });
 
 test('the image\'s own config comes back when the project\'s file of that name is quarantined or deleted', async () => {
