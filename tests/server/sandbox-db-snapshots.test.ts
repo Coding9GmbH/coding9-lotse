@@ -200,6 +200,24 @@ test('a volume with the snapshot name that is not Lotse\'s: no restore and no sn
   for (const t of [a, b, c]) await J.finishTask(t.id);
 });
 
+test('after the snapshot only MySQL is awaited: the imported shop may answer 500 until theme-compile, the step does not wait for it', async () => {
+  const d = await stored('broken-until-compile.sql');
+  // like a real dump: HTTP 500 from the import until the theme is compiled (install-plugin and theme-compile come after the snapshot)
+  const at = (id: string, hit: (argv: string[]) => boolean) => fake.calls.findLastIndex(c => c.op === 'exec' && c.id === id && hit(c.argv ?? []));
+  fake.storefront = (req, res, id) => {
+    if (req.url !== '/' || at(id, isImport) < 0 || at(id, a => a[1] === 'theme:compile') > at(id, isImport)) return false;
+    res.writeHead(500); res.end('Internal Server Error'); return true;
+  };
+  try {
+    const a = await runTask(d.id, 'Shop erst nach Kompilieren');
+    assert.equal(a.status, 'ready', a.error ?? '');
+    assert.equal(step(a, 'db-snapshot').state, 'done');
+    assert.match(step(a, 'db-snapshot').log.join('\n'), /Datenbank läuft wieder/);
+    assert.doesNotMatch(step(a, 'db-snapshot').log.join('\n'), /Shop antwortet noch nicht/);
+    await J.finishTask(a.id);
+  } finally { fake.storefront = null; }
+});
+
 test('MySQL that does not stop cleanly is not copied; one that does not start again fails the step', async () => {
   const d = await stored('unclean.sql');
   fake.script = argv => (JSON.stringify(argv) === JSON.stringify(MYSQL_STOP_ARGV) ? { exitCode: 1, output: 'mysqld: still running' } : undefined);

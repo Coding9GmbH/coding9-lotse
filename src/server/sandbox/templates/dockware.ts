@@ -40,13 +40,15 @@ const pluginName = (ctx: StepCtx) => {
 };
 
 /** MySQL first, then the storefront with HTTP 200; backoff up to 3 s, ends with the step's time limit or an abort.
- *  A container that exits meanwhile (e.g. MySQL did not start, Dockware's entrypoint then ends) fails at once with its log. */
-export async function waitReady(ctx: Pick<StepCtx, 'run' | 'httpStatus' | 'log' | 'signal' | 'checkAlive'>) {
+ *  A container that exits meanwhile (e.g. MySQL did not start, Dockware's entrypoint then ends) fails at once with its log.
+ *  dbOnly: MySQL alone – right after a dump import the storefront may answer 500 until install-plugin and theme-compile ran. */
+export async function waitReady(ctx: Pick<StepCtx, 'run' | 'httpStatus' | 'log' | 'signal' | 'checkAlive'>, o: { dbOnly?: boolean } = {}) {
   let wait = 500, last = '';
   const note = (s: string) => { if (s !== last) ctx.log(s); last = s; };
   for (;;) {
     await ctx.checkAlive();
     const db = await ctx.run(['mysqladmin', 'ping', '-h127.0.0.1', '-uroot', '-proot', '--silent'], { okCodes: [0, 1], timeoutMs: 15_000, quiet: true }).catch(() => ({ exitCode: 1 }));
+    if (db.exitCode === 0 && o.dbOnly) { ctx.log('Datenbank läuft wieder.'); return; }
     if (db.exitCode === 0) {
       const status = await ctx.httpStatus('/').catch(() => 0);
       if (status === 200) { ctx.log('Shopware antwortet (HTTP 200).'); return; }
@@ -161,8 +163,9 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
   'version-check': versionCheck,
   'import-db': importDb,
   'set-domain': async ctx => { await ctx.run([...MYSQL, '-e', SET_DOMAIN_SQL]); ctx.log('Storefront-Domain: http://localhost'); },
-  // right after import + domain, before anything of the task: MySQL is stopped and started again around the copy
-  'db-snapshot': async ctx => { if ((await ctx.saveDbSnapshot()) === 'skipped') return 'skipped'; await waitReady(ctx); },
+  // right after import + domain, before anything of the task: MySQL is stopped and started again around the copy. Only MySQL is
+  // awaited: the imported shop often answers 500 until its plugins are installed and its theme compiled (later steps; ready checks it)
+  'db-snapshot': async ctx => { if ((await ctx.saveDbSnapshot()) === 'skipped') return 'skipped'; await waitReady(ctx, { dbOnly: true }); },
   // cosmetic for the preview (and screenshots taken by hand): a failure only skips the step (the preview proxy hides both by CSS as well)
   'preview-tidy': async ctx => {
     if (ctx.layout()?.kind === 'custom') { ctx.log('Eigenes Setup: Lotse ändert am Shop nichts.'); return 'skipped'; }
