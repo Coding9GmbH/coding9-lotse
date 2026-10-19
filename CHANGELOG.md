@@ -5,6 +5,30 @@ Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die V
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
 Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag geschrieben (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
+## [0.9.0] – 2026-10-19
+
+### Hinzugefügt
+- **Sandbox Coding** (einschaltbar unter Einstellungen → Sandbox, standardmäßig aus): Eine Entwicklungsumgebung mit Git-Anbindung, in der Claude Code oder Codex ein Plugin, Theme oder ganzes Shopware-Projekt in einem eigenen Test-Shop in Docker ändern, prüfen und Schritt für Schritt committen; der Live-Shop bleibt unberührt.
+- Sandbox: Storefront der Aufgabe als bedienbare Vorschau mit „Anmerken“, Vorher/Nachher-Screenshots, Konsole mit eigener Shell im Container, Datenbank-Dumps und gespeicherte Datenbanken mit schnellem Start.
+- Sandbox: Gespeicherte Umgebungen („einmal einrichten, für jeden Auftrag eine frische Sandbox“), Start in drei Schritten, eigenes Setup, Start ohne Projekt und Einstellungen im Repository über `.lotse/sandbox.json` (Befehle daraus laufen erst nach deiner Freigabe).
+- Sandbox: Neue Plugins in einem leeren Repository bauen, GitHub-Projekt per Klick anlegen, Änderungen als Pull Request zur Prüfung freigeben und Rückmeldungen zum Pull Request an die KI übergeben.
+- Sandbox: Plugin als ZIP für den Live-Shop herunterladen; die KI kann es per Karte im Chat vorschlagen, geprüft und geladen wird erst mit deinem Klick.
+- Sandbox: Internet im Container nur nach deiner Freigabe, Dateien aus dem Container ins Projekt übernehmen.
+- Wirkungsmessung: Im SEO-Bereich zeigt eine eigene Ansicht, was Änderungen an Texten und Layouts bewirkt haben.
+- Abverkauf: Top-Seller und Ladenhüter aus Summen je Produkt (ohne Kunden- und Bestelldaten); standardmäßig aus.
+- Kostenbremse: Monatsbudget für Claude, KI-Kosten je Runde und Hinweis im Chat ab 80 %.
+- Styleguide-Onboarding auf allen Plattformen.
+- Entwurfsvorschau im echten Theme für Shopify, Magento und OpenMage.
+- Sistrix OnPage: Zeigt die Seiten, die ein defektes Bild, eine defekte Datei oder einen defekten Link einbinden.
+
+### Geändert
+- Abhängigkeiten aktualisiert (u. a. Next.js 16.4.2, React 19.3.1, Codex SDK 0.163).
+- Sandbox im Docker-Betrieb: Das Subnetz `LOTSE_SANDBOX_SUBNET` hat den Standard `10.213.0.0/24`; die Sandbox bleibt nur noch bei einem ungültigen Wert gesperrt.
+- Sandbox im Docker-Betrieb (`docker-compose.sandbox.yml`): Der Lotse-Container läuft mit einem eigenen Seccomp-Profil (`docker/seccomp-codex.json`), damit Codex Dateien schreiben kann. Wer Sandbox Coding mit Codex nutzt, startet mit `make sandbox-up` neu.
+
+### Behoben
+- Codex konnte im gehärteten Container keine Dateien schreiben („Failed to write file“).
+
 ## [0.8.1] – 2026-10-15
 
 ### Sicherheit
@@ -185,6 +209,7 @@ Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag gesch
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
+[0.9.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.7.1...v0.7.2
