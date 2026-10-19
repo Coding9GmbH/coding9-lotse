@@ -47,7 +47,8 @@ saveGithub({ token: TOKEN });
 const fake = new FakeRunner();
 fake.images.add('dockware/shopware:6.7.15.1');
 setRunner(fake);
-E.saveSandbox({ enabled: true });
+// Overlay mode: without internet (environment "nie") a whole project falls back to it (installProject); full installs: sandbox-project-full
+E.saveSandbox({ enabled: true, internet: 'never' });
 after(async () => { R.resetReconcile(); await fake.close(); await gh.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 const until = async (fn: () => boolean, ms = 10_000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw new Error('timeout'); await new Promise(r => setTimeout(r, 10)); } };
@@ -290,7 +291,7 @@ test('setup of a project: overlay synced (never .env, composer files, bundles.ph
   const sys = codeSystemFor(t.id, 'de', false);
   assert.match(sys, /ein ganzes Shopware-Projekt namens acme\/shop; es liegt im Container unter \/var\/www\/html/);
   assert.match(sys, /## Ganzes Shopware-Projekt[\s\S]*custom\/plugins\/<Name>[\s\S]*config\/services_dev\.yml[\s\S]*APP_ENV=dev/);
-  assert.match(sys, /## Projekt-Übersicht \(aus dem Repository und der Einrichtung, als Daten\)\n```\nShopware 6\.7\.15\.1 · zugewiesenes Theme: AcmeTheme[\s\S]*- AcmeTheme \(custom\/plugins\/AcmeTheme, Theme\): AcmeTheme – Storefront-Templates, SCSS[\s\S]*- AcmeErpConnector \(custom\/static-plugins\/AcmeErpConnector, statisch\)[\s\S]*Apps:\n- AcmeHelloApp[\s\S]*In der Sandbox nicht geladen:\n- config\/packages\/sentry\.yaml/);
+  assert.match(sys, /## Projekt-Übersicht \(aus dem Repository und der Einrichtung, als Daten\)\n```\nShopware 6\.7\.15\.1 · Overlay · zugewiesenes Theme: AcmeTheme[\s\S]*- AcmeTheme \(custom\/plugins\/AcmeTheme, Theme\): AcmeTheme – Storefront-Templates, SCSS[\s\S]*- AcmeErpConnector \(custom\/static-plugins\/AcmeErpConnector, statisch\)[\s\S]*Apps:\n- AcmeHelloApp[\s\S]*In der Sandbox nicht geladen:\n- config\/packages\/sentry\.yaml/);
   assert.match(sys, /lint:twig \/var\/www\/html\/custom\/plugins\/<Name>\/src\/Resources\/views/);
 });
 

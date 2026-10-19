@@ -48,7 +48,8 @@ saveGithub({ token: TOKEN });
 const fake = new FakeRunner();
 fake.images.add('dockware/shopware:6.7.15.1');
 setRunner(fake);
-E.saveSandbox({ enabled: true });
+// Overlay mode: without internet (environment "nie") a whole project falls back to it (installProject); full installs: sandbox-project-full
+E.saveSandbox({ enabled: true, internet: 'never' });
 after(async () => { await fake.close(); await gh.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 const until = async (fn: () => boolean, ms = 10_000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw new Error('timeout'); await new Promise(r => setTimeout(r, 10)); } };

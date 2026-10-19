@@ -18,14 +18,16 @@ export function applyTaskEvent(task: CodeTaskPublic | null, ev: TaskEvent): Code
 /** The setup stopped at "Plugin erkennen" for the user's decision on the repository's .lotse/sandbox.json commands: stored as failed
  *  (so the step can continue), but it waits for the user – not an error. */
 export const awaitsApproval = (t: Pick<CodeTaskPublic, 'status' | 'repoFile'>) => t.status === 'failed' && t.repoFile?.state === 'pending';
-/** What status line, pip and hints show: the stored status, or 'approval' while the setup waits for that decision. */
-export type TaskDisplayStatus = CodeTaskStatus | 'approval';
-export const displayStatus = (t: Pick<CodeTaskPublic, 'status' | 'repoFile'>): TaskDisplayStatus => (awaitsApproval(t) ? 'approval' : t.status);
+/** What status line, pip and hints show: the stored status, 'approval' while the setup waits for that decision, 'internet' while it
+ *  waits for a human to allow internet (a whole project's composer install). */
+export type TaskDisplayStatus = CodeTaskStatus | 'approval' | 'internet';
+export const displayStatus = (t: Pick<CodeTaskPublic, 'status' | 'repoFile'> & { awaitingInternet?: boolean }): TaskDisplayStatus =>
+  (awaitsApproval(t) ? 'approval' : t.status === 'setting_up' && t.awaitingInternet ? 'internet' : t.status);
 
 /** Pip in list and header: starting (setting up / waking), ready, waiting for the user, error, stopped (paused, interrupted), published/done. */
 export type StatusTone = 'busy' | 'ok' | 'wait' | 'bad' | 'idle' | 'done';
 export const statusTone = (s: TaskDisplayStatus): StatusTone =>
-  s === 'setting_up' || s === 'waking' ? 'busy' : s === 'ready' ? 'ok' : s === 'approval' ? 'wait' : s === 'failed' ? 'bad' : s === 'done' ? 'done' : 'idle';
+  s === 'setting_up' || s === 'waking' ? 'busy' : s === 'ready' ? 'ok' : s === 'approval' || s === 'internet' ? 'wait' : s === 'failed' ? 'bad' : s === 'done' ? 'done' : 'idle';
 
 /** The preview's path when the start page (.lotse/sandbox.json "previewPath", known only once the setup read the file) changes: the new
  *  start page while the user stays on the previous one (or "/"), otherwise where the user went. */

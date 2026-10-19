@@ -718,11 +718,17 @@ test('Sandbox Coding: a whole Shopware project – plugins, apps and config brou
   await next(dialog);
   await dialog.getByRole('button', { name: 'Sandbox starten' }).click();
   const panel = page.getByRole('region', { name: 'Sandbox', exact: true });
+  // installed completely: the setup waits for internet (composer install) until the user allows it, offline again afterwards
+  await expect(panel.getByText('Wartet auf Internet-Freigabe')).toBeVisible({ timeout: 30_000 });
+  page.once('dialog', d => void d.accept());
+  await panel.getByRole('button', { name: 'Internet: aus' }).click();
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
+  await expect(panel.getByRole('button', { name: 'Internet: aus' })).toBeVisible();
 
   await panel.getByRole('tab', { name: 'Einrichtung' }).click();
   const steps = panel.getByRole('tabpanel', { name: 'Einrichtung' });
   await expect(steps.getByText(/Container läuft · Shopware-Projekt \(3 Plugins\)/)).toBeVisible();
+  await expect(steps.getByText(/^Vollständig installiert: Das ganze Repository liegt im Test-Shop/)).toBeVisible();
   const box = steps.getByRole('region', { name: 'Ganzes Shopware-Projekt' });
   await expect(box.getByText('Shopware 6.7.15.1 (composer.lock) · Theme: AcmeTheme')).toBeVisible();
   await expect(box.getByRole('listitem').filter({ hasText: 'AcmeErpConnector' })).toContainText('statisch');
@@ -737,6 +743,8 @@ test('Sandbox Coding: a whole Shopware project – plugins, apps and config brou
   await expect(steps.getByText('Shopware-Projekt erkennen')).toBeVisible();
   await steps.getByRole('listitem').filter({ hasText: 'Projekt einspielen (Plugins, Apps, Konfiguration, Theme)' }).getByText(/^Protokoll/).click();
   await expect(steps.getByText('$ bin/console plugin:install --activate -n -- AcmeStorefrontTweaks AcmeTheme AcmeErpConnector')).toBeVisible();
+  await expect(steps.getByText('$ env COMPOSER_NO_INTERACTION=1 composer install --no-interaction --no-progress --no-scripts --prefer-dist --optimize-autoloader')).toBeVisible();
+  await expect(steps.getByText('Internet wieder gesperrt.')).toBeVisible();
 
   // "Plugin als ZIP": one plugin of the project, chosen in the list
   await panel.getByRole('tab', { name: 'Freigabe' }).click();

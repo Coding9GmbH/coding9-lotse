@@ -3,7 +3,8 @@ import 'server-only';
 // decides) or the switch in the status line of the right panel. Allowing attaches the running container to the second network
 // lotse-sandbox-egress (not internal, created on demand); revoking detaches it. Pause, stop, finish, a new setup and Sandbox Coding
 // switched off revoke as well, and a woken container always starts offline. The environment setting "Internet im Container" can
-// forbid it altogether ('never'). Lotse stays out of reach on both networks: requests from their subnets are refused (proxy.ts).
+// forbid it altogether ('never'). A setup that installs a whole project (composer install) waits for that click as well (awaitingInternet)
+// and ends the access again right after the install. Lotse stays out of reach on both networks: requests from their subnets are refused (proxy.ts).
 // Docker's state is what counts: revoking always detaches, whatever the stored flag says.
 import type { CodeTask } from './tasks';
 import { egressSubnet } from '../access';
@@ -22,7 +23,10 @@ export type RevokeReason = 'panel' | 'pause' | 'finish' | 'setup' | 'wake' | 'po
 
 export const INTERNET_NEVER = 'Internet im Container ist in der Sandbox-Umgebung ausgeschaltet („nie“).';
 const OPEN_EGRESS = 'Internet bleibt gesperrt: Ohne LOTSE_SANDBOX_EGRESS_SUBNET könnte Lotse Anfragen aus dem Internet-Netz der Sandbox nicht erkennen. Aktuelle docker-compose.sandbox.yml verwenden (make sandbox-up) oder LOTSE_PASSWORD setzen.';
-const NOT_READY = 'Internet gibt es nur für eine bereite Sandbox mit laufendem Container.';
+const NOT_READY = 'Internet gibt es nur für eine bereite Sandbox mit laufendem Container (oder eine Einrichtung, die darauf wartet).';
+/** Ready with a running container, or a setup waiting for internet for the project's install */
+const canGrant = (t: CodeTask, container?: string) => !!t.containerId && t.containerRunning && (!container || t.containerId === container)
+  && (t.status === 'ready' || (t.status === 'setting_up' && !!t.awaitingInternet));
 
 const err = (message: string, status: number) => Object.assign(new Error(message), { status });
 
@@ -55,14 +59,14 @@ export function grantInternet(id: string, o: { via: InternetVia; reason?: string
   if (blocked) return Promise.reject(err(blocked, 403));
   return serial(id, async () => {
     const t = mustTask(id);
-    if (t.status !== 'ready' || !t.containerId || !t.containerRunning) throw err(NOT_READY, 409);
+    if (!canGrant(t)) throw err(NOT_READY, 409);
     if (t.internet) return t;
-    const r = getRunner(), container = t.containerId;
+    const r = getRunner(), container = t.containerId!;
     await ensureEgressNetwork(r);
     await r.connectEgress(container);
     const fresh = mustTask(id), nowBlocked = internetBlocked();
     // paused, finished or the policy switched to "nie" meanwhile (revokeAllInternet did not see this grant yet): detach again
-    if (nowBlocked || fresh.status !== 'ready' || fresh.containerId !== container) {
+    if (nowBlocked || !canGrant(fresh, container)) {
       await r.disconnectEgress(container).catch(e => log.warn('Internetzugang nicht gesperrt', { task: id, error: e }));
       throw nowBlocked ? err(nowBlocked, 403) : err(NOT_READY, 409);
     }

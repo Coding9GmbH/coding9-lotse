@@ -106,9 +106,11 @@ async function importDb(ctx: StepCtx): Promise<void | 'skipped'> {
 /** A full project: what it contains, and its Shopware version (composer.lock) against the image's tag – a different major.minor
  *  blocks until "Trotzdem fortfahren" (the layout is kept first, so the view can show both versions and the matching image). */
 async function projectLayout(ctx: StepCtx, l: TaskLayout): Promise<void> {
-  const p = l.project!, mm = versionMismatch(p.shopwareVersion, ctx.image);
+  const install = ctx.projectInstall(), p = { ...l.project!, install }, mm = versionMismatch(p.shopwareVersion, ctx.image);
   ctx.setLayout({ ...l, project: { ...p, ...(mm ? { versionMismatch: mm } : {}) } });
-  ctx.log(`Shopware-Projekt ${l.name}${l.root ? ` (Ordner ${l.root}/ im Repository)` : ''} → /var/www/html (Overlay: Plugins, Apps, config/packages, config/services*.yaml, src/) · ${projectSummary(p)}`);
+  ctx.log(`Shopware-Projekt ${l.name}${l.root ? ` (Ordner ${l.root}/ im Repository)` : ''} → /var/www/html (${install === 'full'
+    ? 'vollständig: das ganze Repository, composer install nach deiner Internet-Freigabe'
+    : 'Overlay: Plugins, Apps, config/packages, config/services*.yaml, src/'}) · ${projectSummary(p)}`);
   const raw = p.shopwareVersion ? null : lockInfo(ctx.projectRoot()).raw;
   if (raw) ctx.log(`Hinweis: composer.lock nennt shopware/core als „${raw}“ (ein Branch, keine Versionsnummer) – die Shopware-Version des Projekts lässt sich nicht mit dem Image vergleichen.`);
   else if (!p.shopwareVersion) ctx.log('Hinweis: Kein composer.lock mit shopware/core – die Shopware-Version des Projekts lässt sich nicht prüfen.');
@@ -202,8 +204,9 @@ const STEPS: TemplateStep[] = [
   step('set-domain', MIN),
   step('db-snapshot', 10 * MIN, { optional: true }),
   step('preview-tidy', 3 * MIN, { optional: true }),
-  // a full project installs several plugins, apps, its theme and composer parts here (about 45 s measured): more time for that only
-  step('install-plugin', 5 * MIN, { timeoutFor: l => (l?.kind === 'project' ? 15 * MIN : 5 * MIN) }),
+  // a full project installs several plugins, apps, its theme and composer parts here (about 45 s measured): more time for that only;
+  // installed completely it also waits for a human to allow internet and runs composer install (up to 20 min)
+  step('install-plugin', 5 * MIN, { timeoutFor: l => (l?.kind !== 'project' ? 5 * MIN : l.project?.install === 'full' ? 90 * MIN : 15 * MIN) }),
   step('custom-after-db', 0, { custom: 'after-db' }),
   step('theme-compile', 10 * MIN),
   step('custom-final', 0, { custom: 'final' }),

@@ -174,15 +174,21 @@ export function versionMismatch(project: string | null, image: string): ProjectI
 export const overrideFile = (appEnv: string) => `config/services_${appEnv}.yml`;
 /** Where the setup keeps the list of what it synced (to remove what disappeared from the repository at the next full sync) */
 export const SYNC_MANIFEST = 'var/lotse-project-sync.txt';
+/** A whole project installed completely: folders of the repository that are never synced – what composer, the build and the shop
+ *  make themselves (vendor/, var/, public's generated folders, files/), keys of the image (config/jwt) and Lotse's own file */
+const FULL_SKIP = /^(vendor|var|files|\.lotse|config\/jwt|public\/(bundles|theme|media|thumbnail|sitemap))(\/|$)/;
+
 /**
  * Whether a repository path is synced into the container, and as what: 'unit' = inside a plugin or app folder (the folder is mirrored
- * as a whole, `unit` names it), 'file' = a single file of config/packages, config/services*.yaml or src/ (written over the image's).
- * null = not synced: composer.json/lock, bundles.php, routes, .env*, vendor/, var/, public/, everything else.
+ * as a whole, `unit` names it), 'file' = a single file written over the image's. Overlay: only config/packages, config/services*.yaml
+ * and src/ – null for composer.json/lock, bundles.php, routes, .env*, vendor/, var/, public/, everything else. full (the project is
+ * installed completely): every file of the repository except secrets, .git, node_modules and FULL_SKIP.
  */
-export function projectSyncPath(rel: string): { kind: 'unit'; unit: string } | { kind: 'file' } | null {
+export function projectSyncPath(rel: string, full = false): { kind: 'unit'; unit: string } | { kind: 'file' } | null {
   if (!rel || isExcluded(rel) || rel.split('/').some(s => s === '..' || s === '')) return null;
   const s = rel.split('/');
   if (s[0] === 'custom' && ['plugins', 'static-plugins', 'apps'].includes(s[1]) && s.length >= 3 && EXT_DIR.test(s[2])) return { kind: 'unit', unit: s.slice(0, 3).join('/') };
+  if (full) return FULL_SKIP.test(rel) ? null : { kind: 'file' };
   if (s[0] === 'config' && s[1] === 'packages' && s.length >= 3) return /\.(ya?ml|php|xml)$/i.test(rel) ? { kind: 'file' } : null;
   if (s[0] === 'config' && s.length === 2 && /^services(_[a-z0-9]+)?\.ya?ml$/i.test(s[1])) return { kind: 'file' };
   if (s[0] === 'src' && s.length >= 2) return { kind: 'file' };

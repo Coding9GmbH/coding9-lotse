@@ -13,7 +13,7 @@ import styles from './Sandbox.module.css';
 
 /** Status badge: pip + text; while an action of the user runs (`pending`, e.g. "Pausiere …") a spinner with that text instead.
  *  A setup waiting for the approval of the repository's commands says so ("Wartet auf deine Freigabe"), not "Fehler". */
-export function TaskStatus({ task, pending }: { task: Pick<CodeTaskPublic, 'status' | 'repoFile'>; pending?: string | null }) {
+export function TaskStatus({ task, pending }: { task: Pick<CodeTaskPublic, 'status' | 'repoFile' | 'awaitingInternet'>; pending?: string | null }) {
   const t = useI18n().t.sandbox.tasks;
   if (pending) return <span className={styles.status} data-tone="busy" role="status"><Spinner size={11} />{pending}</span>;
   const s = displayStatus(task), tone = statusTone(s);

@@ -14,7 +14,7 @@ export function ProjectSummary({ task }: { task: CodeTaskPublic }) {
   return (
     <section className={styles.projectBox} aria-labelledby="sbx-project-h">
       <h3 id="sbx-project-h" className={styles.label}>{t.heading}</h3>
-      <p className={styles.fieldHint}>{t.lead}</p>
+      <p className={styles.fieldHint}>{p.install === 'full' ? t.leadFull : t.lead}</p>
       {task.layout?.root && <p className={styles.fieldHint}>{t.folder(task.layout.root)}</p>}
       <p className={styles.taskMeta}>{t.version(p.shopwareVersion)}{p.theme ? ` · ${t.theme(p.theme)}` : ''}</p>
       {p.plugins.length > 0 && (

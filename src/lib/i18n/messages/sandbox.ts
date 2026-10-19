@@ -29,7 +29,7 @@ const commands: Record<SandboxCommandKey, string> = {
 };
 const phases: Record<CommandPhase, string> = { 'after-db': 'Nach der Datenbank', final: 'Zum Schluss' };
 /** 'approval': the setup waits for the user's approval of the repository's commands (stored as failed, shown as waiting) */
-const status: Record<CodeTaskStatus | 'approval', string> = { setting_up: 'Wird eingerichtet', waking: 'Wird gestartet', ready: 'Bereit', paused: 'Pausiert', failed: 'Fehler', approval: 'Wartet auf deine Freigabe', interrupted: 'Unterbrochen', done: 'Abgeschlossen' };
+const status: Record<CodeTaskStatus | 'approval' | 'internet', string> = { setting_up: 'Wird eingerichtet', waking: 'Wird gestartet', ready: 'Bereit', paused: 'Pausiert', failed: 'Fehler', approval: 'Wartet auf deine Freigabe', internet: 'Wartet auf Internet-Freigabe', interrupted: 'Unterbrochen', done: 'Abgeschlossen' };
 const stepState: Record<TaskStepState, string> = { pending: 'wartet', running: 'läuft', done: 'erledigt', failed: 'fehlgeschlagen', skipped: 'übersprungen', interrupted: 'unterbrochen' };
 
 const mb = (bytes: number) => `${(bytes / 1048576).toFixed(bytes < 10 * 1048576 ? 1 : 0)} MB`;
@@ -256,9 +256,10 @@ export const de = {
       setting_up: 'Die Sandbox wird eingerichtet. Du kannst schon schreiben oder die Seite verlassen – es läuft im Hintergrund weiter.',
       failed: 'Die Einrichtung ist an einem Schritt gescheitert. Ursache beheben (im Repository oder in der Sandbox-Umgebung) und ab dem Schritt erneut versuchen.',
       approval: 'Die Einrichtung wartet auf deine Freigabe: Das Projekt möchte beim Einrichten Befehle ausführen (.lotse/sandbox.json). Unten prüfen und erlauben – oder ohne sie fortfahren.',
+      internet: 'Die Einrichtung wartet auf Internet: composer install lädt die Pakete des Projekts. Oben auf „Internet: aus“ klicken und erlauben – direkt danach ist der Container wieder offline.',
       interrupted: 'Die Einrichtung wurde unterbrochen. Sie kann an der Stelle fortgesetzt werden.',
       done: 'Abgeschlossen: Container und Dateien dieser Sandbox sind gelöscht.',
-    } satisfies Record<CodeTaskStatus | 'approval', unknown>,
+    } satisfies Record<CodeTaskStatus | 'approval' | 'internet', unknown>,
     actionFailed: (e: string) => `Nicht möglich: ${e}`,
   },
   dump: {
@@ -405,9 +406,9 @@ export const de = {
       allow: 'Für diese Sandbox erlauben', deny: 'Ablehnen', allowed: 'Erlaubt', revokedSince: 'Erlaubt – inzwischen wieder gesperrt', denied: 'Abgelehnt', open: 'Nicht entschieden', failed: 'Erlaubt, aber nicht verbunden:', restart: 'Nicht entschieden (Neustart)',
     },
     sandbox: {
-      waking: 'Sandbox startet … (der Chat wartet, bis Shopware antwortet)', ready: 'Sandbox bereit', failed: 'Sandbox nicht bereit', approval: 'Sandbox wartet auf deine Freigabe – das Projekt möchte beim Einrichten Befehle ausführen (Reiter „Einrichtung“)', finished: 'Sandbox abgeschlossen. Der Chat bleibt erhalten.',
+      waking: 'Sandbox startet … (der Chat wartet, bis Shopware antwortet)', ready: 'Sandbox bereit', failed: 'Sandbox nicht bereit', approval: 'Sandbox wartet auf deine Freigabe – das Projekt möchte beim Einrichten Befehle ausführen (Reiter „Einrichtung“)', internet: 'Sandbox wartet auf Internet für composer install – oben auf „Internet: aus“ klicken', finished: 'Sandbox abgeschlossen. Der Chat bleibt erhalten.',
       displaced: (titles: string[], max: number) => `${titles.map(x => `„${x}“`).join(', ')} ${titles.length === 1 ? 'wurde' : 'wurden'} pausiert, weil höchstens ${max === 1 ? '1 Sandbox gleichzeitig läuft' : `${max} Sandboxes gleichzeitig laufen`}. Fortsetzen geht jederzeit in ${titles.length === 1 ? 'ihrem Chat' : 'ihren Chats'}.`,
-    } as Record<'waking' | 'ready' | 'failed' | 'approval' | 'finished', string> & { displaced: (titles: string[], max: number) => string },
+    } as Record<'waking' | 'ready' | 'failed' | 'approval' | 'internet' | 'finished', string> & { displaced: (titles: string[], max: number) => string },
     publish: {
       heading: 'Vorschlag: zur Prüfung freigeben', note: 'Noch nicht freigegeben.', review: 'Ansehen und freigeben', reviewUpdate: 'Ansehen und Freigabe aktualisieren',
       reviewNote: 'Freigegeben wird erst mit deinem Klick im Reiter „Freigabe“.',
@@ -771,7 +772,8 @@ export const de = {
   project: {
     kind: (n: number) => `Shopware-Projekt (${n === 1 ? '1 Plugin' : `${n} Plugins`})`,
     heading: 'Ganzes Shopware-Projekt',
-    lead: 'Lotse spielt die Plugins, Apps, die Konfiguration (config/packages) und den Projekt-Code (src/) in den Test-Shop ein. Dienste, die es in der Sandbox nicht gibt (Redis, OpenSearch, S3, Mailserver …), stellt Lotse dort auf lokal um – dein Repository bleibt unverändert, .env-Dateien werden nie übertragen.',
+    leadFull: 'Vollständig installiert: Das ganze Repository liegt im Test-Shop, composer install hat die Pakete aus composer.lock geladen (nach deiner Internet-Freigabe, danach wieder offline), die Datenbank ist migriert. Dienste, die es in der Sandbox nicht gibt (Redis, OpenSearch, S3, Mailserver …), stellt Lotse dort auf lokal um – dein Repository bleibt unverändert, .env-Dateien werden nie übertragen.',
+    lead: 'Modus „Overlay“: Lotse spielt die Plugins, Apps, die Konfiguration (config/packages) und den Projekt-Code (src/) über das Shopware des Test-Shops ein. Dienste, die es in der Sandbox nicht gibt (Redis, OpenSearch, S3, Mailserver …), stellt Lotse dort auf lokal um – dein Repository bleibt unverändert, .env-Dateien werden nie übertragen.',
     version: (v: string | null) => (v ? `Shopware ${v} (composer.lock)` : 'Shopware-Version unbekannt (kein composer.lock)'),
     folder: (root: string) => `Projektordner im Repository: ${root}/ – nur dieser Ordner kommt in den Test-Shop, alles andere im Repository bleibt außen vor.`,
     plugins: 'Plugins',
@@ -921,7 +923,7 @@ export const en: typeof de = {
     addTitle: 'A new sandbox in a new chat: from a saved environment, as demo shop or set up new',
     openChat: 'Open chat',
     noChat: 'no chat',
-    status: { setting_up: 'Setting up', waking: 'Starting', ready: 'Ready', paused: 'Paused', failed: 'Error', approval: 'Waiting for your approval', interrupted: 'Interrupted', done: 'Finished' },
+    status: { setting_up: 'Setting up', waking: 'Starting', ready: 'Ready', paused: 'Paused', failed: 'Error', approval: 'Waiting for your approval', internet: 'Waiting for internet', interrupted: 'Interrupted', done: 'Finished' },
     loadFailed: (e: string) => `Sandboxes not loaded: ${e}`,
   },
   create: {
@@ -1018,6 +1020,7 @@ export const en: typeof de = {
       setting_up: 'The sandbox is being set up. You can already write or leave this page – it keeps running in the background.',
       failed: 'The setup failed at one step. Fix the cause (e.g. in the repository or the sandbox environment) and retry from that step.',
       approval: 'The setup is waiting for your approval: the project wants to run commands during the setup (.lotse/sandbox.json). Check and allow them below – or continue without them.',
+      internet: 'The setup is waiting for internet: composer install downloads the project’s packages. Click “Internet: off” at the top and allow it – the container goes offline again right after.',
       interrupted: 'The setup was interrupted. It can continue where it stopped.',
       done: 'Finished: the container and files of this sandbox are deleted.',
     },
@@ -1332,7 +1335,8 @@ export const en: typeof de = {
   project: {
     kind: n => `Shopware project (${n === 1 ? '1 plugin' : `${n} plugins`})`,
     heading: 'Whole Shopware project',
-    lead: 'Lotse brings the plugins, apps, configuration (config/packages) and project code (src/) into the test shop. Services the sandbox does not have (Redis, OpenSearch, S3, mail server …) are switched to local there – your repository stays unchanged, .env files are never transferred.',
+    leadFull: 'Installed completely: the whole repository is in the test shop, composer install loaded the packages from composer.lock (after you allowed internet, offline again afterwards), the database is migrated. Services the sandbox does not have (Redis, OpenSearch, S3, mail server …) are switched to local there – your repository stays unchanged, .env files are never transferred.',
+    lead: '“Overlay” mode: Lotse lays the plugins, apps, configuration (config/packages) and project code (src/) over the test shop’s Shopware. Services the sandbox does not have (Redis, OpenSearch, S3, mail server …) are switched to local there – your repository stays unchanged, .env files are never transferred.',
     version: v => (v ? `Shopware ${v} (composer.lock)` : 'Shopware version unknown (no composer.lock)'),
     folder: root => `Project folder in the repository: ${root}/ – only this folder goes into the test shop, everything else in the repository stays outside.`,
     plugins: 'Plugins',
@@ -1406,7 +1410,7 @@ export const en: typeof de = {
       allow: 'Allow for this sandbox', deny: 'Decline', allowed: 'Allowed', revokedSince: 'Allowed – blocked again since', denied: 'Declined', open: 'Not decided', failed: 'Allowed, but not connected:', restart: 'Not decided (restart)',
     },
     sandbox: {
-      waking: 'Sandbox starting… (the chat waits until Shopware answers)', ready: 'Sandbox ready', failed: 'Sandbox not ready', approval: 'Sandbox is waiting for your approval – the project wants to run commands during the setup (“Setup” tab)', finished: 'Sandbox finished. The chat stays.',
+      waking: 'Sandbox starting… (the chat waits until Shopware answers)', ready: 'Sandbox ready', failed: 'Sandbox not ready', approval: 'Sandbox is waiting for your approval – the project wants to run commands during the setup (“Setup” tab)', internet: 'Sandbox is waiting for internet for composer install – click “Internet: off” at the top', finished: 'Sandbox finished. The chat stays.',
       displaced: (titles, max) => `${titles.map(x => `“${x}”`).join(', ')} ${titles.length === 1 ? 'was' : 'were'} paused because at most ${max === 1 ? '1 sandbox runs' : `${max} sandboxes run`} at the same time. ${titles.length === 1 ? 'It can be resumed in its chat' : 'Each can be resumed in its chat'} at any time.`,
     },
     publish: {

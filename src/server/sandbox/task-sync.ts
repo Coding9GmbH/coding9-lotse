@@ -31,7 +31,7 @@ export function target(t: CodeTask, signal?: AbortSignal): SyncTarget {
   const tpl = getTemplate(t.template), p = t.layout.project;
   return {
     runner: getRunner(), containerId: t.containerId, worktree: projectBase(taskPaths(t.id).worktree, rootOf(t)), target: tpl.syncTarget(t.layout), user: tpl.execUser, signal,
-    ...(t.layout.kind === 'project' ? { project: { runtime: projectRuntime(p), held: Object.fromEntries((p?.held ?? []).map(({ file, ...q }) => [file, q])) } } : {}),
+    ...(t.layout.kind === 'project' ? { project: { runtime: projectRuntime(p), held: Object.fromEntries((p?.held ?? []).map(({ file, ...q }) => [file, q])), ...(p?.install === 'full' ? { full: true } : {}) } } : {}),
     ...(t.layout.kind === 'custom' ? { custom: true } : {}),
     // a new plugin, also once it settled into an ordinary one: the folder may still be missing (made by plugin:create or the first file)
     ...(t.layout.kind !== 'project' && t.layout.kind !== 'custom' && (t.layout.isNew || t.pluginName) ? { lazy: true } : {}),
@@ -80,7 +80,7 @@ function writeState(id: string, s: SyncState | null) {
   } catch { /* memory still has it */ }
 }
 const projectKey = (tg: SyncTarget) => JSON.stringify(tg.project ?? null);
-const manifestOf = (tg: SyncTarget) => (tg.project ? projectManifest(tg.worktree) : treeManifest(tg.worktree));
+const manifestOf = (tg: SyncTarget) => (tg.project ? projectManifest(tg.worktree, tg.project.full) : treeManifest(tg.worktree));
 const current = (t: CodeTask, tg: SyncTarget): SyncState | null => { const s = readState(t.id); return s && s.container === t.containerId && s.project === projectKey(tg) ? s : null; };
 /** Paths whose entry differs between what the container got and the worktree now (a folder that only appeared: its entries count) */
 export function manifestChanges(had: TreeManifest, now: TreeManifest): string[] {
