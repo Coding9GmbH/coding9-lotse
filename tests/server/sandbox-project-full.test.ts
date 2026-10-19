@@ -209,6 +209,61 @@ test('a config file of the image for a bundle the project does not register is r
   assert.deepEqual(await removeImageLeftovers(ctx, 'something else'), []);
 });
 
+test('installed completely: plugins composer.json requires (vendor/) are installed too, a failure there is only a warning; not in overlay', async () => {
+  const { installExtensions } = await import('../../src/server/sandbox/templates/dockware-project');
+  fs.writeFileSync(path.join(tmp, 'composer.json'), JSON.stringify({ require: { 'shopware/core': '6.7.15.1', 'frosh/tools': '^3.0', 'acme/licensed': '*', 'acme/own': '*' } }));
+  const make = () => {
+    const log: string[] = [], ran: string[][] = [];
+    const ctx = {
+      hasDump: () => false, log: (l: string) => { log.push(l); }, setLayout: () => {}, projectRoot: () => tmp,
+      run: async (argv: string[]) => {
+        ran.push(argv);
+        const joined = argv.join(' ');
+        if (joined.includes("path LIKE 'vendor/%'")) return { exitCode: 0, output: 'FroshTools\tfrosh/tools\nLicensed\tacme/licensed\nIndirect\tacme/indirect\nOwn\tacme/own\n' };
+        if (joined.includes('CONCAT(installed_at')) return { exitCode: 0, output: 'Own 11\nFroshTools 11\n' };
+        if (argv[1] === 'plugin:install' && argv.includes('Licensed')) return { exitCode: 1, output: 'In PluginLifecycleService.php line 9:\n  License missing\n' };
+        return { exitCode: argv[1] === 'debug:config' ? 1 : 0, output: '' };
+      },
+    } as unknown as Parameters<typeof installExtensions>[0];
+    return { ctx, log, ran };
+  };
+  const installs = (ran: string[][]) => ran.filter(r => r[1] === 'plugin:install').map(r => r.slice(r.indexOf('--') + 1));
+  for (const mode of ['full', 'overlay'] as const) {
+    const p = { install: mode, plugins: [{ name: 'Own', composerName: 'acme/own' }], apps: [] } as unknown as Parameters<typeof installExtensions>[2];
+    const a = make();
+    await installExtensions(a.ctx, { kind: 'project', project: p } as unknown as Parameters<typeof installExtensions>[1], p, new Set(), null);
+    if (mode === 'overlay') { assert.deepEqual(installs(a.ran), [['Own']]); continue; }
+    assert.deepEqual(installs(a.ran), [['FroshTools'], ['Licensed'], ['Own']], 'only direct requirements, the project\'s own plugin once');
+    assert.ok(a.log.some(x => /Warnung: Plugin Licensed \(über composer eingebunden\).*License missing/.test(x)), a.log.join('\n'));
+    assert.ok(a.log.includes('Plugins installiert und aktiv: Own, FroshTools'), a.log.join('\n'));
+  }
+  fs.rmSync(path.join(tmp, 'composer.json'));
+});
+
+test('with a database dump a plugin the repository has in a newer version is updated (its migrations), a failed update is a warning', async () => {
+  const { installExtensions } = await import('../../src/server/sandbox/templates/dockware-project');
+  const log: string[] = [], ran: string[][] = [];
+  const ctx = {
+    hasDump: () => true, log: (l: string) => { log.push(l); }, setLayout: () => {}, projectRoot: () => tmp,
+    run: async (argv: string[]) => {
+      ran.push(argv);
+      const joined = argv.join(' ');
+      if (joined.includes('FROM plugin WHERE installed_at IS NOT NULL AND upgrade_version')) return { exitCode: 0, output: 'Loyalty\t1.2.0\t1.3.0\nBroken\t1.0.0\t2.0.0\n' };
+      if (joined.includes('FROM plugin WHERE installed_at')) return { exitCode: 0, output: 'Loyalty\t1\tcustom/plugins/Loyalty\nBroken\t1\tcustom/plugins/Broken\nSame\t0\tcustom/plugins/Same\n' };
+      if (argv[1] === 'plugin:update') return argv.includes('Broken') ? { exitCode: 1, output: 'In MigrationStep.php line 12:\n  Table "acme_x" already exists\n' } : { exitCode: 0, output: '' };
+      return { exitCode: argv[1] === 'debug:config' ? 1 : 0, output: '' };
+    },
+  } as unknown as Parameters<typeof installExtensions>[0];
+  const p = { plugins: [{ name: 'Loyalty' }, { name: 'Broken' }, { name: 'Same' }], apps: [] } as unknown as Parameters<typeof installExtensions>[2];
+  await installExtensions(ctx, { kind: 'project', project: p } as unknown as Parameters<typeof installExtensions>[1], p, new Set(), null);
+  const updates = ran.filter(r => r[1] === 'plugin:update').map(r => r.slice(r.indexOf('--') + 1));
+  assert.deepEqual(updates, [['Loyalty', 'Broken'], ['Loyalty'], ['Broken']]);
+  assert.ok(ran.findIndex(r => r[1] === 'plugin:refresh') < ran.findIndex(r => r[1] === 'plugin:update'), 'refresh records the upgrade first');
+  assert.ok(log.includes('Plugins auf die Version des Repositorys aktualisiert (plugin:update, mit Migrationen): Loyalty 1.2.0 → 1.3.0'), log.join('\n'));
+  assert.ok(log.some(x => /Warnung: Plugin Broken .*aktualisieren.*acme_x/.test(x)), log.join('\n'));
+  assert.equal(ran.filter(r => r[1] === 'plugin:install').length, 0, 'the dump knows them all: nothing installed');
+});
+
 test('with a database dump a plugin that cannot be installed stays as the dump has it (warning); without one the setup fails', async () => {
   const { installExtensions } = await import('../../src/server/sandbox/templates/dockware-project');
   const make = (dump: boolean, rows = 'Other\t1\tcustom/plugins/Other\n') => {

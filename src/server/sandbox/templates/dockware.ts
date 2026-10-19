@@ -11,7 +11,7 @@ import type { TaskLayout } from '@/lib/protocol';
 import { PLUGIN_NAME, isEmptyRepoListing, pluginNameFromRepo } from '@/lib/sandbox-task';
 import { MANAGED, SANDBOX_NET, TASK_LABEL, sandboxAlias, taskDbVolume } from '../labels';
 import { COMPOSER_NAME, PROJECT_DIR, detectProject, findProjectDirs, imageVersion, isProjectComposer, lockInfo, projectBase, projectSummary, versionMismatch } from '../project';
-import { installProject } from './dockware-project';
+import { installProject, updatePlugins } from './dockware-project';
 import type { CommandArg, CommandSpec, ConsoleSpec, SandboxTemplate, SpecInput, StepCtx, TemplateStep } from './types';
 
 const MIN = 60_000;
@@ -154,6 +154,8 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
     if (l.isNew) { ctx.log(`Neues Plugin: Es gibt noch nichts zu installieren. Sobald composer.json und die Plugin-Klasse angelegt sind, installiert die KI es mit bin/console plugin:install --activate ${l.name}.`); return 'skipped'; }
     // plugin:refresh and plugin:install exit with 0 even when the plugin was not found (e.g. composer.json invalid): check the database
     const refresh = await ctx.run(bin('plugin:refresh'));
+    // a dump with an older version of the plugin installed: updated to the repository's version first (its migrations)
+    await updatePlugins(ctx, [l.name]);
     await ctx.run(bin('plugin:install', '--activate', '--', l.name));
     const state = (await ctx.run([...MYSQL, '-N', '-e', `SELECT CONCAT(installed_at IS NOT NULL, active) FROM plugin WHERE name = '${l.name}'`], { quiet: true })).output;
     if (!state.split('\n').some(x => x.trim() === '11')) { // stderr (password warning) is part of the output
