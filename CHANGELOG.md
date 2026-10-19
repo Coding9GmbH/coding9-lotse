@@ -5,6 +5,12 @@ Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die V
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
 Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag geschrieben (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
+## [0.9.11] – 2026-10-19
+
+### Behoben
+- Sandbox Coding: Liegt ein Plugin im Repository in neuerer Version vor als in der eingespielten Datenbank, aktualisiert die Einrichtung es samt Migrationen; bisher blieb die alte Version mit fehlenden Tabellen und Spalten.
+- Sandbox Coding: Plugins, die `composer.json` direkt verlangt (in `vendor/`), werden jetzt auch ohne Datenbank-Dump vollständig installiert, statt deinstalliert zu bleiben.
+
 ## [0.9.10] – 2026-10-19
 
 ### Geändert
@@ -279,6 +285,7 @@ Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag gesch
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
+[0.9.11]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.10...v0.9.11
 [0.9.10]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.9...v0.9.10
 [0.9.9]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.8...v0.9.9
 [0.9.8]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.7...v0.9.8
