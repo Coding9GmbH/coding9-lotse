@@ -205,7 +205,7 @@ export function SettingsView({ section = 'general' }: { section?: SettingsSectio
 
               <section id="scopes-integrations" className={styles.card} aria-labelledby="scopes-int-h">
                 <div className={styles.cardHead}><h2 id="scopes-int-h">{ts.scopes.integrationsHeading}</h2></div>
-                <p className={styles.hint}>{ts.scopes.integrationsHint}</p>
+                <p className={styles.hint}>{markup(ts.scopes.integrationsHint)}</p>
                 <ul className={styles.scopes}>
                   {INTEGRATION_SCOPES.filter(k => k in form.scopes).map(k => (
                     <ScopeSwitch key={k} k={k} form={form} saved={saved} set={set} locale={locale} />
