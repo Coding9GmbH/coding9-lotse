@@ -203,6 +203,12 @@ export async function stopSetup(id: string): Promise<CodeTask> {
 }
 
 async function execute(id: string, from: number, signal: AbortSignal) {
+  try { await executeSteps(id, from, signal); } finally {
+    // internet the setup itself opened (composer install) never outlives it: whatever ended the run, the container is offline again
+    if (getTask(id)?.internet) await revokeInternet(id, 'setup').catch(e => log.warn('Internetzugang nicht gesperrt', { task: id, error: e }));
+  }
+}
+async function executeSteps(id: string, from: number, signal: AbortSignal) {
   await revokeInternet(id, 'setup').catch(e => log.warn('Internetzugang nicht gesperrt', { task: id, error: e })); // the setup runs offline
   const t = mustTask(id);
   if (t.status !== 'setting_up') return; // finished (or otherwise taken over) while queued on the lock
@@ -349,7 +355,13 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
           t.internet = getTask(t.id)?.internet ?? { since: now(), via: 'panel' };
         } finally { t.awaitingInternet = false; saveTask(t); }
       },
-      end: async () => { await revokeInternet(t.id, 'setup'); t.internet = null; saveTask(t); },
+      end: async () => {
+        // Docker may fail once (busy): try again before the setup goes on with internet still open
+        for (let n = 1; ; n++) {
+          try { await revokeInternet(t.id, 'setup'); break; } catch (e) { if (n >= 3) throw e; await sleep(500 * n, signal); }
+        }
+        t.internet = null; saveTask(t);
+      },
     },
     targetPath: () => effectiveTarget(t),
     setLayout: l => { t.layout = l; saveTask(t, false); },

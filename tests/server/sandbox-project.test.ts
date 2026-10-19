@@ -645,3 +645,8 @@ test('install step: 15 minutes only for a project; composer.lock with a branch i
   assert.deepEqual(P.lockInfo(wt), { version: null, raw: '6.7.x-dev' });
   assert.deepEqual(P.lockInfo(dir({})), { version: null, raw: null });
 });
+
+test('bootError: a dumped exception with a previous one names the root cause, not the class line', () => {
+  const dump = 'Symfony\\Component\\DependencyInjection\\Exception\\RuntimeException {#1\n  #message: "Cannot autowire service X"\n  -previous: Symfony\\Component\\DependencyInjection\\Exception\\LogicException {#26063\n    #message: "The service Y has a dependency on a non-existent parameter z."\n  }\n}';
+  assert.equal(P.bootError(dump), 'The service Y has a dependency on a non-existent parameter z.');
+});

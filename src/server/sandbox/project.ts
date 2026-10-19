@@ -499,8 +499,10 @@ export function bootFinding(output: string, files: { rel: string; data: unknown;
 export function bootError(output: string): string {
   const lines = output.split('\n').map(l => l.trim()).filter(l => l && !/^(#\d|In \S+ line|Exception trace|Stack trace|\{#?\d*$|[-=]+$)/.test(l));
   const specific = /Unrecognized options?|no extension able|cannot be used together|Environment variable not found|Attempted to load|does not exist|not found|Invalid .*DSN|Unsupported|Missing dependency|cURL error|Connection refused/i;
-  const generic = /Exception|Error/i, classOnly = /^[\w\\]+(Exception|Error)\b[^:]*$/;
-  const line = lines.find(l => specific.test(l)) ?? lines.find(l => generic.test(l) && !classOnly.test(l)) ?? lines.find(l => generic.test(l)) ?? lines[0] ?? '';
+  // a dumped exception names its class first ("Symfony\…\LogicException {#26063", nested ones as "-previous: …"): the message that follows says why;
+  // with nested exceptions the last one is the root cause
+  const generic = /Exception|Error/i, classOnly = /^(?:-?previous:\s*)?[\w\\]+(Exception|Error)\b[^:]*$/, message = /^#message:\s*"/;
+  const line = lines.find(l => specific.test(l)) ?? lines.filter(l => message.test(l)).at(-1) ?? lines.find(l => generic.test(l) && !classOnly.test(l)) ?? lines.find(l => generic.test(l)) ?? lines[0] ?? '';
   return line.replace(/^#message:\s*"(.*)"$/, '$1').slice(0, 400);
 }
 
