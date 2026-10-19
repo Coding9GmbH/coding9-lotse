@@ -3,7 +3,8 @@ import 'server-only';
 // decides) or the switch in the status line of the right panel. Allowing attaches the running container to the second network
 // lotse-sandbox-egress (not internal, created on demand); revoking detaches it. Pause, stop, finish, a new setup and Sandbox Coding
 // switched off revoke as well, and a woken container always starts offline. The environment setting "Internet im Container" can
-// forbid it altogether ('never'). A setup that installs a whole project (composer install) waits for that click as well (awaitingInternet)
+// forbid it altogether ('never') or allow it for every ready sandbox ('always': the person who chose it in the settings allowed it;
+// attached when the setup or a wake ends, the switch takes one task offline until it is switched on there again). A setup that installs a whole project (composer install) waits for that click as well (awaitingInternet)
 // and ends the access again right after the install. Lotse stays out of reach on both networks: requests from their subnets are refused (proxy.ts).
 // Docker's state is what counts: revoking always detaches, whatever the stored flag says.
 import type { CodeTask } from './tasks';
@@ -17,7 +18,7 @@ import { ensureEgressNetwork, networkMode } from './network';
 import { getRunner } from './runner';
 import { getTask, listTasks, mustTask, now, saveTask } from './tasks';
 
-export type InternetVia = 'chat' | 'panel';
+export type InternetVia = 'chat' | 'panel' | 'policy';
 /** Why access ended: the user (panel/chat), the lifecycle (pause also covers idle, capacity and switching off), the policy, a restart. */
 export type RevokeReason = 'panel' | 'pause' | 'finish' | 'setup' | 'wake' | 'policy' | 'restart';
 
@@ -60,17 +61,19 @@ export function grantInternet(id: string, o: { via: InternetVia; reason?: string
   return serial(id, async () => {
     const t = mustTask(id);
     if (!canGrant(t)) throw err(NOT_READY, 409);
-    if (t.internet) return t;
+    if (t.internet) { if (o.via !== 'policy' && t.internetOff) { delete t.internetOff; saveTask(t); } return t; }
+    if (o.via === 'policy' && (t.internetOff || !internetAlways())) return t;
     const r = getRunner(), container = t.containerId!;
     await ensureEgressNetwork(r);
     await r.connectEgress(container);
-    const fresh = mustTask(id), nowBlocked = internetBlocked();
+    const fresh = mustTask(id), nowBlocked = internetBlocked() ?? (o.via === 'policy' && (fresh.internetOff || !internetAlways()) ? 'Internet ist für diese Sandbox abgeschaltet.' : null);
     // paused, finished or the policy switched to "nie" meanwhile (revokeAllInternet did not see this grant yet): detach again
     if (nowBlocked || !canGrant(fresh, container)) {
       await r.disconnectEgress(container).catch(e => log.warn('Internetzugang nicht gesperrt', { task: id, error: e }));
       throw nowBlocked ? err(nowBlocked, 403) : err(NOT_READY, 409);
     }
     fresh.internet = { since: now(), via: o.via };
+    if (o.via !== 'policy') delete fresh.internetOff;
     saveTask(fresh);
     audit(fresh, 'internet-on', { via: o.via, ...(o.reason ? { reason: o.reason.slice(0, 300) } : {}) });
     return fresh;
@@ -97,6 +100,8 @@ export function revokeInternet(id: string, reason: RevokeReason): Promise<CodeTa
     if (!t) return null;
     if (t.containerId) await getRunner().disconnectEgress(t.containerId);
     const fresh = getTask(id);
+    // switched off by hand: "immer an" leaves this task offline until it is switched on again
+    if (fresh && reason === 'panel' && !fresh.internetOff) { fresh.internetOff = true; if (!fresh.internet) saveTask(fresh); }
     if (!fresh?.internet) return fresh;
     const since = fresh.internet.since;
     fresh.internet = null;
@@ -104,6 +109,21 @@ export function revokeInternet(id: string, reason: RevokeReason): Promise<CodeTa
     audit(fresh, 'internet-off', { reason, since });
     return fresh;
   });
+}
+
+/** "Internet im Container: immer an" */
+export const internetAlways = (env: Record<string, string | undefined> = process.env) => sandboxPublic(env).internet === 'always';
+
+/** "immer an": a ready sandbox (setup or wake just ended) goes online unless a user switched it off for it; never throws. */
+export async function autoInternet(id: string): Promise<void> {
+  const t = getTask(id);
+  if (!t || t.internet || t.internetOff || !internetAlways() || internetBlocked()) return;
+  await grantInternet(id, { via: 'policy' }).catch(e => log.warn('Internet (immer an) nicht verbunden', { task: id, error: e }));
+}
+/** Policy switched to "immer an": every ready sandbox goes online, and a setup waiting for internet (composer install) goes on
+ *  (except those switched off by hand). */
+export async function autoInternetAll(): Promise<void> {
+  for (const t of listTasks().filter(x => canGrant(x))) await autoInternet(t.id);
 }
 
 /** Policy switched to "nie": every task goes offline. Returns the tasks that had access. */

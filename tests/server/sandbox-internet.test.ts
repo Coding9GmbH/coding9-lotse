@@ -67,7 +67,7 @@ test('blocked: policy "nie", and Lotse in Docker without password and without th
   assert.equal(I.internetBlocked({ AICB_DOCKER: '1', LOTSE_PASSWORD: 'x' }), null);
   E.saveSandbox({ internet: 'never' });
   try { assert.equal(I.internetBlocked({}), I.INTERNET_NEVER); } finally { E.saveSandbox({ internet: 'approval' }); }
-  assert.throws(() => E.saveSandbox({ internet: 'always' as any }), /nur nach Freigabe/);
+  assert.throws(() => E.saveSandbox({ internet: 'sometimes' as any }), /nur nach Freigabe/);
   assert.equal(E.sandboxPublic().internet, 'approval', 'default');
 });
 
@@ -131,6 +131,41 @@ test('policy "nie": refused, and switching to it revokes every task', async () =
   assert.match(((await again.json()) as any).error, /nie/);
   E.saveSandbox({ internet: 'approval' });
   await J.finishTask(t.id);
+});
+
+test('policy "immer an": a ready sandbox goes online after setup and wake; switched off by hand it stays off until switched on', async () => {
+  E.saveSandbox({ internet: 'always' });
+  try {
+    const t = await S.readyTask('Immer an');
+    await S.until(() => attached(t.id));
+    assert.equal(T.getTask(t.id)!.internet?.via, 'policy');
+    assert.equal(audits(t.id).at(-1).via, 'policy', 'audited as allowed by the settings');
+    // switched off in the panel: a pause and wake keep it off
+    assert.equal((await post(t.id, { on: false })).status, 200);
+    assert.ok(!attached(t.id));
+    assert.equal(T.getTask(t.id)!.internetOff, true);
+    await J.pauseTask(t.id);
+    await J.ensureAwake(t.id);
+    assert.equal(T.getTask(t.id)!.status, 'ready');
+    assert.ok(!attached(t.id), 'stays off after the wake');
+    // switched on by hand: the policy applies again from now on (a wake reconnects)
+    assert.equal((await post(t.id, { on: true })).status, 200);
+    assert.ok(attached(t.id));
+    assert.equal(T.getTask(t.id)!.internetOff, undefined);
+    await J.pauseTask(t.id);
+    assert.ok(!attached(t.id), 'a pause still ends it');
+    await J.ensureAwake(t.id);
+    assert.ok(attached(t.id), 'online again after the wake');
+    await J.finishTask(t.id);
+    // switching the setting to "immer an" connects the ready sandboxes
+    E.saveSandbox({ internet: 'approval' });
+    const u = await S.readyTask('Später umgestellt');
+    assert.ok(!attached(u.id));
+    const res = await envRoute.PUT(new Request('http://127.0.0.1/api/sandbox/env', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ internet: 'always' }) }));
+    assert.equal(res.status, 200);
+    assert.ok(attached(u.id));
+    await J.finishTask(u.id);
+  } finally { E.saveSandbox({ internet: 'approval' }); }
 });
 
 test('request_internet: a card, the tool waits; only the click attaches; declining attaches nothing (audited)', async () => {

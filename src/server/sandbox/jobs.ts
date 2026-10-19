@@ -26,8 +26,8 @@ import { prepareTaskDb, saveSnapshot } from './db-snapshots';
 import { taskDbVolume } from './db-snapshot-spec';
 import { assertAttachable, deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
 import { ensureSandboxImage } from './image-build';
-import { STOP_CONCURRENCY, getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
-import { internetBlocked, revokeInternet, type RevokeReason } from './internet';
+import { ENV_KEY, STOP_CONCURRENCY, getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
+import { autoInternet, grantInternet, internetAlways, internetBlocked, revokeInternet, type RevokeReason } from './internet';
 import { SANDBOX_NETWORK, ensureNetwork, networkMode, openHostPorts, probeRoute } from './network';
 import { clearJar, forgetUpstream } from './preview';
 import { projectBase } from './project';
@@ -207,6 +207,8 @@ async function execute(id: string, from: number, signal: AbortSignal) {
     // internet the setup itself opened (composer install) never outlives it: whatever ended the run, the container is offline again
     if (getTask(id)?.internet) await revokeInternet(id, 'setup').catch(e => log.warn('Internetzugang nicht gesperrt', { task: id, error: e }));
   }
+  // "immer an": the ready sandbox goes online (unless a user switched it off for it)
+  if (getTask(id)?.status === 'ready') await autoInternet(id);
 }
 async function executeSteps(id: string, from: number, signal: AbortSignal) {
   await revokeInternet(id, 'setup').catch(e => log.warn('Internetzugang nicht gesperrt', { task: id, error: e })); // the setup runs offline
@@ -336,11 +338,17 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
     projectDir: () => t.repoFile?.projectDir ?? '',
     projectRoot: () => projectBase(p.worktree, t.layout?.root),
     projectInstall: () => t.repoFile?.projectInstall ?? 'full',
+    // names only: the values are the container's own environment (set at create); COMPOSER_AUTH is for composer, not the shop
+    envNames: () => [...new Set([...getSandboxConfig().env.map(e => e.slice(0, e.indexOf('='))), ...(t.setup?.env ?? []).map(v => v.key)])]
+      .filter(n => ENV_KEY.test(n) && n !== 'COMPOSER_AUTH').sort(),
     internet: {
       blocked: () => internetBlocked(),
+      auto: () => internetAlways() && !getTask(t.id)?.internetOff,
       await: async () => {
         const id = container();
         t.awaitingInternet = true; saveTask(t);
+        // "immer an": allowed by the settings, nobody has to click (unless a user switched it off for this sandbox)
+        if (internetAlways() && !getTask(t.id)?.internetOff) await grantInternet(t.id, { via: 'policy', reason: 'composer install (Einrichtung)' }).catch(e => lg(`Internet (immer an) nicht verbunden: ${errMsg(e)}`));
         if (t.chatId && chatExists(t.chatId)) { const ev: ChatEvent = { t: 'sandbox_status', state: 'internet' }; noteChatEvent(t.chatId, ev); emitTask(t.id, { t: 'chat', event: ev }); }
         try {
           // Docker's state counts (as for revoking): the task row may be saved meanwhile from this job's own copy
@@ -557,6 +565,7 @@ async function wake(id: string, abort: AbortSignal) {
     if (warm !== 200) ctx.log(`Storefront nach dem Start: ${warm ? `HTTP ${warm}` : 'keine Antwort'}`);
     if (abort.aborted || getTask(id)?.status !== 'waking') throw new Error('Abgebrochen.');
     t.status = 'ready'; t.lastActiveAt = now(); saveTask(t);
+    await autoInternet(id); // "immer an": online again after the wake
   } catch (e) {
     const fresh = getTask(id);
     if (!fresh || fresh.status === 'done') throw e;

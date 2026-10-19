@@ -32,6 +32,7 @@ export const setupFields = {
   /** A22: another image tag, the preview's first page, notes for the AI of this sandbox */
   image: z.string().max(120).optional(),
   previewPath: z.string().max(300).optional(),
+  mediaOrigin: z.string().max(300).optional(),
   notes: z.string().max(8000).optional(),
 };
 export const startSchema = z.object({
@@ -63,6 +64,6 @@ export async function startSandbox(input: StartInput, locale: Locale, audit: Rec
   auditTask(t, 'create', { baseBranch: t.baseBranch, chatId, ...(t.dump ? { dump: t.dump.name } : {}), ...(t.pluginName ? { pluginName: t.pluginName } : {}),
     ...(source === 'none' ? { source } : {}), ...(mode !== 'auto' ? { mode } : {}), ...(s?.targetPath ? { targetPath: s.targetPath } : {}),
     ...(s?.commands.length ? { commands: s.commands.map(c => c.label) } : {}), ...(s?.env.length ? { env: s.env.map(v => v.key) } : {}),
-    ...(s?.image ? { image: s.image } : {}), ...(s?.previewPath ? { previewPath: s.previewPath } : {}), ...(s?.notes ? { notes: true } : {}), ...audit });
+    ...(s?.image ? { image: s.image } : {}), ...(s?.previewPath ? { previewPath: s.previewPath } : {}), ...(s?.mediaOrigin ? { mediaOrigin: s.mediaOrigin } : {}), ...(s?.notes ? { notes: true } : {}), ...audit });
   return t;
 }

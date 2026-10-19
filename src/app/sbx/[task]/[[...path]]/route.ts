@@ -8,7 +8,7 @@ import { storefrontRewrite } from '@/server/runtime';
 import { sandboxForbidden } from '@/server/sandbox/env';
 import { getTask } from '@/server/sandbox/tasks';
 import { startWake, touchTask } from '@/server/sandbox/jobs';
-import { COOKIE_SYNC_PATH, MAX_REQUEST_BODY, PREVIEW_METHODS, PREVIEW_TIDY_CSS, SANDBOX_BASE, forgetUpstream, fetchUpstream, previewShim, previewState, wakeFailed, sandboxLocation, sandboxPrefix, sandboxUpstream, scriptCookies, storeCookies, taskOfSegment, upstreamHeaders } from '@/server/sandbox/preview';
+import { COOKIE_SYNC_PATH, MAX_REQUEST_BODY, liveMedia, PREVIEW_METHODS, PREVIEW_TIDY_CSS, SANDBOX_BASE, forgetUpstream, fetchUpstream, previewShim, previewState, wakeFailed, sandboxLocation, sandboxPrefix, sandboxUpstream, scriptCookies, storeCookies, taskOfSegment, upstreamHeaders } from '@/server/sandbox/preview';
 import { ensureReconciled } from '@/server/sandbox/reconcile';
 import { NO_BODY, relayResponse, rewriteRootRelative, textResponse } from '@/server/storefront-proxy';
 
@@ -88,6 +88,11 @@ async function handle(req: NextRequest, { params }: Ctx): Promise<Response> {
     const origin = await sandboxUpstream(st.task);
     const r = await fetchUpstream(origin, { method: req.method, path: rel + search, headers: upstreamHeaders(id, req.headers), body }, req.signal);
     storeCookies(id, r.setCookies);
+    // a media file only the live shop has (the dump brought its row, not the file): "Bilder vom Live-Shop"
+    if (r.status === 404 && (req.method === 'GET' || req.method === 'HEAD')) {
+      const live = await liveMedia(st.task, rel, req.method === 'HEAD');
+      if (live) return live;
+    }
     const loc = r.headers.get('location');
     if (loc && r.status >= 300 && r.status < 400) {
       const target = sandboxLocation(loc, origin, id);

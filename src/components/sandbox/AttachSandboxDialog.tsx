@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import type { CodeTaskPublic, CommandPhase, GithubBranch, GithubRepo, LibraryDumpPublic, NewSandboxRequest, QuickStartPublic, QuickStartSetup, RepoOwner, RepoProbe, StartKind } from '@/lib/protocol';
 import { useI18n } from '@/lib/i18n/I18nProvider';
-import { PLUGIN_NAME, PREVIEW_PATH, REPO_NAME, SANDBOX_DOCS, draftOf, pluginNameFromRepo, quickSetupOf, savedText, suggestTargetPath, targetPathProblem, type StartDraft } from '@/lib/sandbox-task';
+import { PLUGIN_NAME, PREVIEW_PATH, REPO_NAME, SANDBOX_DOCS, draftOf, mediaOriginOf, pluginNameFromRepo, quickSetupOf, savedText, suggestTargetPath, targetPathProblem, type StartDraft } from '@/lib/sandbox-task';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { DumpUpload } from './DumpUpload';
@@ -68,7 +68,7 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
   const [envRefs, setEnvRefs] = useState<string[]>([]);
   const [advanced, setAdvanced] = useState(false);
   // A22: another image tag, the preview's first page and notes for the AI of this sandbox ('' = the environment's / none)
-  const [extra, setExtra] = useState({ image: '', previewPath: '', notes: '' });
+  const [extra, setExtra] = useState({ image: '', previewPath: '', mediaOrigin: '', notes: '' });
   const [envImage, setEnvImage] = useState('');
   // the repository file's commands: approved (server), declined for this sandbox (hash), deciding
   const [skipHash, setSkipHash] = useState<string | null>(null);
@@ -98,7 +98,7 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
     setShown({ open, initial, quick });
     if (open) {
       setStep(quick?.step ?? (initial?.repo ? 1 : 0)); setKind('existing'); setName({ value: '', editedFor: '' }); setForm(f => ({ ...f, title: initial?.title?.slice(0, 120) ?? '' }));
-      setNewRepo(null); setRepoNote(null); setError(null); setModeOpen(false); setCustom(false); setTarget({ value: '', edited: false }); setCommands([]); setVars([]); setEnvRefs([]); setAdvanced(false); setExtra({ image: '', previewPath: '', notes: '' });
+      setNewRepo(null); setRepoNote(null); setError(null); setModeOpen(false); setCustom(false); setTarget({ value: '', edited: false }); setCommands([]); setVars([]); setEnvRefs([]); setAdvanced(false); setExtra({ image: '', previewPath: '', mediaOrigin: '', notes: '' });
       setSkipHash(null); setData('demo'); setDumpGone(false); setStoredId(''); setUploadId(null); setUploadKept(false); setStored(null);
       setPicked(quick?.id ?? ''); setSave(null); setSaved(null); setQsName(editing?.name ?? '');
     }
@@ -130,7 +130,7 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
   function applyDraft(d: StartDraft, list: GithubRepo[] | null, dumps: LibraryDumpPublic[] | null) {
     setKind(d.kind); setError(null); setNewRepo(null); setRepoNote(null); setSkipHash(null);
     setCustom(d.custom); setModeOpen(d.custom); setTarget(d.targetPath ? { value: d.targetPath, edited: true } : { value: '', edited: false });
-    setCommands(d.commands); setVars(d.vars); setEnvRefs(d.envRefs); setExtra({ image: d.image, previewPath: d.previewPath, notes: d.notes }); setAdvanced(d.advanced);
+    setCommands(d.commands); setVars(d.vars); setEnvRefs(d.envRefs); setExtra({ image: d.image, previewPath: d.previewPath, mediaOrigin: d.mediaOrigin, notes: d.notes }); setAdvanced(d.advanced);
     // a saved name survives the probe of its own repo@branch, like a typed one
     setName(d.pluginName ? { value: d.pluginName, editedFor: d.kind === 'none' ? 'none' : `${d.repo}@${d.baseBranch}` } : { value: '', editedFor: '' });
     if (d.kind !== 'none') { setBranches(null); setWant(d.baseBranch); setBranchTick(n => n + 1); setForm(f => ({ ...f, repo: list?.some(r => r.fullName === d.repo) ? d.repo : '', baseBranch: '' })); }
@@ -217,6 +217,7 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
   const varsOk = vars.every(v => ENV_KEY.test(v.key.trim()));
   const commandsOk = commands.every(c => c.label.trim() && c.command.trim());
   const previewBad = !!extra.previewPath.trim() && !PREVIEW_PATH.test(extra.previewPath.trim());
+  const mediaBad = !!extra.mediaOrigin.trim() && !mediaOriginOf(extra.mediaOrigin);
   // the repository file's commands wait for a decision: bring the card with "Befehle erlauben" into view (it sits below the fold)
   const pendingHash = step === 1 && fileState === 'pending' ? file?.hash ?? null : null;
   useEffect(() => {
@@ -227,7 +228,7 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
     true,
     kind === 'none' ? nameOk
       : !!form.repo && !!form.baseBranch && !!probed && !newRepo && !creatingRepo && !fileError && fileState !== 'pending'
-        && (kind !== 'new' || probed.empty === true) && (!newPlugin || nameOk) && !targetBad && varsOk && commandsOk && !previewBad,
+        && (kind !== 'new' || probed.empty === true) && (!newPlugin || nameOk) && !targetBad && varsOk && commandsOk && !previewBad && !mediaBad,
     data === 'demo' || (data === 'stored' && !!storedId) || (data === 'upload' && !!uploadId && !uploading),
   ];
   const canGo = (i: number) => stepOk.slice(0, i).every(Boolean);
@@ -253,6 +254,7 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
       ...(usesRepo && commands.length ? { commands: commands.map(c => ({ label: c.label.trim(), command: c.command.trim(), phase: c.phase })) } : {}),
       ...(usesRepo && vars.length ? { env: vars.map(v => ({ key: v.key.trim(), value: v.value })) } : {}),
       ...(usesRepo && extra.image.trim() ? { image: extra.image.trim() } : {}), ...(usesRepo && extra.previewPath.trim() ? { previewPath: extra.previewPath.trim() } : {}),
+      ...(usesRepo && extra.mediaOrigin.trim() ? { mediaOrigin: extra.mediaOrigin.trim() } : {}),
       ...(usesRepo && extra.notes.trim() ? { notes: extra.notes.trim() } : {}),
       ...(file && fileState === 'skipped' ? { skipRepoHash: file.hash } : {}),
     };
@@ -506,6 +508,11 @@ export function AttachSandboxDialog({ open, onClose, chatId = '', initial, onCre
               <span className={styles.label}>{ts.previewPath}</span>
               <input value={extra.previewPath} maxLength={300} spellCheck={false} autoComplete="off" placeholder="/" aria-invalid={previewBad} aria-describedby="sbx-start-hint" onChange={e => setExtra(x => ({ ...x, previewPath: e.target.value.trim() }))} />
               <span id="sbx-start-hint" className={`${styles.fieldNote} ${previewBad ? styles.fieldBad : ''}`}>{previewBad ? ts.previewPathInvalid : ts.previewPathHint}</span>
+            </label>
+            <label className={styles.field}>
+              <span className={styles.label}>{ts.mediaOrigin}</span>
+              <input type="url" value={extra.mediaOrigin} maxLength={300} spellCheck={false} autoComplete="off" placeholder="https://www.example.com" aria-invalid={mediaBad} aria-describedby="sbx-media-hint" onChange={e => setExtra(x => ({ ...x, mediaOrigin: e.target.value.trim() }))} />
+              <span id="sbx-media-hint" className={`${styles.fieldNote} ${mediaBad ? styles.fieldBad : ''}`}>{mediaBad ? ts.mediaOriginInvalid : ts.mediaOriginHint}</span>
             </label>
             <label className={styles.field}>
               <span className={styles.label}>{ts.notes}</span>

@@ -55,8 +55,10 @@ export function StepTimeline({ task, onRetry, onIgnoreVersion, onRepoFile, onCom
       {took !== null && <div className={styles.tlDone}><b>{t.setupDone(formatSeconds(took))}</b><button type="button" className={styles.textBtn} aria-expanded onClick={() => setDetails(false)}>{t.hideDetails}</button></div>}
       <ol className={styles.timeline}>
         {shown.map(s => {
-          const project = task.layout?.kind === 'project', own = task.layout?.kind === 'custom';
-          const sec = stepSeconds(s), label = s.key === 'custom' ? s.label ?? s.id : (project && all.sandbox.projectSteps[s.key]) || (own && all.sandbox.customSteps[s.key]) || all.sandbox.steps[s.key];
+          // before the layout is detected the chosen mode tells (a project otherwise shows the plugin labels until then)
+          const kind = task.layout?.kind ?? task.setup?.mode, project = kind === 'project', own = kind === 'custom';
+          const sec = stepSeconds(s), label = s.key === 'custom' ? s.label ?? s.id
+            : (project && task.dump && all.sandbox.projectDumpSteps[s.key]) || (project && all.sandbox.projectSteps[s.key]) || (own && all.sandbox.customSteps[s.key]) || all.sandbox.steps[s.key];
           const waitsForFile = s.key === 'detect-layout' && s.state === 'failed' && task.repoFile?.state === 'pending';
           const pmm = s.key === 'detect-layout' && s.state === 'failed' ? task.layout?.project?.versionMismatch : undefined;
           const skip = skipReason(task, s), state = skip ? 'skipped' : s.state;

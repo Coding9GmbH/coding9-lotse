@@ -159,6 +159,14 @@ export function suggestTargetPath(repo: string): string {
   const name = (repo.split('/').pop() ?? '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[^a-z0-9_]+/, '').slice(0, 60);
   return `/opt/${name || 'app'}`;
 }
+/** "Bilder vom Live-Shop": the origin (scheme, host, port) media missing in the sandbox are fetched from; null = no valid http(s)
+ *  origin (no credentials). A path or trailing slash is dropped. */
+export function mediaOriginOf(s: string): string | null {
+  try {
+    const u = new URL(s.trim());
+    return /^https?:$/.test(u.protocol) && !u.username && !u.password && u.hostname ? u.origin : null;
+  } catch { return null; }
+}
 /** A preview start path (.lotse/sandbox.json "previewPath"): a storefront path beginning with "/", without host, spaces or backslashes */
 export const PREVIEW_PATH = /^\/(?!\/)[A-Za-z0-9._~!$&'()*+,;=:@%/?-]{0,299}$/;
 
@@ -176,7 +184,7 @@ export interface StartDraft {
   /** "ändern" → own setup of an existing project */ custom: boolean; targetPath: string | null;
   commands: { label: string; command: string; phase: CommandPhase }[]; vars: { key: string; value: string }[];
   /** variables taken from the environment by name only (their value was or is secret) */ envRefs: string[];
-  dumpId: string | null; image: string; previewPath: string; notes: string;
+  dumpId: string | null; image: string; previewPath: string; mediaOrigin: string; notes: string;
   /** "Erweitert" opens: something in it is set */ advanced: boolean;
 }
 export function draftOf(s: QuickStartSetup): StartDraft {
@@ -187,9 +195,9 @@ export function draftOf(s: QuickStartSetup): StartDraft {
     custom: kind === 'existing' && s.mode === 'custom', targetPath: s.mode === 'custom' || kind === 'custom' ? s.targetPath ?? null : null,
     commands: (s.commands ?? []).map(c => ({ label: c.label, command: c.command, phase: c.phase })), vars: (s.env ?? []).map(v => ({ key: v.key, value: v.value })),
     envRefs: none ? [] : [...(s.envRefs ?? [])],
-    dumpId: s.dumpId ?? null, image: s.image ?? '', previewPath: s.previewPath ?? '', notes: s.notes ?? '',
+    dumpId: s.dumpId ?? null, image: s.image ?? '', previewPath: s.previewPath ?? '', mediaOrigin: s.mediaOrigin ?? '', notes: s.notes ?? '',
   };
-  return { ...d, advanced: kind === 'custom' || d.custom || !!(d.commands.length || d.vars.length || d.envRefs.length || d.image || d.previewPath || d.notes) };
+  return { ...d, advanced: kind === 'custom' || d.custom || !!(d.commands.length || d.vars.length || d.envRefs.length || d.image || d.previewPath || d.mediaOrigin || d.notes) };
 }
 
 /** "Als Umgebung „X“ gespeichert." plus the variables kept by name only (the server turned a secret value into a reference) */

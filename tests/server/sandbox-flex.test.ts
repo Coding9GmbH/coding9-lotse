@@ -212,6 +212,23 @@ test('an invalid repository file stops the setup with the field and the next act
   await J.deleteTask(t.id);
 });
 
+test('variables of the environment and of the sandbox reach web requests: their names (never values) go to the .env.local step', async () => {
+  E.saveSandbox({ envVars: [{ key: 'STRIPE_KEY', secret: true, value: 'sk_test_flex_123456' }, { key: 'COMPOSER_AUTH', secret: true, value: '{}' }] });
+  try {
+    const res = await post({ chatId: crypto.randomUUID(), repo: 'acme/flex-plugin', baseBranch: 'main', title: 'Variablen', env: [{ key: 'CDN_MODE', value: 'local' }] });
+    assert.equal(res.status, 201);
+    const id = ((await res.json()) as any).task.id;
+    await settled(id);
+    const t = T.getTask(id)!;
+    assert.equal(t.status, 'ready', t.error ?? '');
+    const call = execs(t.containerId!).find(c => c.argv![0] === 'php' && c.argv![2]?.includes('.env.local'))!;
+    assert.deepEqual(call.argv!.slice(3), ['--', 'CDN_MODE', 'STRIPE_KEY'], 'sorted names, COMPOSER_AUTH left out');
+    assert.ok(!call.argv!.some(a => a.includes('sk_test') || a.includes('local\n')), 'no value on the command line');
+    assert.match(t.steps.find(s => s.key === 'theme-compile')!.log.join('\n'), /Variablen der Sandbox für Web-Anfragen in \.env\.local: \d+ von 2 \(CDN_MODE, STRIPE_KEY\)/);
+    await J.deleteTask(id);
+  } finally { E.saveSandbox({ envVars: [{ key: 'STRIPE_KEY', secret: true, value: 'sk_test_flex_123456' }] }); }
+});
+
 test('own setup: synced into the target folder, own commands run there, no Shopware steps, sandbox_bash starts there', async () => {
   // dialog choice: custom with a target, own commands and a variable; the repository is no plugin at all
   const res = await post({ chatId: crypto.randomUUID(), repo: 'acme/plain-lib', baseBranch: 'main', mode: 'custom', targetPath: '/srv/plain',

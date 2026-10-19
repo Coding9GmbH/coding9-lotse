@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { CodeTaskPublic, QuickStartPublic } from '../../src/lib/protocol';
 import { messages } from '../../src/lib/i18n';
-import { applyTaskEvent, canRetryFrom, choiceKey, demoRequest, displayStatus, draftOf, offerChoice, orderedEnvironments, quickSetupOf, quickSummary, startChoices, errorSummary, followStartPath, formatSeconds, newerTask, statusTone, stepSeconds } from '../../src/lib/sandbox-task';
+import { applyTaskEvent, mediaOriginOf, canRetryFrom, choiceKey, demoRequest, displayStatus, draftOf, offerChoice, orderedEnvironments, quickSetupOf, quickSummary, startChoices, errorSummary, followStartPath, formatSeconds, newerTask, statusTone, stepSeconds } from '../../src/lib/sandbox-task';
 
 // Task view state: snapshot replaces, log lines append to their step (capped), deleted clears; status pips and durations.
 const task = (o: Partial<CodeTaskPublic> = {}): CodeTaskPublic => ({
@@ -75,9 +75,9 @@ test('A22: a quick start is the dialog’s request – kept without chat, title 
   assert.deepEqual(draftOf({ kind: 'existing', repo: 'acme/shop', baseBranch: 'main', envRefs: ['STRIPE_KEY'] }).envRefs, ['STRIPE_KEY']);
   assert.equal(draftOf({ kind: 'existing', repo: 'acme/shop', baseBranch: 'main', envRefs: ['STRIPE_KEY'] }).advanced, true);
   assert.deepEqual(draftOf(kept), { kind: 'existing', repo: 'acme/shop', baseBranch: 'main', pluginName: '', custom: true, targetPath: '/opt/shop', commands: req.commands, vars: req.env, envRefs: [],
-    dumpId: 'd_x', image: '6.7.14.0', previewPath: '/de/', notes: 'n', advanced: true });
+    dumpId: 'd_x', image: '6.7.14.0', previewPath: '/de/', mediaOrigin: '', notes: 'n', advanced: true });
   // the plain cases: nothing in "Erweitert", demo data
-  assert.deepEqual(draftOf({ kind: 'existing', repo: 'acme/shop', baseBranch: 'main' }), { kind: 'existing', repo: 'acme/shop', baseBranch: 'main', pluginName: '', custom: false, targetPath: null, commands: [], vars: [], envRefs: [], dumpId: null, image: '', previewPath: '', notes: '', advanced: false });
+  assert.deepEqual(draftOf({ kind: 'existing', repo: 'acme/shop', baseBranch: 'main' }), { kind: 'existing', repo: 'acme/shop', baseBranch: 'main', pluginName: '', custom: false, targetPath: null, commands: [], vars: [], envRefs: [], dumpId: null, image: '', previewPath: '', mediaOrigin: '', notes: '', advanced: false });
   const none = draftOf({ kind: 'none', repo: 'x/y', baseBranch: 'main', source: 'none', pluginName: 'VersandHinweis' });
   assert.equal(none.repo, '');
   assert.equal(none.pluginName, 'VersandHinweis');
@@ -104,4 +104,10 @@ test('start choices: order, the AI card’s preselection, the demo request, the 
     'Bestehendes Projekt · acme/shop @ main · live.sql · Image 6.7.14.0');
   assert.equal(quickSummary({ kind: 'none', repo: '', baseBranch: '' }, en), 'Start without a project · Plugin SandboxPlugin, local git only · Demo data');
   assert.equal(quickSummary({ kind: 'existing', repo: 'a/b', baseBranch: 'dev', dumpId: 'd_x' }, de), 'Bestehendes Projekt · a/b @ dev · Gespeicherte Datenbank');
+});
+
+test('"Bilder vom Live-Shop": only an http(s) origin without credentials; a path is dropped', () => {
+  assert.equal(mediaOriginOf('https://www.example.com/'), 'https://www.example.com');
+  assert.equal(mediaOriginOf(' https://shop.example:8443/de/ '), 'https://shop.example:8443');
+  for (const bad of ['', 'www.example.com', 'ftp://example.com', 'https://u:p@example.com', 'javascript:alert(1)']) assert.equal(mediaOriginOf(bad), null, bad);
 });

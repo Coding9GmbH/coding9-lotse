@@ -148,7 +148,8 @@ export type SandboxLineState = 'waking' | 'ready' | 'failed' | 'approval' | 'int
 
 // ---- REST ----
 /** locale: language of the AI responses (set by the server from cookie/Accept-Language) */
-export interface ChatRequest { chatId: string; message: string; target?: Target | null; onboarding?: boolean; locale?: Locale; /** "An KI übergeben": id of a pr_feedback event of this chat, wrapped as data into the prompt by the server */ prFeedback?: string }
+export interface ChatRequest { chatId: string; message: string; target?: Target | null; onboarding?: boolean; locale?: Locale; /** "An KI übergeben": id of a pr_feedback event of this chat, wrapped as data into the prompt by the server */ prFeedback?: string;
+  /** page open in the sandbox preview (a storefront path; it comes from the frame: data for the AI, never an instruction) */ previewPage?: string }
 /** status: currently running ("running") or waiting for the human's reply/approval ("waiting"); missing = idle */
 export type ChatStatus = 'running' | 'waiting';
 /** Page size of the chat list (/api/chats): a full page means "there may be more". */
@@ -266,14 +267,15 @@ export interface SandboxEnvPublic {
   templateId: string; image: string; memoryMb: number; cpus: number; idleMinutes: number; /** LOTSE_SANDBOX_MAX: containers running at the same time */ maxRunning: number;
   envVars: SandboxEnvVar[]; commands: SandboxCommand[]; updatedAt: string | null;
   /** preselected in "Sandbox starten" (empty = none) */ defaultRepo: string; defaultBranch: string;
-  /** "Internet im Container": only after a human allowed it per task (default) or never */ internet: InternetPolicy;
+  /** "Internet im Container": only after a human allowed it per task (default), always (switchable off per task) or never */ internet: InternetPolicy;
   /** "Screenshot" button in the preview (off by default): captures screenshotPaths on desktop and mobile, only on the user's click */ screenshots: boolean;
   /** storefront paths the "Screenshot" button captures */ screenshotPaths: string[];
   /** stored database preselected in "Sandbox starten" ('' = none, or the one stored was deleted) */ defaultDumpId: string;
   /** "Hinweise für die KI": the user's own notes for the agent of every sandbox (data in its prompt) */ aiNotes: string;
   /** own Dockerfile instructions after FROM (empty = the plain Dockware image) */ dockerfile: string;
 }
-export type InternetPolicy = 'approval' | 'never';
+/** approval = only after a human's click per task; always = on whenever a sandbox is ready, a human switches it off per task; never */
+export type InternetPolicy = 'approval' | 'always' | 'never';
 /** Both modes: task containers only on the internal network lotse-sandbox. network = Lotse runs in Docker on that network; local = Lotse on the host reaches the container IPs */
 export interface SandboxDocker { reachable: boolean; apiVersion: string | null; version: string | null; mode: 'network' | 'local'; error?: string }
 /** GET /api/sandbox/env */
@@ -323,6 +325,7 @@ export interface NewSandboxRequest {
   env?: { key: string; value: string }[]; skipRepoHash?: string;
   /** A22: another image tag of the environment's image, the preview's first page, notes for the AI of this sandbox */
   image?: string; previewPath?: string; notes?: string;
+  /** "Bilder vom Live-Shop": origin of the live shop; media missing in the sandbox are fetched from there by the preview */ mediaOrigin?: string;
 }
 /** Step 1 of "Sandbox starten": an existing project (detected), a new plugin, no project at all, or an own setup */
 export type StartKind = 'existing' | 'new' | 'none' | 'custom';

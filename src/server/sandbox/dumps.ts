@@ -120,10 +120,12 @@ export async function appendChunk(id: string, offset: number, body: ReadableStre
   } finally { B.delete(id); }
 }
 
-/** Plain SQL text as mysqldump/mariadb-dump writes it (comments, SET, CREATE …), no binary. */
+/** Plain SQL text as mysqldump/mariadb-dump writes it (comments, SET, CREATE …), no binary. Leading `#` comment lines (Sequel Ace,
+ *  phpMyAdmin) are skipped, a shebang (`#!`) is not. */
 export function looksLikeSql(head: Buffer): boolean {
   if (!head.length || head.includes(0)) return false;
-  return /^\s*(--|\/\*|SET\s|CREATE\s|DROP\s|INSERT\s|USE\s|LOCK\s|START\s|BEGIN)/i.test(head.subarray(0, 4096).toString('utf8'));
+  const text = head.subarray(0, 4096).toString('utf8').replace(/^(?:\s*#(?!!)[^\n]*\n)+/, '');
+  return /^\s*(--|\/\*|SET\s|CREATE\s|DROP\s|INSERT\s|USE\s|LOCK\s|START\s|BEGIN)/i.test(text);
 }
 const isGzip = (b: Buffer) => b.length >= 2 && b[0] === 0x1f && b[1] === 0x8b;
 
@@ -229,14 +231,18 @@ export async function dumpSwitchesDatabase(file: string): Promise<boolean> {
   return false;
 }
 
-/** Shopware major.minor from the core migrations recorded in the dump (Shopware\Core\Migration\V6_6\… → "6.6"). null = unknown. */
+/** Shopware major.minor from the core migrations recorded in the dump (Shopware\Core\Migration\V6_6\… → "6.6"). null = unknown.
+ *  mysqldump writes each INSERT on one line, Sequel Ace one row per line until the closing `;`. */
 export async function dumpShopwareVersion(file: string): Promise<string | null> {
   const RE = /Core\\+Migration\\+V(\d+)_(\d+)\\+/g;
-  let best: [number, number] | null = null, inMigration = false;
+  let best: [number, number] | null = null, seen = false, inInsert = false;
   for await (const l of dumpLines(file)) {
-    if (!l.startsWith('INSERT INTO `migration`')) { if (inMigration && l.startsWith('INSERT INTO')) break; continue; }
-    inMigration = true;
+    if (!inInsert) {
+      if (!l.startsWith('INSERT INTO `migration`')) { if (seen && l.startsWith('INSERT INTO')) break; continue; }
+      seen = inInsert = true;
+    }
     for (const m of l.matchAll(RE)) { const v: [number, number] = [Number(m[1]), Number(m[2])]; if (!best || v[0] > best[0] || (v[0] === best[0] && v[1] > best[1])) best = v; }
+    if (l.trimEnd().endsWith(';')) inInsert = false;
   }
   return fmt(best);
 }

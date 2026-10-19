@@ -3,7 +3,7 @@ import type { SandboxEnvView } from '@/lib/protocol';
 import { auditAdd } from '@/server/db';
 import { errMsg, jsonError, parseJson } from '@/server/http';
 import { dockerState, environmentImage, forgetDockerState, sandboxPublic, saveSandbox, stopRunningSandboxes } from '@/server/sandbox/env';
-import { revokeAllInternet } from '@/server/sandbox/internet';
+import { autoInternetAll, revokeAllInternet } from '@/server/sandbox/internet';
 import { suspendAll } from '@/server/sandbox/jobs';
 import { ensureReconciled, sweepDbVolumesNow } from '@/server/sandbox/reconcile';
 import { getRunner } from '@/server/sandbox/runner';
@@ -21,7 +21,7 @@ const schema = z.object({
   idleMinutes: z.number().optional(),
   defaultRepo: z.string().max(200).optional(),
   defaultBranch: z.string().max(200).optional(),
-  internet: z.enum(['approval', 'never']).optional(),
+  internet: z.enum(['approval', 'always', 'never']).optional(),
   envVars: z.array(z.object({ key: z.string().max(100), secret: z.boolean(), value: z.string().max(10_000).optional() })).max(100).optional(),
   commands: z.array(z.object({ id: z.string().max(40).optional(), label: z.string().max(200), command: z.string().max(5000), phase: z.enum(['after-db', 'final']), timeoutSec: z.number().optional() })).max(50).optional(),
   screenshots: z.boolean().optional(),
@@ -56,6 +56,8 @@ export async function PUT(req: Request) {
   if (!wasOn && nowOn) void ensureReconciled();
   // "Internet im Container: nie": every task goes offline at once
   if (changed.includes('internet') && sandboxPublic().internet === 'never') await revokeAllInternet('policy').catch(() => []);
+  // "immer an": every ready sandbox goes online, except one a user switched off
+  if (changed.includes('internet') && sandboxPublic().internet === 'always') await autoInternetAll();
   // a new image: snapshots of stored databases taken with the old one are stale (the next sandbox imports and takes a new one)
   if (changed.includes('image') || changed.includes('dockerfile')) void sweepDbVolumesNow();
   return Response.json(await view());

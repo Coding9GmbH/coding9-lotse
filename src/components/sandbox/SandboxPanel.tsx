@@ -42,12 +42,13 @@ const SETUP = new Set(['setting_up', 'failed', 'interrupted']);
  * the AI's). Plain words first, technical terms as tooltip. During the setup it shows "Einrichtung" and switches to
  * "Vorschau" once the sandbox is ready. `files`: file cards so far (refreshes the diff); `openPr` changing opens the PR tab.
  */
-export function SandboxPanel({ taskId, className, reload, files, busy, proposal, openPr = 0, feedbackOpen = 0, chatHidden, onToggleChat, onPublished, onSendNotes, onClose, onTask, onChatEvent, onQuickSaved }: {
+export function SandboxPanel({ taskId, className, reload, files, busy, proposal, openPr = 0, feedbackOpen = 0, chatHidden, onToggleChat, onPublished, onSendNotes, onClose, onTask, onChatEvent, onQuickSaved, onPreviewPage }: {
   taskId: string; className?: string; reload: number; files: number; busy: boolean;
   proposal?: PrProposal | null; openPr?: number; onPublished?: (r: PublishResult) => void;
   /** PR feedback in the chat not handed to the AI yet: a dot on the tab and a warning when finishing */ feedbackOpen?: number;
   /** the workspace's chat column is collapsed (the preview gets the whole width) */ chatHidden?: boolean; onToggleChat?: () => void;
   onSendNotes?: (text: string) => void; onClose?: () => void; onTask?: (task: CodeTaskPublic) => void;
+  /** the page open in the preview (null = none shown): context for the AI's next turn */ onPreviewPage?: (path: string | null) => void;
   /** events the server added to the chat between turns (PR feedback, a failed setup) */ onChatEvent?: (ev: ChatEvent) => void;
   /** "Setup als Umgebung speichern" saved one: the workspace's "Sandbox starten" list loads again */ onQuickSaved?: () => void;
 }) {
@@ -228,7 +229,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
       {quickSaved && <p className={`${styles.ok} ${styles.panelNote}`} role="status">✓ {quickSaved}</p>}
       <div ref={body} className={styles.panelBody} data-tab={shown}>
         <div role="tabpanel" id="sbx-panel-preview" aria-labelledby="sbx-tab-preview" hidden={shown !== 'preview'} className={styles.pvPanel}>
-          <SandboxPreview task={task} reload={reload} inTabs onSendNotes={onSendNotes}
+          <SandboxPreview task={task} reload={reload} inTabs onSendNotes={onSendNotes} onPage={onPreviewPage}
             layout={{ full, onFull: () => setFull(f => !f), chatHidden, onToggleChat: full ? undefined : onToggleChat }}
             shots={shotPages ? { pages: shotPages, onTaken: setTask } : undefined} />
         </div>

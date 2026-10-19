@@ -264,7 +264,7 @@ function Environment({ view, dbs, onSaved, onChecked }: { view: SandboxEnvView; 
       <label className={styles.field}>
         <span className={styles.label}>{t.internet}</span>
         <select value={form.internet} onChange={e => set(f => ({ ...f, internet: e.target.value as InternetPolicy }))}>
-          {(['approval', 'never'] as const).map(p => <option key={p} value={p}>{t.internetPolicy[p]}</option>)}
+          {(['approval', 'always', 'never'] as const).map(p => <option key={p} value={p}>{t.internetPolicy[p]}</option>)}
         </select>
         <Hint small text={t.internetHint} more={t.internetMore} />
       </label>

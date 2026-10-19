@@ -67,10 +67,34 @@ const SET_DOMAIN_SQL = "UPDATE sales_channel_domain SET url = 'http://localhost'
  *  errors stay readable). Constant argv, no input; theme-compile clears the cache afterwards. */
 export const TIDY_ARGV = ['bash', '-c', "set -e; mkdir -p config/packages/dev; printf 'web_profiler:\\n    toolbar: false\\n    intercept_redirects: false\\n' > config/packages/dev/zz-lotse-preview.yaml; bin/console system:config:set --json core.basicInformation.useDefaultCookieConsent false"];
 
+/** The container's environment reaches bin/console, but PHP-FPM clears it for web requests: the variables of the environment and the
+ *  sandbox (names as argv) are written to a block of .env.local, which Symfony loads for both (a real variable still wins in the
+ *  console). The values come from the container's own environment, never from Lotse's command line; double-quoted for Symfony's Dotenv
+ *  (\\ " $ and line breaks escaped). The rest of the file stays. As www-data in /var/www/html. */
+export const ENV_LOCAL_PHP = `$f = '.env.local'; $old = is_file($f) ? (string) file_get_contents($f) : '';
+$old = preg_replace('/^# >>> lotse.*?^# <<< lotse\\R?/ms', '', $old);
+$lines = [];
+foreach (array_slice($argv, 1) as $n) {
+  if (!preg_match('/^[A-Z_][A-Z0-9_]{0,63}$/', $n) || ($v = getenv($n)) === false) continue;
+  $lines[] = $n . '="' . str_replace(['\\\\', '"', '$', "\\r", "\\n"], ['\\\\\\\\', '\\\\"', '\\\\$', '', '\\\\n'], $v) . '"';
+}
+$block = $lines ? "# >>> lotse (sandbox variables, written by the setup)\\n" . implode("\\n", $lines) . "\\n# <<< lotse\\n" : '';
+if ($old === '' && $block === '') { if (is_file($f)) unlink($f); exit(0); }
+file_put_contents($f, rtrim($old) === '' ? $block : rtrim($old) . "\\n" . $block);
+echo count($lines);`;
+
 /** Where the dump lands in the container for the import; removed by the import command itself and again afterwards. */
 export const IMPORT_DIR = '/tmp/lotse-import';
-/** Constant argv, no interpolation: decompress if needed, import as root into the shop database, always delete the file. */
-export const IMPORT_ARGV = ['bash', '-c', `set -o pipefail; gunzip -cf ${IMPORT_DIR}/dump | mysql -uroot -proot -h127.0.0.1 shopware; rc=$?; rm -rf ${IMPORT_DIR}; exit $rc`];
+/** A MariaDB (or MySQL 5.7) dump in MySQL 8 (sed -E expressions, never touching data rows):
+ *  - function defaults written bare (`DEFAULT json_object()`) need parentheses: only in column definitions (two spaces and a backtick)
+ *  - the SQL mode NO_AUTO_CREATE_USER no longer exists: dropped from the SET … SQL_MODE lines of triggers and routines */
+export const MARIADB_SED = [
+  "s/^(  `[^`]+` .* DEFAULT )((json_object|json_array|uuid)\\(\\))/\\1(\\2)/",
+  '/^\\/\\*!50003 SET SESSION SQL_MODE=/{s/NO_AUTO_CREATE_USER,?//;s/,"/"/;}',
+];
+/** Constant argv, no interpolation: decompress if needed, MariaDB syntax made MySQL 8-compatible, import as root into the shop
+ *  database, always delete the file. */
+export const IMPORT_ARGV = ['bash', '-c', `set -o pipefail; gunzip -cf ${IMPORT_DIR}/dump | sed -E ${MARIADB_SED.map(e => `-e '${e}'`).join(' ')} | mysql -uroot -proot -h127.0.0.1 shopware; rc=$?; rm -rf ${IMPORT_DIR}; exit $rc`];
 const minor = (v: string) => v.split('.').slice(0, 2).join('.');
 
 /** Dump vs. image: a different major.minor blocks until the user chooses "Trotzdem fortfahren". */
@@ -120,6 +144,29 @@ async function projectLayout(ctx: StepCtx, l: TaskLayout): Promise<void> {
   throw new Error(`Das Projekt nutzt Shopware ${mm.project}, das Image enthält ${mm.image} – passendes Image (${mm.suggest}) in der Umgebung wählen oder „Trotzdem fortfahren“.`);
 }
 
+const ANY_EXIT = Array.from({ length: 256 }, (_, i) => i);
+/** theme:compile of a theme whose built storefront JavaScript (dist/) is not in the repository – a deployment builds it */
+export const THEME_NOT_BUILT = /Did you forget to build the theme\?|build-storefront\.sh/;
+/** The storefront build of the project (or the image), as a deployment runs it: npm packages of Shopware's storefront and of the
+ *  plugins, their JavaScript, assets and theme:compile. Fixed argv of the repository's own script; npm needs internet, allowed like
+ *  composer install's (a click, or "immer an") and ended right after. */
+export const BUILD_STOREFRONT = ['bash', 'bin/build-storefront.sh', '--keep-cache'];
+async function buildStorefront(ctx: StepCtx): Promise<void> {
+  if ((await ctx.run(['test', '-f', 'bin/build-storefront.sh'], { okCodes: [0, 1], quiet: true })).exitCode !== 0) throw new Error('Das gebaute Storefront-JavaScript eines Themes fehlt im Repository, und bin/build-storefront.sh gibt es nicht – das Theme lässt sich so nicht kompilieren.');
+  const blocked = ctx.internet.blocked();
+  if (blocked) throw new Error(`Das gebaute Storefront-JavaScript eines Themes fehlt im Repository (dist/ wird beim Deployment gebaut). Der Build braucht Internet für npm: ${blocked}`);
+  ctx.log(ctx.internet.auto() ? 'Gebautes Storefront-JavaScript fehlt im Repository – Storefront-Build wie beim Deployment (bin/build-storefront.sh, Internet „immer an“) …'
+    : 'Gebautes Storefront-JavaScript fehlt im Repository – für den Storefront-Build (npm) oben in der Sandbox auf „Internet: aus“ klicken und erlauben. Danach ist der Container wieder offline.');
+  await ctx.internet.await();
+  try {
+    const r = await ctx.run(BUILD_STOREFRONT, { okCodes: ANY_EXIT, timeoutMs: 40 * MIN });
+    if (r.exitCode !== 0) throw new Error(`Storefront-Build (bin/build-storefront.sh) fehlgeschlagen (Exit-Code ${r.exitCode}):\n${r.output.trim().split('\n').slice(-15).join('\n')}`);
+  } finally {
+    await ctx.internet.end().then(() => ctx.log('Internet wieder gesperrt.'), e => ctx.log(`Warnung: Internet ließ sich nicht wieder sperren: ${e instanceof Error ? e.message : String(e)}`));
+  }
+  ctx.log('Storefront gebaut und Theme kompiliert ✓');
+}
+
 const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
   'check-image': ctx => ctx.ensureImage(),
   clone: async ctx => { const { head } = await ctx.clone(); ctx.log(`Commit ${head.slice(0, 12)}`); },
@@ -141,7 +188,13 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
       : `${l.kind === 'theme' ? 'Theme' : 'Plugin'} ${l.name} → ${l.pluginDir}`);
   },
   'start-container': ctx => ctx.createContainer(),
-  'wait-ready': ctx => waitReady(ctx),
+  // a stored database restored from its snapshot is the live shop's already: its plugins' code only arrives with the install step, so
+  // the shop answers 500 until then – only MySQL is awaited here ("ready" checks the storefront at the end)
+  'wait-ready': async ctx => {
+    if (!ctx.dump()?.restored) return waitReady(ctx);
+    ctx.log('Datenbank aus dem Snapshot: Der Shop antwortet erst, wenn das Projekt eingespielt ist – hier wird nur auf MySQL gewartet.');
+    await waitReady(ctx, { dbOnly: true });
+  },
   'install-plugin': async ctx => {
     if (ctx.layout()?.kind === 'project') return installProject(ctx);
     if (ctx.layout()?.kind === 'custom') {
@@ -180,7 +233,15 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
     // a new plugin changes nothing yet; an imported dump still needs its themes compiled and the warm cache cleared
     if (ctx.layout()?.kind === 'custom') { ctx.log('Eigenes Setup: kein Theme-Kompilieren durch Lotse.'); return 'skipped'; }
     if (ctx.layout()?.isNew && !ctx.hasDump()) { ctx.log('Neues Plugin: Die Storefront bleibt vorerst unverändert; kompiliert wird, sobald das Plugin Styles oder Templates mitbringt.'); return 'skipped'; }
-    await ctx.run(bin('theme:compile')); await ctx.run(bin('cache:clear'));
+    const names = ctx.envNames();
+    const r = await ctx.run(['php', '-r', ENV_LOCAL_PHP, '--', ...names], { quiet: true });
+    if (names.length) ctx.log(`Variablen der Sandbox für Web-Anfragen in .env.local: ${Number(r.output.trim().split('\n').pop()) || 0} von ${names.length} (${names.join(', ')})`);
+    const compiled = await ctx.run(bin('theme:compile'), { okCodes: ANY_EXIT });
+    if (compiled.exitCode !== 0) {
+      if (!THEME_NOT_BUILT.test(compiled.output)) throw new Error(`„bin/console theme:compile“ fehlgeschlagen (Exit-Code ${compiled.exitCode}):\n${compiled.output.trim().split('\n').slice(-15).join('\n')}`);
+      await buildStorefront(ctx);
+    }
+    await ctx.run(bin('cache:clear'));
     // a project's changes (theme, apps, plugins at once): the HTTP cache kept serving the old start page after cache:clear alone
     if (ctx.layout()?.kind === 'project') await ctx.run(bin('cache:pool:clear', '--all'), { okCodes: [0, 1] });
   },
@@ -210,7 +271,8 @@ const STEPS: TemplateStep[] = [
   // installed completely it also waits for a human to allow internet and runs composer install (up to 20 min)
   step('install-plugin', 5 * MIN, { timeoutFor: l => (l?.kind !== 'project' ? 5 * MIN : l.project?.install === 'full' ? 90 * MIN : 15 * MIN) }),
   step('custom-after-db', 0, { custom: 'after-db' }),
-  step('theme-compile', 10 * MIN),
+  // a project whose themes need the storefront build (npm, after internet was allowed) takes longer
+  step('theme-compile', 10 * MIN, { timeoutFor: l => (l?.kind === 'project' ? 60 * MIN : 20 * MIN) }),
   step('custom-final', 0, { custom: 'final' }),
   step('ready', 30_000),
 ];

@@ -108,6 +108,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
   const busyRef = useRef(false);
   const lastRunEnd = useRef(0);
   const stream = useChatStream();
+  /** the page open in the sandbox preview: sent with the next turn as context for the AI */
+  const previewPage = useRef<string | null>(null);
   const reportError = useCallback((text: string) => dispatch({ type: 'error', text }), []);
   const attachments = useAttachments(reportError);
 
@@ -185,7 +187,8 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     const gen = ++runGen.current;
     let conflict = false;
     dispatch({ type: 'run_start', text: message });
-    await stream.run({ chatId: id, message, target: extra.chatId ? null : pickTarget(target), onboarding: extra.onboarding, prFeedback: extra.prFeedback }, {
+    const page = !extra.chatId && taskId ? previewPage.current : null;
+    await stream.run({ chatId: id, message, target: extra.chatId ? null : pickTarget(target), onboarding: extra.onboarding, prFeedback: extra.prFeedback, ...(page ? { previewPage: page } : {}) }, {
       onEvent: event => {
         if (gen !== runGen.current) return;
         liveEvent(event);
@@ -610,7 +613,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
           <SandboxPanel key={taskId} taskId={taskId} className={styles.right} reload={state.previewReload} busy={busy} files={state.items.filter(i => i.kind === 'file').length}
             onClose={overlay ? () => setPreviewOpen(false) : undefined} onTask={onSandboxTask} onQuickSaved={() => void loadQuicks()} onChatEvent={liveEvent} proposal={proposal} openPr={openPr} onPublished={published}
             feedbackOpen={feedbackOpen} chatHidden={chatHidden} onToggleChat={overlay ? undefined : () => setChatHidden(h => !h)}
-            onSendNotes={text => { if (busyRef.current) setInput(text); else { setPreviewOpen(false); void run(text); } }} />
+            onSendNotes={text => { if (busyRef.current) setInput(text); else { setPreviewOpen(false); void run(text); } }} onPreviewPage={p => { previewPage.current = p; }} />
         ) : <PreviewPane className={styles.right} tab={state.tab} onTab={t => dispatch({ type: 'set_tab', tab: t })} draft={state.draft}
           liveUrl={liveUrl} onOpenAudit={() => setAuditOpen(true)} busy={busy} onClose={overlay ? () => setPreviewOpen(false) : undefined}
           notes={notes} onAddNote={a => setNotes(l => [...l, { ...a, id: crypto.randomUUID() }])} onRemoveNote={id => setNotes(l => l.filter(n => n.id !== id))}

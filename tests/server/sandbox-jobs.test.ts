@@ -35,7 +35,9 @@ const taskRoute = await import('../../src/app/api/sandbox/tasks/[id]/route');
 const startRoute = await import('../../src/app/api/sandbox/tasks/[id]/start/route');
 const dumpTaskRoute = await import('../../src/app/api/sandbox/tasks/[id]/dump/route');
 const D = await import('../../src/server/sandbox/dumps');
-const { BOOT_SCRIPT, IMPORT_ARGV, MYSQL_STOP_ARGV, TIDY_ARGV } = await import('../../src/server/sandbox/templates/dockware');
+const { BOOT_SCRIPT, ENV_LOCAL_PHP, IMPORT_ARGV, MYSQL_STOP_ARGV, TIDY_ARGV } = await import('../../src/server/sandbox/templates/dockware');
+/** the variables' names for .env.local (none set in these tests) */
+const ENV_LOCAL = ['php', '-r', ENV_LOCAL_PHP, '--'];
 const eventsRoute = await import('../../src/app/api/sandbox/tasks/[id]/events/route');
 
 allowFileRemotesForTests(true);
@@ -70,6 +72,7 @@ const SETUP_ARGV = [
   'PLUGIN_STATE',
   ['bin/console', 'theme:change', '--all', '--no-compile', '--', 'AcmeTheme'],
   ['bash', '-lc', 'bin/console framework:demodata --products=5'],
+  ENV_LOCAL,
   ['bin/console', 'theme:compile'],
   ['bin/console', 'cache:clear'],
   ['bash', '-lc', 'echo fertig'],
@@ -140,7 +143,7 @@ test('theme-compile fails: step failed with the SCSS tail, later steps pending; 
   await settled(t.id);
   cur = T.getTask(t.id)!;
   assert.equal(cur.status, 'ready');
-  assert.deepEqual(execs(cur.containerId!).slice(before).map(BASELINE), [['bin/console', 'theme:compile'], ['bin/console', 'cache:clear'], ['bash', '-lc', 'echo fertig'], 'BASELINE']);
+  assert.deepEqual(execs(cur.containerId!).slice(before).map(BASELINE), [ENV_LOCAL, ['bin/console', 'theme:compile'], ['bin/console', 'cache:clear'], ['bash', '-lc', 'echo fertig'], 'BASELINE']);
   assert.throws(() => J.runSteps(t.id), /bereits fertig/);
 });
 
@@ -549,7 +552,7 @@ test('dump: streamed into the container as www-data (0600), exact constant impor
   const at = (pred: (a: string[]) => boolean) => argv.findIndex(pred);
   const imp = at(a => a[0] === 'bash' && a[1] === '-c');
   assert.deepEqual(argv[imp], IMPORT_ARGV);
-  assert.deepEqual(IMPORT_ARGV, ['bash', '-c', 'set -o pipefail; gunzip -cf /tmp/lotse-import/dump | mysql -uroot -proot -h127.0.0.1 shopware; rc=$?; rm -rf /tmp/lotse-import; exit $rc']);
+  assert.match(IMPORT_ARGV[2], /^set -o pipefail; gunzip -cf \/tmp\/lotse-import\/dump \| sed -E -e '[^']+' -e '[^']+' \| mysql -uroot -proot -h127\.0\.0\.1 shopware; rc=\$\?; rm -rf \/tmp\/lotse-import; exit \$rc$/);
   assert.ok(imp < at(a => a[0] === 'mysql' && a.at(-1)!.includes('sales_channel_domain')) && imp < at(a => a[1] === 'plugin:install') && at(a => a[1] === 'plugin:install') < at(a => a[2] === 'bin/console framework:demodata --products=5') && at(a => a[2]?.includes('demodata')) < at(a => a[1] === 'theme:compile'));
   const arch = fake.archives.find(a => a.id === cid && a.dir === '/tmp')!;
   assert.deepEqual(arch.entries.map(e => [e.path, e.type, e.uid, e.gid, e.mode]), [['lotse-import', 'dir', 33, 33, 0o700], ['lotse-import/dump', 'file', 33, 33, 0o600]]);
@@ -674,4 +677,29 @@ test('routes: 403 while off, create checks repository access, start/events, swit
   const del = await taskRoute.DELETE(new Request(`http://127.0.0.1/api/sandbox/tasks/${task.id}`, { method: 'DELETE' }), { params: Promise.resolve({ id: task.id }) });
   assert.equal(del.status, 200);
   assert.equal(T.getTask(task.id), null);
+});
+
+test('dump import: MariaDB defaults and SQL modes are rewritten for MySQL 8, data rows stay untouched', async () => {
+  const { MARIADB_SED } = await import('../../src/server/sandbox/templates/dockware');
+  const { spawnSync } = await import('node:child_process');
+  const input = [
+    '  `source_config` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL DEFAULT json_object(),',
+    '  `deps` longtext NOT NULL DEFAULT json_array(),',
+    '  `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3),',
+    "\t('DEFAULT json_object()'),",
+    "INSERT INTO `x` VALUES ('  `a` b DEFAULT json_object()');",
+    '/*!50003 SET SESSION SQL_MODE="ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION" */;;',
+    '/*!50003 SET SESSION SQL_MODE="STRICT_TRANS_TABLES,NO_AUTO_CREATE_USER" */;;',
+  ].join('\n');
+  const r = spawnSync('sed', ['-E', ...MARIADB_SED.flatMap(e => ['-e', e])], { input, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.stdout.split('\n'), [
+    '  `source_config` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL DEFAULT (json_object()),',
+    '  `deps` longtext NOT NULL DEFAULT (json_array()),',
+    '  `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3),',
+    "\t('DEFAULT json_object()'),",
+    "INSERT INTO `x` VALUES ('  `a` b DEFAULT json_object()');",
+    '/*!50003 SET SESSION SQL_MODE="ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION" */;;',
+    '/*!50003 SET SESSION SQL_MODE="STRICT_TRANS_TABLES" */;;',
+  ]);
 });

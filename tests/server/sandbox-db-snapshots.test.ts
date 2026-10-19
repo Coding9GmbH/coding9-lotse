@@ -138,6 +138,9 @@ test('first task imports, then snapshots the cleanly stopped MySQL; the second t
   assert.match(step(b, 'import-db').log.join('\n'), /aus dem Snapshot übernommen – kein Import nötig/);
   assert.equal(step(b, 'db-snapshot').state, 'skipped');
   assert.equal(T.publicTask(b).dump!.restored, true);
+  // the restored live database answers 500 until the project is installed: "wait-ready" only waits for MySQL
+  assert.match(step(b, 'wait-ready').log.join('\n'), /Datenbank aus dem Snapshot: .*nur auf MySQL gewartet/);
+  assert.ok(!step(a, 'wait-ready').log.join('\n').includes('Snapshot'), 'without a snapshot it waits for the shop');
   assert.deepEqual(fake.volumes.get(bVol)!.data, [`import:${SQL.length}`]);
   // independent copies: a change in one task's database reaches neither the snapshot nor the other task
   fake.volumes.get(aVol)!.data.push('order 1001');

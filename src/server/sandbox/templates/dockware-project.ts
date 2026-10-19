@@ -7,8 +7,9 @@
 //     namespaces of src/ via composer dump-autoload (offline, composer.json's repositories restored afterwards)
 //  4. boot check: bin/console about; a config error that names a file takes that file out (at most 5 rounds), else the step fails
 //     with the error and the likely file
-//  5. plugin:refresh + install/activate (without a dump all project plugins; with a dump its plugin table decides, only new ones are
-//     installed, ones the repository has in a newer version are updated; installed completely also the plugins composer.json requires), apps (app:install --force: aborts without it), the project's theme (without a dump)
+//  5. plugin:refresh + install/activate (without a dump all project plugins, installed completely also the plugins composer.json
+//     requires; with a dump nothing is installed or activated – plugins and apps keep the dump's state, ones the repository has in a
+//     newer version are updated), apps (app:install --force: aborts without it), the project's theme (without a dump)
 //  6. extension aliases again (plugins may bring their own): files quarantined only for that are loaded now
 // Installed completely (installProjectFull, the default): the whole repository goes into /var/www/html and the project's own
 // composer install replaces the image's vendor/ – after a human allowed internet for it (the setup waits, internet.ts), offline again
@@ -28,6 +29,8 @@ const MIN = 60_000;
 const bin = (...a: string[]) => ['bin/console', ...a];
 const MYSQL = ['mysql', '-uroot', '-proot', '-h127.0.0.1', 'shopware', '-N', '-e'];
 const ANY = { okCodes: Array.from({ length: 256 }, (_, i) => i) };
+/** SwagCommercial renewing an expired license key at boot (LicenseUpdater) without internet */
+const COMMERCIAL_LICENSE_FETCH = /api\.shopware\.com\/swplatform\/commerciallicensekey/;
 /** Boot rounds: each one takes a file out or defines an env default (the fixture needed one) */
 export const BOOT_ROUNDS = 5;
 
@@ -52,6 +55,11 @@ if (($argv[1] ?? '') === 'prepare') {
 }
 file_put_contents($f, json_encode($j, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\\n");`;
 const OFFLINE = ['env', 'COMPOSER_DISABLE_NETWORK=1', 'COMPOSER_NO_INTERACTION=1'];
+/** The console without plugins: bin/console loads them from the database only when DATABASE_URL is set. Reading the runtime this
+ *  way gives the same answer with a dump whose plugins are active (their services may need the project's config, held back until
+ *  then – e.g. a monolog channel) as without one; what the plugins bring is read again after they are installed. */
+const NO_PLUGINS = ['env', 'DATABASE_URL='];
+const DEBUG_CONFIG = ['bash', '-c', 'DATABASE_URL= bin/console debug:config 2>&1'];
 /** Clears Symfony's cache directory (the boot check builds the container again) */
 const CLEAR_CACHE = ['bash', '-c', 'rm -rf var/cache/* 2>/dev/null; exit 0'];
 
@@ -79,8 +87,8 @@ export async function removeImageLeftovers(ctx: StepCtx, output: string): Promis
 /** Step 1: the clean image's APP_ENV, extension aliases and environment names; on a retry (config already synced, the console may not
  *  boot) what an earlier run read is kept. */
 async function readRuntime(ctx: StepCtx, p: ProjectInfo): Promise<ProjectInfo> {
-  const about = await ctx.run(bin('about'), { ...ANY, quiet: true });
-  let dbg = await ctx.run(['bash', '-c', 'bin/console debug:config 2>&1'], { ...ANY, quiet: true });
+  const about = await ctx.run([...NO_PLUGINS, ...bin('about')], { ...ANY, quiet: true });
+  let dbg = await ctx.run(DEBUG_CONFIG, { ...ANY, quiet: true });
   // An installed project replaces the image's vendor/ and bundles.php, but the image's own config files stay: one that configures a
   // bundle the project does not have ("Container extension "web_profiler" is not registered") is a leftover of the image – removed.
   for (let round = 0; round < BOOT_ROUNDS && dbg.exitCode !== 0; round++) {
@@ -88,7 +96,7 @@ async function readRuntime(ctx: StepCtx, p: ProjectInfo): Promise<ProjectInfo> {
     if (!gone.length) break;
     ctx.log(`Konfiguration des Images, die eine Erweiterung des Projekts nicht kennt, entfernt: ${gone.join(', ')}`);
     await ctx.run(CLEAR_CACHE, { quiet: true });
-    dbg = await ctx.run(['bash', '-c', 'bin/console debug:config 2>&1'], { ...ANY, quiet: true });
+    dbg = await ctx.run(DEBUG_CONFIG, { ...ANY, quiet: true });
   }
   const extensions = dbg.exitCode === 0 ? parseExtensions(dbg.output) : p.extensions;
   if (!extensions?.length) throw new Error(`Shopware im Container antwortet nicht auf bin/console: ${bootError(dbg.output) || `Exit-Code ${dbg.exitCode}`}`);
@@ -143,11 +151,20 @@ async function composerParts(ctx: StepCtx, p: ProjectInfo, skip: Set<string>) {
 /** Step 4: Shopware boots with the project's config (bin/console about); a file the error points at is taken out and synced again.
  *  Returns the project and the plan it booted with; a failure logs the plan of the last round before it throws. */
 async function bootCheck(ctx: StepCtx, l: TaskLayout, p: ProjectInfo, plan: ConfigPlan | null): Promise<{ p: ProjectInfo; plan: ConfigPlan | null }> {
+  let licenseRetried = false;
   for (let round = 1; ; round++) {
     await ctx.run(CLEAR_CACHE, { quiet: true });
     const r = await ctx.run(bin('about'), { ...ANY, quiet: true, timeoutMs: 3 * MIN });
     if (r.exitCode === 0) { ctx.log(round === 1 ? 'Shopware startet mit der Konfiguration des Projekts ✓' : `Shopware startet nach ${round - 1} Anpassung(en) ✓`); return { p, plan }; }
-    const why = bootError(r.output), found = round <= BOOT_ROUNDS ? bootFinding(r.output, plan?.files ?? [], p.appEnv ?? 'dev') : null;
+    const why = bootError(r.output);
+    // An expired commercial license in the database (a dump): Shopware deletes the key and fetches a new one from api.shopware.com at
+    // boot – offline that fails once, the next boot runs without the key (commercial features off in the sandbox)
+    if (!licenseRetried && COMMERCIAL_LICENSE_FETCH.test(r.output)) {
+      licenseRetried = true; round--;
+      ctx.log('Die kommerzielle Lizenz in der Datenbank ist abgelaufen; Shopware hat sie entfernt und wollte offline eine neue holen. Neuer Start ohne Lizenz (kommerzielle Funktionen in der Sandbox aus; mit Internet: bin/console commercial:license:update).');
+      continue;
+    }
+    const found = round <= BOOT_ROUNDS ? bootFinding(r.output, plan?.files ?? [], p.appEnv ?? 'dev') : null;
     if (found && 'env' in found && !(p.extraEnv ?? []).includes(found.env)) {
       ctx.log(`Umgebungsvariable ${found.env} fehlt – in der Sandbox leer gesetzt.`);
       p = { ...p, extraEnv: [...(p.extraEnv ?? []), found.env] };
@@ -243,7 +260,7 @@ async function installProjectFull(ctx: StepCtx): Promise<void> {
   await ctx.syncAll();
   p = project(ctx).p;
 
-  ctx.log('Warte auf Internet für composer install: oben in der Sandbox auf „Internet: aus“ klicken und erlauben. Danach ist der Container wieder offline.');
+  ctx.log(ctx.internet.auto() ? 'Internet für composer install („immer an“) …' : 'Warte auf Internet für composer install: oben in der Sandbox auf „Internet: aus“ klicken und erlauben. Danach ist der Container wieder offline.');
   await ctx.internet.await();
   try {
     ctx.log('Internet erlaubt – composer install (Pakete aus composer.lock, ohne Skripte) …');
@@ -315,26 +332,21 @@ export async function installExtensions(ctx: StepCtx, l: TaskLayout, p: ProjectI
   // deployment installs them; one that cannot be installed is a warning, the project's own plugins decide whether the step fails
   const vendor = p.install === 'full' ? (await composerPlugins(ctx, p)).filter(n => !names.includes(n)) : [];
   const all = [...names, ...vendor];
-  if (dumped) await updatePlugins(ctx, all.filter(n => dumped.has(n)));
-  const install = dumped ? names.filter(n => !dumped.has(n)) : names, extra = dumped ? vendor.filter(n => !dumped.has(n)) : vendor;
-  if (dumped) ctx.log(`Datenbank-Dump: ${all.length - install.length - extra.length} Projekt-Plugins sind darin bekannt und behalten ihren Zustand${install.length + extra.length ? `, neu installiert: ${[...install, ...extra].join(', ')}` : ''}.`);
+  // With a dump the database is the user's: plugins keep the state it has (installed, active or not) – nothing is installed or
+  // activated, only plugins the repository has in a newer version are updated. A plugin it lacks can be installed in the sandbox.
+  if (dumped) {
+    await updatePlugins(ctx, all.filter(n => dumped.has(n)));
+    const unknown = all.filter(n => !dumped.has(n));
+    ctx.log(`Datenbank-Dump: Plugins bleiben, wie sie im Dump sind (${all.length - unknown.length} der Projekt-Plugins darin installiert) – nichts wird zusätzlich installiert oder aktiviert.`);
+    if (unknown.length) ctx.log(`Nicht im Dump installiert und deshalb aus: ${unknown.join(', ')}. Bei Bedarf in der Sandbox: bin/console plugin:install --activate <Name>`);
+  }
+  const install = dumped ? [] : names, extra = dumped ? [] : vendor;
   const refused = new Map<string, string>();
   for (const n of extra) {
     const one = await ctx.run(bin('plugin:install', '--activate', '-n', '--', n), { ...ANY, timeoutMs: 5 * MIN });
     if (one.exitCode !== 0) { refused.set(n, bootError(one.output) || `Exit-Code ${one.exitCode}`); ctx.log(`Warnung: Plugin ${n} (über composer eingebunden) ließ sich nicht installieren: ${refused.get(n)}`); }
   }
-  if (install.length) {
-    const all = await ctx.run(bin('plugin:install', '--activate', '-n', '--', ...install), { timeoutMs: 10 * MIN, ...(dumped ? ANY : {}) });
-    // With a dump the database is the user's: a plugin it does not have installed that cannot be (a requirement, e.g. another plugin or a
-    // version) stays as the dump has it – the others are installed one by one, and the setup goes on with a warning.
-    if (dumped && all.exitCode !== 0) {
-      for (const n of install) {
-        const one = await ctx.run(bin('plugin:install', '--activate', '-n', '--', n), { ...ANY, timeoutMs: 5 * MIN });
-        if (one.exitCode !== 0) refused.set(n, bootError(one.output) || `Exit-Code ${one.exitCode}`);
-      }
-      for (const [n, why] of refused) ctx.log(`Warnung: Plugin ${n} ließ sich nicht installieren und bleibt, wie es im Datenbank-Dump ist: ${why}`);
-    }
-  }
+  if (install.length) await ctx.run(bin('plugin:install', '--activate', '-n', '--', ...install), { timeoutMs: 10 * MIN });
   const states = await pluginStates(ctx, [...install, ...extra]);
   for (const n of extra.filter(x => states.get(x) !== '11' && !refused.has(x))) { refused.set(n, 'nicht aktiv'); ctx.log(`Warnung: Plugin ${n} (über composer eingebunden) ist nach der Installation nicht aktiv.`); }
   const failed = install.filter(n => states.get(n) !== '11' && !refused.has(n));
@@ -345,9 +357,13 @@ export async function installExtensions(ctx: StepCtx, l: TaskLayout, p: ProjectI
   const installed = [...install, ...extra].filter(n => !refused.has(n));
   if (installed.length) ctx.log(`Plugins installiert und aktiv: ${installed.join(', ')}`);
 
-  // apps: work offline as long as they have no backend of their own (registration)
-  const known = dumped ? new Set(lines((await ctx.run([...MYSQL, 'SELECT name FROM app'], { quiet: true, okCodes: [0, 1] })).output)) : new Set<string>();
-  for (const a of p.apps.filter(x => !known.has(x.name))) {
+  // apps: work offline as long as they have no backend of their own (registration); with a dump they stay as it has them
+  if (dumped && p.apps.length) {
+    const known = new Set(lines((await ctx.run([...MYSQL, 'SELECT name FROM app'], { quiet: true, okCodes: [0, 1] })).output));
+    const missing = p.apps.filter(x => !known.has(x.name)).map(x => x.name);
+    if (missing.length) ctx.log(`Nicht im Dump installiert und deshalb aus: App ${missing.join(', ')}. Bei Bedarf in der Sandbox: bin/console app:install --activate <Name>`);
+  }
+  for (const a of dumped ? [] : p.apps) {
     const r = await ctx.run(bin('app:install', '--activate', '--force', '-n', '--', a.name), { okCodes: [0, 1], timeoutMs: 3 * MIN });
     ctx.log(r.exitCode === 0 ? `App ${a.name} installiert und aktiv.` : `Warnung: App ${a.name} ließ sich nicht installieren (Apps mit eigenem Server brauchen Internet).`);
   }

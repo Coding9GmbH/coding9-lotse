@@ -7,7 +7,7 @@ import { annotationMessage, type Annotation } from '@/lib/annotations';
 import { markKeySelects } from '@/lib/a11y';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { popoverLeft } from '@/lib/popover';
-import { followStartPath } from '@/lib/sandbox-task';
+import { PREVIEW_PATH, followStartPath } from '@/lib/sandbox-task';
 import { sandboxSrc, sandboxWakeSrc } from '@/lib/urls';
 import { Button } from '@/components/ui/Button';
 import { IconCamera, IconExpand, IconExternal, IconMonitor, IconPanel, IconPhone, IconPin, IconRefresh, IconShrink } from '@/components/ui/icons';
@@ -35,7 +35,8 @@ export interface PreviewLayout { full: boolean; onFull: () => void; chatHidden?:
 /** "Screenshot" (only while switched on in the environment): the configured pages, desktop and mobile, on the user's click */
 export interface PreviewShots { pages: string[]; onTaken: (task: CodeTaskPublic) => void }
 
-export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, layout, shots }: { task: CodeTaskPublic; reload?: number; onSendNotes?: (text: string) => void; inTabs?: boolean; layout?: PreviewLayout; shots?: PreviewShots }) {
+/** `onPage`: the page open in the frame (a storefront path, PREVIEW_PATH) as it navigates – the chat gives it to the AI as context */
+export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, layout, shots, onPage }: { task: CodeTaskPublic; reload?: number; onSendNotes?: (text: string) => void; inTabs?: boolean; layout?: PreviewLayout; shots?: PreviewShots; onPage?: (path: string | null) => void }) {
   const { locale, t: all } = useI18n();
   const t = all.sandbox.preview, tp = all.preview;
   // the repository file may name the first page (.lotse/sandbox.json "previewPath")
@@ -85,6 +86,31 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
     return () => ro.disconnect();
   }, []);
   const frame = () => viewRef.current?.querySelector<HTMLIFrameElement>('iframe[data-kind="live"]') ?? null;
+  // navigation inside the frame (the shim's messages): the address bar shows the open page, the bar loads while a page loads
+  const [current, setCurrent] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadSeen, setLoadSeen] = useState(frameKey);
+  if (frameKey !== loadSeen) { setLoadSeen(frameKey); setLoading(true); }
+  const typing = useRef(false);
+  const pageRef = useRef(onPage);
+  useEffect(() => { pageRef.current = onPage; }, [onPage]);
+  useEffect(() => {
+    const on = (e: MessageEvent) => {
+      const f = frame();
+      if (!f || e.source !== f.contentWindow || !e.data || typeof e.data !== 'object') return;
+      const m = e.data as { lotseSbx?: unknown; path?: unknown };
+      if (m.lotseSbx === 'loading') setLoading(true);
+      if (m.lotseSbx === 'page' && typeof m.path === 'string' && PREVIEW_PATH.test(m.path)) {
+        setLoading(false); setCurrent(m.path);
+        if (!typing.current) setTyped(m.path);
+        pageRef.current?.(m.path);
+      }
+    };
+    window.addEventListener('message', on);
+    return () => window.removeEventListener('message', on);
+  }, []);
+  useEffect(() => { if (!show) pageRef.current?.(null); }, [show]);
+
   const place = (p: Pick) => {
     const vr = viewRef.current?.getBoundingClientRect(), fr = frame()?.getBoundingClientRect(), k = scaleRef.current;
     const width = vr ? Math.min(320, Math.max(0, vr.width - 16)) : 320;
@@ -124,19 +150,21 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
   };
   const shotTitle = shots ? t.screenshotTitle(shots.pages.join(', ') || '/') : '';
   const toggleMark = () => { setMarking(m => !m); setPick(null); };
+  // reload the page that is open now (navigated to inside the frame), not the one the frame started with
+  const reloadPage = () => { if (current && current !== path) { setPath(current); setTyped(current); } setReloads(n => n + 1); };
   const frameStyle: React.CSSProperties | undefined = scale < 1 ? { width: DESKTOP_WIDTH, height: box.h / scale, transform: `scale(${scale})` } : undefined;
 
   return (
     <section className={inTabs ? styles.pvTab : styles.card} aria-labelledby="sbx-preview">
       <div className={inTabs ? 'visually-hidden' : styles.cardHead}><h2 id="sbx-preview">{t.heading}</h2></div>
-      <form className={styles.pvBar} onSubmit={e => { e.preventDefault(); setPath(typed || '/'); setReloads(n => n + 1); }}>
+      <form className={styles.pvBar} onSubmit={e => { e.preventDefault(); typing.current = false; setPath(typed || '/'); setReloads(n => n + 1); }}>
         {layout?.onToggleChat && (
           <button type="button" className={`${styles.iconBtn} ${styles.pvWide}`} onClick={layout.onToggleChat} aria-pressed={!!layout.chatHidden}
             aria-label={layout.chatHidden ? t.showChat : t.hideChat} title={layout.chatHidden ? t.showChat : t.hideChat}><IconPanel size={17} /></button>
         )}
-        <input value={typed} onChange={e => setTyped(e.target.value)} aria-label={t.path} spellCheck={false} />
+        <input value={typed} onChange={e => { typing.current = true; setTyped(e.target.value); }} onBlur={() => { typing.current = false; }} aria-label={t.path} spellCheck={false} />
         <Button size="sm" type="submit" disabled={!show}>{t.go}</Button>
-        <button type="button" className={`${styles.iconBtn} ${styles.pvWide}`} onClick={() => setReloads(n => n + 1)} disabled={!show} aria-label={t.reload} title={t.reload}><IconRefresh size={16} /></button>
+        <button type="button" className={`${styles.iconBtn} ${styles.pvWide}`} onClick={reloadPage} disabled={!show} aria-label={t.reload} title={t.reload}><IconRefresh size={16} /></button>
         <div className={`${styles.seg} ${styles.pvWide}`} role="group" aria-label={t.device}>
           <button type="button" aria-pressed={!mobile} onClick={() => setDevice('desktop')} aria-label={t.desktop} title={scale < 1 ? t.scaled(Math.round(scale * 100)) : t.desktop}><IconMonitor size={16} /></button>
           <button type="button" aria-pressed={mobile} onClick={() => setDevice('mobile')} aria-label={t.mobile} title={t.mobile}><IconPhone size={16} /></button>
@@ -155,13 +183,14 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
             aria-label={layout.full ? t.exitFull : t.full} title={layout.full ? t.exitFull : t.full}>{layout.full ? <IconShrink size={16} /> : <IconExpand size={16} />}</button>
         )}
         <Menu className={styles.pvNarrow} label={t.tools} items={[
-          { key: 'reload', label: t.reload, onSelect: () => setReloads(n => n + 1), disabled: !show },
+          { key: 'reload', label: t.reload, onSelect: reloadPage, disabled: !show },
           { key: 'device', label: mobile ? t.desktop : t.mobile, onSelect: () => setDevice(mobile ? 'desktop' : 'mobile') },
           ...(shots ? [{ key: 'shot', label: shooting ? t.screenshotBusy : t.screenshot, onSelect: () => void shoot(), disabled: !canShoot }] : []),
           ...(show ? [{ key: 'tab', label: t.newTab, href: src, external: true }, { key: 'admin', label: t.admin, href: sandboxSrc(task.preview, '/admin'), external: true }] : []),
           ...(layout ? [{ key: 'full', label: layout.full ? t.exitFull : t.full, onSelect: layout.onFull }] : []),
         ]} />
       </form>
+      {show && loading && <div className={styles.pvLoading} role="progressbar" aria-label={t.loading} />}
       {(shooting || shotNote) && <p className={`${styles.pvNote} ${shotNote && !shotNote.ok ? styles.bad : ''}`} role={shotNote && !shotNote.ok ? 'alert' : 'status'}>{shooting ? t.screenshotBusy : shotNote?.text}</p>}
       <div ref={viewRef} className={`${styles.pvView} ${mobile ? styles.pvMobile : ''} ${marking && show ? styles.pvMarking : ''}`}>
         {marking && show && !pick && <div className={pp.markHint}>{tp.markHint}</div>}
@@ -209,7 +238,7 @@ export function SandboxPreview({ task, reload = 0, onSendNotes, inTabs = false, 
           </section>
         )}
         {show
-          ? <iframe key={frameKey} className={styles.pvFrame} style={frameStyle} src={frameSrc} title={t.frame} sandbox={PREVIEW_SANDBOX} data-kind="live" />
+          ? <iframe key={frameKey} className={styles.pvFrame} style={frameStyle} src={frameSrc} title={t.frame} sandbox={PREVIEW_SANDBOX} data-kind="live" onLoad={() => setLoading(false)} />
           : s === 'paused' && task.stopping // stored as paused, the container is still being stopped
             ? <div className={styles.pvEmpty}><p role="status">{t.pausing}</p></div>
             : s === 'paused'

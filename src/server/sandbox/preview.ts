@@ -5,8 +5,25 @@ import 'server-only';
 // customer login works inside the opaque-origin preview.
 import crypto from 'node:crypto';
 import http from 'node:http';
+import { downloadImage } from '../media';
 import { singleton } from '../state';
 import { getTask, previewKey, previewPath, sandboxOrigin, TASK_ID, type CodeTask } from './tasks';
+
+/** Media and thumbnails of the shop (a dump brings their database rows, not the files): only these paths fall back to the live shop */
+export const MEDIA_PATH = /^\/(?:media|thumbnail)\/(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9._~!$&'()*+,;=:@%/-]{1,500}$/;
+/** "Bilder vom Live-Shop": a media file the sandbox does not have (404) is fetched from the live shop the user named for this sandbox
+ *  (never the repository) – server side, so the preview keeps its CSP (img-src 'self') and the container stays offline. Only images
+ *  (no SVG: it could carry script), with downloadImage's checks (public address or a sales channel domain, at most 3 checked
+ *  redirects, size cap). null = no live shop set or nothing usable there: the sandbox's own 404 stands. */
+export async function liveMedia(t: CodeTask, rel: string, head = false): Promise<Response | null> {
+  const origin = t.setup?.mediaOrigin;
+  if (!origin || !MEDIA_PATH.test(rel)) return null;
+  try {
+    const { buf, mime } = await downloadImage(origin + rel);
+    if (mime === 'image/svg+xml') return null;
+    return new Response(head ? null : new Uint8Array(buf), { status: 200, headers: { 'content-type': mime, 'content-length': String(buf.length), 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" } });
+  } catch { return null; }
+}
 
 /** Dockware's storefront domain (APP_URL and sales channel domain stay http://localhost, see templates/dockware.ts). */
 export const SANDBOX_HOST = 'localhost';
@@ -94,6 +111,9 @@ export const COOKIE_SYNC_PATH = '/__lotse/cookie';
  * (Shopware's scripts throw on them), and root paths built by scripts would leave the prefix. So: document.cookie from the jar
  * (non-HttpOnly cookies) with writes reported to Lotse, in-memory storage, and fetch/XHR URLs on this host kept below the prefix.
  */
+/** The shim also tells the panel (postMessage to the parent) which page is open ({lotseSbx:'page', path}: below the prefix, with the
+ *  query) and when the frame starts loading another one ({lotseSbx:'loading'}): address bar, loading bar and the AI's context follow
+ *  navigation inside the frame. Shop code can send the same messages – the panel and the server treat the path as untrusted data. */
 export function previewShim(prefix: string, cookies: [string, string][]): string {
   const json = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c');
   return `<script>(function(){var P=${json(prefix)},jar={};${json(cookies)}.forEach(function(c){jar[c[0]]=c[1]});
@@ -106,6 +126,10 @@ function mem(){var d={};return{getItem:function(k){return Object.prototype.hasOw
 ['localStorage','sessionStorage'].forEach(function(n){try{window[n].length}catch(e){try{Object.defineProperty(window,n,{configurable:true,value:mem()})}catch(x){}}});
 var F=window.fetch;if(F)window.fetch=function(i,o){if(typeof i==='string'||i instanceof URL)i=fix(i);else if(i&&i.url&&fix(i.url)!==i.url)i=new Request(fix(i.url),i);return F.call(this,i,o)};
 var O=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){var a=Array.prototype.slice.call(arguments);a[1]=fix(u);return O.apply(this,a)};
+function tell(m){try{if(parent!==window)parent.postMessage(m,'*')}catch(e){}}
+function nav(){var p=location.pathname;tell({lotseSbx:'page',path:(p===P?'/':p.indexOf(P+'/')===0?p.slice(P.length):p)+location.search})}
+if(document.readyState==='complete')nav();else addEventListener('load',nav);addEventListener('popstate',nav);
+addEventListener('beforeunload',function(){tell({lotseSbx:'loading'})});
 })();</script>`;
 }
 

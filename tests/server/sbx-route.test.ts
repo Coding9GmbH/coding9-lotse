@@ -281,3 +281,40 @@ test('Sandbox Coding switched off: 403, nothing contacted', async () => {
     assert.equal(seen.length, n);
   } finally { E.saveSandbox({ enabled: true }); }
 });
+
+test('"Bilder vom Live-Shop": a media file missing in the sandbox (404) comes from the live shop, server side; nothing else does', async () => {
+  const M = await import('../../src/server/media');
+  const live: string[] = [];
+  M.setTrustedOrigins(async () => ['https://live.example']);
+  M.setFetcher((async (u: string) => {
+    live.push(String(u));
+    if (String(u).endsWith('.svg')) return new Response('<svg onload="x()"/>', { headers: { 'content-type': 'image/svg+xml' } });
+    if (String(u).includes('missing')) return new Response('nope', { status: 404 });
+    return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { 'content-type': 'image/png' } });
+  }) as any);
+  const t = await readyTask();
+  answer = (_q, res) => { res.writeHead(404, { 'content-type': 'text/html' }); res.end('not found'); };
+  // without a live shop set: the sandbox's 404 stands
+  assert.equal((await call(`${pre(t)}/media/ab/cd/bild.png`)).status, 404);
+  assert.equal(live.length, 0);
+  T.saveTask({ ...T.getTask(t.id)!, setup: { source: 'repo', mode: 'auto', commands: [], env: [], mediaOrigin: 'https://live.example' } }, false);
+  const r = await call(`${pre(t)}/media/ab/cd/bild.png?ts=1`);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'image/png');
+  assert.match(r.headers.get('content-security-policy') ?? '', /sandbox/);
+  assert.deepEqual([...new Uint8Array(await r.arrayBuffer())], [0x89, 0x50, 0x4e, 0x47]);
+  assert.equal(live.at(-1), 'https://live.example/media/ab/cd/bild.png', 'the path only, no query');
+  assert.equal((await call(`${pre(t)}/thumbnail/ab/bild_400x400.png`)).status, 200);
+  // other paths, SVG and what the live shop lacks: the sandbox's 404
+  const n = live.length;
+  assert.equal((await call(`${pre(t)}/account/login`)).status, 404);
+  assert.equal((await call(`${pre(t)}/theme/abc/app.css`)).status, 404);
+  assert.equal(live.length, n, 'only /media/ and /thumbnail/ fall back');
+  assert.equal((await call(`${pre(t)}/media/logo.svg`)).status, 404);
+  assert.equal((await call(`${pre(t)}/media/missing.png`)).status, 404);
+  // the sandbox's own file wins
+  answer = (_q, res) => { res.writeHead(200, { 'content-type': 'image/png' }); res.end('own'); };
+  const own = await call(`${pre(t)}/media/ab/cd/bild.png`);
+  assert.equal(await own.text(), 'own');
+  M.setTrustedOrigins(async () => []);
+});

@@ -182,7 +182,7 @@ export function saveSandbox(p: SandboxEnvPatch, env: Record<string, string | und
   if (p.defaultRepo !== undefined) { const r = p.defaultRepo.trim(); next.defaultRepo = r ? assertRepoName(r) : ''; if (next.defaultRepo !== (s.defaultRepo ?? '')) changed.push('defaultRepo'); }
   if (p.defaultBranch !== undefined) { const b = p.defaultBranch.trim(); next.defaultBranch = b ? branchName(b) : ''; if (next.defaultBranch !== (s.defaultBranch ?? '')) changed.push('defaultBranch'); }
   if (p.internet !== undefined) {
-    if (p.internet !== 'approval' && p.internet !== 'never') throw new Error('Internet im Container: erlaubt sind „nur nach Freigabe“ oder „nie“.');
+    if (!['approval', 'always', 'never'].includes(p.internet)) throw new Error('Internet im Container: erlaubt sind „nur nach Freigabe“, „immer an“ oder „nie“.');
     if (p.internet !== (s.internet ?? 'approval')) { next.internet = p.internet; changed.push('internet'); }
   }
   if (p.defaultDumpId !== undefined) {

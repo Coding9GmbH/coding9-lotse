@@ -137,6 +137,61 @@ test('installed completely: edits outside the overlay areas (composer.json, bin/
   await assert.rejects(syncTaskPaths(t, ['.env.local']), /nicht übertragen/);
 });
 
+test('"immer an": composer install does not wait for a click; offline during the rest of the setup, online once ready', async () => {
+  E.saveSandbox({ enabled: true, internet: 'always' });
+  try {
+    const id = start('acme/shop');
+    await settled(id);
+    const done = T.getTask(id)!;
+    assert.equal(done.status, 'ready', done.error ?? '');
+    const seq = ops(done.containerId!).map(c => (c.op === 'connectEgress' ? 'online' : c.op === 'disconnectEgress' ? 'offline' : isComposerInstall(c.argv) ? 'composer' : c.argv?.join(' ') === 'bin/console database:migrate --all -n' ? 'migrate' : '')).filter(Boolean);
+    const composer = seq.indexOf('composer');
+    assert.ok(seq.lastIndexOf('online', composer) >= 0 && seq.indexOf('offline', composer) < seq.indexOf('migrate'), seq.join(' → '));
+    assert.equal(seq.at(-1), 'online', 'online once ready');
+    assert.equal(done.internet?.via, 'policy');
+    assert.match(done.steps.find(s => s.key === 'install-plugin')!.log.join('\n'), /Internet für composer install \(„immer an“\)/);
+    await J.finishTask(id);
+  } finally { E.saveSandbox({ enabled: true, internet: 'approval' }); }
+});
+
+test('switching to "immer an" while a setup waits for internet lets it go on', async () => {
+  const id = start('acme/shop');
+  await until(() => !!T.getTask(id)?.awaitingInternet, 20_000);
+  const envRoute = await import('../../src/app/api/sandbox/env/route');
+  try {
+    const res = await envRoute.PUT(new Request('http://127.0.0.1/api/sandbox/env', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ internet: 'always' }) }));
+    assert.equal(res.status, 200);
+    await settled(id);
+    assert.equal(T.getTask(id)!.status, 'ready', T.getTask(id)!.error ?? '');
+    await J.finishTask(id);
+  } finally { E.saveSandbox({ enabled: true, internet: 'approval' }); }
+});
+
+test('a theme without its built storefront JavaScript: the storefront build runs after internet was allowed, offline again after', async () => {
+  const { BUILD_STOREFRONT } = await import('../../src/server/sandbox/templates/dockware');
+  let compiles = 0;
+  fake.script = argv => (argv[0] === 'bin/console' && argv[1] === 'theme:compile' && ++compiles === 1
+    ? { exitCode: 1, output: 'Unable to compile the theme "AcmeTheme". Unable to load file "Resources/app/storefront/dist/storefront/js/acme-theme/acme-theme.js". Did you forget to build the theme? Try running ./bin/build-storefront.sh' }
+    : undefined);
+  const id = start('acme/shop');
+  try {
+    await until(() => !!T.getTask(id)?.awaitingInternet, 20_000);
+    await I.grantInternet(id, { via: 'panel' }); // composer install
+    await until(() => T.getTask(id)?.steps.find(s => s.key === 'theme-compile')?.state === 'running' && !!T.getTask(id)?.awaitingInternet, 20_000);
+    const cid = T.getTask(id)!.containerId!;
+    assert.ok(!ops(cid).some(c => JSON.stringify(c.argv) === JSON.stringify(BUILD_STOREFRONT)), 'no build before the click');
+    await I.grantInternet(id, { via: 'panel' }); // storefront build
+    await settled(id);
+    const done = T.getTask(id)!;
+    assert.equal(done.status, 'ready', done.error ?? '');
+    const seq = ops(cid).map(c => (c.op === 'connectEgress' ? 'online' : c.op === 'disconnectEgress' ? 'offline' : JSON.stringify(c.argv) === JSON.stringify(BUILD_STOREFRONT) ? 'build' : '')).filter(Boolean);
+    const build = seq.indexOf('build');
+    assert.ok(build > 0 && seq.lastIndexOf('online', build) >= 0 && seq.indexOf('offline', build) > build, seq.join(' → '));
+    assert.equal(done.internet ?? null, null, 'offline once ready');
+    assert.match(done.steps.find(s => s.key === 'theme-compile')!.log.join('\n'), /Gebautes Storefront-JavaScript fehlt[\s\S]*Storefront gebaut und Theme kompiliert/);
+  } finally { fake.script = () => undefined; await J.finishTask(id); }
+});
+
 test('internet only for a ready sandbox or a setup that waits for it', async () => {
   const t = T.getTask(fullTask)!;
   T.saveTask({ ...t, status: 'setting_up' }, false);
@@ -264,7 +319,7 @@ test('with a database dump a plugin the repository has in a newer version is upd
   assert.equal(ran.filter(r => r[1] === 'plugin:install').length, 0, 'the dump knows them all: nothing installed');
 });
 
-test('with a database dump a plugin that cannot be installed stays as the dump has it (warning); without one the setup fails', async () => {
+test('with a database dump nothing is installed or activated (plugins it lacks stay off); without one the setup fails', async () => {
   const { installExtensions } = await import('../../src/server/sandbox/templates/dockware-project');
   const make = (dump: boolean, rows = 'Other\t1\tcustom/plugins/Other\n') => {
     const log: string[] = [], ran: string[][] = [];
@@ -288,9 +343,9 @@ test('with a database dump a plugin that cannot be installed stays as the dump h
   const l = { kind: 'project', project: p } as unknown as Parameters<typeof installExtensions>[1];
   const a = make(true);
   await installExtensions(a.ctx, l, p, new Set(), null);
-  assert.ok(a.log.some(x => /Warnung: Plugin Bad .*Datenbank-Dump.*acme\/base/.test(x)), a.log.join('\n'));
-  assert.ok(a.log.some(x => x === 'Plugins installiert und aktiv: Good'));
-  assert.deepEqual(a.ran.filter(r => r[1] === 'plugin:install').map(r => r.slice(r.indexOf('--') + 1)), [['Good', 'Bad'], ['Good'], ['Bad']]);
+  assert.equal(a.ran.filter(r => r[1] === 'plugin:install').length, 0, 'the dump decides');
+  assert.ok(a.log.some(x => /Plugins bleiben, wie sie im Dump sind \(1 der Projekt-Plugins darin installiert\)/.test(x)), a.log.join('\n'));
+  assert.ok(a.log.some(x => x.startsWith('Nicht im Dump installiert und deshalb aus: Good, Bad.')), a.log.join('\n'));
   // no dump registered with the sandbox, but the database already has a project plugin installed: its state counts, nothing is installed over it
   const c = make(false, 'Good\t1\tcustom/plugins/Good\nBad\t1\tcustom/plugins/Bad\nOther\t1\tcustom/plugins/Other\n');
   await installExtensions(c.ctx, l, p, new Set(), null);

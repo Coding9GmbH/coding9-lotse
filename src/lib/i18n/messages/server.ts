@@ -31,6 +31,7 @@ export const de = {
   pluginNameInvalid: 'Ungültiger Plugin-Name: Buchstaben und Ziffern, beginnt mit einem Großbuchstaben, 2 bis 61 Zeichen (z. B. CoNineHeaderBanner).',
   targetPathInvalid: 'Ungültiger Zielordner: ein absoluter Ordner unter /var/www, /opt oder /srv, z. B. /opt/app (Buchstaben, Ziffern, . _ -).',
   previewPathInvalid: 'Ungültige Startseite der Vorschau: ein Pfad des Shops, der mit / beginnt (z. B. /de/), ohne Leerzeichen.',
+  mediaOriginInvalid: 'Ungültige Adresse für „Bilder vom Live-Shop“: eine http(s)-Adresse wie https://www.example.com, ohne Zugangsdaten.',
   /** A22/A23: saved setups ("Gespeicherte Umgebungen", internally quick starts) */
   quickStart: {
     name: 'Name fehlt oder ist zu lang (höchstens 80 Zeichen).',
@@ -52,7 +53,7 @@ export const de = {
       ? `Im Feld „${field}“ steht der geheime Wert von ${key}. Eine gespeicherte Umgebung enthält keine geheimen Werte – stattdessen den Namen verwenden (in Befehlen $${key}, die Sandbox setzt ihn).`
       : `Im Feld „${field}“ steht ein gespeicherter geheimer Wert (Zugangsdaten). Eine gespeicherte Umgebung enthält keine geheimen Werte – bitte entfernen.`,
     field: {
-      repo: 'Projekt', branch: 'Branch', pluginName: 'Plugin-Name', targetPath: 'Zielordner', image: 'Image', previewPath: 'Startseite der Vorschau', notes: 'Hinweise für die KI',
+      repo: 'Projekt', branch: 'Branch', pluginName: 'Plugin-Name', targetPath: 'Zielordner', image: 'Image', previewPath: 'Startseite der Vorschau', mediaOrigin: 'Bilder vom Live-Shop', notes: 'Hinweise für die KI',
       commandLabel: (n: number) => `Befehl ${n}: Bezeichnung`, command: (n: number) => `Befehl ${n}`, varKey: (n: number) => `Variable ${n}: Name`,
     },
   },
@@ -179,6 +180,7 @@ export const en: typeof de = {
   pluginNameInvalid: 'Invalid plugin name: letters and digits, starting with a capital letter, 2 to 61 characters (e.g. CoNineHeaderBanner).',
   targetPathInvalid: 'Invalid target folder: an absolute folder below /var/www, /opt or /srv, e.g. /opt/app (letters, digits, . _ -).',
   previewPathInvalid: 'Invalid preview start page: a path of the shop starting with / (e.g. /en/), without spaces.',
+  mediaOriginInvalid: 'Invalid address for “Images from the live shop”: an http(s) address such as https://www.example.com, without credentials.',
   quickStart: {
     name: 'The name is missing or too long (at most 80 characters).',
     nameTaken: name => `There already is a saved environment “${name}”.`,
@@ -199,7 +201,7 @@ export const en: typeof de = {
       ? `The field “${field}” contains the secret value of ${key}. A saved environment holds no secret values – use the name instead (in commands $${key}, the sandbox sets it).`
       : `The field “${field}” contains a stored secret value (credentials). A saved environment holds no secret values – please remove it.`,
     field: {
-      repo: 'Project', branch: 'Branch', pluginName: 'Plugin name', targetPath: 'Target folder', image: 'Image', previewPath: 'Preview start page', notes: 'Notes for the AI',
+      repo: 'Project', branch: 'Branch', pluginName: 'Plugin name', targetPath: 'Target folder', image: 'Image', previewPath: 'Preview start page', mediaOrigin: 'Images from the live shop', notes: 'Notes for the AI',
       commandLabel: n => `Command ${n}: label`, command: n => `Command ${n}`, varKey: n => `Variable ${n}: name`,
     },
   },

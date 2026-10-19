@@ -32,12 +32,16 @@ export interface StepCtx {
   projectDir: () => string;
   /** absolute path of the project's folder in the worktree: the worktree itself, or the layout's subfolder (read-only use) */
   projectRoot: () => string;
+  /** names of the variables of the environment and of this sandbox (no values; COMPOSER_AUTH left out) */
+  envNames: () => string[];
   /** how a whole project is installed: .lotse/sandbox.json "projectInstall", default full */
   projectInstall: () => ProjectInstall;
-  /** internet for the setup itself (a whole project's composer install): only a human allows it, as for the AI (internet.ts) */
+  /** internet for the setup itself (a whole project's composer install, the storefront build): only a human allows it (a click or "immer an"), as for the AI (internet.ts) */
   internet: {
     /** why internet cannot be allowed at all (environment "nie", no egress subnet); null = a human can allow it */
     blocked: () => string | null;
+    /** "immer an" and not switched off for this task: await() connects without a click */
+    auto: () => boolean;
     /** waits until a human allowed internet for this task (switch in the panel or the chat's line); the task shows that it waits */
     await: () => Promise<void>;
     /** detaches the container again (the setup goes on offline) */

@@ -7,7 +7,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { DEFAULT_LOCALE, messages, type Locale } from '@/lib/i18n';
 import type { ChatEvent, CodeTaskPublic, CodeTaskStatus, TaskDumpPublic, CommandPhase, SandboxMode, ShotDevice, TaskEvent, TaskLayout, TaskPublish, TaskRepoFile, TaskShotSet, TaskStep } from '@/lib/protocol';
-import { PLUGIN_NAME, PREVIEW_PATH, pluginNameFromRepo, suggestTargetPath, targetPathProblem } from '@/lib/sandbox-task';
+import { PLUGIN_NAME, PREVIEW_PATH, mediaOriginOf, pluginNameFromRepo, suggestTargetPath, targetPathProblem } from '@/lib/sandbox-task';
 import { codeTaskByChat, codeTaskGet, codeTaskList, codeTaskPut, dataDir, macOf, type CodeTaskRow } from '../db';
 import { assertLotseBranch } from '../git';
 import { singleton } from '../state';
@@ -34,6 +34,7 @@ export interface StoredSetup {
   /** A22 (start dialog / quick start): another image tag, the preview's first page and notes for the AI of this sandbox; each wins over
    *  the repository file's */
   image?: string; previewPath?: string; notes?: string;
+  /** "Bilder vom Live-Shop": origin media missing in the sandbox are fetched from (never from the repository file) */ mediaOrigin?: string;
 }
 /** The task's dump: id of the file in code_dumps while it waits for the import; afterwards only the facts remain (a stored database,
  *  library, stays in code_dumps). restored: the task's data volume was filled from the snapshot of this database for that image. */
@@ -50,7 +51,8 @@ export interface CodeTask extends CodeTaskRow {
   /** the container keeps MySQL's data in the task's own volume (stored databases, db-snapshots.ts) */ dbVolume?: boolean;
   /** title of the pull request (number, URL and pushed SHA are columns) */ prTitle?: string | null;
   /** publishing (running, failed or interrupted by a restart); null after success */ publish?: TaskPublish | null;
-  /** internet a human allowed (container attached to lotse-sandbox-egress, internet.ts); null/missing = offline */ internet?: { since: string; via: 'chat' | 'panel' } | null;
+  /** internet a human allowed (container attached to lotse-sandbox-egress, internet.ts); null/missing = offline */ internet?: { since: string; via: 'chat' | 'panel' | 'policy' } | null;
+  /** a user switched internet off in the panel: "immer an" leaves this task offline until they switch it on again */ internetOff?: boolean;
   /** the running setup waits for a human to allow internet (installProjectFull); cleared when the step ends */ awaitingInternet?: boolean;
   /** what the PR watcher (pr-watch.ts) knows about the PR: state, head, feedback ids already reported */ prWatch?: PrWatch | null;
   /** screenshots the user took by hand (screenshots.ts), oldest first; files in taskPaths().screenshots. not an array = none (rows from before) */ shots?: StoredShotSet[];
@@ -256,7 +258,7 @@ export interface NewTask {
   source?: 'repo' | 'none'; mode?: SandboxMode; targetPath?: string; commands?: { label: string; command: string; phase: CommandPhase; timeoutSec?: number }[];
   env?: { key: string; value: string }[]; skipRepoHash?: string;
   /** A22: another image tag (or the full name) of the configured image repository, the preview's first page, notes for the AI */
-  image?: string; previewPath?: string; notes?: string;
+  image?: string; previewPath?: string; notes?: string; mediaOrigin?: string;
 }
 /** What the start dialog chose, checked: the same rules for a new task and for a quick start (A22). Throws status 400 with a German
  *  message. image: the full name, only when it differs from the environment's. */
@@ -269,6 +271,8 @@ export function checkSetup(p: Omit<NewTask, 'chatId'>, locale: Locale = DEFAULT_
   if (targetPath && targetPathProblem(targetPath)) throw bad(messages(locale).server.targetPathInvalid);
   const previewPath = p.previewPath?.trim() || undefined;
   if (previewPath && !PREVIEW_PATH.test(previewPath)) throw bad(messages(locale).server.previewPathInvalid);
+  const mediaOrigin = p.mediaOrigin?.trim() ? mediaOriginOf(p.mediaOrigin) : undefined;
+  if (mediaOrigin === null) throw bad(messages(locale).server.mediaOriginInvalid);
   let commands: StoredSetup['commands'] = [], env: StoredSetup['env'] = [], image: string | undefined, notes = '';
   try {
     commands = p.commands?.length ? checkCommands(p.commands, 10) : [];
@@ -277,7 +281,7 @@ export function checkSetup(p: Omit<NewTask, 'chatId'>, locale: Locale = DEFAULT_
     notes = p.notes ? cleanNotes(p.notes) : '';
   } catch (e) { throw bad((e as Error).message); }
   return { source: none ? 'none' : 'repo', mode, ...(targetPath ? { targetPath } : {}), commands, env,
-    ...(image && image !== cfg.image ? { image } : {}), ...(previewPath ? { previewPath } : {}), ...(notes ? { notes } : {}) };
+    ...(image && image !== cfg.image ? { image } : {}), ...(previewPath ? { previewPath } : {}), ...(mediaOrigin ? { mediaOrigin } : {}), ...(notes ? { notes } : {}) };
 }
 /** Branch base of a sandbox without a project: its local git starts with an empty commit on main */
 export const NO_REPO_BASE = 'main';

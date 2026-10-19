@@ -77,7 +77,7 @@ export function normalizeSetup(raw: unknown, locale: Locale = DEFAULT_LOCALE): Q
   for (const e of env) refs.delete(e.key); // a plain value given for it replaces the reference
   // every other text of the setup must not hold a secret either (it is stored, listed and given to the AI): refused, naming the field
   const f = M(locale).field, texts: [string, string | undefined][] = [
-    [f.repo, v.repo], [f.branch, v.baseBranch], [f.pluginName, v.pluginName], [f.targetPath, v.targetPath], [f.image, v.image], [f.previewPath, v.previewPath], [f.notes, v.notes],
+    [f.repo, v.repo], [f.branch, v.baseBranch], [f.pluginName, v.pluginName], [f.targetPath, v.targetPath], [f.image, v.image], [f.previewPath, v.previewPath], [f.mediaOrigin, v.mediaOrigin], [f.notes, v.notes],
     ...(none ? [] : v.commands ?? []).flatMap((c, i): [string, string][] => [[f.commandLabel(i + 1), c.label], [f.command(i + 1), c.command]]),
     ...(none ? [] : v.env ?? []).map((e, i): [string, string] => [f.varKey(i + 1), e.key]),
   ];
@@ -95,7 +95,7 @@ export function normalizeSetup(raw: unknown, locale: Locale = DEFAULT_LOCALE): Q
     ...(none ? { source: 'none' as const } : {}), ...(!none && s.mode !== 'auto' ? { mode: s.mode } : {}), ...(s.targetPath ? { targetPath: s.targetPath } : {}),
     ...(s.commands.length ? { commands: s.commands.map(c => ({ label: c.label, command: c.command, phase: c.phase })) } : {}),
     ...(s.env.length ? { env: s.env } : {}), ...(v.dumpId ? { dumpId: v.dumpId } : {}),
-    ...(s.image ? { image: s.image } : {}), ...(s.previewPath ? { previewPath: s.previewPath } : {}), ...(s.notes ? { notes: s.notes } : {}),
+    ...(s.image ? { image: s.image } : {}), ...(s.previewPath ? { previewPath: s.previewPath } : {}), ...(s.mediaOrigin ? { mediaOrigin: s.mediaOrigin } : {}), ...(s.notes ? { notes: s.notes } : {}),
     ...(refs.size ? { envRefs: [...refs].slice(0, 50) } : {}),
   };
 }
@@ -112,7 +112,7 @@ export function setupOfTask(t: CodeTask, locale: Locale = DEFAULT_LOCALE): Quick
     ...(none ? { source: 'none' } : {}), mode: s.mode, ...(s.targetPath ? { targetPath: s.targetPath } : {}),
     commands: s.commands.map(c => ({ label: c.label, command: c.command, phase: c.phase })), env: s.env,
     ...(dump?.library && dump.status === 'ready' ? { dumpId: dump.id } : {}),
-    ...(s.image ? { image: s.image } : {}), ...(s.previewPath ? { previewPath: s.previewPath } : {}), ...(s.notes ? { notes: s.notes } : {}),
+    ...(s.image ? { image: s.image } : {}), ...(s.previewPath ? { previewPath: s.previewPath } : {}), ...(s.mediaOrigin ? { mediaOrigin: s.mediaOrigin } : {}), ...(s.notes ? { notes: s.notes } : {}),
   }, locale);
 }
 
@@ -239,7 +239,7 @@ export async function startQuickStart(id: string, chatId: string, locale: Locale
     chatId, goal: '', title: opts.title?.trim() || q.name, repo: s.repo, baseBranch: s.baseBranch, source: kind === 'none' ? 'none' : 'repo', mode: kind === 'custom' ? 'custom' : s.mode ?? 'auto',
     ...(s.pluginName ? { pluginName: s.pluginName } : {}), ...(s.targetPath ? { targetPath: s.targetPath } : {}), ...(s.commands ? { commands: s.commands } : {}),
     ...(s.env ? { env: s.env } : {}), ...(s.dumpId ? { dumpId: s.dumpId } : {}), ...(s.image ? { image: s.image } : {}), ...(s.previewPath ? { previewPath: s.previewPath } : {}),
-    ...(s.notes ? { notes: s.notes } : {}),
+    ...(s.mediaOrigin ? { mediaOrigin: s.mediaOrigin } : {}), ...(s.notes ? { notes: s.notes } : {}),
   }, locale, { quickStart: q.name });
   // read again after the awaits: another start of the same environment (or an edit) may have saved meanwhile
   const store = load(), row = store.items.find(x => x.id === id);

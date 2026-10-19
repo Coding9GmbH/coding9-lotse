@@ -88,8 +88,9 @@ function dockwareAnswers(argv: readonly string[], c: FakeContainer): Partial<Exe
     const names = /WHERE name IN \(([^)]*)\)/.exec(last)?.[1];
     return { output: names ? names.split(',').map(n => `${n.replace(/'/g, '').trim()}\t11`).join('\n') + '\n' : '11\n' };
   }
-  if (argv[0] === 'bin/console' && argv[1] === 'about') return { output: ' Kernel\n  Environment          dev\n  Debug                true\n' };
-  if (script === 'bin/console debug:config 2>&1') return { output: ` ---- ----\n  Bundle name   Extension alias\n${FAKE_EXTENSIONS.map(e => `  Some${e.replace(/_/g, '')}Bundle   ${e}`).join('\n')}\n` };
+  const cmd = argv[0] === 'env' ? argv.slice(argv.findIndex(a => !a.includes('=') && a !== 'env')) : argv;
+  if (cmd[0] === 'bin/console' && cmd[1] === 'about') return { output: ' Kernel\n  Environment          dev\n  Debug                true\n' };
+  if (/^(DATABASE_URL= )?bin\/console debug:config 2>&1$/.test(script)) return { output: ` ---- ----\n  Bundle name   Extension alias\n${FAKE_EXTENSIONS.map(e => `  Some${e.replace(/_/g, '')}Bundle   ${e}`).join('\n')}\n` };
   if (argv[0] === 'bash' && /env \| cut -d= -f1/.test(script)) return { output: 'APP_ENV\nAPP_URL\nDATABASE_URL\nAPP_SECRET\nPATH\n' };
   if (argv[0] === 'cat' && argv[1] === 'composer.json') return { output: JSON.stringify({ type: 'project', require: { 'shopware/core': 'v6.7.15.1' }, autoload: { 'psr-4': { 'App\\': 'src/' } } }) };
   if (argv[0] === 'cat' && argv[1]?.startsWith('/')) { const f = c.files.get(argv[1]); return f ? { output: f.toString('utf8') } : { exitCode: 1, output: `cat: ${argv[1]}: No such file or directory` }; }

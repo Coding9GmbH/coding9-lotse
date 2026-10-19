@@ -49,6 +49,15 @@ test('chunked assembly: file identical, mode 0600 in a 0700 directory, sha256 re
   assert.ok(!JSON.stringify(pub).includes('MySQL') && !JSON.stringify(pub).includes(file));
   assert.equal(await D.dumpShopwareVersion(file), '6.6', 'newest core migration namespace');
   D.deleteDump(d.id);
+  // Sequel Ace: # comments, one row per line after VALUES
+  const ace = await upload(Buffer.from([
+    '# Sequel Ace SQL dump', '', 'SET NAMES utf8mb4;', 'INSERT INTO `migration` (`class`, `creation_timestamp`)', 'VALUES',
+    "\t('Shopware\\\\Core\\\\Migration\\\\V6_5\\\\Migration1',1),", "\t('Shopware\\\\Core\\\\Migration\\\\V6_7\\\\Migration2',2);", '',
+    'INSERT INTO `product` (`id`)', 'VALUES', "\t('Shopware\\\\Core\\\\Migration\\\\V6_9\\\\NotAMigration');", '',
+  ].join('\n')));
+  assert.equal(ace.status, 'ready');
+  assert.equal(await D.dumpShopwareVersion(D.dumpFile(ace.id)), '6.7', 'Sequel Ace: rows on their own lines, other tables ignored');
+  D.deleteDump(ace.id);
   assert.ok(!fs.existsSync(path.dirname(file)));
   assert.equal(db.codeDumpGet(d.id)!.status, 'deleted');
 });
@@ -88,6 +97,9 @@ test('magic: gzip and plain SQL pass, anything else → 415 and the file is gone
     assert.ok(!fs.existsSync(D.dumpFile(d.id)));
   }
   assert.ok(D.looksLikeSql(Buffer.from('/*M!999999\\- enable the sandbox mode */\n-- MariaDB dump')));
+  assert.ok(D.looksLikeSql(Buffer.from('# ****\n# Sequel Ace SQL dump\n#\n\n\n/*!40101 SET NAMES utf8mb4 */;\nSET NAMES utf8mb4;\n')), 'Sequel Ace: # comments');
+  assert.ok(!D.looksLikeSql(Buffer.from('# comment\n#!/bin/sh\nrm -rf /\n')), 'shebang after a comment');
+  assert.ok(!D.looksLikeSql(Buffer.from('# just comments\n# nothing else\n')), 'comments only');
 });
 
 test('a dump that selects its own database (mysqldump --databases) is refused: 422, file gone', async () => {

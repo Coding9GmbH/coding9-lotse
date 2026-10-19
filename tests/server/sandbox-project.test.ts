@@ -439,7 +439,28 @@ test('the boot check takes out the file Shopware names, defines missing env vars
   await J.finishTask(t2.id);
 });
 
-test('with a dump the dump decides: only plugins it does not know are installed, its theme stays', async () => {
+test('the boot check: an expired commercial license (renewed online at boot) fails once offline, the next boot goes on', async () => {
+  let failed = false, cleared = false;
+  fake.script = argv => {
+    if (argv[0] === 'bash' && argv[2] === 'rm -rf var/cache/* 2>/dev/null; exit 0') { cleared = true; return undefined; }
+    if (argv[0] === 'bin/console' && argv[1] === 'about' && cleared && !failed) {
+      failed = true;
+      return { exitCode: 1, output: 'cURL error 6: Could not resolve host: api.shopware.com for https://api.shopware.com/swplatform/commerciallicensekey?shopwareVersion=6.7.0.0&domain=shop.example' };
+    }
+    return undefined;
+  };
+  const t = T.createTask({ chatId: crypto.randomUUID(), title: 'Lizenz', repo: 'acme/shop', baseBranch: 'main' });
+  J.runSteps(t.id);
+  await settled(t.id);
+  fake.script = () => undefined;
+  const cur = T.getTask(t.id)!;
+  assert.equal(cur.status, 'ready', cur.error ?? '');
+  assert.ok(failed);
+  assert.match(cur.steps.find(s => s.key === 'install-plugin')!.log.join('\n'), /kommerzielle Lizenz in der Datenbank ist abgelaufen/);
+  await J.finishTask(t.id);
+});
+
+test('with a dump the dump decides: nothing is installed or activated, its theme stays', async () => {
   const D = await import('../../src/server/sandbox/dumps');
   const sql = '-- MySQL dump\nINSERT INTO `migration` VALUES (\'Shopware\\\\Core\\\\Migration\\\\V6_7\\\\Migration1700000000X\',1);\n';
   const up = D.createDump('shop.sql', Buffer.byteLength(sql));
@@ -459,10 +480,11 @@ test('with a dump the dump decides: only plugins it does not know are installed,
   assert.equal(cur.status, 'ready', cur.error ?? '');
   const log = cur.steps.find(s => s.key === 'install-plugin')!.log.join('\n');
   assert.match(log, /Im Dump aktiv, aber ohne Code im Projekt oder Image: SwagPayPal/);
-  assert.match(log, /1 Projekt-Plugins sind darin bekannt und behalten ihren Zustand, neu installiert: AcmeStorefrontTweaks, AcmeErpConnector/);
+  assert.match(log, /Plugins bleiben, wie sie im Dump sind \(1 der Projekt-Plugins darin installiert\)/);
+  assert.match(log, /Nicht im Dump installiert und deshalb aus: AcmeStorefrontTweaks, AcmeErpConnector\./);
   assert.match(log, /Theme: bleibt, wie es im Datenbank-Dump zugewiesen ist/);
   const argv = execs(cur.containerId!);
-  assert.ok(argv.some(a => a.join(' ') === 'bin/console plugin:install --activate -n -- AcmeStorefrontTweaks AcmeErpConnector'));
+  assert.ok(!argv.some(a => a.includes('plugin:install')), 'the dump keeps its plugins');
   assert.ok(!argv.some(a => a.includes('theme:change')), 'the dump keeps its theme');
   assert.ok(!argv.some(a => a.includes('app:install')), 'the app is in the dump already');
   assert.equal(cur.layout!.project!.theme, null);
@@ -479,7 +501,7 @@ test('plugin repositories are unchanged: synced to custom/plugins/<Name>, never 
   assert.equal(cur.layout!.kind, 'theme');
   const argv = execs(cur.containerId!);
   assert.ok(argv.some(a => a.join(' ') === 'bin/console plugin:install --activate -- AcmeTheme'));
-  assert.ok(!argv.some(a => a[0] === 'php' || a.includes('cache:pool:clear') || a.includes('composer')), 'no project steps');
+  assert.ok(!argv.some(a => (a[0] === 'php' && !a[2]?.includes('.env.local')) || a.includes('cache:pool:clear') || a.includes('composer')), 'no project steps');
   assert.ok(fake.archives.filter(a => a.id === cur.containerId).every(a => a.dir === '/var/www/html/custom/plugins' || a.dir === '/var/www'));
   assert.ok(!files(cur.containerId!).has(`${ROOT}/config/services_dev.yml`) && !argv.some(a => a[3] === 'lotse-restore'), 'no project override, no image backup');
   await J.finishTask(t.id);
