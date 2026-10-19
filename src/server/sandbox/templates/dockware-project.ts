@@ -10,6 +10,9 @@
 //  5. plugin:refresh + install/activate (without a dump all project plugins; with a dump its plugin table decides, only new ones are
 //     installed), apps (app:install --force: aborts without it), the project's theme (without a dump)
 //  6. extension aliases again (plugins may bring their own): files quarantined only for that are loaded now
+// Installed completely (installProjectFull, the default): the whole repository goes into /var/www/html and the project's own
+// composer install replaces the image's vendor/ – after a human allowed internet for it (the setup waits, internet.ts), offline again
+// right after. Then steps 1 and 4–6 as above, with the database migrated to the project's Shopware first.
 // Every argv is constant or built from validated names (plugin names, composer package names, sales channel ids from MySQL).
 import type { ProjectInfo, TaskLayout } from '@/lib/protocol';
 import { PLUGIN_NAME } from '@/lib/sandbox-task';
@@ -67,7 +70,7 @@ async function readRuntime(ctx: StepCtx, p: ProjectInfo): Promise<ProjectInfo> {
   if (!extensions?.length) throw new Error(`Shopware im Container antwortet nicht auf bin/console: ${bootError(dbg.output) || `Exit-Code ${dbg.exitCode}`}`);
   const envNames = parseEnvNames((await ctx.run(ENV_NAMES_ARGV, { quiet: true })).output);
   const appEnv = about.exitCode === 0 ? parseAppEnv(about.output) : p.appEnv ?? 'dev';
-  ctx.log(`Shopware im Image: Umgebung ${appEnv}, ${extensions.length} Konfigurations-Erweiterungen (${extensions.join(', ')}).`);
+  ctx.log(`Shopware ${p.install === 'full' ? 'des Projekts' : 'im Image'}: Umgebung ${appEnv}, ${extensions.length} Konfigurations-Erweiterungen (${extensions.join(', ')}).`);
   return { ...p, appEnv, extensions, envNames };
 }
 
@@ -147,17 +150,81 @@ async function pluginStates(ctx: StepCtx, names: string[]): Promise<Map<string, 
   return new Map(lines(r.output).map(x => x.split(/\s+/)).filter(x => x.length === 2 && PLUGIN_NAME.test(x[0])).map(x => [x[0], x[1]]));
 }
 
-/** "install-plugin" for a project */
+/** composer install of the project itself: from its composer.lock, without scripts (they would boot Shopware with the project's
+ *  unchecked config); private packages authenticate with COMPOSER_AUTH from the sandbox environment. As www-data in /var/www/html. */
+export const COMPOSER_INSTALL = ['env', 'COMPOSER_NO_INTERACTION=1', 'composer', 'install', '--no-interaction', '--no-progress', '--no-scripts', '--prefer-dist', '--optimize-autoloader'];
+/** The project's migrations (its Shopware may be newer than the image's or the dump's): non-destructive ones only, as an update does */
+const MIGRATE = bin('database:migrate', '--all', '-n');
+/** Why composer failed, for the step's error: authentication, a missing lock, a platform requirement, otherwise its last lines */
+export function composerHint(output: string): string {
+  if (/\b(401|403)\b|authenticat|credentials|auth\.json|http-basic|bearer/i.test(output)) return 'Für private Pakete (z. B. packages.shopware.com, private Git-Repositorys) die Zugangsdaten als geheime Umgebungsvariable COMPOSER_AUTH (Inhalt einer auth.json) in der Sandbox-Umgebung hinterlegen und ab „Projekt einspielen“ erneut versuchen.';
+  if (/could not resolve host|connection (timed out|refused)|network is unreachable|failed to download/i.test(output)) return 'composer hat das Internet nicht erreicht – Internet für die Sandbox erlauben und erneut versuchen.';
+  if (/requires php|requires ext-|platform/i.test(output)) return 'Das Projekt verlangt eine andere PHP-Version oder -Erweiterung als das Image – passendes Dockware-Image wählen.';
+  if (/no composer\.lock|lock file is not up to date/i.test(output)) return 'composer.lock fehlt oder passt nicht zu composer.json – im Repository aktualisieren.';
+  return '';
+}
+
+/** "install-plugin" for a project: installed completely by default; overlay when chosen in .lotse/sandbox.json or when the environment
+ *  forbids internet altogether (then the log says so) */
 export async function installProject(ctx: StepCtx): Promise<void> {
   const { l } = project(ctx);
+  if (l.project?.install !== 'full') return installOverlay(ctx);
+  const blocked = ctx.internet.blocked();
+  if (!blocked) return installProjectFull(ctx);
+  ctx.log(`Projekt vollständig installieren braucht Internet für composer install, das ist hier nicht möglich: ${blocked} Stattdessen Modus „Overlay“ (das Shopware des Images bleibt).`);
+  ctx.setLayout({ ...l, project: { ...l.project, install: 'overlay' } });
+  return installOverlay(ctx);
+}
+
+/** The whole repository in /var/www/html, the project's own composer install (internet only after a human allowed it), its config
+ *  checked and booted, the database migrated, then plugins, apps and theme as in overlay mode. */
+async function installProjectFull(ctx: StepCtx): Promise<void> {
+  const { l } = project(ctx);
+  // the runtime is read again from the installed project (a retry must not plan with the one before): until then config files the
+  // plan checks are held back – the project's bundles bring their own extensions
+  let p: ProjectInfo = { ...l.project!, ...detectProject(ctx.projectRoot()), install: 'full', held: [], extraEnv: [], missingPackages: [], appEnv: undefined, extensions: undefined, envNames: undefined };
+  save(ctx, l, p);
+  await ctx.syncAll();
+  p = project(ctx).p;
+
+  ctx.log('Warte auf Internet für composer install: oben in der Sandbox auf „Internet: aus“ klicken und erlauben. Danach ist der Container wieder offline.');
+  await ctx.internet.await();
+  try {
+    ctx.log('Internet erlaubt – composer install (Pakete aus composer.lock, ohne Skripte) …');
+    const r = await ctx.run(COMPOSER_INSTALL, { timeoutMs: 20 * MIN, okCodes: ANY.okCodes });
+    if (r.exitCode !== 0) {
+      const hint = composerHint(r.output), tail = r.output.trim().split('\n').slice(-12).join('\n');
+      throw new Error(`composer install fehlgeschlagen (Exit-Code ${r.exitCode}).${hint ? ` ${hint}` : ''}${tail ? `\n${tail}` : ''}`);
+    }
+  } finally {
+    await ctx.internet.end().then(() => ctx.log('Internet wieder gesperrt.'), e => ctx.log(`Warnung: Internet ließ sich nicht wieder sperren: ${e instanceof Error ? e.message : String(e)}`));
+  }
+
+  await ctx.run(CLEAR_CACHE, { quiet: true });
+  p = await readRuntime(ctx, p);
+  save(ctx, l, p);
+  let plan = await ctx.syncAll();
+  p = project(ctx).p;
+  ({ p, plan } = await bootCheck(ctx, l, p, plan));
+  logPlan(ctx, plan, p.appEnv ?? 'dev');
+  save(ctx, l, p);
+  await ctx.run(MIGRATE, { timeoutMs: 10 * MIN });
+  ctx.log('Datenbank auf den Stand des Projekts migriert.');
+  await installExtensions(ctx, l, p, new Set(), plan);
+  await ctx.run(bin('assets:install', '-n'), { okCodes: ANY.okCodes, timeoutMs: 5 * MIN, quiet: true });
+}
+
+/** Overlay: the image's Shopware stays, the project's parts are laid over it (steps 1–6 at the top) */
+async function installOverlay(ctx: StepCtx): Promise<void> {
+  const { l } = project(ctx);
   // detected again: a retry after the AI changed the repository installs what is there now; a new run starts the boot check over
-  let p: ProjectInfo = { ...l.project!, ...detectProject(ctx.projectRoot()), held: [], extraEnv: [] };
+  let p: ProjectInfo = { ...l.project!, ...detectProject(ctx.projectRoot()), install: 'overlay', held: [], extraEnv: [] };
   p = await readRuntime(ctx, p);
   save(ctx, l, p);
 
   const missing = await missingPackages(ctx, p);
   p = { ...p, missingPackages: missing };
-  if (missing.length) ctx.log(`Warnung: Diese Pakete verlangt das Projekt, sie fehlen aber im Image und werden offline nicht installiert: ${missing.join(', ')}. Was sie braucht, läuft in der Sandbox nicht (Projekt vollständig installieren wird noch nicht unterstützt).`);
+  if (missing.length) ctx.log(`Warnung: Diese Pakete verlangt das Projekt, sie fehlen aber im Image und werden offline nicht installiert: ${missing.join(', ')}. Was sie braucht, läuft in der Sandbox nicht (Modus „Overlay“ – vollständig installiert holt composer install sie).`);
   // a static plugin whose own requirements are missing cannot be installed by composer offline
   const skip = new Set<string>();
   for (const x of p.plugins.filter(y => y.static)) {
@@ -173,7 +240,11 @@ export async function installProject(ctx: StepCtx): Promise<void> {
   ({ p, plan } = await bootCheck(ctx, l, p, plan));
   logPlan(ctx, plan, p.appEnv ?? 'dev');
   save(ctx, l, p);
+  await installExtensions(ctx, l, p, skip, plan);
+}
 
+/** Plugins (refresh, install/activate), apps, the theme, and config files held back only for extensions the plugins bring */
+async function installExtensions(ctx: StepCtx, l: TaskLayout, p: ProjectInfo, skip: Set<string>, plan: ConfigPlan | null): Promise<void> {
   // plugins: with a dump its plugin table decides (only plugins it does not know are installed); without one every project plugin
   const names = p.plugins.filter(x => !skip.has(x.name)).map(x => x.name);
   const dumped = ctx.hasDump() ? await dumpPlugins(ctx) : null;

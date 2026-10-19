@@ -50,6 +50,7 @@ export interface CodeTask extends CodeTaskRow {
   /** title of the pull request (number, URL and pushed SHA are columns) */ prTitle?: string | null;
   /** publishing (running, failed or interrupted by a restart); null after success */ publish?: TaskPublish | null;
   /** internet a human allowed (container attached to lotse-sandbox-egress, internet.ts); null/missing = offline */ internet?: { since: string; via: 'chat' | 'panel' } | null;
+  /** the running setup waits for a human to allow internet (installProjectFull); cleared when the step ends */ awaitingInternet?: boolean;
   /** what the PR watcher (pr-watch.ts) knows about the PR: state, head, feedback ids already reported */ prWatch?: PrWatch | null;
   /** screenshots the user took by hand (screenshots.ts), oldest first; files in taskPaths().screenshots. not an array = none (rows from before) */ shots?: StoredShotSet[];
   /** the start dialog's choices (A20); missing in rows from before = a repository, mode auto */ setup?: StoredSetup;
@@ -194,6 +195,7 @@ export function publicTask(t: CodeTask, o: { logs?: boolean } = {}): CodeTaskPub
     preview: previewPath(t.id), dump: t.dump ? publicTaskDump(t.dump) : null, prUrl: t.prUrl, createdAt: t.createdAt, updatedAt: t.updatedAt, lastActiveAt: t.lastActiveAt, finishedAt: t.finishedAt,
     chatId: t.chatId, pluginName: t.pluginName ?? null, pr: t.prNumber && t.prUrl ? { number: t.prNumber, url: t.prUrl, title: t.prTitle ?? t.title, ...(t.prWatch?.number === t.prNumber && t.prWatch.state !== 'open' ? { state: t.prWatch.state } : {}) } : null, publish: t.publish ?? null,
     internet: t.internet ? { since: t.internet.since } : null,
+    ...(t.awaitingInternet && t.status === 'setting_up' ? { awaitingInternet: true as const } : {}),
     shots: (Array.isArray(t.shots) ? t.shots : []).map(s => publicShots(t.id, s)),
     ...(hasConsole(t.template) ? { console: true as const } : {}),
     ...(t.setup ? { setup: { source: t.setup.source, mode: t.setup.mode, ...(t.setup.targetPath ? { targetPath: t.setup.targetPath } : {}), commands: t.setup.commands.length, env: t.setup.env.map(v => v.key) } } : {}),

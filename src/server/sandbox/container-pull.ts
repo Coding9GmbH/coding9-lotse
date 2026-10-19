@@ -204,9 +204,11 @@ export async function scopeOf(t: CodeTask, locale: Locale = DEFAULT_LOCALE): Pro
     const p = t.layout.project, runtime = !!(p?.appEnv && p.extensions && p.envNames);
     const quarantined = new Set([...(p?.quarantined ?? []), ...(p?.held ?? [])].map(q => q.file));
     const own = p?.appEnv ? overrideFile(p.appEnv) : null;
+    const full = p?.install === 'full';
     return {
-      roots: withKept(PROJECT_ROOTS.map(r => ({ container: `${ROOT}/${r}`, rel: r }))),
-      accept: rel => !!projectSyncPath(rel),
+      // installed completely: the whole shop root (what projectSyncPath does not sync stays out, as vendor/ and var/)
+      roots: withKept(full ? [{ container: ROOT, rel: '' }] : PROJECT_ROOTS.map(r => ({ container: `${ROOT}/${r}`, rel: r }))),
+      accept: rel => !!projectSyncPath(rel, full),
       ignore: rel => rel === own || rel === SYNC_MANIFEST || rel.startsWith(`${IMAGE_BACKUP}/`) || quarantined.has(rel) || (!runtime && rel.startsWith('config/')),
     };
   }

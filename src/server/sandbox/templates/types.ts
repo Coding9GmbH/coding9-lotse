@@ -1,6 +1,6 @@
 // Sandbox templates: a fixed recipe per platform (image pattern, setup steps, allow-listed commands).
 // Templates are code, never configuration: neither the AI nor chat input can add steps or commands.
-import type { CommandPhase, SandboxMode, SandboxStepKey, SandboxCommandKey, TaskLayout } from '@/lib/protocol';
+import type { CommandPhase, ProjectInstall, SandboxMode, SandboxStepKey, SandboxCommandKey, TaskLayout } from '@/lib/protocol';
 import type { ConfigPlan } from '../project';
 import type { ContainerSpec } from '../runner';
 
@@ -32,6 +32,17 @@ export interface StepCtx {
   projectDir: () => string;
   /** absolute path of the project's folder in the worktree: the worktree itself, or the layout's subfolder (read-only use) */
   projectRoot: () => string;
+  /** how a whole project is installed: .lotse/sandbox.json "projectInstall", default full */
+  projectInstall: () => ProjectInstall;
+  /** internet for the setup itself (a whole project's composer install): only a human allows it, as for the AI (internet.ts) */
+  internet: {
+    /** why internet cannot be allowed at all (environment "nie", no egress subnet); null = a human can allow it */
+    blocked: () => string | null;
+    /** waits until a human allowed internet for this task (switch in the panel or the chat's line); the task shows that it waits */
+    await: () => Promise<void>;
+    /** detaches the container again (the setup goes on offline) */
+    end: () => Promise<void>;
+  };
   /** removes an old container of the task, creates one from buildSpec and starts it */
   createContainer: () => Promise<void>;
   /** HTTP status of a storefront path, requested by Lotse with Host: localhost (the domain Dockware knows) */

@@ -48,7 +48,8 @@ const fake = new FakeRunner();
 fake.images.add('dockware/shopware:6.7.15.1');
 setRunner(fake);
 const SECRET = 'pull-geheimnis-2026';
-E.saveSandbox({ enabled: true, envVars: [{ key: 'SHOP_PASSWORD', value: SECRET, secret: true }] });
+// Overlay mode for the project (without internet a whole project falls back to it)
+E.saveSandbox({ enabled: true, internet: 'never', envVars: [{ key: 'SHOP_PASSWORD', value: SECRET, secret: true }] });
 after(async () => { await fake.close(); await gh.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 const until = async (fn: () => boolean, ms = 10_000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw new Error('timeout'); await new Promise(r => setTimeout(r, 10)); } };

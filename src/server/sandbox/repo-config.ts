@@ -19,7 +19,7 @@ import type { SandboxTemplate } from './templates/types';
 
 export const REPO_FILE = '.lotse/sandbox.json';
 const FILE_MAX = 64 * 1024;
-const KNOWN = ['$schema', 'mode', 'targetPath', 'projectDir', 'commands', 'env', 'image', 'previewPath', 'notes'] as const;
+const KNOWN = ['$schema', 'mode', 'targetPath', 'projectDir', 'commands', 'env', 'image', 'previewPath', 'notes', 'projectInstall'] as const;
 
 const command = z.object({
   label: z.string().trim().min(1).max(LIMITS.label),
@@ -36,6 +36,7 @@ const schema = z.object({
   image: z.string().max(100).regex(/^[A-Za-z0-9._/:-]+$/, 'ungültige Zeichen').optional(),
   previewPath: z.string().regex(PREVIEW_PATH, 'muss ein Pfad des Shops sein, der mit / beginnt').optional(),
   notes: z.string().max(4000).optional(),
+  projectInstall: z.enum(['full', 'overlay']).optional(),
 });
 
 export class RepoFileError extends Error {}
@@ -51,10 +52,11 @@ export function parseRepoFile(raw: Buffer): RepoFileInfo {
   if (!r.success) throw new RepoFileError(`${REPO_FILE} ist ungültig – ${issueText(r.error)}.`);
   const v = r.data;
   if (v.targetPath && v.mode && v.mode !== 'custom') throw new RepoFileError(`${REPO_FILE}: „targetPath“ gilt nur mit "mode": "custom".`);
+  if (v.projectInstall && v.mode && v.mode !== 'project') throw new RepoFileError(`${REPO_FILE}: „projectInstall“ gilt nur mit "mode": "project" (oder ohne mode).`);
   if (v.projectDir && v.mode && v.mode !== 'project') throw new RepoFileError(`${REPO_FILE}: „projectDir“ gilt nur mit "mode": "project" (oder ohne mode).`);
   const ignored = Object.keys(data).filter(k => !(KNOWN as readonly string[]).includes(k)).map(k => k.slice(0, 60)).slice(0, 20);
   return {
-    hash: createHash('sha256').update(raw).digest('hex'), ...(v.mode ? { mode: v.mode } : {}), ...(v.targetPath ? { targetPath: v.targetPath } : {}), ...(v.projectDir ? { projectDir: v.projectDir } : {}),
+    hash: createHash('sha256').update(raw).digest('hex'), ...(v.mode ? { mode: v.mode } : {}), ...(v.targetPath ? { targetPath: v.targetPath } : {}), ...(v.projectDir ? { projectDir: v.projectDir } : {}), ...(v.projectInstall ? { projectInstall: v.projectInstall } : {}),
     ...(v.image ? { image: v.image } : {}), ...(v.previewPath ? { previewPath: v.previewPath } : {}), ...(v.notes?.trim() ? { notes: v.notes.trim() } : {}),
     commands: v.commands.map(c => ({ label: c.label, command: c.command, phase: c.phase, timeoutSec: c.timeoutSec })), env: [...new Set(v.env)], ignored,
   };

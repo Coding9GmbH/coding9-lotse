@@ -26,17 +26,17 @@ import { prepareTaskDb, saveSnapshot } from './db-snapshots';
 import { taskDbVolume } from './db-snapshot-spec';
 import { assertAttachable, deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
 import { STOP_CONCURRENCY, getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
-import { revokeInternet, type RevokeReason } from './internet';
+import { internetBlocked, revokeInternet, type RevokeReason } from './internet';
 import { SANDBOX_NETWORK, ensureNetwork, networkMode, openHostPorts, probeRoute } from './network';
 import { clearJar, forgetUpstream } from './preview';
 import { projectBase } from './project';
 import { getRunner } from './runner';
 import { captureRunning, removeShotFiles } from './screenshots';
-import { TASK_LABEL } from './labels';
+import { EGRESS_NET, TASK_LABEL } from './labels';
 import { syncTaskAll } from './task-sync';
 import { streamFileTar, writeTar } from './tar';
 import { getTemplate, resolveCommand } from './templates';
-import { waitReady } from './templates/dockware';
+import { sleep, waitReady } from './templates/dockware';
 import type { StepCtx } from './templates/types';
 import { REPO_FILE, RepoFileError, readRepoFile, repoFileApproved, repoFileImage } from './repo-config';
 import { appendLog, commandDir, effectiveMode, effectiveTarget, emitChatToViews, emitTask, getTask, httpStatusOf, listTasks, markStopping, mustTask, now, placeRepoSteps, publicTask, publishRunning, sandboxOrigin, saveTask, setTaskDump, taskImage, taskPaths, turnRunning, type CodeTask, type StoredStep } from './tasks';
@@ -328,6 +328,28 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
     mode: () => effectiveMode(t),
     projectDir: () => t.repoFile?.projectDir ?? '',
     projectRoot: () => projectBase(p.worktree, t.layout?.root),
+    projectInstall: () => t.repoFile?.projectInstall ?? 'full',
+    internet: {
+      blocked: () => internetBlocked(),
+      await: async () => {
+        const id = container();
+        t.awaitingInternet = true; saveTask(t);
+        if (t.chatId && chatExists(t.chatId)) { const ev: ChatEvent = { t: 'sandbox_status', state: 'internet' }; noteChatEvent(t.chatId, ev); emitTask(t.id, { t: 'chat', event: ev }); }
+        try {
+          // Docker's state counts (as for revoking): the task row may be saved meanwhile from this job's own copy
+          for (;;) {
+            const info = await runner.inspect(id).catch(() => undefined);
+            if (info === null || (info && !info.running)) throw new Error('Der Container läuft nicht mehr – Einrichtung erneut versuchen.');
+            if (info?.networks.includes(EGRESS_NET)) break;
+            const blocked = internetBlocked();
+            if (blocked) throw new Error(blocked);
+            await sleep(1000, signal);
+          }
+          t.internet = getTask(t.id)?.internet ?? { since: now(), via: 'panel' };
+        } finally { t.awaitingInternet = false; saveTask(t); }
+      },
+      end: async () => { await revokeInternet(t.id, 'setup'); t.internet = null; saveTask(t); },
+    },
     targetPath: () => effectiveTarget(t),
     setLayout: l => { t.layout = l; saveTask(t, false); },
     newPluginName: t.pluginName ?? null,

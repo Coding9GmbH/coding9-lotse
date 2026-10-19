@@ -144,7 +144,7 @@ export type ChatEvent =
 export type ChatEventType = ChatEvent['t'];
 export type FileChangeKind = 'create' | 'edit' | 'delete';
 /** A sandbox status line in the chat; displaced = starting this one paused others (LOTSE_SANDBOX_MAX) */
-export type SandboxLineState = 'waking' | 'ready' | 'failed' | 'approval' | 'finished' | 'displaced';
+export type SandboxLineState = 'waking' | 'ready' | 'failed' | 'approval' | 'internet' | 'finished' | 'displaced';
 
 // ---- REST ----
 /** locale: language of the AI responses (set by the server from cookie/Accept-Language) */
@@ -301,6 +301,7 @@ export interface RepoFileCommand { label: string; command: string; phase: Comman
 /** .lotse/sandbox.json as Lotse read it. hash = SHA-256 of the file: an approval of its commands holds for exactly this content. */
 export interface RepoFileInfo {
   hash: string; mode?: Exclude<SandboxMode, 'auto'>; targetPath?: string; /** subfolder with the Shopware project */ projectDir?: string; image?: string; previewPath?: string; notes?: string;
+  /** a whole project: installed completely (default) or laid over the image's Shopware */ projectInstall?: ProjectInstall;
   commands: RepoFileCommand[];
   /** environment variable NAMES the project needs (values only from the Lotse environment) */ env: string[];
   /** keys of the file Lotse does not know: ignored */ ignored: string[];
@@ -361,10 +362,14 @@ export interface ProjectPlugin { name: string; dir: string; static?: boolean; th
 export type QuarantineCode = 'yaml' | 'extension' | 'option' | 'class' | 'mailer' | 'unchecked' | 'reserved';
 /** A config file not loaded in the sandbox; detail = Symfony's message, the extension(s), the option path, the class, APP_ENV */
 export interface ConfigHold { file: string; code: QuarantineCode; detail?: string }
-/** A full Shopware project repository (A19), "Overlay" mode: the image's Shopware stays, the project's plugins, apps, config/packages,
- *  config/services*.yaml and src/ are synced over it. The runtime part (appEnv, extensions, envNames) is read from the container during
+/** How a whole project gets into the container: full = the whole repository in /var/www/html and its own composer install (needs
+ *  internet a human allows during the setup); overlay = the image's Shopware stays, only plugins, apps, config and src/ are laid over it */
+export type ProjectInstall = 'full' | 'overlay';
+/** A full Shopware project repository (A19). "full" (default): the whole repository is synced into the shop's root and installed with
+ *  composer; "Overlay": the image's Shopware stays, the project's plugins, apps, config/packages, config/services*.yaml and src/ are synced over it. The runtime part (appEnv, extensions, envNames) is read from the container during
  *  the setup; quarantined config files are not loaded in the sandbox (no extension for them, or Shopware did not boot with them). */
 export interface ProjectInfo {
+  /** missing in rows from before: overlay */ install?: ProjectInstall;
   plugins: ProjectPlugin[]; apps: { name: string; dir: string }[];
   /** config/packages/** and config/services*.yaml of the repository */ configFiles: string[];
   /** src/ with project code (psr-4 namespaces from composer.json autoload) */ src: boolean; psr4: Record<string, string>;
@@ -392,6 +397,7 @@ export interface CodeTaskPublic {
   /** the task's pull request (null = not published yet) */ pr: TaskPr | null;
   /** publishing right now, or the last attempt failed / was cut off by a restart (a retry continues idempotently) */ publish: TaskPublish | null;
   /** internet access a human allowed for this task (container attached to lotse-sandbox-egress); null = offline */ internet: { since: string } | null;
+  /** the setup waits for a human to allow internet (a whole project's composer install) */ awaitingInternet?: true;
   /** screenshots of the sandbox storefront the user took by hand ("Screenshot" in the preview), oldest first; stored in Lotse only */ shots: TaskShotSet[];
   /** the template offers the user a console (tab "Konsole"); missing = none (containerless templates) */ console?: true;
   /** how it was started (A20); missing in rows from before */ setup?: TaskSetupPublic;

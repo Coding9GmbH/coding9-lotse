@@ -104,7 +104,8 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
   }
   // the workspace follows the status (finished = detached) and the internet state (the chat's request cards)
   const net = !!task?.internet;
-  useEffect(() => { if (task) onTask?.(task); }, [status, net]); // eslint-disable-line react-hooks/exhaustive-deps -- only on status/internet changes
+  const awaiting = !!task?.awaitingInternet;
+  useEffect(() => { if (task) onTask?.(task); }, [status, net, awaiting]); // eslint-disable-line react-hooks/exhaustive-deps -- only on status/internet changes
   const shown: Tab = tab ?? (status && SETUP.has(status) ? 'setup' : 'preview');
   // the console mounts on its first visit and stays mounted (hidden) so its terminals and connections survive tab switches
   const [consoleSeen, setConsoleSeen] = useState(false);
@@ -175,7 +176,8 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
     { key: 'all', label: t.back, onSelect: () => router.push('/sandbox-coding') },
     ...(s !== 'done' ? [{ key: 'finish', label: t.actions.finish, onSelect: () => void act('finish'), disabled: busyAct, danger: true }] : []),
   ];
-  const internetShown = s === 'ready' || !!task.internet;
+  // a setup that installs a whole project waits for this very click (composer install)
+  const internetShown = s === 'ready' || !!task.internet || !!task.awaitingInternet;
   const attention: Partial<Record<Tab, boolean>> = { setup: s === 'failed', pr: feedbackOpen > 0 || task.publish?.state === 'failed' };
 
   return frame(
@@ -199,7 +201,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
               <span className={styles.netBadge}><IconGlobe size={14} />{t.internet.on}</span>
               <button type="button" className={styles.textBtn} aria-pressed="true" aria-label={t.internet.revoke} title={t.internet.revoke} disabled={busyAct} onClick={() => void toggleInternet(false)}>{t.internet.block}</button>
             </span>
-            : <button type="button" className={styles.netOff} aria-pressed="false" disabled={busyAct || policy === 'never'}
+            : <button type="button" className={styles.netOff} aria-pressed="false" disabled={busyAct || policy === 'never'} data-wait={task.awaitingInternet || undefined}
               title={policy === 'never' ? t.internet.never : t.internet.allow} onClick={() => void toggleInternet(true)}><IconGlobe size={14} />{t.internet.off}</button>)}
           {primary}
           <Menu label={t.more} items={menu} />

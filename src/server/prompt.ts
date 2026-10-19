@@ -87,7 +87,7 @@ const codeWeb = (web: boolean) => web
 function projectOverview(p: ProjectInfo, quote: (s: string) => string): string {
   const part: Record<ProjectPart, string> = { storefront: 'Storefront-Templates', styles: 'SCSS', js: 'JavaScript', admin: 'Administration', php: 'PHP-Code', settings: 'Einstellungen (config.xml)', migrations: 'Migrationen', snippets: 'Texte' };
   const lines = [
-    `Shopware ${p.shopwareVersion ?? '(Version unbekannt)'}${p.theme ? ` · zugewiesenes Theme: ${p.theme}` : ''} · src/: ${p.src ? `ja (${Object.keys(p.psr4).join(', ') || 'ohne Autoload'})` : 'nein'}`,
+    `Shopware ${p.shopwareVersion ?? '(Version unbekannt)'} · ${p.install === 'full' ? 'vollständig installiert' : 'Overlay'}${p.theme ? ` · zugewiesenes Theme: ${p.theme}` : ''} · src/: ${p.src ? `ja (${Object.keys(p.psr4).join(', ') || 'ohne Autoload'})` : 'nein'}`,
     'Plugins:', ...(p.plugins.length ? p.plugins.map(x => `- ${x.name} (${x.dir}${x.theme ? ', Theme' : ''}${x.static ? ', statisch' : ''})${x.label ? `: ${x.label}` : ''}${x.parts.length ? ` – ${x.parts.map(k => part[k]).join(', ')}` : ''}`) : ['- (keine)']),
     ...(p.apps.length ? ['Apps:', ...p.apps.map(a => `- ${a.name} (${a.dir})`)] : []),
     ...((p.quarantined ?? []).length ? ['In der Sandbox nicht geladen:', ...p.quarantined!.map(q => `- ${q.file}: ${reasonText(q)}`)] : []),
@@ -113,8 +113,9 @@ export function buildCodeSystem(locale: Locale, task: CodePromptTask, templateId
     projectRootNote: project && l?.root ? `WICHTIG – Unterordner: Das Shopware-Projekt liegt im Repository im Ordner ${l.root}/. Alles andere im Repository (andere Anwendungen, CI, Dokumentation …) gehört nicht zum Test-Shop und wird nicht in den Container übertragen. Die Pfade in diesem Abschnitt und in der Projekt-Übersicht sind relativ zu ${l.root}/: Ein Plugin-Ordner heißt im Repository ${l.root}/custom/plugins/<Name> und im Container /var/www/html/custom/plugins/<Name>. Deine Datei-Werkzeuge, git_commit und die paths von pull_from_container nehmen Repository-Pfade MIT ${l.root}/; sandbox_bash und bin/console laufen im Container mit Pfaden OHNE ${l.root}/.` : '',
   };
   // an empty repository: how to build the new plugin from scratch (until composer.json and the plugin class exist); a full project: its layout
+  // (installed completely or laid over the image's Shopware)
   // an own setup: no plugin layout, no Shopware assumptions (its own file instead of the template's); without a project: local git only
-  const files = ['01-common.md', ...(custom ? [`${templateId}-custom.md`] : [`${templateId}.md`]), ...(l?.isNew ? [`${templateId}-new-plugin.md`] : []), ...(project ? [`${templateId}-project.md`] : []), ...(task.noRepo ? ['no-repo.md'] : [])]
+  const files = ['01-common.md', ...(custom ? [`${templateId}-custom.md`] : [`${templateId}.md`]), ...(l?.isNew ? [`${templateId}-new-plugin.md`] : []), ...(project ? [l?.project?.install === 'full' ? `${templateId}-project-full.md` : `${templateId}-project.md`] : []), ...(task.noRepo ? ['no-repo.md'] : [])]
     .map(f => path.join(dir, f)).filter(f => fs.existsSync(f));
   const parts = files.map(f => fillVars(fs.readFileSync(f, 'utf8').trim(), vars));
   const quote = (s: string) => s.replace(/```/g, "'''");

@@ -3,7 +3,8 @@ import 'server-only';
 // owned by www-data. No host paths are mounted. Never synced: .git (the git dir lives outside the worktree anyway),
 // secret files (.env, keys, auth.json …), node_modules and symlinks that point outside the workspace.
 // Deletions in the container only with the fixed argv ['rm', '-f', '--', <target>/<guarded relative path>].
-// A full Shopware project (project.ts) is synced into the shop's root instead, only its plugin and app folders, config files and src/.
+// A full Shopware project (project.ts) is synced into the shop's root instead: in overlay mode only its plugin and app folders, config
+// files and src/; installed completely, the whole repository (without vendor/, var/ and the like).
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -88,7 +89,7 @@ export function collectAll(root: string, prefix: string, b: SyncBudget = syncBud
 export interface SyncTarget { runner: SandboxRunner; containerId: string; worktree: string; /** absolute directory in the container, e.g. /var/www/html/custom/plugins/AcmeTheme */ target: string; user: string; signal?: AbortSignal;
   /** a full project (target = the shop's root): what the container said during the setup (null = not asked yet: config files are not
    *  synced) and the files the boot check took out */
-  project?: { runtime: ProjectRuntime | null; held: Record<string, Quarantine> };
+  project?: { runtime: ProjectRuntime | null; held: Record<string, Quarantine>; /** installed completely: the whole repository is synced */ full?: boolean };
   /** "Eigenes Setup": target is the user's folder (below /var/www, /opt or /srv); the repository is laid over it, nothing else there is removed */
   custom?: boolean;
   /** a new plugin (empty repository): its folder appears in the container only with the repository's first file beyond README, LICENSE
@@ -191,10 +192,11 @@ const ROOT = '/var/www/html';
 const checkRoot = (t: string) => { if (t !== ROOT) throw new Error('Ungültiges Zielverzeichnis im Container.'); };
 const lstatOr = (p: string) => { try { return fs.lstatSync(p); } catch { return null; } };
 
-/** What a project syncs right now: the plugin and app folders (units) and the single files (config, src/), relative paths, sorted.
- *  Folders the repository has as symlinks (custom/plugins -> /root/.config, src -> /home …) are never read: every path component
- *  from the worktree down must be a real directory; units and folders below are taken only as real directories (lstat). */
-export function projectContent(worktree: string): { units: string[]; files: string[] } {
+/** What a project syncs right now: the plugin and app folders (units) and the single files (config, src/ – installed completely: every
+ *  other file of the repository), relative paths, sorted. Folders the repository has as symlinks (custom/plugins -> /root/.config,
+ *  src -> /home …) are never read: every path component from the worktree down must be a real directory; units and folders below are
+ *  taken only as real directories (lstat). */
+export function projectContent(worktree: string, full = false): { units: string[]; files: string[] } {
   const units: string[] = [], files: string[] = [];
   for (const base of ['custom/plugins', 'custom/static-plugins', 'custom/apps']) {
     let names: fs.Dirent[] = [];
@@ -206,13 +208,15 @@ export function projectContent(worktree: string): { units: string[]; files: stri
     if (!realDir(worktree, rel)) return;
     try { names = fs.readdirSync(path.join(worktree, rel), { withFileTypes: true }); } catch { return; }
     for (const d of names.sort((a, b) => a.name.localeCompare(b.name))) {
-      const r = `${rel}/${d.name}`;
+      const r = rel ? `${rel}/${d.name}` : d.name;
       if (isExcluded(r)) continue;
-      if (d.isDirectory()) walk(r);
-      else if ((d.isFile() || d.isSymbolicLink()) && projectSyncPath(r)?.kind === 'file') files.push(r);
+      // installed completely: units are mirrored on their own, skipped folders (vendor/, var/ …) never read
+      if (d.isDirectory()) { if (!full || projectSyncPath(`${r}/x`, true)?.kind === 'file') walk(r); }
+      else if ((d.isFile() || d.isSymbolicLink()) && projectSyncPath(r, full)?.kind === 'file') files.push(r);
       if (files.length > MAX_FILES) throw new Error(`Zu viele Dateien im Repository (mehr als ${MAX_FILES}).`);
     }
   };
+  if (full) { walk(''); return { units, files }; }
   walk('config/packages'); walk('src');
   if (realDir(worktree, 'config')) try { for (const n of fs.readdirSync(path.join(worktree, 'config')).sort()) { const r = `config/${n}`; if (projectSyncPath(r)?.kind === 'file' && lstatOr(path.join(worktree, r))?.isFile()) files.push(r); } } catch { /* no config/ */ }
   return { units, files };
@@ -250,7 +254,7 @@ const CONFIG_MAX = 1024 * 1024;
 async function planProjectConfig(s: SyncTarget): Promise<{ plan: ConfigPlan; yaml: string[] } | null> {
   const rt = s.project?.runtime;
   if (!rt) return null;
-  const content = projectContent(s.worktree);
+  const content = projectContent(s.worktree, s.project?.full);
   const sized = (r: string) => { const st = lstatOr(path.join(s.worktree, r)); return !!st?.isFile() && st.size <= CONFIG_MAX; };
   const yaml = content.files.filter(isProjectConfig).filter(sized);
   const raw: Record<string, string> = {};
@@ -277,10 +281,13 @@ function lotseFiles(s: SyncTarget, plan: ConfigPlan | null, content: { units: st
   const rt = s.project?.runtime;
   // the list may name more than was written (a quarantined file of an unchanged config): the next full sync only removes those again
   if (plan && rt) { const f = overrideFile(rt.appEnv); parents(f, seen, out); out.push({ path: f, type: 'file', data: Buffer.from(overrideYaml(plan, rt.appEnv)), mode: 0o644 }); }
-  const listed = [...content.units.map(u => `u ${u}`), ...content.files.filter(f => !plan?.quarantine.has(f) && (rt || !f.startsWith('config/'))).map(f => `f ${f}`)];
+  const listed = [...content.units.map(u => `u ${u}`), ...content.files.filter(f => syncedFile(s, plan, f)).map(f => `f ${f}`)];
   out.push({ path: SYNC_MANIFEST, type: 'file', data: Buffer.from(`${listed.join('\n')}\n`), mode: 0o644 });
 }
-const syncedFile = (s: SyncTarget, plan: ConfigPlan | null, rel: string) => !(plan?.quarantine.has(rel)) && (!!s.project?.runtime || !rel.startsWith('config/'));
+/** Config files wait until the container was asked (runtime): overlay holds back all of config/, a project installed completely only the
+ *  files the plan checks (its bundles.php and routes are needed for composer's and Shopware's first boot) */
+const heldBack = (s: SyncTarget, rel: string) => !s.project?.runtime && (s.project?.full ? isProjectConfig(rel) || isUncheckedConfig(rel) : rel.startsWith('config/'));
+const syncedFile = (s: SyncTarget, plan: ConfigPlan | null, rel: string) => !(plan?.quarantine.has(rel)) && !heldBack(s, rel);
 
 /**
  * Full sync of a project: every plugin and app folder of the repository is mirrored (removed and written again), config files and src/
@@ -289,11 +296,11 @@ const syncedFile = (s: SyncTarget, plan: ConfigPlan | null, rel: string) => !(pl
  */
 export async function syncProjectAll(s: SyncTarget): Promise<{ files: number; bytes: number; config: ConfigPlan | null }> {
   checkRoot(s.target);
-  const content = projectContent(s.worktree);
+  const full = !!s.project?.full, content = projectContent(s.worktree, full);
   const planned = await planProjectConfig(s), plan = planned?.plan ?? null;
   const old = await s.runner.exec(s.containerId, ['cat', `${ROOT}/${SYNC_MANIFEST}`], { user: s.user, timeoutMs: 30_000, signal: s.signal }).catch(() => ({ exitCode: 1, output: '' }));
   const now = new Set([...content.units, ...content.files.filter(f => syncedFile(s, plan, f))]);
-  const stale = old.exitCode === 0 ? old.output.split('\n').map(l => /^[uf] (.+)$/.exec(l.trim())?.[1]).filter((r): r is string => !!r && !!projectSyncPath(r) && !now.has(r)) : [];
+  const stale = old.exitCode === 0 ? old.output.split('\n').map(l => /^[uf] (.+)$/.exec(l.trim())?.[1]).filter((r): r is string => !!r && !!projectSyncPath(r, full) && !now.has(r)) : [];
   // read (within one budget for everything) before anything in the container is removed
   const seen = new Set<string>(), entries: TarEntry[] = [], b = syncBudget();
   for (const u of content.units) { parents(`${u}/x`, seen, entries); entries.push(...collectAll(path.join(s.worktree, u), u, b)); }
@@ -315,7 +322,9 @@ export async function syncProjectAll(s: SyncTarget): Promise<{ files: number; by
  *  Paths outside what a project syncs (README, composer.json …) are left alone. */
 export async function syncProjectPaths(s: SyncTarget, rels: string[]): Promise<{ put: number; removed: number; config: ConfigPlan | null }> {
   checkRoot(s.target);
-  const guarded = rels.map(guardRel).filter(r => projectSyncPath(r) || (lstatOr(path.join(s.worktree, r))?.isDirectory() && /^(custom\/(plugins|static-plugins|apps)\/[^/]+|src|config\/packages)(\/|$)/.test(r)));
+  const full = !!s.project?.full, isDir = (r: string) => !!lstatOr(path.join(s.worktree, r))?.isDirectory();
+  const guarded = rels.map(guardRel).filter(r => projectSyncPath(r, full) || (isDir(r) && (full ? !!projectSyncPath(`${r}/x`, true)
+    : /^(custom\/(plugins|static-plugins|apps)\/[^/]+|src|config\/packages)(\/|$)/.test(r))));
   if (!guarded.length) return { put: 0, removed: 0, config: null };
   const planned = guarded.some(r => r.startsWith('config/')) ? await planProjectConfig(s) : null, plan = planned?.plan ?? null;
   const seen = new Set<string>(), entries: TarEntry[] = [], gone: string[] = [], b = syncBudget();
@@ -324,14 +333,14 @@ export async function syncProjectPaths(s: SyncTarget, rels: string[]): Promise<{
     if (!inside(path.resolve(abs), path.resolve(s.worktree))) throw new Error('Pfad außerhalb des Arbeitsordners.');
     // below a symlinked folder (or gone): nothing to read, the container's copy goes
     if (!realDir(s.worktree, path.posix.dirname(rel)) || (!fs.existsSync(abs) && !isLink(abs))) { gone.push(rel); continue; }
-    if (plan?.quarantine.has(rel) || (!s.project?.runtime && rel.startsWith('config/'))) continue;
+    if (!syncedFile(s, plan, rel)) continue;
     const e = entryFor(s.worktree, rel, '.', b);
     if (!e) continue;
     parents(rel, seen, entries);
-    if (e.type === 'dir') { for (const x of collectAll(abs, rel, b)) if (x.type !== 'file' || projectSyncPath(x.path)) entries.push(x); continue; }
+    if (e.type === 'dir') { for (const x of collectAll(abs, rel, b)) if (x.type !== 'file' || (projectSyncPath(x.path, full) && syncedFile(s, plan, x.path))) entries.push(x); continue; }
     entries.push({ ...e, path: rel });
   }
-  lotseFiles(s, plan, projectContent(s.worktree), seen, entries);
+  lotseFiles(s, plan, projectContent(s.worktree, full), seen, entries);
   // a changed file that is quarantined now: its earlier version must not stay loaded (removed first: the override may have its name)
   const remove = [...gone, ...(plan ? [...plan.quarantine.keys()].filter(f => guarded.includes(f)) : [])];
   if (remove.length) await restoreAll(s, remove);
@@ -347,8 +356,8 @@ export type TreeManifest = Record<string, string>;
 const entryStamp = (st: fs.Stats | null) => (!st ? '-' : st.isDirectory() ? 'd' : `${st.mode}:${st.size}:${st.mtimeMs}`);
 
 /** The manifest of what a full project sync would transfer. Within the same limits as the sync. */
-export function projectManifest(worktree: string): TreeManifest {
-  const out: TreeManifest = {}, b = syncBudget(), content = projectContent(worktree);
+export function projectManifest(worktree: string, full = false): TreeManifest {
+  const out: TreeManifest = {}, b = syncBudget(), content = projectContent(worktree, full);
   const add = (rel: string) => { out[rel] = entryStamp(lstatOr(path.join(worktree, rel))); charge(b, 0); };
   const walk = (unit: string, dir: string) => {
     let names: fs.Dirent[] = [];
