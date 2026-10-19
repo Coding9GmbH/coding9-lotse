@@ -5,6 +5,16 @@ Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die V
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
 Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag geschrieben (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
+## [0.9.1] – 2026-10-19
+
+### Behoben
+- Die Zeile „Sandbox angehängt“ erschien nach dem Start einer Sandbox manchmal doppelt im Chat.
+- Der Hinweis zu den Integrationen unter Einstellungen → KI-Zugriff zeigte `**lesen**` mit den Sternchen an.
+- Das Docker-Image von 0.9.0 wurde wegen eines fehlschlagenden Tests nicht veröffentlicht; 0.9.1 enthält denselben Stand mit den Korrekturen.
+
+### Geändert
+- README (Deutsch und Englisch): SEO-Bereich, Abverkauf, Kostenbremse, Internetrecherche und die ZIP-Karte beschrieben, neue Screenshots aus einer frischen Instanz.
+
 ## [0.9.0] – 2026-10-19
 
 ### Hinzugefügt
@@ -209,6 +219,7 @@ Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag gesch
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
+[0.9.1]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.7.2...v0.8.0
