@@ -5,6 +5,14 @@ Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die V
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
 Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag geschrieben (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
+## [0.9.2] – 2026-10-19
+
+### Hinzugefügt
+- Sandbox Coding: Ein Shopware-Projekt darf in einem Unterordner des Repositorys liegen (z. B. `shop/`, daneben ein Frontend oder Infrastruktur). Lotse findet den Ordner selbst oder liest `projectDir` aus `.lotse/sandbox.json`; in den Test-Shop kommt nur dieser Ordner, Dateien daneben kann die KI trotzdem ändern, sie werden mit veröffentlicht (nie `vendor/`, `node_modules/`, Workflows oder Geheimnisse).
+
+### Geändert
+- Sandbox Coding: Schlüsselordner `config/jwt/` sind jetzt auf jeder Ebene des Repositorys für die KI gesperrt, nicht nur im Hauptordner.
+
 ## [0.9.1] – 2026-10-19
 
 ### Behoben
@@ -218,6 +226,7 @@ Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag gesch
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
+[0.9.2]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.8.0...v0.8.1
