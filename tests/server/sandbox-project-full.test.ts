@@ -208,3 +208,40 @@ test('a config file of the image for a bundle the project does not register is r
   assert.deepEqual(ran.filter(a => a[0] === 'rm'), [['rm', '-f', '--', 'config/packages/dev/web_profiler.yaml']]);
   assert.deepEqual(await removeImageLeftovers(ctx, 'something else'), []);
 });
+
+test('with a database dump a plugin that cannot be installed stays as the dump has it (warning); without one the setup fails', async () => {
+  const { installExtensions } = await import('../../src/server/sandbox/templates/dockware-project');
+  const make = (dump: boolean, rows = 'Other\t1\tcustom/plugins/Other\n') => {
+    const log: string[] = [], ran: string[][] = [];
+    const ctx = {
+      hasDump: () => dump, log: (l: string) => { log.push(l); }, setLayout: () => {}, projectRoot: () => tmp,
+      run: async (argv: string[]) => {
+        ran.push(argv);
+        const joined = argv.join(' ');
+        if (joined.includes('FROM plugin WHERE installed_at')) return { exitCode: 0, output: rows };
+        if (joined.includes('CONCAT(installed_at')) return { exitCode: 0, output: 'Good 11\n' };
+        if (argv[1] === 'plugin:install') {
+          const names = argv.slice(argv.indexOf('--') + 1);
+          return names.includes('Bad') ? { exitCode: 1, output: 'In RequirementsValidator.php line 70:\n  Required plugin/package "acme/base" is missing\n' } : { exitCode: 0, output: '' };
+        }
+        return { exitCode: argv[1] === 'debug:config' ? 1 : 0, output: '' };
+      },
+    } as unknown as Parameters<typeof installExtensions>[0];
+    return { ctx, log, ran };
+  };
+  const p = { plugins: [{ name: 'Good' }, { name: 'Bad' }, { name: 'Other' }], apps: [] } as unknown as Parameters<typeof installExtensions>[2];
+  const l = { kind: 'project', project: p } as unknown as Parameters<typeof installExtensions>[1];
+  const a = make(true);
+  await installExtensions(a.ctx, l, p, new Set(), null);
+  assert.ok(a.log.some(x => /Warnung: Plugin Bad .*Datenbank-Dump.*acme\/base/.test(x)), a.log.join('\n'));
+  assert.ok(a.log.some(x => x === 'Plugins installiert und aktiv: Good'));
+  assert.deepEqual(a.ran.filter(r => r[1] === 'plugin:install').map(r => r.slice(r.indexOf('--') + 1)), [['Good', 'Bad'], ['Good'], ['Bad']]);
+  // no dump registered with the sandbox, but the database already has a project plugin installed: its state counts, nothing is installed over it
+  const c = make(false, 'Good\t1\tcustom/plugins/Good\nBad\t1\tcustom/plugins/Bad\nOther\t1\tcustom/plugins/Other\n');
+  await installExtensions(c.ctx, l, p, new Set(), null);
+  assert.ok(c.log.some(x => /Datenbank kennt die Projekt-Plugins schon/.test(x)));
+  assert.equal(c.ran.filter(r => r[1] === 'plugin:install').length, 0);
+  // a pristine database (no row of a project plugin): they are installed, and a failure fails the step
+  const b = make(false, '');
+  await assert.rejects(installExtensions(b.ctx, l, p, new Set(), null), /Nicht installiert und aktiviert: Bad/);
+});

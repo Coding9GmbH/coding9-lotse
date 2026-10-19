@@ -269,21 +269,40 @@ async function installOverlay(ctx: StepCtx): Promise<void> {
 }
 
 /** Plugins (refresh, install/activate), apps, the theme, and config files held back only for extensions the plugins bring */
-async function installExtensions(ctx: StepCtx, l: TaskLayout, p: ProjectInfo, skip: Set<string>, plan: ConfigPlan | null): Promise<void> {
+export async function installExtensions(ctx: StepCtx, l: TaskLayout, p: ProjectInfo, skip: Set<string>, plan: ConfigPlan | null): Promise<void> {
   // plugins: with a dump its plugin table decides (only plugins it does not know are installed); without one every project plugin
   const names = p.plugins.filter(x => !skip.has(x.name)).map(x => x.name);
-  const dumped = ctx.hasDump() ? await dumpPlugins(ctx) : null;
+  let dumped = ctx.hasDump() ? await dumpPlugins(ctx) : null;
+  // A database that came another way (imported by hand, an earlier run) already has the project's plugins installed: its state counts
+  // the same as a dump's – nothing is installed over it.
+  if (!dumped) {
+    const inDb = await dumpPlugins(ctx);
+    if (names.some(n => inDb.has(n))) { dumped = inDb; ctx.log('Die Datenbank kennt die Projekt-Plugins schon (eingespielter Dump oder früherer Lauf) – wie bei einem Dump bleibt ihr Zustand.'); }
+  }
   const refresh = await ctx.run(bin('plugin:refresh'));
   const install = dumped ? names.filter(n => !dumped.has(n)) : names;
   if (dumped) ctx.log(`Datenbank-Dump: ${names.length - install.length} Projekt-Plugins sind darin bekannt und behalten ihren Zustand${install.length ? `, neu installiert: ${install.join(', ')}` : ''}.`);
-  if (install.length) await ctx.run(bin('plugin:install', '--activate', '-n', '--', ...install), { timeoutMs: 10 * MIN });
+  const refused = new Map<string, string>();
+  if (install.length) {
+    const all = await ctx.run(bin('plugin:install', '--activate', '-n', '--', ...install), { timeoutMs: 10 * MIN, ...(dumped ? ANY : {}) });
+    // With a dump the database is the user's: a plugin it does not have installed that cannot be (a requirement, e.g. another plugin or a
+    // version) stays as the dump has it – the others are installed one by one, and the setup goes on with a warning.
+    if (dumped && all.exitCode !== 0) {
+      for (const n of install) {
+        const one = await ctx.run(bin('plugin:install', '--activate', '-n', '--', n), { ...ANY, timeoutMs: 5 * MIN });
+        if (one.exitCode !== 0) refused.set(n, bootError(one.output) || `Exit-Code ${one.exitCode}`);
+      }
+      for (const [n, why] of refused) ctx.log(`Warnung: Plugin ${n} ließ sich nicht installieren und bleibt, wie es im Datenbank-Dump ist: ${why}`);
+    }
+  }
   const states = await pluginStates(ctx, install);
-  const failed = install.filter(n => states.get(n) !== '11');
+  const failed = install.filter(n => states.get(n) !== '11' && !refused.has(n));
   if (failed.length) {
     const why = refresh.output.split('\n').filter(x => /\[ERROR]|Errors?:|^\s{5,}\S/.test(x)).map(x => x.trim()).join(' ').slice(0, 600);
     throw new Error(`Nicht installiert und aktiviert: ${failed.join(', ')}.${why ? ` Shopware meldet: ${why}` : ''}`);
   }
-  if (install.length) ctx.log(`Plugins installiert und aktiv: ${install.join(', ')}`);
+  const installed = install.filter(n => !refused.has(n));
+  if (installed.length) ctx.log(`Plugins installiert und aktiv: ${installed.join(', ')}`);
 
   // apps: work offline as long as they have no backend of their own (registration)
   const known = dumped ? new Set(lines((await ctx.run([...MYSQL, 'SELECT name FROM app'], { quiet: true, okCodes: [0, 1] })).output)) : new Set<string>();
