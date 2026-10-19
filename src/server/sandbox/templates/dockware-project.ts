@@ -8,7 +8,7 @@
 //  4. boot check: bin/console about; a config error that names a file takes that file out (at most 5 rounds), else the step fails
 //     with the error and the likely file
 //  5. plugin:refresh + install/activate (without a dump all project plugins; with a dump its plugin table decides, only new ones are
-//     installed), apps (app:install --force: aborts without it), the project's theme (without a dump)
+//     installed, ones the repository has in a newer version are updated; installed completely also the plugins composer.json requires), apps (app:install --force: aborts without it), the project's theme (without a dump)
 //  6. extension aliases again (plugins may bring their own): files quarantined only for that are loaded now
 // Installed completely (installProjectFull, the default): the whole repository goes into /var/www/html and the project's own
 // composer install replaces the image's vendor/ – after a human allowed internet for it (the setup waits, internet.ts), offline again
@@ -166,6 +166,37 @@ async function bootCheck(ctx: StepCtx, l: TaskLayout, p: ProjectInfo, plan: Conf
   }
 }
 
+/** Installed plugins of the database whose code in the repository is newer (a branch ahead of the live shop): plugin:refresh only
+ *  records the upgrade version, plugin:update runs the plugin's update() and its new migrations, as a deployment does. One that fails
+ *  (Shopware then deactivates it) is a warning: the database stays the user's. */
+export async function updatePlugins(ctx: StepCtx, names: string[]): Promise<void> {
+  const safe = names.filter(n => PLUGIN_NAME.test(n));
+  if (!safe.length) return;
+  const r = await ctx.run([...MYSQL, `SELECT name, version, upgrade_version FROM plugin WHERE installed_at IS NOT NULL AND upgrade_version IS NOT NULL AND name IN (${safe.map(n => `'${n}'`).join(',')})`], { quiet: true });
+  const due = lines(r.output).map(x => x.split(/\s+/)).filter(x => x.length === 3 && safe.includes(x[0]));
+  if (!due.length) return;
+  const all = await ctx.run(bin('plugin:update', '-n', '--', ...due.map(x => x[0])), { ...ANY, timeoutMs: 10 * MIN });
+  const failed = new Map<string, string>();
+  if (all.exitCode !== 0) {
+    for (const [n] of due) {
+      const one = await ctx.run(bin('plugin:update', '-n', '--', n), { ...ANY, timeoutMs: 5 * MIN });
+      if (one.exitCode !== 0) failed.set(n, bootError(one.output) || `Exit-Code ${one.exitCode}`);
+    }
+  }
+  const done = due.filter(x => !failed.has(x[0]));
+  if (done.length) ctx.log(`Plugins auf die Version des Repositorys aktualisiert (plugin:update, mit Migrationen): ${done.map(([n, from, to]) => `${n} ${from} → ${to}`).join(', ')}`);
+  for (const [n, why] of failed) ctx.log(`Warnung: Plugin ${n} ließ sich nicht auf die Version des Repositorys aktualisieren (Shopware deaktiviert es dann): ${why}`);
+}
+
+/** Plugins below vendor/ (after plugin:refresh) that the project's composer.json requires directly: their names */
+async function composerPlugins(ctx: StepCtx, p: ProjectInfo): Promise<string[]> {
+  const own = new Set(p.plugins.map(x => x.composerName).filter((x): x is string => !!x));
+  const want = new Set(requiredPackages(readComposerJson(`${ctx.projectRoot()}/composer.json`), own));
+  if (!want.size) return [];
+  const r = await ctx.run([...MYSQL, "SELECT name, composer_name FROM plugin WHERE path LIKE 'vendor/%' AND composer_name IS NOT NULL"], { quiet: true, okCodes: [0, 1] });
+  return lines(r.output).map(x => x.split(/\s+/)).filter(x => x.length === 2 && PLUGIN_NAME.test(x[0]) && want.has(x[1])).map(x => x[0]).sort();
+}
+
 /** Plugin states in the database: name → "<installed><active>" (e.g. "11") */
 async function pluginStates(ctx: StepCtx, names: string[]): Promise<Map<string, string>> {
   const safe = names.filter(n => PLUGIN_NAME.test(n));
@@ -280,9 +311,18 @@ export async function installExtensions(ctx: StepCtx, l: TaskLayout, p: ProjectI
     if (names.some(n => inDb.has(n))) { dumped = inDb; ctx.log('Die Datenbank kennt die Projekt-Plugins schon (eingespielter Dump oder früherer Lauf) – wie bei einem Dump bleibt ihr Zustand.'); }
   }
   const refresh = await ctx.run(bin('plugin:refresh'));
-  const install = dumped ? names.filter(n => !dumped.has(n)) : names;
-  if (dumped) ctx.log(`Datenbank-Dump: ${names.length - install.length} Projekt-Plugins sind darin bekannt und behalten ihren Zustand${install.length ? `, neu installiert: ${install.join(', ')}` : ''}.`);
+  // installed completely, the plugins the project requires by composer (vendor/, e.g. frosh/tools) belong to it as well – like a
+  // deployment installs them; one that cannot be installed is a warning, the project's own plugins decide whether the step fails
+  const vendor = p.install === 'full' ? (await composerPlugins(ctx, p)).filter(n => !names.includes(n)) : [];
+  const all = [...names, ...vendor];
+  if (dumped) await updatePlugins(ctx, all.filter(n => dumped.has(n)));
+  const install = dumped ? names.filter(n => !dumped.has(n)) : names, extra = dumped ? vendor.filter(n => !dumped.has(n)) : vendor;
+  if (dumped) ctx.log(`Datenbank-Dump: ${all.length - install.length - extra.length} Projekt-Plugins sind darin bekannt und behalten ihren Zustand${install.length + extra.length ? `, neu installiert: ${[...install, ...extra].join(', ')}` : ''}.`);
   const refused = new Map<string, string>();
+  for (const n of extra) {
+    const one = await ctx.run(bin('plugin:install', '--activate', '-n', '--', n), { ...ANY, timeoutMs: 5 * MIN });
+    if (one.exitCode !== 0) { refused.set(n, bootError(one.output) || `Exit-Code ${one.exitCode}`); ctx.log(`Warnung: Plugin ${n} (über composer eingebunden) ließ sich nicht installieren: ${refused.get(n)}`); }
+  }
   if (install.length) {
     const all = await ctx.run(bin('plugin:install', '--activate', '-n', '--', ...install), { timeoutMs: 10 * MIN, ...(dumped ? ANY : {}) });
     // With a dump the database is the user's: a plugin it does not have installed that cannot be (a requirement, e.g. another plugin or a
@@ -295,13 +335,14 @@ export async function installExtensions(ctx: StepCtx, l: TaskLayout, p: ProjectI
       for (const [n, why] of refused) ctx.log(`Warnung: Plugin ${n} ließ sich nicht installieren und bleibt, wie es im Datenbank-Dump ist: ${why}`);
     }
   }
-  const states = await pluginStates(ctx, install);
+  const states = await pluginStates(ctx, [...install, ...extra]);
+  for (const n of extra.filter(x => states.get(x) !== '11' && !refused.has(x))) { refused.set(n, 'nicht aktiv'); ctx.log(`Warnung: Plugin ${n} (über composer eingebunden) ist nach der Installation nicht aktiv.`); }
   const failed = install.filter(n => states.get(n) !== '11' && !refused.has(n));
   if (failed.length) {
     const why = refresh.output.split('\n').filter(x => /\[ERROR]|Errors?:|^\s{5,}\S/.test(x)).map(x => x.trim()).join(' ').slice(0, 600);
     throw new Error(`Nicht installiert und aktiviert: ${failed.join(', ')}.${why ? ` Shopware meldet: ${why}` : ''}`);
   }
-  const installed = install.filter(n => !refused.has(n));
+  const installed = [...install, ...extra].filter(n => !refused.has(n));
   if (installed.length) ctx.log(`Plugins installiert und aktiv: ${installed.join(', ')}`);
 
   // apps: work offline as long as they have no backend of their own (registration)

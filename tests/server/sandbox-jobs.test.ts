@@ -65,6 +65,7 @@ const SETUP_ARGV = [
   TIDY_ARGV,
   ['rm', '-rf', '--', DIR],
   ['bin/console', 'plugin:refresh'],
+  'PLUGIN_UPGRADES', // a dump with an older version of the plugin: plugin:update first (nothing due here)
   ['bin/console', 'plugin:install', '--activate', '--', 'AcmeTheme'],
   'PLUGIN_STATE',
   ['bin/console', 'theme:change', '--all', '--no-compile', '--', 'AcmeTheme'],
@@ -87,7 +88,7 @@ test('happy path: all steps in order, plugin synced as www-data without .git/sec
   assert.deepEqual(done.steps.map(s => s.state), ['done', 'done', 'done', 'done', 'done', 'skipped', 'skipped', 'done', 'skipped', 'done', 'done', 'done', 'done', 'done', 'done']); // no stored database: no snapshot
   assert.deepEqual(done.layout, { kind: 'theme', name: 'AcmeTheme', pluginDir: 'custom/plugins/AcmeTheme' });
   assert.equal(done.steps.find(s => s.key === 'custom' && s.phase === 'after-db')?.label, 'Demodaten');
-  const argv = execs(done.containerId!).map(a => (a[0] === 'mysql' ? (a.at(-1)!.includes('installed_at') ? 'PLUGIN_STATE' : 'SET_DOMAIN') : BASELINE(a)));
+  const argv = execs(done.containerId!).map(a => (a[0] === 'mysql' ? (a.at(-1)!.includes('upgrade_version') ? 'PLUGIN_UPGRADES' : a.at(-1)!.includes('installed_at') ? 'PLUGIN_STATE' : 'SET_DOMAIN') : BASELINE(a)));
   assert.deepEqual(argv, SETUP_ARGV);
   assert.ok(fake.calls.filter(c => c.op === 'exec').every(c => c.user === 'www-data'), 'every exec as www-data');
   // container spec: server-built, only the internal network (also on bare metal), no published port, limits, no privileges
