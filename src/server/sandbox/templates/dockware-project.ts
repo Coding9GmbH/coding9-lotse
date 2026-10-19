@@ -15,7 +15,7 @@
 // right after. Then steps 1 and 4–6 as above, with the database migrated to the project's Shopware first.
 // Every argv is constant or built from validated names (plugin names, composer package names, sales channel ids from MySQL).
 import type { ProjectInfo, TaskLayout } from '@/lib/protocol';
-import { PLUGIN_NAME } from '@/lib/sandbox-task';
+import { PLUGIN_NAME, composerAuthWanted } from '@/lib/sandbox-task';
 import {
   COMPOSER_NAME, ENV_NAMES_ARGV, bootError, bootFinding, detectProject, missingPsr4, parseAppEnv, parseEnvNames, parseExtensions, pickTheme,
   overrideFile, readComposerJson, reasonText, requiredPackages, type ConfigPlan,
@@ -152,14 +152,15 @@ async function pluginStates(ctx: StepCtx, names: string[]): Promise<Map<string, 
 
 /** composer install of the project itself: from its composer.lock, without scripts (they would boot Shopware with the project's
  *  unchecked config); private packages authenticate with COMPOSER_AUTH from the sandbox environment. As www-data in /var/www/html. */
-export const COMPOSER_INSTALL = ['env', 'COMPOSER_NO_INTERACTION=1', 'composer', 'install', '--no-interaction', '--no-progress', '--no-scripts', '--prefer-dist', '--optimize-autoloader'];
+export const COMPOSER_INSTALL = ['env', 'COMPOSER_NO_INTERACTION=1', 'COMPOSER_MEMORY_LIMIT=-1', 'composer', 'install', '--no-interaction', '--no-progress', '--no-scripts', '--prefer-dist', '--optimize-autoloader'];
 /** The project's migrations (its Shopware may be newer than the image's or the dump's): non-destructive ones only, as an update does */
 const MIGRATE = bin('database:migrate', '--all', '-n');
 /** Why composer failed, for the step's error: authentication, a missing lock, a platform requirement, otherwise its last lines */
 export function composerHint(output: string): string {
-  if (/\b(401|403)\b|authenticat|credentials|auth\.json|http-basic|bearer/i.test(output)) return 'Für private Pakete (z. B. packages.shopware.com, private Git-Repositorys) die Zugangsdaten als geheime Umgebungsvariable COMPOSER_AUTH (Inhalt einer auth.json) in der Sandbox-Umgebung hinterlegen und ab „Projekt einspielen“ erneut versuchen.';
+  if (composerAuthWanted(output)) return /packages\.shopware\.com/.test(output) ? 'packages.shopware.com verweigert den Download – hier den Token deines Shopware-Kontos (Shops → Composer-Token) eingeben; er wird als geheime Variable COMPOSER_AUTH gespeichert und der Schritt läuft erneut.' : 'Für private Pakete (z. B. private Git-Repositorys) die Zugangsdaten als geheime Umgebungsvariable COMPOSER_AUTH (Inhalt einer auth.json) in der Sandbox-Umgebung hinterlegen und diesen Schritt erneut versuchen.';
   if (/could not resolve host|connection (timed out|refused)|network is unreachable|failed to download/i.test(output)) return 'composer hat das Internet nicht erreicht – Internet für die Sandbox erlauben und erneut versuchen.';
-  if (/requires php|requires ext-|platform/i.test(output)) return 'Das Projekt verlangt eine andere PHP-Version oder -Erweiterung als das Image – passendes Dockware-Image wählen.';
+  if (/requires php\b|requires ext-|your php version|ext-[a-z0-9_]+\S* .*(missing|not present|is required)|platform requirements/i.test(output)) return 'Das Projekt verlangt eine andere PHP-Version oder -Erweiterung als das Image – ein passendes Dockware-Image wählen oder die Erweiterung im Dockerfile der Sandbox-Umgebung installieren.';
+  if (/allowed memory size|out of memory|\bkilled\b/i.test(output)) return 'composer ist ohne Arbeitsspeicher geblieben – in der Sandbox-Umgebung mehr Arbeitsspeicher einstellen.';
   if (/no composer\.lock|lock file is not up to date/i.test(output)) return 'composer.lock fehlt oder passt nicht zu composer.json – im Repository aktualisieren.';
   return '';
 }

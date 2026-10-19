@@ -88,6 +88,9 @@ export interface SandboxRunner {
   imagePresent(image: string): Promise<boolean>;
   /** inspect, otherwise pull with progress; true = pulled now */
   ensureImage(image: string, onProgress?: (p: PullProgress) => void, signal?: AbortSignal): Promise<{ pulled: boolean }>;
+  /** builds a local image from a Dockerfile (the only file of the build context); `image` must be one the guards allow (custom-image.ts).
+   *  A failed build throws with the tail of the build output. */
+  buildImage(image: string, dockerfile: string, onProgress?: (p: PullProgress) => void, signal?: AbortSignal): Promise<void>;
   create(spec: ContainerSpec): Promise<string>;
   start(id: string): Promise<void>;
   stop(id: string, timeoutSec?: number): Promise<void>;

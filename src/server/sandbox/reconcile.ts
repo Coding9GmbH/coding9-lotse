@@ -15,7 +15,7 @@ import { errMsg } from '../util';
 import { killOrphanConsoles, sweepConsoles } from './console';
 import { sweepDbVolumes } from './db-snapshots';
 import { sweepDumps } from './dumps';
-import { getSandboxConfig, sandboxEnabled } from './env';
+import { environmentImage, sandboxEnabled } from './env';
 import { reconcileInternet } from './internet';
 import { pauseIdle } from './jobs';
 import { resetPrWatch, startPrWatch } from './pr-watch';
@@ -83,7 +83,7 @@ export async function sweepDbVolumesNow(): Promise<string[]> {
   // without any stored database there are no such volumes (and a socket proxy of an older setup may not pass volume calls)
   if (!sandboxEnabled() || !codeDumpsLibraryEver()) return [];
   try {
-    const removed = await sweepDbVolumes(getSandboxConfig().image, id => getTask(id)?.status ?? null);
+    const removed = await sweepDbVolumes(environmentImage(), id => getTask(id)?.status ?? null);
     if (removed.length) log.info('Datenbank-Volumes gelöscht', { volumes: removed.join(', ') });
     return removed;
   } catch (e) { log.warn('Datenbank-Volumes nicht aufgeräumt', { error: errMsg(e) }); return []; }

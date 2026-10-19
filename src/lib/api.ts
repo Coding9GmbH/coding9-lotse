@@ -89,6 +89,7 @@ export const api = {
     /** "Befehle erlauben" in the start dialog: the repository file's commands of exactly this content */
     approveRepoFile: (repo: string, branch: string, hash: string) => request<RepoProbe>('/api/sandbox/repo-file', json('POST', { repo, branch, hash })),
     /** the setup waits for a decision on the repository file's commands: allow them, or continue without */
+    taskComposerAuth: (id: string, token: string) => request<{ ok: true }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/composer-auth`, json('POST', { token })),
     taskRepoFile: (id: string, decision: 'approve' | 'skip', hash: string) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/repo-file`, json('POST', { decision, hash })),
     /** "Als GitHub-Projekt anlegen" for a sandbox started without a project */
     githubProject: (id: string, p: { owner: string; name: string }) => request<{ task: CodeTaskPublic }>(`/api/sandbox/tasks/${encodeURIComponent(id)}/github-project`, json('POST', p)),

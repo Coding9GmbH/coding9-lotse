@@ -5,6 +5,7 @@ import http from 'node:http';
 import { pipeline } from 'node:stream/promises';
 import type { Socket } from 'node:net';
 import { assertTtySize, ttyEmitter, type ArchiveStream, type ContainerInfo, type ContainerSpec, type ExecOpts, type ExecResult, type NetworkInfo, type NetworkOpts, type PullProgress, type SandboxRunner, type TtyOpts, type TtySession, type VolumeInfo } from './runner';
+import { writeTar } from './tar';
 import { MANAGED, assertAllowedImage, assertContainerPath, assertEgressNetwork, assertId, assertManaged, assertNetworkName, assertSafeSpec, isManaged } from './guards';
 import { assertVolumeName } from './db-snapshot-spec';
 import { EGRESS_NET, ICC_OPTION, ISOLATED_GATEWAY, SANDBOX_NET } from './labels';
@@ -178,6 +179,27 @@ export class DockerEngine implements SandboxRunner {
     if (err) throw new Error(/not found|manifest unknown/i.test(err) ? `Image „${image}“ gibt es nicht (Tag prüfen).` : `Image laden fehlgeschlagen: ${err.slice(0, 300)}`);
     if (!(await this.imagePresent(image))) throw new Error(`Image „${image}“ fehlt nach dem Laden.`);
     return { pulled: true };
+  }
+
+  async buildImage(image: string, dockerfile: string, onProgress: (p: PullProgress) => void = () => {}, signal?: AbortSignal) {
+    assertAllowedImage(image);
+    const context = writeTar([{ path: 'Dockerfile', type: 'file', data: Buffer.from(dockerfile), mode: 0o644 }], { uid: 0, gid: 0, uname: 'root', gname: 'root' });
+    const tail: string[] = [];
+    let rest = '', error: string | null = null;
+    const line = (l: string) => {
+      let j: { stream?: string; error?: string; errorDetail?: { message?: string } };
+      try { j = JSON.parse(l); } catch { return; }
+      if (j.error || j.errorDetail?.message) { error = j.error ?? j.errorDetail?.message ?? 'Fehler'; return; }
+      for (const t of (j.stream ?? '').split('\n').map(x => x.trim()).filter(Boolean)) { tail.push(t); if (tail.length > 20) tail.shift(); onProgress({ text: t.slice(0, 200) }); }
+    };
+    const r = await this.call('POST', '/build', {
+      query: { t: image, rm: '1', forcerm: '1', pull: '0', labels: JSON.stringify(MANAGED) }, raw: context, contentType: 'application/x-tar', timeoutMs: 30 * 60_000, signal,
+      onData: c => { rest += c.toString('utf8'); let i; while ((i = rest.indexOf('\n')) >= 0) { const l = rest.slice(0, i).trim(); rest = rest.slice(i + 1); if (l) line(l); } },
+    });
+    if (rest.trim()) line(rest.trim());
+    if (r.status !== 200) throw apiError(r, 'Image bauen');
+    if (error) throw new Error(`Image bauen fehlgeschlagen: ${String(error).slice(0, 300)}${tail.length ? `\n${tail.slice(-12).join('\n')}` : ''}`);
+    if (!(await this.imagePresent(image))) throw new Error(`Image „${image}“ fehlt nach dem Bauen.`);
   }
 
   async create(spec: ContainerSpec) {

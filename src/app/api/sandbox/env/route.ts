@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { SandboxEnvView } from '@/lib/protocol';
 import { auditAdd } from '@/server/db';
 import { errMsg, jsonError, parseJson } from '@/server/http';
-import { dockerState, forgetDockerState, sandboxPublic, saveSandbox, stopRunningSandboxes } from '@/server/sandbox/env';
+import { dockerState, environmentImage, forgetDockerState, sandboxPublic, saveSandbox, stopRunningSandboxes } from '@/server/sandbox/env';
 import { revokeAllInternet } from '@/server/sandbox/internet';
 import { suspendAll } from '@/server/sandbox/jobs';
 import { ensureReconciled, sweepDbVolumesNow } from '@/server/sandbox/reconcile';
@@ -28,12 +28,13 @@ const schema = z.object({
   screenshotPaths: z.array(z.string().max(300)).max(20).optional(),
   defaultDumpId: z.string().max(40).optional(),
   aiNotes: z.string().max(8000).optional(),
+  dockerfile: z.string().max(10_000).optional(),
 }).strict();
 
 async function view(): Promise<SandboxEnvView> {
   const env = sandboxPublic();
   const docker = env.status.enabled ? await dockerState() : null;
-  const imagePresent = docker?.reachable ? await getRunner().imagePresent(env.image).catch(() => null) : null;
+  const imagePresent = docker?.reachable ? await getRunner().imagePresent(environmentImage()).catch(() => null) : null;
   return { env, docker, imagePresent, templates: Object.values(TEMPLATES).map(describeTemplate) };
 }
 
@@ -56,6 +57,6 @@ export async function PUT(req: Request) {
   // "Internet im Container: nie": every task goes offline at once
   if (changed.includes('internet') && sandboxPublic().internet === 'never') await revokeAllInternet('policy').catch(() => []);
   // a new image: snapshots of stored databases taken with the old one are stale (the next sandbox imports and takes a new one)
-  if (changed.includes('image')) void sweepDbVolumesNow();
+  if (changed.includes('image') || changed.includes('dockerfile')) void sweepDbVolumesNow();
   return Response.json(await view());
 }

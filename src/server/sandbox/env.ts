@@ -10,6 +10,8 @@ import { codeDumpGet, kvGet, kvSet, seal, unseal } from '../db';
 import { assertRepoName } from '../github';
 import { singleton } from '../state';
 import { errMsg, pool } from '../util';
+import { checkDockerfile, customImage } from './custom-image';
+import { ensureSandboxImage } from './image-build';
 import { ensureNetwork, networkMode } from './network';
 import { getRunner } from './runner';
 import { DEFAULT_SHOT_PATHS, SCREENSHOT_IMAGE, validShotPaths } from './screenshot-spec';
@@ -23,6 +25,7 @@ interface StoredSandbox {
   /** the manual "Screenshot" button of the preview; off by default */ screenshots?: boolean; screenshotPaths?: string[];
   /** stored database preselected in "Sandbox starten" */ defaultDumpId?: string;
   /** "Hinweise für die KI" (plain text, data in the sandbox prompt) */ aiNotes?: string;
+  /** own Dockerfile instructions after FROM, see custom-image.ts */ dockerfile?: string;
 }
 const KV = 'sandbox';
 const stored = (): StoredSandbox => {
@@ -191,6 +194,10 @@ export function saveSandbox(p: SandboxEnvPatch, env: Record<string, string | und
     const notes = cleanNotes(p.aiNotes);
     if (notes !== (s.aiNotes ?? '')) { next.aiNotes = notes; changed.push('aiNotes'); }
   }
+  if (p.dockerfile !== undefined) {
+    const d = checkDockerfile(p.dockerfile);
+    if (d !== (s.dockerfile ?? '')) { next.dockerfile = d; changed.push('dockerfile'); }
+  }
   if (p.screenshots !== undefined && p.screenshots !== !!s.screenshots) { next.screenshots = p.screenshots; changed.push('screenshots'); }
   if (p.screenshotPaths !== undefined) {
     next.screenshotPaths = validShotPaths(p.screenshotPaths);
@@ -218,15 +225,26 @@ export function sandboxPublic(env: Record<string, string | undefined> = process.
     memoryMb: s.memoryMb ?? LIMITS.memoryMb.def, cpus: s.cpus ?? LIMITS.cpus.def, idleMinutes: s.idleMinutes ?? defaultIdle(env), maxRunning: maxRunning(env),
     envVars: (s.envVars ?? []).map(v => ({ key: v.key, secret: v.secret, value: v.secret ? '' : v.value, hasValue: !!v.value })),
     commands: s.commands ?? [], updatedAt: s.updatedAt ?? null, defaultRepo: s.defaultRepo ?? '', defaultBranch: s.defaultBranch ?? '', internet: s.internet ?? 'approval',
-    screenshots: !!s.screenshots, screenshotPaths: s.screenshotPaths ?? DEFAULT_SHOT_PATHS, defaultDumpId: storedDb(s.defaultDumpId), aiNotes: s.aiNotes ?? '',
+    screenshots: !!s.screenshots, screenshotPaths: s.screenshotPaths ?? DEFAULT_SHOT_PATHS, defaultDumpId: storedDb(s.defaultDumpId), aiNotes: s.aiNotes ?? '', dockerfile: s.dockerfile ?? '',
   };
 }
+
+/** The image a sandbox without its own image tag runs: the environment's, or the one built from its Dockerfile */
+export const environmentImage = () => { const c = getSandboxConfig(); return customImage(c.image, c.dockerfile)?.name ?? c.image; };
 
 /** Server only: complete configuration with decrypted values (for the container Env at create). */
 export function getSandboxConfig() {
   const pub = sandboxPublic(), s = stored();
   const env = (s.envVars ?? []).flatMap(v => { const val = v.secret ? unseal(v.value) : v.value; return val === null ? [] : [`${v.key}=${val}`]; });
   return { ...pub, template: getTemplate(pub.templateId), env };
+}
+
+/** One secret variable of the environment, decrypted (null = none or unreadable). Server only. */
+export const getSecretVar = (key: string): string | null => { const v = (stored().envVars ?? []).find(x => x.key === key && x.secret); return v ? unseal(v.value) : null; };
+/** Sets one variable as a secret (the others stay); not for values typed in the settings form. */
+export function setSecretVar(key: string, value: string): void {
+  const s = stored();
+  kvSet(KV, { ...s, envVars: [...(s.envVars ?? []).filter(v => v.key !== key), { key, secret: true, value: seal(value) ?? '' }], updatedAt: new Date().toISOString() } satisfies StoredSandbox);
 }
 
 /** Decrypted secret values, for redact(): they must never appear in logs or AI input. */
@@ -289,9 +307,9 @@ export async function checkEnvironment(onProgress: (text: string, pct?: number) 
     const r = getRunner();
     if (docker.mode === 'network') { onProgress('Netzwerk lotse-sandbox prüfen …'); await ensureNetwork(r); }
     onProgress(`Image ${image} prüfen …`);
-    const { pulled } = await r.ensureImage(validateImage(image), p => onProgress(p.text, p.pct), signal);
+    const { pulled, built } = await ensureSandboxImage(r, validateImage(image), sandboxPublic().dockerfile, p => onProgress(p.text, p.pct), signal);
     const shots = await checkShotImage(onProgress, signal);
-    return { t: 'result', ok: true, docker, imagePresent: true, pulled, message: `${pulled ? `Image ${image} geladen. Umgebung bereit.` : `Image ${image} ist vorhanden. Umgebung bereit.`}${shots}` };
+    return { t: 'result', ok: true, docker, imagePresent: true, pulled: pulled || built, message: `${built ? `Eigenes Image auf Basis von ${image} gebaut. Umgebung bereit.` : pulled ? `Image ${image} geladen. Umgebung bereit.` : `Image ${image} ist vorhanden. Umgebung bereit.`}${shots}` };
   } catch (e) {
     return { t: 'result', ok: false, docker, imagePresent: await getRunner().imagePresent(image).catch(() => false), message: errMsg(e).slice(0, 300) };
   } finally { lock.busy = false; }

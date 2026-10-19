@@ -201,6 +201,12 @@ export class FakeRunner implements SandboxRunner {
     this.images.add(image);
     return { pulled: true };
   }
+  async buildImage(image: string, dockerfile: string, onProgress: (p: PullProgress) => void = () => {}) {
+    this.enter('buildImage', { detail: { image, dockerfile } });
+    assertAllowedImage(image);
+    onProgress({ text: 'Step 1/1' });
+    this.images.add(image);
+  }
   async create(spec: ContainerSpec) {
     this.enter('create', { detail: spec });
     assertSafeSpec(spec);

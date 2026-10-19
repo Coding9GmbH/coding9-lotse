@@ -117,6 +117,12 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
     setActing(action); setNotice(null);
     try { setTask((await api.sandbox.taskAction(task.id, action, extra)).task); } catch (e) { setNotice(t.actionFailed(errorText(e))); } finally { setActing(null); }
   }
+  /** the setup's composer install was refused: save the packages.shopware.com token, then run the failed step again */
+  async function composerAuth(stepId: string, token: string) {
+    if (!task) return;
+    setActing('start'); setNotice(null);
+    try { await api.sandbox.taskComposerAuth(task.id, token); setTask((await api.sandbox.taskAction(task.id, 'start', { fromStep: stepId })).task); } catch (e) { setNotice(t.actionFailed(errorText(e))); } finally { setActing(null); }
+  }
   /** the setup waits for the repository file's commands: allow them (remembered for this file content) or continue without */
   async function repoFile(decision: 'approve' | 'skip', hash: string) {
     if (!task) return;
@@ -236,7 +242,7 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
           </p>
           {error && <p className={styles.muted}>{t.connection(error)}</p>}
           <ProjectSummary task={task} />
-          <StepTimeline task={task} busy={busyAct} onRepoFile={(decision, hash) => void repoFile(decision, hash)} onRetry={stepId => void act('start', { fromStep: stepId })} onIgnoreVersion={stepId => void act('start', { fromStep: stepId, ignoreVersion: true })} />
+          <StepTimeline task={task} busy={busyAct} onRepoFile={(decision, hash) => void repoFile(decision, hash)} onComposerAuth={(stepId, token) => void composerAuth(stepId, token)} onRetry={stepId => void act('start', { fromStep: stepId })} onIgnoreVersion={stepId => void act('start', { fromStep: stepId, ignoreVersion: true })} />
         </section>
         <section role="tabpanel" id="sbx-panel-changes" aria-labelledby="sbx-tab-changes" hidden={shown !== 'changes'} className={styles.tabBody}>
           {shown === 'changes' && <DiffPanel taskId={task.id} refresh={files + (busy ? 0 : 1)} />}

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { CodeTaskPublic, TaskStep } from '@/lib/protocol';
 import { useI18n } from '@/lib/i18n/I18nProvider';
-import { canRetryFrom, errorSummary, formatSeconds, setupProgress, setupSeconds, skipReason, stepSeconds } from '@/lib/sandbox-task';
+import { canRetryFrom, composerAuthWanted, errorSummary, formatSeconds, setupProgress, setupSeconds, skipReason, stepSeconds } from '@/lib/sandbox-task';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { RepoFileCard } from './RepoFileCard';
@@ -17,7 +17,7 @@ const ICON: Record<TaskStep['state'], string> = { pending: '○', running: '', d
  * and a failed step (the others on click); a failed step shows one summary line (the full output stays in its log) and the one
  * "Ab hier erneut versuchen". Steps after a failure are folded. Once everything is done the list folds into "Eingerichtet in …".
  */
-export function StepTimeline({ task, onRetry, onIgnoreVersion, onRepoFile, busy }: { task: CodeTaskPublic; onRetry: (stepId: string) => void; /** "Trotzdem fortfahren" from this step */ onIgnoreVersion: (stepId: string) => void;
+export function StepTimeline({ task, onRetry, onIgnoreVersion, onRepoFile, onComposerAuth, busy }: { task: CodeTaskPublic; onRetry: (stepId: string) => void; /** saves the packages.shopware.com token, then retries from this step */ onComposerAuth?: (stepId: string, token: string) => void; /** "Trotzdem fortfahren" from this step */ onIgnoreVersion: (stepId: string) => void;
   /** the setup waits at "Plugin erkennen" for a decision on the repository file's commands */ onRepoFile?: (decision: 'approve' | 'skip', hash: string) => void; busy: boolean }) {
   const { t: all } = useI18n();
   const t = all.sandbox.task, td = all.sandbox.dump;
@@ -26,6 +26,7 @@ export function StepTimeline({ task, onRetry, onIgnoreVersion, onRepoFile, busy 
   const [details, setDetails] = useState(false);
   const [rest, setRest] = useState(false);
   const [logs, setLogs] = useState<Set<string>>(new Set());
+  const [token, setToken] = useState('');
   useEffect(() => { if (!running) return; const i = setInterval(() => tick(n => n + 1), 1000); return () => clearInterval(i); }, [running]);
 
   const took = setupSeconds(task);
@@ -87,6 +88,14 @@ export function StepTimeline({ task, onRetry, onIgnoreVersion, onRepoFile, busy 
                     <span>{all.sandbox.project.mismatch(pmm.project, pmm.image, pmm.suggest)}</span>
                     <Button size="sm" onClick={() => onIgnoreVersion(s.id)} disabled={busy}>{td.ignoreVersion}</Button>
                   </div>
+                )}
+                {onComposerAuth && s.key === 'install-plugin' && s.state === 'failed' && !!s.error && /packages\.shopware\.com/.test(s.error) && composerAuthWanted(s.error) && (
+                  <form className={styles.dumpWarn} onSubmit={e => { e.preventDefault(); if (token.trim()) { onComposerAuth(s.id, token.trim()); setToken(''); } }}>
+                    <span>{t.composerAuthHint}</span>
+                    <label className={styles.fieldTight}><span className={styles.cap}>{t.composerAuthLabel}</span>
+                      <input type="password" autoComplete="off" spellCheck={false} value={token} onChange={e => setToken(e.target.value)} disabled={busy} /></label>
+                    <Button size="sm" variant="primary" type="submit" disabled={busy || !token.trim()}>{t.composerAuthSubmit}</Button>
+                  </form>
                 )}
                 {s.key === 'import-db' && task.dump?.deleted && s.state !== 'pending' && <p className={styles.dumpNote}>{td.deleted}</p>}
                 {(autoLog || logs.has(s.id)) && (hasLog || s.state === 'running') && (

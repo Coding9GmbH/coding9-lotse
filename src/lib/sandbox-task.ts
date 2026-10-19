@@ -15,6 +15,11 @@ export function applyTaskEvent(task: CodeTaskPublic | null, ev: TaskEvent): Code
   return { ...task, steps: task.steps.map(s => (s.id === ev.step ? { ...s, log: [...s.log, ev.line].slice(-LOG_LINES) } : s)) };
 }
 
+/** composer's output says a package download was refused for lack of credentials (packages.shopware.com answers 400/401/403 without a
+ *  token): the failed step can ask for the token and retry. */
+export const composerAuthWanted = (output: string) =>
+  /could not be downloaded \(HTTP\/[\d.]+ (?:400|401|403)\b|\b(?:401|403)\b.*(?:unauthorized|forbidden)|authenticat|http-basic|bearer|auth\.json|credentials/i.test(output);
+
 /** The setup stopped at "Plugin erkennen" for the user's decision on the repository's .lotse/sandbox.json commands: stored as failed
  *  (so the step can continue), but it waits for the user – not an error. */
 export const awaitsApproval = (t: Pick<CodeTaskPublic, 'status' | 'repoFile'>) => t.status === 'failed' && t.repoFile?.state === 'pending';

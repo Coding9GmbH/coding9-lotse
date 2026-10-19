@@ -12,6 +12,7 @@ import { codeTaskByChat, codeTaskGet, codeTaskList, codeTaskPut, dataDir, macOf,
 import { assertLotseBranch } from '../git';
 import { singleton } from '../state';
 import { attachDump, deleteDump } from './dumps';
+import { customImage } from './custom-image';
 import { checkCommands, checkTaskEnv, cleanNotes, getSandboxConfig, imageTag } from './env';
 import type { NetworkMode } from './network';
 import { getRunner } from './runner';
@@ -60,8 +61,10 @@ export interface CodeTask extends CodeTaskRow {
   /** "Als GitHub-Projekt anlegen": repository created but its base not pushed yet (the next try reuses it); null once bound to repo */ createdRepo?: string | null;
 }
 const setupOf = (t: Pick<CodeTask, 'setup'>): StoredSetup => t.setup ?? { source: 'repo', mode: 'auto', commands: [], env: [] };
-/** The image this task runs: the repository file's tag, else the environment's */
-export const taskImage = (t: Pick<CodeTask, 'image'>): string => t.image || getSandboxConfig().image;
+/** The Dockware image of this task: the repository file's tag, else the environment's */
+export const taskBaseImage = (t: Pick<CodeTask, 'image'>): string => t.image || getSandboxConfig().image;
+/** The image this task runs: the base image, or the one built from the environment's Dockerfile on top of it */
+export const taskImage = (t: Pick<CodeTask, 'image'>): string => { const base = taskBaseImage(t); return customImage(base, getSandboxConfig().dockerfile)?.name ?? base; };
 /** How the code goes into the container: the dialog's choice, else the repository file's, else detected (auto) */
 export const effectiveMode = (t: Pick<CodeTask, 'setup' | 'repoFile'>): SandboxMode => { const m = setupOf(t).mode; return m !== 'auto' ? m : t.repoFile?.mode ?? 'auto'; };
 /** Target folder of an own setup: the dialog's, else the repository file's, else /opt/<repository name> */

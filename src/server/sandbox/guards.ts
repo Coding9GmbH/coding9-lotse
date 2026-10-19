@@ -5,6 +5,7 @@ import type { ContainerSpec, NetworkInfo } from './runner';
 import { DB_COPY_ROLE, EGRESS_NET, MANAGED_LABEL, ROLE_LABEL, SANDBOX_NET, SHOT_ROLE, TASK_LABEL, taskDbVolume } from './labels';
 import { COPY_CAP_DROP, COPY_ENTRYPOINT, COPY_FROM, COPY_TO, COPY_USER, assertVolumeName, copyContainerName, volumeTask } from './db-snapshot-spec';
 import { SCREENSHOT_IMAGE, SHOT_CMD, SHOT_USER } from './screenshot-spec';
+import { CUSTOM_IMAGE } from './custom-image';
 
 export { MANAGED, MANAGED_LABEL, TASK_LABEL } from './labels';
 
@@ -16,7 +17,7 @@ export function assertId(id: string): string {
 const templateImage = (image: string) => Object.values(TEMPLATES).some(t => t.imagePattern.test(image));
 /** Only an image that one of the registered templates allows (pinned dockware/shopware or dockware/play), or the pinned screenshot image. */
 export function assertAllowedImage(image: string): string {
-  if (image !== SCREENSHOT_IMAGE && !templateImage(image)) throw new Error(`Image „${image}“ ist nicht erlaubt (nur dockware/shopware mit fester Version).`);
+  if (image !== SCREENSHOT_IMAGE && !templateImage(image) && !CUSTOM_IMAGE.test(image)) throw new Error(`Image „${image}“ ist nicht erlaubt (nur dockware/shopware mit fester Version).`);
   return image;
 }
 export const isManaged = (labels: Record<string, string> | null | undefined) => labels?.[MANAGED_LABEL] === '1';

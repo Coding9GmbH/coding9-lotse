@@ -25,6 +25,7 @@ import { captureBaseline } from './container-pull';
 import { prepareTaskDb, saveSnapshot } from './db-snapshots';
 import { taskDbVolume } from './db-snapshot-spec';
 import { assertAttachable, deleteDump, deleteTaskDumps, dumpPathFor, dumpShopwareVersion } from './dumps';
+import { ensureSandboxImage } from './image-build';
 import { STOP_CONCURRENCY, getSandboxConfig, maxRunning, sandboxEnabled, sandboxStatus } from './env';
 import { internetBlocked, revokeInternet, type RevokeReason } from './internet';
 import { SANDBOX_NETWORK, ensureNetwork, networkMode, openHostPorts, probeRoute } from './network';
@@ -39,7 +40,7 @@ import { getTemplate, resolveCommand } from './templates';
 import { sleep, waitReady } from './templates/dockware';
 import type { StepCtx } from './templates/types';
 import { REPO_FILE, RepoFileError, readRepoFile, repoFileApproved, repoFileImage } from './repo-config';
-import { appendLog, commandDir, effectiveMode, effectiveTarget, emitChatToViews, emitTask, getTask, httpStatusOf, listTasks, markStopping, mustTask, now, placeRepoSteps, publicTask, publishRunning, sandboxOrigin, saveTask, setTaskDump, taskImage, taskPaths, turnRunning, type CodeTask, type StoredStep } from './tasks';
+import { appendLog, commandDir, effectiveMode, effectiveTarget, emitChatToViews, emitTask, getTask, httpStatusOf, listTasks, markStopping, mustTask, now, placeRepoSteps, publicTask, publishRunning, sandboxOrigin, saveTask, setTaskDump, taskBaseImage, taskImage, taskPaths, turnRunning, type CodeTask, type StoredStep } from './tasks';
 /** Author of the empty start commit of a sandbox without a project (the same identity publishing commits with) */
 const LOTSE_AUTHOR = { name: 'Lotse', email: 'lotse@users.noreply.github.com' };
 
@@ -358,7 +359,9 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
       const r = Array.isArray(cmd) ? { argv: cmd as readonly string[], user: tpl.execUser, workdir: o.workdir ?? tpl.workdir, timeoutMs: o.timeoutMs ?? limit, maxOutput: MAX_OUTPUT }
         : resolveCommand(tpl, (cmd as { command: string }).command, (cmd as { args?: Record<string, string> }).args, { pluginDir: t.layout?.pluginDir ?? '' });
       if (!o.quiet) lg(`$ ${step.key === 'custom' && step.command ? step.command.split('\n')[0].slice(0, 200) : r.argv.map(a => (a.length > 80 ? `${a.slice(0, 77)}…` : a)).join(' ')}`);
-      const res = await runner.exec(container(), r.argv, { user: r.user, workdir: r.workdir, timeoutMs: Math.min(o.timeoutMs ?? r.timeoutMs, limit), maxOutput: r.maxOutput, signal });
+      // composer gets the credentials entered while the setup waited (not in the container's Env, which is fixed at create)
+      const auth = r.argv.includes('composer') ? getSandboxConfig().env.filter(e => e.startsWith('COMPOSER_AUTH=')) : [];
+      const res = await runner.exec(container(), r.argv, { user: r.user, workdir: r.workdir, ...(auth.length ? { env: auth } : {}), timeoutMs: Math.min(o.timeoutMs ?? r.timeoutMs, limit), maxOutput: r.maxOutput, signal });
       if (!o.quiet) lg(res.output);
       if (!(o.okCodes ?? [0]).includes(res.exitCode)) {
         const tail = redact(res.output).trim().split('\n').slice(-15).join('\n');
@@ -368,8 +371,8 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
     },
     ensureImage: async () => {
       let last = 0;
-      const { pulled } = await runner.ensureImage(taskImage(t), pr => { if (Date.now() - last > 2000 || pr.pct === 100) { last = Date.now(); lg(`${pr.text}${pr.pct !== undefined ? ` (${pr.pct} %)` : ''}`); } }, signal);
-      lg(pulled ? 'Image geladen.' : 'Image ist vorhanden.');
+      const { pulled, built } = await ensureSandboxImage(runner, taskBaseImage(t), getSandboxConfig().dockerfile, pr => { if (Date.now() - last > 2000 || pr.pct === 100) { last = Date.now(); lg(`${pr.text}${pr.pct !== undefined ? ` (${pr.pct} %)` : ''}`); } }, signal);
+      lg(built ? 'Eigenes Image gebaut.' : pulled ? 'Image geladen.' : 'Image ist vorhanden.');
     },
     clone: async () => {
       removeShotFiles(t.id); t.shots = []; // a fresh base: earlier screenshots no longer show it

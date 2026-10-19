@@ -271,6 +271,7 @@ export interface SandboxEnvPublic {
   /** storefront paths the "Screenshot" button captures */ screenshotPaths: string[];
   /** stored database preselected in "Sandbox starten" ('' = none, or the one stored was deleted) */ defaultDumpId: string;
   /** "Hinweise für die KI": the user's own notes for the agent of every sandbox (data in its prompt) */ aiNotes: string;
+  /** own Dockerfile instructions after FROM (empty = the plain Dockware image) */ dockerfile: string;
 }
 export type InternetPolicy = 'approval' | 'never';
 /** Both modes: task containers only on the internal network lotse-sandbox. network = Lotse runs in Docker on that network; local = Lotse on the host reaches the container IPs */
@@ -282,6 +283,7 @@ export interface SandboxEnvPatch {
   enabled?: boolean; image?: string; memoryMb?: number; cpus?: number; idleMinutes?: number; defaultRepo?: string; defaultBranch?: string; internet?: InternetPolicy; screenshots?: boolean; screenshotPaths?: string[];
   /** '' = no stored database preselected */ defaultDumpId?: string;
   aiNotes?: string;
+  dockerfile?: string;
   envVars?: { key: string; secret: boolean; value?: string }[];
   commands?: { id?: string; label: string; command: string; phase: CommandPhase; timeoutSec?: number }[];
 }
