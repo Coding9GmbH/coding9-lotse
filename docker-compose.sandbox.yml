@@ -63,6 +63,11 @@ services:
       # = subnet of lotse-sandbox-egress, the network a task container joins only while a human allowed internet for it
       # (Lotse creates it on demand, not attached to it itself); refused just the same
       LOTSE_SANDBOX_EGRESS_SUBNET: 10.214.0.0/24
+    # Codex' own sandbox (bubblewrap) needs unprivileged user namespaces for its file writes (apply_patch); Docker's default seccomp
+    # profile blocks them. docker/seccomp-codex.json = the default profile plus unshare/clone/setns/mount/pivot_root without CAP_SYS_ADMIN.
+    # Capabilities stay dropped (cap_drop: ALL), so these calls only act inside the new user namespace.
+    security_opt:
+      - seccomp=./docker/seccomp-codex.json
     networks: [default, docker-api, lotse-sandbox]
     depends_on: [docker-proxy]
 
