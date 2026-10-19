@@ -8,7 +8,6 @@ Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag gesch
 ## [0.9.1] – 2026-10-19
 
 ### Behoben
-- Die Zeile „Sandbox angehängt“ erschien nach dem Start einer Sandbox manchmal doppelt im Chat.
 - Der Hinweis zu den Integrationen unter Einstellungen → KI-Zugriff zeigte `**lesen**` mit den Sternchen an.
 - Das Docker-Image von 0.9.0 wurde wegen eines fehlschlagenden Tests nicht veröffentlicht; 0.9.1 enthält denselben Stand mit den Korrekturen.
 
