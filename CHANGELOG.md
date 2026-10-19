@@ -5,6 +5,14 @@ Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die V
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
 Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag geschrieben (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
+## [0.9.3] – 2026-10-19
+
+### Geändert
+- Sandbox Coding: Ein ganzes Shopware-Projekt wird jetzt vollständig im Test-Shop installiert (`composer install` aus der `composer.lock` des Projekts, Datenbank-Migrationen, Plugins, Apps und Theme). Da Composer Internet braucht, wartet die Einrichtung auf deine Freigabe („Internet: aus“ oben in der Sandbox) und trennt den Container danach wieder; private Pakete lassen sich über das Geheimnis `COMPOSER_AUTH` der Sandbox-Umgebung anmelden. Das bisherige Verhalten bleibt mit `"projectInstall": "overlay"` in `.lotse/sandbox.json` verfügbar.
+
+### Behoben
+- Sandbox Coding: Nach dem Datenbank-Snapshot wartet die Einrichtung nur noch auf MySQL statt auf eine HTTP-200-Antwort des Shops.
+
 ## [0.9.2] – 2026-10-19
 
 ### Hinzugefügt
@@ -226,6 +234,7 @@ Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag gesch
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
+[0.9.3]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.8.1...v0.9.0
