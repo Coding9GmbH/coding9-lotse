@@ -199,10 +199,10 @@ test('a config file of the image for a bundle the project does not register is r
   fs.mkdirSync(path.join(root, 'config/packages'), { recursive: true });
   fs.writeFileSync(path.join(root, 'config/packages/web_profiler.yaml'), 'web_profiler: {}\n'); // the project's own file of that name
   const ran: string[][] = [];
-  const ctx: any = {
+  const ctx = {
     projectRoot: () => root,
     run: async (argv: string[]) => { ran.push(argv); return { exitCode: 0, output: argv[0] === 'grep' ? 'config/packages/dev/web_profiler.yaml\nconfig/packages/web_profiler.yaml\nconfig/packages/../../etc/passwd\n' : '' }; },
-  };
+  } as unknown as Parameters<typeof removeImageLeftovers>[0];
   const out = 'In ContainerBuilder.php line 1:\n  Container extension "web_profiler" is not registered.';
   assert.deepEqual(await removeImageLeftovers(ctx, out), ['config/packages/dev/web_profiler.yaml']);
   assert.deepEqual(ran.filter(a => a[0] === 'rm'), [['rm', '-f', '--', 'config/packages/dev/web_profiler.yaml']]);
