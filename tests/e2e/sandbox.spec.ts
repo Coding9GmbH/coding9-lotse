@@ -945,7 +945,8 @@ test('Sandbox Coding: saved environments – the same choices everywhere, fresh 
   // "Demo-Shop ohne Projekt": one click, no repository
   await page.getByRole('button', { name: 'Sandbox starten', exact: true }).click();
   await menu.getByRole('menuitem', { name: 'Demo-Shop ohne Projekt', exact: true }).click();
-  await expect(page.getByText(/^Sandbox ohne Projekt angehängt/)).toBeVisible();
+  // the chat above (a sandbox without a project was attached to it, then finished) can still be open after the reload: its line stays, the new one is the last
+  await expect(page.getByText(/^Sandbox ohne Projekt angehängt/).last()).toBeVisible();
   await expect(panel.getByRole('heading', { name: 'Demo-Shop' })).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
   page.once('dialog', d => void d.accept());
