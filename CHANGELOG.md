@@ -5,6 +5,15 @@ Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die V
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
 Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag geschrieben (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
+## [0.9.5] – 2026-10-19
+
+### Hinzugefügt
+- Sandbox Coding: In den Einstellungen der Sandbox-Umgebung lässt sich ein eigenes Dockerfile hinterlegen (Anweisungen nach `FROM`, z. B. PHP-Erweiterungen oder Pakete). Lotse baut daraus beim ersten Start ein eigenes Image auf Basis des Dockware-Images der Sandbox; eine Änderung baut ein neues Image.
+- Sandbox Coding: Verweigert packages.shopware.com beim `composer install` den Download, fragt der fehlgeschlagene Schritt den Composer-Token deines Shopware-Kontos ab, speichert ihn verschlüsselt als geheime Variable `COMPOSER_AUTH` und versucht den Schritt sofort erneut.
+
+### Geändert
+- Sandbox Coding: Die Hinweise bei fehlgeschlagenem `composer install` erkennen eine fehlende PHP-Version oder -Erweiterung genauer (kein falscher Alarm mehr bei Paketen wie `shopware/platform`) und nennen bei zu wenig Arbeitsspeicher die Einstellung dafür; composer läuft ohne eigenes Speicherlimit.
+
 ## [0.9.4] – 2026-10-19
 
 ### Geändert
@@ -239,6 +248,7 @@ Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag gesch
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
+[0.9.5]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.1...v0.9.2
