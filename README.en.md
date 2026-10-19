@@ -13,11 +13,11 @@ Pages & shopping experiences, prices, copy & SEO via chat. The AI only reads; no
 
 ## Screenshots
 
-| Workspace with shop check | Choose context | AI access per area |
-|---|---|---|
-| <img src="docs/screenshots/app.png" alt="Workspace" width="300"> | <img src="docs/screenshots/app-context.png" alt="Context selection" width="300"> | <img src="docs/screenshots/ki-zugriff.png" alt="AI access: enable shop areas individually" width="300"> |
+| Workspace with shop check | SEO area | Choose context | AI access per area |
+|---|---|---|---|
+| <img src="docs/screenshots/app.png" alt="Workspace" width="220"> | <img src="docs/screenshots/seo.png" alt="SEO area: technical problems and open levers with “Optimise”" width="220"> | <img src="docs/screenshots/app-context.png" alt="Context selection" width="220"> | <img src="docs/screenshots/ki-zugriff.png" alt="AI access: enable shop areas individually" width="220"> |
 
-<sub>Screenshots from the demo shop (Dockware), German UI. The video shows a sample draft with a fictional brand and custom illustrations.</sub>
+<sub>Screenshots from a fresh Lotse instance with the demo shop (Dockware), German UI. The video shows a sample draft with a fictional brand and custom illustrations.</sub>
 
 ## Quick start (Docker)
 
@@ -124,6 +124,10 @@ Chat instead of forms. You write what should happen ("Change the layout of produ
 - **Chat start with examples**, follow-up questions with answer buttons, history. Optional context (choose category/product) with direct links to the Admin/Storefront.
 - **Bulk changes** (prices, list prices, stock, active, copy, SEO) with server-side price rules, warnings (e.g. −99%), row selection, audit log and undo.
 - **Per-product blocks** (FAQ): shared PDP layout with block `pdp-faq`, content per product in the JSON custom field `aicb_blocks` (with FAQPage schema).
+- **SEO area**: reads Search Console and Sistrix, checks pages technically (noindex, canonical, title, H1, structured data) and lists what is most worth doing: queries just short of page 1, pages that take rankings from each other, click losses, pages with broken images, files or links. “Optimise” puts the finished task into the chat; **impact measurement** then shows per change what it achieved.
+- **Sales** (off by default): top sellers and slow movers from totals per product, never from customers or single orders.
+- **Cost brake**: monthly budget for Claude; a notice in the chat from 80 %, once it is reached no new turn starts.
+- **Internet research** (off by default): on request the AI looks up public pages, such as manufacturer datasheets, and names the source.
 - **Style guide onboarding**: the AI analyzes theme configuration, storefront CSS, logo and real copy → stored in the database. Applies to copy, colors, preview and the CSS variables (`--sg-*`) in custom HTML.
 - **Layout with scope selection** (Shopware): one layout for a category, individual products, all products in a category or the whole shop. Lotse asks beforehand with real numbers, the approval shows how many pages will lose their own layout, and undo restores each page individually.
 - **Draft on the real page**: header, footer, theme, buy box and product listing of the target page stay; only the content is replaced by the draft (Shopware: shopping experience; Shopify, Magento, OpenMage: the HTML that will be published, in the real theme). Without a named target, Lotse picks a real product or category.
@@ -149,8 +153,8 @@ For code instead of shop data: a sandbox is a **development environment with git
 - **Saved environments:** set up once (project, database, settings), then start a fresh sandbox from it for every job with one click – several side by side, checked first, no secret values; or the demo shop without a project.
 - **Console:** a shell of your own in the container (`bin/console`, logs, Composer) – for humans only, not for the AI.
 - **Take over from the container:** compare what comes into being in the console or through an AI command in the container (e.g. `bin/console plugin:create`, `composer require`) and bring it into the project with the same checks as a commit.
-- **Publish:** only by click, as a pull request on a branch of its own `lotse/…` or as a plugin ZIP to upload to the shop. You hand pull request feedback to the AI with one click.
-- **Requirements:** off by default (Settings → Sandbox). Needs Docker access – that is root access to the host – and `LOTSE_PASSWORD` on a server. The containers are offline; internet only after approval.
+- **Publish:** only by click, as a pull request on a branch of its own `lotse/…` or as a plugin ZIP to upload to the shop. The AI can propose the ZIP with a card in the chat (“give me the plugin as a ZIP for the live shop”); `composer.json` is checked and the ZIP is downloaded only when you click. You hand pull request feedback to the AI with one click.
+- **Requirements:** off by default (Settings → Sandbox). Needs Docker access – that is root access to the host – and `LOTSE_PASSWORD` on a server. The containers are offline; internet only after approval. With `make sandbox-up` Lotse starts in Docker mode with a socket proxy, an internal network and its own seccomp profile (`docker/seccomp-codex.json`) that lets Codex write files.
 
 Setup: [Enable Sandbox Coding](docs/en/self-hosting.md#enable-sandbox-coding) · Usage and every case: [user guide](docs/en/user-guide.md#sandbox-coding-a-sandbox-in-the-chat) · Security model: [SECURITY.en.md](SECURITY.en.md)
 

@@ -13,11 +13,11 @@ Seiten & Einkaufswelten, Preise, Texte & SEO per Chat. Die KI liest nur, geschri
 
 ## Screenshots
 
-| Arbeitsfläche mit Shop-Check | Kontext wählen | KI-Zugriff je Bereich |
-|---|---|---|
-| <img src="docs/screenshots/app.png" alt="Arbeitsfläche" width="300"> | <img src="docs/screenshots/app-context.png" alt="Kontext-Auswahl" width="300"> | <img src="docs/screenshots/ki-zugriff.png" alt="KI-Zugriff: Bereiche des Shops einzeln freigeben" width="300"> |
+| Arbeitsfläche mit Shop-Check | SEO-Bereich | Kontext wählen | KI-Zugriff je Bereich |
+|---|---|---|---|
+| <img src="docs/screenshots/app.png" alt="Arbeitsfläche" width="220"> | <img src="docs/screenshots/seo.png" alt="SEO-Bereich: technische Probleme und offene Hebel mit „Optimieren“" width="220"> | <img src="docs/screenshots/app-context.png" alt="Kontext-Auswahl" width="220"> | <img src="docs/screenshots/ki-zugriff.png" alt="KI-Zugriff: Bereiche des Shops einzeln freigeben" width="220"> |
 
-<sub>Screenshots aus dem Demo-Shop (Dockware). Das Video zeigt einen Beispiel-Entwurf mit fiktiver Marke und eigenen Illustrationen.</sub>
+<sub>Screenshots aus einer frischen Lotse-Instanz mit dem Demo-Shop (Dockware), deutsche Oberfläche. Das Video zeigt einen Beispiel-Entwurf mit fiktiver Marke und eigenen Illustrationen.</sub>
 
 ## Schnellstart (Docker)
 
@@ -124,6 +124,10 @@ Chat statt Formulare. Du schreibst, was passieren soll („Ändere das Layout vo
 - **Chat-Start mit Beispielen**, Rückfragen mit Antwort-Buttons, Verlauf. Optionaler Kontext (Kategorie/Produkt wählen) mit Direktlinks ins Admin/Storefront.
 - **Massenänderungen** (Preise, Streichpreise, Bestand, Aktiv, Texte, SEO) mit serverseitig gerechneten Preisregeln, Warnungen (z. B. −99 %), Zeilen-Auswahl, Audit-Log und Rückgängig.
 - **Produktindividuelle Blöcke** (FAQ): gemeinsames PDP-Layout mit Block `pdp-faq`, Inhalt je Produkt im JSON-Zusatzfeld `aicb_blocks` (mit FAQPage-Schema).
+- **SEO-Bereich**: Liest Search Console und Sistrix, prüft Seiten technisch (noindex, Canonical, Title, H1, strukturierte Daten) und listet, was sich am ehesten lohnt: Suchanfragen kurz vor Seite 1, Seiten, die sich gegenseitig Rankings wegnehmen, Klickverluste, Seiten mit defekten Bildern, Dateien oder Links. „Optimieren“ legt den fertigen Auftrag in den Chat; die **Wirkungsmessung** zeigt danach je Änderung, was sie gebracht hat.
+- **Abverkauf** (standardmäßig aus): Top-Seller und Ladenhüter aus Summen je Produkt, nie aus Kunden oder einzelnen Bestellungen.
+- **Kostenbremse**: Monatsbudget für Claude; Hinweis im Chat ab 80 %, ist es erreicht, startet keine neue Runde.
+- **Internetrecherche** (standardmäßig aus): Die KI schlägt auf Wunsch öffentliche Seiten nach, etwa Datenblätter von Herstellern, und nennt die Quelle.
 - **Styleguide-Onboarding**: Die KI analysiert Theme-Konfiguration, Storefront-CSS, Logo und echte Texte → gespeichert in der Datenbank. Wirkt auf Texte, Farben, Vorschau und die CSS-Variablen (`--sg-*`) in Custom-HTML.
 - **Layout mit Bereichswahl** (Shopware): ein Layout für eine Kategorie, einzelne Produkte, alle Produkte einer Kategorie oder den ganzen Shop. Lotse fragt vorher mit echten Zahlen, die Freigabe zeigt, wie viele Seiten ein eigenes Layout verlieren, und Rückgängig stellt jede Seite einzeln wieder her.
 - **Entwurf auf der echten Seite**: Kopf, Fuß, Theme, Kaufbox und Produktliste der Zielseite bleiben, nur der Inhalt wird durch den Entwurf ersetzt (Shopware: Einkaufswelt; Shopify, Magento, OpenMage: das HTML, das veröffentlicht wird, im echten Theme). Ohne genanntes Ziel wählt Lotse ein echtes Produkt bzw. eine Kategorie.
@@ -149,8 +153,8 @@ Für Code statt Shop-Daten: Eine Sandbox ist eine **Entwicklungsumgebung mit Git
 - **Gespeicherte Umgebungen:** einmal einrichten (Projekt, Datenbank, Einstellungen), dann für jeden Auftrag mit einem Klick eine frische Sandbox daraus starten – mehrere nebeneinander, vorher geprüft, ohne geheime Werte; oder der Demo-Shop ohne Projekt.
 - **Konsole:** eine eigene Shell im Container (`bin/console`, Logs, Composer) – nur für Menschen, nicht für die KI.
 - **Aus dem Container übernehmen:** was in der Konsole oder per Befehl der KI im Container entsteht (z. B. `bin/console plugin:create`, `composer require`), vergleichen und mit denselben Prüfungen wie ein Commit ins Projekt holen.
-- **Veröffentlichen:** nur per Klick, als Pull Request auf einen eigenen Branch `lotse/…` oder als Plugin-ZIP zum Hochladen in den Shop. Rückmeldungen zum Pull Request gibst du mit einem Klick an die KI weiter.
-- **Voraussetzungen:** standardmäßig aus (Einstellungen → Sandbox). Braucht Docker-Zugriff – das ist Root-Zugriff auf den Host – und auf einem Server `LOTSE_PASSWORD`. Die Container sind offline, Internet gibt es nur nach Freigabe.
+- **Veröffentlichen:** nur per Klick, als Pull Request auf einen eigenen Branch `lotse/…` oder als Plugin-ZIP zum Hochladen in den Shop. Die KI kann das ZIP per Karte im Chat vorschlagen („gib mir das Plugin als ZIP für den Live-Shop“); geprüft (`composer.json`) und heruntergeladen wird erst mit deinem Klick. Rückmeldungen zum Pull Request gibst du mit einem Klick an die KI weiter.
+- **Voraussetzungen:** standardmäßig aus (Einstellungen → Sandbox). Braucht Docker-Zugriff – das ist Root-Zugriff auf den Host – und auf einem Server `LOTSE_PASSWORD`. Mit `make sandbox-up` startet Lotse im Docker-Betrieb mit Socket-Proxy, internem Netz und einem eigenen Seccomp-Profil (`docker/seccomp-codex.json`), das Codex' Dateischreiben erlaubt. Die Container sind offline, Internet gibt es nur nach Freigabe.
 
 Einrichtung: [Sandbox Coding aktivieren](docs/self-hosting.md#sandbox-coding-aktivieren) · Bedienung und alle Fälle: [Benutzerhandbuch](docs/benutzerhandbuch.md#sandbox-coding-sandbox-im-chat) · Sicherheitsmodell: [SECURITY.md](SECURITY.md)
 
