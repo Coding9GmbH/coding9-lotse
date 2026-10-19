@@ -320,3 +320,13 @@ test('PR feedback: one card per id (chat stream and sandbox panel may both deliv
   const r = replay([{ ...fb, handedOver: true }, merged]);
   assert.deepEqual(r.items.map(i => i.kind === 'pr_feedback' && [i.id, i.handedOver ?? false, i.state ?? null]), [['f_aaaaaaaaaaaa', true, null], ['f_bbbbbbbbbbbb', false, 'merged']]);
 });
+
+test('sandbox_attached arrives twice (the click\'s response and the chat stream): one line per task', () => {
+  const ev: ChatEvent = { t: 'sandbox_attached', taskId: 't1', repo: '', baseBranch: '' };
+  const once = chatReducer(initialChatState, { type: 'event', event: ev, mode: 'live' });
+  const twice = chatReducer(once, { type: 'event', event: ev, mode: 'live' });
+  assert.equal(twice.items.filter(i => i.kind === 'sandbox_attached').length, 1);
+  // another task later is a new line
+  const other = chatReducer(twice, { type: 'event', event: { ...ev, taskId: 't2' }, mode: 'live' });
+  assert.equal(other.items.filter(i => i.kind === 'sandbox_attached').length, 2);
+});

@@ -38,7 +38,7 @@ export type LogItem =
   | { kind: 'zip'; key: string; note: string }
   | { kind: 'pr'; key: string; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
   | { kind: 'sandbox_offer'; key: string; id: string; repo: string; baseBranch: string; reason: string; pluginName?: string; quickStartId?: string }
-  | { kind: 'sandbox_attached'; key: string; repo: string; baseBranch: string }
+  | { kind: 'sandbox_attached'; key: string; taskId: string; repo: string; baseBranch: string }
   /** feedback on the sandbox's pull request (pr-watch.ts) or its merge/close; handedOver: given to the AI ("An KI übergeben") */
   | { kind: 'pr_feedback'; key: string; id: string; taskId: string; number: number; url: string; items: PrFeedbackItem[]; more?: number; state?: 'merged' | 'closed'; handedOver?: boolean }
   /** request_internet: the AI asks for internet in the task container; decision = the user's click (sent: clicked, answer pending) */
@@ -256,7 +256,10 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
     case 'zip_proposal': return push(s, { kind: 'zip', note: ev.note })[0];
     case 'pr': return push(s, { kind: 'pr', taskId: ev.taskId, number: ev.number, url: ev.url, title: ev.title, action: ev.action, files: ev.files })[0];
     case 'sandbox_offer': return push(s, { kind: 'sandbox_offer', id: ev.id, repo: ev.repo, baseBranch: ev.baseBranch, reason: ev.reason, ...(ev.pluginName ? { pluginName: ev.pluginName } : {}), ...(ev.quickStartId ? { quickStartId: ev.quickStartId } : {}) })[0];
-    case 'sandbox_attached': return push(s, { kind: 'sandbox_attached', repo: ev.repo, baseBranch: ev.baseBranch })[0];
+    case 'sandbox_attached':
+      // the same attachment arrives twice (the click's own response and the chat stream): one line per task
+      if (s.items.some(i => i.kind === 'sandbox_attached' && i.taskId === ev.taskId)) return s;
+      return push(s, { kind: 'sandbox_attached', taskId: ev.taskId, repo: ev.repo, baseBranch: ev.baseBranch })[0];
     case 'pr_feedback': {
       // the same card can arrive twice (chat stream and the sandbox panel) or again marked as handed over: one card
       if (s.items.some(i => i.kind === 'pr_feedback' && i.id === ev.id)) return ev.handedOver ? update(s, 'pr_feedback', i => i.id === ev.id, i => ({ ...i, handedOver: true })) : s;
