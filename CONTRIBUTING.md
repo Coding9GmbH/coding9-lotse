@@ -42,6 +42,6 @@ Die Oberfläche gibt es auf Deutsch und Englisch.
 
 1. **Version erhöhen** nach [SemVer](https://semver.org/lang/de/): `npm version patch --no-git-tag-version` für Fehlerbehebungen, `minor` für neue Funktionen oder Verhaltensänderungen, `major` für Brüche (z. B. Konfiguration, die von Hand angepasst werden muss). Das aktualisiert `package.json` und `package-lock.json`.
 2. **CHANGELOG schreiben**: oben einen Abschnitt `## [x.y.z] – JJJJ-MM-TT` anlegen (ein noch vorhandener Abschnitt `## [Unreleased]` wird dazu umbenannt), darunter die passenden Rubriken (`### Sicherheit`, `### Hinzugefügt`, `### Geändert`, `### Behoben`, `### Entfernt`) mit je einem Satz pro Änderung aus Sicht der Nutzer – was ist anders, was müssen sie ggf. tun (neue Umgebungsvariable, Migration, Verhaltensänderung). Unten den Vergleichslink `[x.y.z]: https://github.com/Coding9GmbH/coding9-lotse/compare/v<vorher>...v<x.y.z>` ergänzen.
-3. Prüfen: `node .github/scripts/check-release.mjs origin/main`. Nach dem Merge den Tag `vx.y.z` setzen; der Docker-Workflow veröffentlicht das Image dann automatisch.
+3. Prüfen: `node .github/scripts/check-release.mjs origin/main`. Nach dem Merge den Tag `vx.y.z` setzen; der Docker-Workflow veröffentlicht dann die Versions-Images `x.y.z` und `x.y`. (`latest` entsteht ohnehin bei jedem Merge auf `main`.)
 
 Bei einem Release: Hat sich `main` inzwischen weiterbewegt und dieselbe Version vergeben, nach dem Merge die nächste Nummer nehmen. Reine Abhängigkeits-Updates von Dependabot landen mit der nächsten Version im Changelog.

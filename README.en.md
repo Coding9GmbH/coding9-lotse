@@ -30,7 +30,7 @@ docker run -d --name lotse --restart unless-stopped \
   ghcr.io/coding9gmbh/lotse:latest
 ```
 
-> `latest` only exists once the pipeline's release run has been started manually from a tag (see [Releases & image](#releases--image)). If the image doesn't exist yet, build it from source with `make up`.
+> `latest` is the current state of `main`; for a fixed version use `X.Y.Z` instead (see [Releases & image](#releases--image)). If the image doesn't exist yet, build it from source with `make up`.
 
 Then open **http://localhost:3333** and go to *Settings*:
 1. **Connect AI** – either
@@ -104,12 +104,12 @@ Language (German/English) is not a variable: it is chosen in Settings or the sid
 
 ## Releases & image
 
-A tag `vX.Y.Z` publishes the image automatically (`.github/workflows/docker.yml`); it can also be started by hand: GitHub → Actions → *Docker-Image* → *Run workflow*. Pushes to `main` and pull requests only run typecheck, lint, tests, build and smoke test, but do not publish an image.
+The pipeline (`.github/workflows/docker.yml`) publishes the image automatically once the checks pass; it can also be started by hand: GitHub → Actions → *Docker-Image* → *Run workflow*. Pull requests only run typecheck, lint, tests, build and smoke test.
 
-- Tag `vX.Y.Z` (or a manual run from that tag): publishes `ghcr.io/coding9gmbh/lotse` as `X.Y.Z`, `X.Y` and `latest`.
-- Manual run from `main`: publishes `edge` and a tag with the commit's short hash.
+- Push to `main` (i.e. every merge): publishes `ghcr.io/coding9gmbh/lotse` as `latest` and with the commit's short hash.
+- Tag `vX.Y.Z`: additionally publishes the fixed versions `X.Y.Z` and `X.Y`.
 
-Built for amd64 and arm64, with SBOM and provenance. `latest` only exists after the first release tag; until then, building from source is the only option (see above). New GHCR packages start out private and must be set to *Public* once in the package settings.
+Built for amd64 and arm64, with SBOM and provenance. New GHCR packages start out private and must be set to *Public* once in the package settings.
 
 ## Documentation
 

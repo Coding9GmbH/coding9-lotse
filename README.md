@@ -30,7 +30,7 @@ docker run -d --name lotse --restart unless-stopped \
   ghcr.io/coding9gmbh/lotse:latest
 ```
 
-> `latest` gibt es erst, wenn der Release-Lauf der Pipeline manuell von einem Tag aus gestartet wurde (siehe [Releases & Image](#releases--image)). Gibt es das Image noch nicht, baust du es mit `make up` aus dem Quellcode.
+> `latest` ist der aktuelle Stand von `main`; für eine feste Version nimm stattdessen `X.Y.Z` (siehe [Releases & Image](#releases--image)). Gibt es das Image noch nicht, baust du es mit `make up` aus dem Quellcode.
 
 Dann **http://localhost:3333** öffnen und unter *Einstellungen*:
 1. **KI verbinden** – wahlweise
@@ -104,12 +104,12 @@ Die Sprache (Deutsch/Englisch) ist keine Variable: Sie wird in den Einstellungen
 
 ## Releases & Image
 
-Ein Tag `vX.Y.Z` veröffentlicht das Image automatisch (`.github/workflows/docker.yml`); außerdem lässt es sich von Hand starten: GitHub → Actions → *Docker-Image* → *Run workflow*. Push auf `main` und Pull Requests führen nur Typecheck, Lint, Tests, Build und Smoke-Test aus, veröffentlichen aber kein Image.
+Die Pipeline (`.github/workflows/docker.yml`) veröffentlicht das Image automatisch, sobald die Prüfungen grün sind; von Hand geht es über GitHub → Actions → *Docker-Image* → *Run workflow*. Pull Requests führen nur Typecheck, Lint, Tests, Build und Smoke-Test aus.
 
-- Tag `vX.Y.Z` (oder manueller Lauf von diesem Tag): veröffentlicht `ghcr.io/coding9gmbh/lotse` als `X.Y.Z`, `X.Y` und `latest`.
-- Manueller Lauf von `main`: veröffentlicht `edge` und ein Tag mit dem Kurz-Hash des Commits.
+- Push auf `main` (also jeder Merge): veröffentlicht `ghcr.io/coding9gmbh/lotse` als `latest` und mit dem Kurz-Hash des Commits.
+- Tag `vX.Y.Z`: veröffentlicht zusätzlich die festen Versionen `X.Y.Z` und `X.Y`.
 
-Gebaut wird für amd64 und arm64, mit SBOM und Provenance. `latest` gibt es erst nach dem ersten Release-Tag; vorher bleibt nur der Bau aus dem Quellcode (siehe unten). Neue GHCR-Pakete sind zunächst privat und müssen einmalig in den Paket-Einstellungen auf *Public* gestellt werden.
+Gebaut wird für amd64 und arm64, mit SBOM und Provenance. Neue GHCR-Pakete sind zunächst privat und müssen einmalig in den Paket-Einstellungen auf *Public* gestellt werden.
 
 ## Dokumentation
 
