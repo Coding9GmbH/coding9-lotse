@@ -486,6 +486,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     return p?.kind === 'publish' ? { key: p.key, title: p.title, body: p.body } : null;
   }, [state.items]);
   const proposal = picked && state.items.some(i => i.key === picked.key) ? picked : latestProposal;
+  const openZip = () => { setOpenPr(n => n + 1); if (narrow()) setPreviewOpen(true); };
   const reviewPublish = (p: PrProposal) => { setPicked(p); setOpenPr(n => n + 1); if (narrow()) setPreviewOpen(true); };
   // the publish response carries the PR (the chat stream is not connected between turns): the card comes from here
   const published = (r: PublishResult) => {
@@ -590,7 +591,7 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
                 </div>
               )}
               {target && !taskId && <TargetCard target={target} cfg={cfg} onClear={() => selectTarget(null)} />}
-              <ChatLog items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} sandbox={sandboxActions} onReviewPublish={taskId ? reviewPublish : undefined} prFeedback={prFeedback}
+              <ChatLog items={state.items} cfg={cfg} busy={busy} onAnswer={answer} onDecide={decide} onUndo={id => void undo(id)} onOpenStyleguide={() => setSgOpen(true)} sandbox={sandboxActions} onReviewPublish={taskId ? reviewPublish : undefined} onOpenZip={taskId ? openZip : undefined} prFeedback={prFeedback}
                 sandboxInternet={taskId && sbxTask ? !!sbxTask.internet : undefined} />
               {status}
               <Chips items={chips} onPick={s => { setInput(s); inputRef.current?.focus(); }} />

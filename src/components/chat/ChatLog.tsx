@@ -10,7 +10,7 @@ import { ImageCard, PublishedCard, StyleguideCard } from './Cards';
 import { AiMessage, ErrorMessage, UserMessage } from './Message';
 import { QuestionCard } from './QuestionCard';
 import { Steps } from './Steps';
-import { CommandCard, InternetRequestCard, PublishProposalCard, SandboxAttachedLine, SandboxOfferCard, SandboxStatusLine, type SandboxOfferActions } from '@/components/sandbox/CommandCard';
+import { CommandCard, InternetRequestCard, PublishProposalCard, SandboxAttachedLine, ZipProposalCard, SandboxOfferCard, SandboxStatusLine, type SandboxOfferActions } from '@/components/sandbox/CommandCard';
 import { FileChangeCard } from '@/components/sandbox/FileChangeCard';
 import { PrCard } from '@/components/sandbox/PrCard';
 import { PrFeedbackCard, type PrFeedbackActions } from '@/components/sandbox/PrFeedbackCard';
@@ -32,6 +32,8 @@ interface Props {
   sandbox?: SandboxOfferActions;
   /** publish_proposal cards: open the "Pull Request" tab with this proposal (publishes nothing); missing = no sandbox attached */
   onReviewPublish?: (p: PrProposal) => void;
+  /** propose_zip cards: open the "Freigabe" tab, where the ZIP is checked and downloaded (downloads nothing); missing = no sandbox attached */
+  onOpenZip?: () => void;
   /** pr_feedback cards: hand over to the AI, finish the task (merged/closed); missing = Sandbox Coding off */
   prFeedback?: PrFeedbackActions;
   /** internet state of the attached sandbox (an allowed request card says when it was blocked again); undefined = unknown */
@@ -39,7 +41,7 @@ interface Props {
 }
 
 /** Tools whose result is its own card (file, command, proposal, request): no extra work-step line for them unless they failed. */
-const CARD_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'write_file', 'edit_file', 'delete_file', 'sandbox_bash', 'start_sandbox', 'propose_publish', 'request_internet']);
+const CARD_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'write_file', 'edit_file', 'delete_file', 'sandbox_bash', 'start_sandbox', 'propose_publish', 'propose_zip', 'request_internet']);
 const stepsShown = (steps: Step[]) => steps.filter(s => s.state === 'bad' || !CARD_TOOLS.has(s.name));
 
 /** Per pull request proposal: the PR card that followed it (published), or whether a PR already existed before (then "aktualisieren"). */
@@ -69,10 +71,10 @@ function AnswerStatus({ busy, hasAnswer }: { busy: boolean; hasAnswer: boolean }
 
 const NEAR_END = 140;
 /** These entries always scroll the log to the end (own message, decision needed). */
-const FORCE_FOLLOW = new Set<LogItem['kind']>(['user', 'question', 'changeset', 'publish', 'pr', 'sandbox_offer', 'internet', 'pr_feedback']);
+const FORCE_FOLLOW = new Set<LogItem['kind']>(['user', 'question', 'changeset', 'publish', 'zip', 'pr', 'sandbox_offer', 'internet', 'pr_feedback']);
 
 /** Chat log. Stays "stuck" to the end as long as the user has not scrolled up. */
-export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStyleguide, busy = false, className, children, sandbox, onReviewPublish, prFeedback, sandboxInternet }: Props) {
+export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStyleguide, busy = false, className, children, sandbox, onReviewPublish, onOpenZip, prFeedback, sandboxInternet }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const lastKey = useRef<string | null>(null);
@@ -115,6 +117,7 @@ export function ChatLog({ items, cfg, onAnswer, onDecide, onUndo, onOpenStylegui
           case 'sandbox': return <SandboxStatusLine key={item.key} state={item.state} message={item.message} paused={item.paused} max={item.max} />;
           case 'publish': return <PublishProposalCard key={item.key} title={item.title} body={item.body} {...proposals.get(item.key)}
             onReview={onReviewPublish ? () => onReviewPublish({ key: item.key, title: item.title, body: item.body }) : undefined} />;
+          case 'zip': return <ZipProposalCard key={item.key} note={item.note} onOpen={onOpenZip} />;
           case 'pr': return <PrCard key={item.key} taskId={item.taskId} pr={item} done={{ action: item.action, files: item.files }} />;
           case 'pr_feedback': return <PrFeedbackCard key={item.key} item={item} actions={prFeedback} />;
           case 'sandbox_offer': return <SandboxOfferCard key={item.key} offer={item} actions={sandbox} />;

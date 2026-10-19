@@ -157,6 +157,12 @@ test('ask_user and propose_publish: question to the host, card event only', asyn
   assert.ok(ev.t === 'publish_proposal' && ev.title === 'Header: Gratis Versand' && !ev.body.includes(GITHUB_TOKEN));
 });
 
+test('propose_zip: card event only, note redacted', async () => {
+  await call('propose_zip', { note: `Version 1.0.1, danach Plugin aktualisieren. ${GITHUB_TOKEN}` });
+  const ev = events.at(-1)!;
+  assert.ok(ev.t === 'zip_proposal' && ev.note.startsWith('Version 1.0.1') && !ev.note.includes(GITHUB_TOKEN));
+});
+
 test('a paused task is woken by sandbox_bash (no new setup)', async () => {
   await J.pauseTask(task.id);
   const installs = () => execs().filter(a => a[1] === 'plugin:install').length, before = installs();

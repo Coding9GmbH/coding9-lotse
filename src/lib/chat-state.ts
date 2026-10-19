@@ -35,6 +35,7 @@ export type LogItem =
   | { kind: 'command'; key: string; id: string; command: string; args?: Record<string, string>; status: 'running' | 'ok' | 'failed'; exitCode?: number; tail?: string; ms?: number }
   | { kind: 'sandbox'; key: string; state: SandboxLineState; message?: string; paused?: string[]; max?: number }
   | { kind: 'publish'; key: string; title: string; body: string }
+  | { kind: 'zip'; key: string; note: string }
   | { kind: 'pr'; key: string; taskId: string; number: number; url: string; title: string; action: 'created' | 'updated'; files: number }
   | { kind: 'sandbox_offer'; key: string; id: string; repo: string; baseBranch: string; reason: string; pluginName?: string; quickStartId?: string }
   | { kind: 'sandbox_attached'; key: string; repo: string; baseBranch: string }
@@ -252,6 +253,7 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
     }
     case 'preview_reload': return live ? { ...s, previewReload: s.previewReload + 1 } : s;
     case 'publish_proposal': return push(s, { kind: 'publish', title: ev.title, body: ev.body })[0];
+    case 'zip_proposal': return push(s, { kind: 'zip', note: ev.note })[0];
     case 'pr': return push(s, { kind: 'pr', taskId: ev.taskId, number: ev.number, url: ev.url, title: ev.title, action: ev.action, files: ev.files })[0];
     case 'sandbox_offer': return push(s, { kind: 'sandbox_offer', id: ev.id, repo: ev.repo, baseBranch: ev.baseBranch, reason: ev.reason, ...(ev.pluginName ? { pluginName: ev.pluginName } : {}), ...(ev.quickStartId ? { quickStartId: ev.quickStartId } : {}) })[0];
     case 'sandbox_attached': return push(s, { kind: 'sandbox_attached', repo: ev.repo, baseBranch: ev.baseBranch })[0];
