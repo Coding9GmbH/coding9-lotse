@@ -128,21 +128,38 @@ export function noteChatEvent(chatId: string, ev: ChatEvent) {
   for (const l of s.listeners) { try { l(ev); } catch { s.listeners.delete(l); } }
 }
 
+/** Open questions/approvals count as rejected: questions get `answer` as their marker (otherwise they count as
+ *  "Nicht beantwortet (Neustart)" on the next load), an internet request is declined (nothing is attached). Returns how many were open. */
+function rejectOpen(s: Session, answer: string): number {
+  const n = s.approvals.size;
+  for (const [approvalId, resolve] of s.approvals) {
+    const q = s.events.find(e => e.t === 'question' && e.approvalId === approvalId);
+    if (q?.t === 'question' && q.answer === undefined) q.answer = answer;
+    const ir = s.events.find(e => e.t === 'internet_request' && e.approvalId === approvalId);
+    if (ir?.t === 'internet_request' && ir.decision === undefined) ir.decision = false;
+    resolve({ allow: false, answer: '' });
+  }
+  s.approvals.clear();
+  if (n) persist(s);
+  return n;
+}
+
 /** Aborts a running turn; open questions/approvals count as rejected. */
 export function stopChat(id: string): boolean {
   const s = peekSession(id);
   if (!s?.running) return false;
-  for (const [approvalId, resolve] of s.approvals) {
-    const q = s.events.find(e => e.t === 'question' && e.approvalId === approvalId);
-    if (q?.t === 'question' && q.answer === undefined) q.answer = messages(s.locale).server.cancelled; // otherwise it counts as "Nicht beantwortet (Neustart)" (not answered, restart) on the next load
-    const ir = s.events.find(e => e.t === 'internet_request' && e.approvalId === approvalId);
-    if (ir?.t === 'internet_request' && ir.decision === undefined) ir.decision = false; // the stop declines it (nothing is attached)
-    resolve({ allow: false, answer: '' });
-  }
-  s.approvals.clear(); persist(s);
+  rejectOpen(s, messages(s.locale).server.cancelled); persist(s);
   log.info('Runde abgebrochen', { chatId: id });
   s.abort?.abort();
   return true;
+}
+
+/** End of a turn: a question/approval still open was left behind by the AI (it ended its turn without waiting for the answer).
+ *  Nobody reads a later click any more – and a change set approved then would still be written. So it counts as rejected, and the
+ *  input field no longer sends the next message to it. */
+export function settleTurn(s: Session): void {
+  const n = rejectOpen(s, messages(s.locale).server.unansweredTurnEnded);
+  if (n) log.warn('Offene Rückfrage/Freigabe am Rundenende verworfen', { chatId: s.id, open: n });
 }
 
 const evType = (e: ChatEvent) => (e as { t: string }).t;

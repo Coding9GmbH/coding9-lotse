@@ -53,8 +53,12 @@ const DISABLED_FEATURES = [
   // additionally (as of codex 0.162, `codex features list`): remote plugins, full browser access, permission request tool, standalone web search
   'remote_plugin', 'plugin_sharing', 'browser_use_full_cdp_access', 'browser_annotation_api', 'request_permissions_tool', 'exec_permission_approvals', 'standalone_web_search',
 ];
+/** Name of Lotse's MCP server in the Codex config (its tools are mcp__shop__<tool>) */
+const MCP_SERVER = 'shop';
+
 // Deliberately ON: code_mode_host. Newer models call tools only via code mode (JavaScript isolate without require/fetch/
 // files/environment, verified). The only write tool in it is apply_patch; the permission profile and the read-only sandbox block that.
+// Lotse's own MCP tools stay outside of it (direct_only_tool_namespaces, see codexConfig).
 
 /** Configuration for every run (as `--config` overrides). `workspace`: worktree of an attached sandbox (working directory only: Codex
  *  writes there through Lotse's MCP tools, never itself – apply_patch would need bubblewrap with user namespaces). */
@@ -65,13 +69,17 @@ export function codexConfig(opts: { mcpUrl: string; instructions: string; web?: 
       approval_policy: 'never',
       web_search: opts.web ? 'live' : 'disabled', // web search only when internet research is enabled (Einstellungen → KI-Zugriff)
       project_doc_max_bytes: 0, // no AGENTS.md or similar from the working directory
-      // Questions and approvals wait for the human: code mode must not "yield" the tool call after a few
-      // seconds (otherwise the model ends its turn and the answer is lost)
-      code_mode: { default_exec_yield_time_ms: 3_600_000 },
       default_permissions: 'lotse',
-      features: Object.fromEntries(DISABLED_FEATURES.map(f => [f, false])),
+      features: {
+        ...Object.fromEntries(DISABLED_FEATURES.map(f => [f, false])),
+        // Questions and approvals wait for the human. Inside code mode a tool call "yields" back to the model after 10 s
+        // (default, or whatever the model asks for per exec): the model then re-asks in text and ends its turn, the click on
+        // the question card reaches nobody. So the shop tools are called directly (not from a code-mode script) and the
+        // yield is raised as well. Only valid under [features.code_mode]: a top-level `code_mode` table is silently ignored.
+        code_mode: { default_exec_yield_time_ms: 3_600_000, direct_only_tool_namespaces: [`mcp__${MCP_SERVER}`] },
+      },
       mcp_servers: {
-        shop: {
+        [MCP_SERVER]: {
           url: opts.mcpUrl,
           bearer_token_env_var: 'LOTSE_MCP_TOKEN',
           startup_timeout_sec: 20,

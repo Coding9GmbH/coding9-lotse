@@ -6,6 +6,7 @@ export const de = {
   runCancelled: 'Abgebrochen.',
   onboardingTitle: 'Styleguide-Onboarding',
   unansweredRestart: 'Nicht beantwortet (Neustart)',
+  unansweredTurnEnded: 'Nicht beantwortet (Runde beendet)',
   restartRejected: 'Neustart, bitte erneut vorschlagen. Es wurde nichts geschrieben.',
   restartInterrupted: (applied: number, failed: number, counted: boolean) =>
     `Durch einen Neustart des Servers unterbrochen: ${applied} angewendet, ${failed} fehlgeschlagen (letzter gesicherter Zwischenstand)${counted ? '.' : '; ob weitere Elemente noch geschrieben wurden, ist unbekannt, bitte im Shop prüfen.'}`,
@@ -155,6 +156,7 @@ export const en: typeof de = {
   runCancelled: 'Cancelled.',
   onboardingTitle: 'Style guide onboarding',
   unansweredRestart: 'Not answered (restart)',
+  unansweredTurnEnded: 'Not answered (turn ended)',
   restartRejected: 'Server restarted, please propose again. Nothing was written.',
   restartInterrupted: (applied, failed, counted) =>
     `Interrupted by a server restart: ${applied} applied, ${failed} failed (last saved progress)${counted ? '.' : '; whether more items were written is unknown, please check the shop.'}`,

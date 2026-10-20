@@ -59,6 +59,20 @@ test('live and replay produce the same log', () => {
   assert.equal(live.status, null);
 });
 
+test('end of turn: questions/approvals the AI left open are no longer clickable, the input field sends a new message again', () => {
+  const evs: ChatEvent[] = [
+    { t: 'question', approvalId: 'q1', question: 'Was ändern?', options: ['Gestaltung'] },
+    { t: 'changeset', approvalId: 'c1', cs },
+    { t: 'internet_request', approvalId: 'i1', reason: 'npm install' },
+  ];
+  let live: ChatState = { ...initialChatState, busy: true };
+  for (const ev of evs) live = chatReducer(live, { type: 'event', event: ev });
+  assert.equal(pendingQuestion(live)?.approvalId, 'q1');
+  live = chatReducer(live, { type: 'event', event: { t: 'done', error: null } });
+  assert.equal(pendingQuestion(live), null);
+  assert.deepEqual(live.items.map(i => 'interactive' in i && i.interactive), [false, false, false]);
+});
+
 test('open question/change set: interactive live, not in replay', () => {
   const evs: ChatEvent[] = [
     { t: 'question', approvalId: 'q1', question: 'Welche?', options: ['A'], optionHints: ['x'] },
