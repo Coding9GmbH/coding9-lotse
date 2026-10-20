@@ -27,7 +27,7 @@ import { TaskStatus } from './TaskList';
 import { ZipCard, zipAvailable } from './ZipCard';
 import styles from './Sandbox.module.css';
 
-type Tab = 'preview' | 'setup' | 'changes' | 'pr' | 'console';
+type Tab = 'preview' | 'setup' | 'pr' | 'console';
 type Action = 'start' | 'stop' | 'pause' | 'resume' | 'finish';
 /** Statuses in which the setup tab is the interesting one */
 const SETUP = new Set(['setting_up', 'failed', 'interrupted']);
@@ -37,7 +37,7 @@ const SETUP = new Set(['setting_up', 'failed', 'interrupted']);
  * repository (shortened in the middle, full in the tooltip) with the working branch and a copy button; on the right the internet state,
  * the one lifecycle action that fits the status and a "⋯" menu (finish, replace the database, all sandboxes).
  * Tabs: Vorschau (the task's storefront, full width, full screen; "Screenshot" while switched on), Einrichtung (step timeline),
- * Änderungen (the AI's commits, what is not committed yet, diff per file) and Freigabe (= pull request: status, form with a sticky
+ * Freigabe (= pull request: status, the AI session's changes – commits, what is not committed yet, diff per file –, form with a sticky
  * button, the screenshots the user took, "Plugin als ZIP" for the Shopware admin) and Konsole (the user's own shells in the container, never
  * the AI's). Plain words first, technical terms as tooltip. During the setup it shows "Einrichtung" and switches to
  * "Vorschau" once the sandbox is ready. `files`: file cards so far (refreshes the diff); `openPr` changing opens the PR tab.
@@ -216,11 +216,10 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
         </div>
       </header>
       <div className={styles.panelTabs} role="tablist" aria-label={tc.tabs.label}>
-        {(['preview', 'setup', 'changes', 'pr', ...(task.console ? ['console'] : [])] as Tab[]).map(k => (
+        {(['preview', 'setup', 'pr', ...(task.console ? ['console'] : [])] as Tab[]).map(k => (
           <button key={k} type="button" role="tab" id={`sbx-tab-${k}`} aria-selected={shown === k} aria-controls={`sbx-panel-${k}`} onClick={() => setTab(k)} title={k === 'pr' ? tc.tech.pr : undefined}>
             {tc.tabs[k]}
-            {k === 'changes' && files > 0 && <span className={styles.tabCount}>{files}</span>}
-            {k === 'pr' && task.pr && <span className={styles.tabCount}>#{task.pr.number}</span>}
+            {k === 'pr' && (task.pr ? <span className={styles.tabCount}>#{task.pr.number}</span> : files > 0 && <span className={styles.tabCount}>{files}</span>)}
             {attention[k] && <i className={styles.tabDot} role="img" aria-label={tc.attention} />}
           </button>
         ))}
@@ -245,9 +244,6 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
           <ProjectSummary task={task} />
           <StepTimeline task={task} busy={busyAct} onRepoFile={(decision, hash) => void repoFile(decision, hash)} onComposerAuth={(stepId, token) => void composerAuth(stepId, token)} onRetry={stepId => void act('start', { fromStep: stepId })} onIgnoreVersion={stepId => void act('start', { fromStep: stepId, ignoreVersion: true })} />
         </section>
-        <section role="tabpanel" id="sbx-panel-changes" aria-labelledby="sbx-tab-changes" hidden={shown !== 'changes'} className={styles.tabBody}>
-          {shown === 'changes' && <DiffPanel taskId={task.id} refresh={files + (busy ? 0 : 1)} />}
-        </section>
         <section role="tabpanel" id="sbx-panel-pr" aria-labelledby="sbx-tab-pr" hidden={shown !== 'pr'} className={styles.tabBody}>
           {task.pr && (
             <div className={styles.prBox}>
@@ -255,6 +251,8 @@ export function SandboxPanel({ taskId, className, reload, files, busy, proposal,
               <PrCard taskId={task.id} pr={task.pr} refresh={prTick} />
             </div>
           )}
+          {/* the AI session's changes first: what the click below publishes */}
+          {shown === 'pr' && <DiffPanel taskId={task.id} refresh={files + prTick + (busy ? 0 : 1)} />}
           {/* screenshots (only those the user took) sit inside the form, above its footer: the button stays at the bottom of the tab while scrolling */}
           {shown === 'pr' && s !== 'done' && !task.repo && <GithubProjectCard task={task} onCreated={next => { setTask(next); setGhCreated(next.repo || null); }} />}
           {ghCreated && task.repo === ghCreated && !task.pr && <p className={styles.okBox} role="status">✓ {all.sandbox.ghProject.done(ghCreated)}</p>}

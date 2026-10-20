@@ -396,7 +396,7 @@ test('Sandbox Coding: a stored database is reused – snapshot after the first i
 
 // The agent in a chat with a sandbox (scripted model, anthropic-fake, real Claude Code process): it reads and edits the theme's header
 // template with Claude Code's own Read/Edit tools in the worktree, runs `bin/console theme:compile` in the (fake) container with
-// sandbox_bash, the cards show both, the preview reloads with the new header and the "Änderungen" tab shows the diff.
+// sandbox_bash, the cards show both, the preview reloads with the new header and the "Freigabe" tab shows the AI's changes (diff).
 test('Sandbox Coding: the agent edits the header template natively, compiles the theme with sandbox_bash, the preview shows it', async ({ page, request }) => {
   test.setTimeout(150_000);
   const lotse = { 'x-lotse': '1' };
@@ -429,8 +429,10 @@ test('Sandbox Coding: the agent edits the header template natively, compiles the
   // the preview reloaded after the compile: the fake storefront now renders the changed header template
   await expect(preview.getByText('Gratis Versand ab 50 €')).toBeVisible({ timeout: 15_000 });
 
-  await panel.getByRole('tab', { name: /Änderungen/ }).click();
-  const changes = panel.getByRole('tabpanel', { name: /Änderungen/ });
+  // no separate "Änderungen" tab any more: the AI session's changes sit on top of "Freigabe" (the tab counts the changed files)
+  await expect(panel.getByRole('tab', { name: /Änderungen/ })).toHaveCount(0);
+  await panel.getByRole('tab', { name: /^Freigabe/ }).click();
+  const changes = panel.getByRole('tabpanel', { name: /^Freigabe/ }).getByRole('region', { name: 'Änderungen der KI' });
   await expect(changes.getByText('1 Datei geändert')).toBeVisible();
   await expect(changes.getByRole('region', { name: header })).toBeVisible(); // a section per file, with line numbers
   await expect(changes.getByRole('row').filter({ hasText: '<div class="lotse-e2e-note">Gratis Versand ab 50 €</div>' })).toHaveCount(1);
@@ -448,9 +450,9 @@ test('Sandbox Coding: the agent edits the header template natively, compiles the
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
 });
 
-// A24: files made inside the container reach the project only by taking them over. The user makes some in the console ("Konsole"),
-// "Änderungen" → "Aus dem Container übernehmen" compares, shows the diff, keeps a token and .env.local out and takes the chosen file
-// over; then the AI changes a file with sandbox_bash and takes it over itself with pull_from_container (file card in the chat).
+// A24: files made inside the container reach the project only by taking them over – through the AI (pull_from_container), there is no
+// container comparison in the panel. The user makes some in the console ("Konsole") and asks the AI to take them over: the snippet comes
+// over (file card, then under "Freigabe"), a token and .env.local stay out; then the AI changes a file with sandbox_bash and takes it over too.
 test('Sandbox Coding: files made in the container – in the console and by the AI – are taken over into the project', async ({ page, request }) => {
   test.setTimeout(150_000);
   const lotse = { 'x-lotse': '1' };
@@ -479,27 +481,19 @@ test('Sandbox Coding: files made in the container – in the console and by the 
   }
   await expect.poll(async () => ((await term.textContent()) ?? '').split(/:\/var\/www\/html\$/).length - 1).toBe(4); // three commands done, a fresh prompt
 
-  await panel.getByRole('tab', { name: /Änderungen/ }).click();
-  const changes = panel.getByRole('tabpanel', { name: /Änderungen/ });
-  const pull = changes.getByRole('region', { name: 'Aus dem Container übernehmen' });
-  await pull.getByRole('button', { name: 'Mit Container vergleichen' }).click();
-  await expect(pull.getByRole('status').filter({ hasText: '2 Dateien im Container anders als im Projekt' })).toBeVisible();
-  await expect(pull.getByRole('checkbox', { name: snippet })).toBeChecked();
-  const token = pull.getByRole('checkbox', { name: 'token.txt' });
-  await expect(token).toBeDisabled();
-  await expect(pull.getByText(/^nicht übernehmbar: .*GitHub-Token/)).toBeVisible();
-  await expect(pull.getByRole('region', { name: snippet }).getByRole('row').filter({ hasText: 'Neu aus der Konsole' })).toHaveCount(1);
-  await expect(pull.getByText(GITHUB_TOKEN)).toHaveCount(0); // the diff is redacted
-  await pull.getByText('Nicht verglichen: 1 Eintrag').click();
-  await expect(pull.getByText('.env.local', { exact: true })).toBeVisible();
-  await pull.getByRole('button', { name: '1 Datei übernehmen' }).click();
-  await expect(pull.getByRole('status').filter({ hasText: /^1 Datei ins Projekt übernommen/ })).toBeVisible();
-  await expect(pull.getByRole('status').filter({ hasText: '1 Datei im Container anders als im Projekt' })).toBeVisible(); // only the token is left
+  const input = page.getByRole('textbox', { name: 'Nachricht an Lotse' });
+  await input.fill('Übernimm die Dateien aus dem Container. [e2e:pull -]');
+  await page.getByRole('button', { name: 'Senden' }).click();
+  await expect(page.getByRole('group', { name: `Neu: ${snippet}, 1 Zeilen hinzu, 0 entfernt` })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText('Fertig: 1 Schritte.')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('group', { name: /token\.txt|\.env\.local/ })).toHaveCount(0);
+  await panel.getByRole('tab', { name: /^Freigabe/ }).click();
+  const changes = panel.getByRole('tabpanel', { name: /^Freigabe/ }).getByRole('region', { name: 'Änderungen der KI' });
   await expect(changes.getByText('1 Datei geändert')).toBeVisible();
   await expect(changes.getByText('Noch nicht gespeichert: 1 Datei', { exact: true })).toBeVisible();
+  await expect(changes.getByText(GITHUB_TOKEN)).toHaveCount(0);
 
   // the AI changes a file with a command in the container and takes it over itself
-  const input = page.getByRole('textbox', { name: 'Nachricht an Lotse' });
   await input.fill('Bitte übernehmen. [e2e:bash echo Hallo aus dem Container > custom/plugins/AcmeShopTheme/README.md] [e2e:pull README.md]');
   await page.getByRole('button', { name: 'Senden' }).click();
   await expect(page.getByRole('group', { name: 'Geändert: README.md, 1 Zeilen hinzu, 1 entfernt' })).toBeVisible({ timeout: 60_000 });
@@ -514,7 +508,7 @@ test('Sandbox Coding: files made in the container – in the console and by the 
   expect((await request.put('/api/sandbox/env', { headers: lotse, data: { enabled: false, defaultRepo: '', defaultBranch: '' } })).ok()).toBeTruthy();
 });
 
-// Publishing (scripted model): the AI edits the header, commits it locally ([e2e:commit], shown in "Änderungen") and proposes a
+// Publishing (scripted model): the AI edits the header, commits it locally ([e2e:commit], shown under "Freigabe") and proposes a
 // pull request ([e2e:pr]); the proposal card opens the "Freigabe" (pull request) tab prefilled (no screenshots: nobody took one), only the
 // click there pushes the commit to lotse/… and opens the PR (GitHub fake); the PR card shows number and link in the chat and the
 // tab, the task list shows the number; the plugin downloads as ZIP. With "Screenshots" switched on, the preview's "Screenshot" adds one to the tab.
@@ -536,8 +530,8 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   await page.getByRole('textbox', { name: 'Nachricht an Lotse' }).fill(`Bitte umsetzen. [e2e:replace ${header} Lotse Test-Header|Gratis Versand] [e2e:commit Gratis Versand im Header anzeigen] [e2e:pr Header: Gratis Versand|Im Header steht jetzt Gratis Versand.]`);
   await page.getByRole('button', { name: 'Senden' }).click();
   await expect(page.getByText('Fertig: 4 Schritte.')).toBeVisible({ timeout: 60_000 });
-  // the AI's local commit in "Änderungen": saved, not published, nothing left uncommitted
-  await panel.getByRole('tab', { name: /Änderungen/ }).click();
+  // the AI's local commit under "Freigabe": saved, not published, nothing left uncommitted
+  await panel.getByRole('tab', { name: /^Freigabe/ }).click();
   const commits = panel.getByRole('region', { name: /Gespeicherte Schritte/ });
   await expect(commits.getByRole('listitem').filter({ hasText: 'Gratis Versand im Header anzeigen' })).toContainText('lokal');
   await expect(panel.getByText(/Noch nicht gespeichert/)).toHaveCount(0);
@@ -555,7 +549,8 @@ test('Sandbox Coding: the AI proposes a pull request, the click publishes it, th
   const form = panel.getByRole('form', { name: 'Zur Prüfung freigeben' });
   await expect(form.getByLabel('Titel')).toHaveValue('Header: Gratis Versand');
   await expect(form.getByLabel('Beschreibung')).toHaveValue('Im Header steht jetzt Gratis Versand.');
-  await expect(form.getByText(header)).toBeVisible();
+  // the changed files are shown above the form, in the AI session's changes
+  await expect(panel.getByRole('region', { name: 'Änderungen der KI' }).getByRole('region', { name: header })).toBeVisible();
   await expect(form.getByText(/^lotse\/gratis-versand-[a-z0-9]{6} → main$/)).toBeVisible();
   // no screenshots: neither the setup nor publishing takes any by itself
   await expect(panel.getByRole('region', { name: 'Screenshots' })).toHaveCount(0);

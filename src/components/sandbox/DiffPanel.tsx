@@ -6,15 +6,15 @@ import { parseDiff, type DiffFile } from '@/lib/diff-parse';
 import type { TaskDiff } from '@/lib/protocol';
 import { useI18n, useT } from '@/lib/i18n/I18nProvider';
 import { IconChevron, IconRefresh } from '@/components/ui/icons';
-import { ContainerPull } from './ContainerPull';
 import { Term } from './Term';
 import styles from './Sandbox.module.css';
 
 const anchor = (i: number) => `sbx-diff-${i}`;
 
-/** "Änderungen": files made inside the container to take over (ContainerPull), the AI's local commits (newest first, published or local),
- *  the files not committed yet and the whole workspace against the base branch (redacted on the server), per file with +/− counts and line numbers.
- *  Reloads by itself when `refresh` changes (a file card arrived, a turn ended); the icon reloads by hand. */
+/** Top of the "Freigabe" tab: what the AI session (Claude or Codex) changed – its local commits (newest first, published or local), the
+ *  files not committed yet and the whole worktree against the base branch (redacted on the server), per file with +/− counts and line
+ *  numbers. That is exactly what publishing pushes; the container is not compared here (files made there are taken over by the AI,
+ *  pull_from_container). Reloads by itself when `refresh` changes (a file card arrived, a turn ended, published); the icon reloads by hand. */
 export function DiffPanel({ taskId, refresh }: { taskId: string; refresh: number }) {
   const tc = useT().sandbox.code, t = tc.diff, tech = tc.tech;
   const [diff, setDiff] = useState<TaskDiff | null>(null);
@@ -36,7 +36,9 @@ export function DiffPanel({ taskId, refresh }: { taskId: string; refresh: number
   const jump = (i: number, p: string) => { toggle(p, true); requestAnimationFrame(() => document.getElementById(anchor(i))?.scrollIntoView({ block: 'start', behavior: 'smooth' })); };
 
   return (
-    <div className={styles.diff}>
+    <section className={styles.diff} aria-labelledby="sbx-diff-h">
+      <h3 id="sbx-diff-h" className={styles.label}>{t.heading}</h3>
+      <p className={styles.fieldHint}>{t.lead}</p>
       <div className={styles.dfBar}>
         <span className={styles.muted} role="status">{loading && !diff ? t.loading : diff?.files.length ? t.files(diff.files.length) : diff ? t.empty : ''}</span>
         <button type="button" className={styles.iconBtn} onClick={() => { setLoading(true); setTick(n => n + 1); }} aria-label={t.refresh} title={t.refresh} aria-busy={loading || undefined}>
@@ -44,7 +46,6 @@ export function DiffPanel({ taskId, refresh }: { taskId: string; refresh: number
         </button>
       </div>
       {error && <p className={styles.bad} role="alert">{t.failed(error)}</p>}
-      <ContainerPull taskId={taskId} onTaken={() => { setLoading(true); setTick(n => n + 1); }} />
       {commits.length > 0 && (
         <section className={styles.dfCommits} aria-labelledby="sbx-commits-h">
           <h3 id="sbx-commits-h" className={styles.label}><Term tech={tech.commits}>{t.commits}</Term></h3>
@@ -84,7 +85,7 @@ export function DiffPanel({ taskId, refresh }: { taskId: string; refresh: number
       )}
       {files.map((f, i) => <FileDiff key={`${f.path}-${i}`} id={anchor(i)} file={f} open={!closed.has(f.path)} onToggle={() => toggle(f.path)} />)}
       {diff?.truncated && <p className={styles.muted}>{t.truncated}</p>}
-    </div>
+    </section>
   );
 }
 
