@@ -54,9 +54,10 @@ const DISABLED_FEATURES = [
   'remote_plugin', 'plugin_sharing', 'browser_use_full_cdp_access', 'browser_annotation_api', 'request_permissions_tool', 'exec_permission_approvals', 'standalone_web_search',
 ];
 // Deliberately ON: code_mode_host. Newer models call tools only via code mode (JavaScript isolate without require/fetch/
-// files/environment, verified). The only write tool in it is apply_patch; the permission profile blocks that.
+// files/environment, verified). The only write tool in it is apply_patch; the permission profile and the read-only sandbox block that.
 
-/** Configuration for every run (as `--config` overrides). `workspace`: worktree of an attached sandbox, the only place Codex may write. */
+/** Configuration for every run (as `--config` overrides). `workspace`: worktree of an attached sandbox (working directory only: Codex
+ *  writes there through Lotse's MCP tools, never itself – apply_patch would need bubblewrap with user namespaces). */
 export function codexConfig(opts: { mcpUrl: string; instructions: string; web?: boolean; workspace?: string }) {
   return {
     config: {
@@ -80,10 +81,8 @@ export function codexConfig(opts: { mcpUrl: string; instructions: string; web?: 
         },
       },
     },
-    // No file access, not escalatable; with a sandbox only its worktree (without .git) for Codex' own patches
-    configOverrides: [opts.workspace
-      ? `permissions.lotse.filesystem={":root"="deny",${JSON.stringify(opts.workspace)}="write",${JSON.stringify(`${opts.workspace}/.git`)}="deny"}`
-      : 'permissions.lotse.filesystem={":root"="deny"}'],
+    // No file access of its own, not escalatable (with a sandbox too: reading and writing go through the MCP tools)
+    configOverrides: ['permissions.lotse.filesystem={":root"="deny"}'],
     workingDirectory: opts.workspace ?? workDir(),
   };
 }

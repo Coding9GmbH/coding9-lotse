@@ -1,12 +1,12 @@
 import 'server-only';
 // MCP tools of a chat with an attached sandbox (Sandbox Coding), the same for Claude (in-process) and Codex (over HTTP).
-// Files are read and edited with the agent's own tools (Claude: Read/Edit/Write/Glob/Grep, see native-tools.ts; Codex: its patches),
-// confined to the task's worktree. Here only what those do not cover: sandbox_bash (any shell command INSIDE the task container,
+// Claude reads and edits files with its own tools (Read/Edit/Write/Glob/Grep, see native-tools.ts), confined to the task's worktree. Here only what those do not cover: sandbox_bash (any shell command INSIDE the task container,
 // never on the host), delete_file, git_diff, git_commit (a local commit in the worktree, like Claude Code does it), the task's own
 // storefront, the environment, questions, pull_from_container (files made inside the container taken into the worktree, container-pull.ts),
 // the PR proposal and request_internet (asks the human; only the click attaches the
 // container to the internet, internet.ts).
-// Codex has no file reading of its own without a shell, so it also gets list_files/read_file/search_files.
+// Codex gets list_files/read_file/search_files/write_file/edit_file instead: it runs read-only, because its own patches (apply_patch)
+// need bubblewrap with user namespaces, which a hardened Docker host (seccomp, AppArmor) does not allow – writes then failed silently.
 // Nothing pushes, switches branches, rewrites history, calls GitHub or controls Docker beyond the container exec: git_commit only adds
 // one commit on top of HEAD through git.ts, after the same checks publishing makes (paths, workflows, secrets). Cheap to build.
 import crypto from 'node:crypto';
@@ -33,13 +33,13 @@ import { getRunner } from './runner';
 import { notePending, projectRels, syncTaskAll, syncTaskPaths } from './task-sync';
 import { getTemplate } from './templates';
 import { mustTask, publishRunning, settleNewPlugin, taskPaths, type CodeTask } from './tasks';
-import { deleteText, listFiles, readText, searchFiles, type Change } from './workspace-fs';
+import { deleteText, editText, listFiles, readText, searchFiles, writeText, type Change } from './workspace-fs';
 
 /** MCP tools of every sandbox chat */
 export const SANDBOX_TOOL_NAMES = ['sandbox_bash', 'pull_from_container', 'delete_file', 'git_diff', 'git_commit', 'read_sandbox_page', 'get_environment', 'ask_user', 'request_internet', 'propose_publish', 'propose_zip'] as const;
-/** Codex only: reading the worktree (Claude reads with its own Read/Glob/Grep) */
-export const CODEX_READ_TOOL_NAMES = ['list_files', 'read_file', 'search_files'] as const;
-export const sandboxToolNames = (provider: 'claude' | 'codex'): string[] => (provider === 'codex' ? [...CODEX_READ_TOOL_NAMES, ...SANDBOX_TOOL_NAMES] : [...SANDBOX_TOOL_NAMES]);
+/** Codex only: reading and editing the worktree (Claude uses its own Read/Glob/Grep/Edit/Write) */
+export const CODEX_FILE_TOOL_NAMES = ['list_files', 'read_file', 'search_files', 'edit_file', 'write_file'] as const;
+export const sandboxToolNames = (provider: 'claude' | 'codex'): string[] => (provider === 'codex' ? [...CODEX_FILE_TOOL_NAMES, ...SANDBOX_TOOL_NAMES] : [...SANDBOX_TOOL_NAMES]);
 /** Output of sandbox_bash for the AI (end of the output, redacted) */
 export const COMMAND_OUTPUT = 12 * 1024;
 export const BASH_TIMEOUT = { def: 120, max: 600 } as const;
@@ -71,7 +71,7 @@ export function pageText(html: string): { title: string; text: string } {
 }
 
 /** Mirror changed worktree files into the running container (under the task lock); a paused one gets everything when it wakes.
- *  Returns a short note for the AI. Shared by delete_file, Claude's native Edit/Write and Codex' patches. */
+ *  Returns a short note for the AI. Shared by delete_file, Claude's native Edit/Write and Codex' write_file/edit_file. */
 export async function syncChanged(taskId: string, rels: string[]): Promise<string> {
   return withTaskLock(taskId, async () => {
     const t = mustTask(taskId);
@@ -97,10 +97,11 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
   const changed = async (c: Change) => {
     const note = await syncChanged(taskId, [c.path]);
     host.emit({ t: 'file_change', path: c.path, kind: c.kind, added: c.added, removed: c.removed });
-    return ok(`${c.path}: gelöscht (−${c.removed})${note}.`);
+    const what = c.kind === 'delete' ? `gelöscht (−${c.removed})` : `${c.kind === 'create' ? 'angelegt' : 'geändert'} (+${c.added} −${c.removed})`;
+    return ok(`${c.path}: ${what}${note}.`);
   };
 
-  const reads = (provider !== 'codex' ? [] : [
+  const files = (provider !== 'codex' ? [] : [
     tool('list_files', 'Listet Dateien und Ordner im Repository der Aufgabe (relativ zur Wurzel, Ordner mit „/“). .git und geheime Dateien sind ausgeblendet; vendor/ und node_modules/ nur, wenn ausdrücklich angefragt.',
       { path: z.string().max(500).optional().describe('Ordner relativ zur Repository-Wurzel, leer = Wurzel'), depth: z.number().int().min(1).max(6).optional().describe('Tiefe, Standard 3') },
       act('list_files', async ({ path, depth }) => {
@@ -121,10 +122,18 @@ export function sandboxTools(host: SandboxToolHost, provider: 'claude' | 'codex'
         const r = searchFiles(worktree(), pattern, { dir: path, glob, ignoreCase: ignore_case });
         return ok(`${redact(r.hits.join('\n')) || 'Keine Treffer.'}${r.truncated ? '\n… (gekürzt: Suche eingrenzen)' : ''}`);
       })),
+
+    tool('edit_file', 'Ändert eine Textdatei des Repositorys: ersetzt old_str durch new_str. old_str muss exakt (mit Leerzeichen und Zeilenumbrüchen) und genau einmal vorkommen – sonst mehr Kontext angeben oder replace_all setzen. Vorher read_file. Die Datei wird sofort in den Container übertragen. Nicht in vendor/, node_modules/, .git oder geheimen Dateien.',
+      { path: z.string().min(1).max(500).describe('Pfad relativ zur Repository-Wurzel'), old_str: z.string().min(1), new_str: z.string(), replace_all: z.boolean().optional() },
+      act('edit_file', async ({ path, old_str, new_str, replace_all }) => changed(editText(worktree(), relOf(worktree(), path), old_str, new_str, replace_all)))),
+
+    tool('write_file', 'Legt eine Textdatei im Repository an oder überschreibt sie ganz (höchstens 512 KB; Ordner werden angelegt). Für Änderungen an bestehenden Dateien besser edit_file. Die Datei wird sofort in den Container übertragen. Nicht in vendor/, node_modules/, .git oder geheimen Dateien.',
+      { path: z.string().min(1).max(500).describe('Pfad relativ zur Repository-Wurzel'), content: z.string().describe('vollständiger Inhalt der Datei') },
+      act('write_file', async ({ path, content }) => changed(writeText(worktree(), relOf(worktree(), path), content)))),
   ]) as AnyTool[];
 
   return [
-    ...reads,
+    ...files,
     tool('sandbox_bash', `Führt einen Shell-Befehl IM Container der Aufgabe aus (bash -lc, als www-data in /var/www/html – bei einem eigenen Setup im Zielordner; der Container ist ein Wegwerf-Shopware, normalerweise ohne Internet; braucht ein Befehl Internet, erst request_internet). Vorher wird übertragen, was sich im Repository seit dem letzten Übertragen geändert hat (auch außerhalb der Werkzeuge) – sonst nichts: Was im Container geändert wurde (hier, in der Konsole des Nutzers), bleibt dort, bis es mit pull_from_container übernommen oder durch eine Änderung derselben Datei im Repository überschrieben wird; der Container wird dabei nicht auf den Stand des Repositorys zurückgesetzt. Für bin/console (z. B. theme:compile, cache:clear, plugin:refresh), Logs (var/log), mysql -uroot -proot -h127.0.0.1 shopware, curl -H 'Host: localhost' http://127.0.0.1/…, php -l usw. Nach theme:compile/cache:clear lädt die Vorschau neu; zeigt sie nach cache:clear noch den alten Stand, hält ihn der Template- bzw. HTTP-Cache fest – dann bin/console cache:pool:clear --all. Dateien des Repositorys änderst du mit den Datei-Werkzeugen, nicht hier. Erzeugt ein Befehl Dateien, die ins Repository gehören (bin/console plugin:create, composer require in einem Plugin, eine generierte Migration), danach pull_from_container. Zeitlimit Standard ${BASH_TIMEOUT.def} s, höchstens ${BASH_TIMEOUT.max} s; die Ausgabe wird gekürzt (Ende) und geschwärzt.`,
       { command: z.string().min(1).max(10_000).describe('Befehlszeile für bash -lc'), timeout_sec: z.number().int().min(1).max(BASH_TIMEOUT.max).optional().describe(`Zeitlimit in Sekunden (Standard ${BASH_TIMEOUT.def})`) },
       act('sandbox_bash', async ({ command, timeout_sec }) => {

@@ -27,13 +27,14 @@ const HEADER = 'src/Resources/views/storefront/layout/header/header.html.twig';
 const execs = () => fake.calls.filter(c => c.op === 'exec' && c.id === task.containerId).map(c => c.argv!);
 const write = (rel: string, text: string) => { const f = path.join(T.taskPaths(task.id).worktree, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); };
 
-test('tool sets: Claude gets only what its own tools do not cover, Codex also the read tools; names match the allow-lists', () => {
+test('tool sets: Claude gets only what its own tools do not cover, Codex also the file tools; names match the allow-lists', () => {
   assert.deepEqual(tools.map(t => t.name), [...W.SANDBOX_TOOL_NAMES]);
   assert.deepEqual(W.sandboxToolNames('claude'), [...W.SANDBOX_TOOL_NAMES]);
   const codex = W.sandboxTools(host, 'codex');
   assert.deepEqual(codex.map(t => t.name), W.sandboxToolNames('codex'));
-  assert.deepEqual(W.sandboxToolNames('codex').slice(0, 3), ['list_files', 'read_file', 'search_files']);
-  for (const gone of ['edit_file', 'write_file', 'run_command']) assert.ok(!codex.some(t => t.name === gone), gone);
+  assert.deepEqual(W.sandboxToolNames('codex').slice(0, 5), ['list_files', 'read_file', 'search_files', 'edit_file', 'write_file']);
+  for (const gone of ['edit_file', 'write_file']) assert.ok(!tools.some(t => t.name === gone), `Claude: ${gone}`);
+  assert.ok(!codex.some(t => t.name === 'run_command'));
 });
 
 test('syncChanged mirrors a natively written file into the container; delete_file removes it there (fixed argv)', async () => {
@@ -59,6 +60,27 @@ test('Codex read tools stay confined: no .env, no paths outside', async () => {
   assert.equal((await call('read_file', { path: '../../../etc/passwd' }, codex)).error, true);
   assert.match((await call('read_file', { path: HEADER }, codex)).text, /Gratis Versand/);
   assert.match((await call('search_files', { pattern: 'APP_SECRET' }, codex)).text, /Keine Treffer/);
+});
+
+test('Codex writes through write_file/edit_file: checked in the worktree, mirrored into the container, shown as a file card', async () => {
+  const codex = W.sandboxTools(host, 'codex');
+  const FOOTER = 'src/Resources/views/storefront/layout/footer/footer.html.twig';
+  const created = await call('write_file', { path: FOOTER, content: '{% block footer %}\n<p>Alt</p>\n{% endblock %}\n' }, codex);
+  assert.equal(created.error, false, created.text);
+  assert.match(created.text, /angelegt \(\+3 −0\) und in den Container übertragen/);
+  assert.deepEqual(events.at(-1), { t: 'file_change', path: FOOTER, kind: 'create', added: 3, removed: 0 });
+  assert.ok(fake.archives.at(-1)!.entries.some(e => e.path === `AcmeTheme/${FOOTER}`));
+
+  const abs = path.join(T.taskPaths(task.id).worktree, FOOTER);
+  const edited = await call('edit_file', { path: abs, old_str: '<p>Alt</p>', new_str: '<p>Neu</p>' }, codex);
+  assert.equal(edited.error, false, edited.text);
+  assert.equal(fs.readFileSync(abs, 'utf8'), '{% block footer %}\n<p>Neu</p>\n{% endblock %}\n');
+  assert.deepEqual(events.at(-1), { t: 'file_change', path: FOOTER, kind: 'edit', added: 1, removed: 1 });
+  assert.match((await call('edit_file', { path: FOOTER, old_str: 'gibt es nicht', new_str: 'x' }, codex)).text, /nicht vor/);
+
+  for (const p of ['.env', '.git/config', '../../../etc/passwd', 'vendor/acme/x.php', '/etc/passwd']) assert.equal((await call('write_file', { path: p, content: 'x' }, codex)).error, true, p);
+  assert.ok(!fs.existsSync(path.join(T.taskPaths(task.id).worktree, 'vendor/acme/x.php')));
+  fs.rmSync(abs);
 });
 
 test('sandbox_bash: any command line via bash -lc as www-data in /var/www/html, synced first (in full only when needed), under the task lock, preview reload', async () => {

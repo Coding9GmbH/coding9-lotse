@@ -154,7 +154,7 @@ For code instead of shop data: a sandbox is a **development environment with git
 - **Console:** a shell of your own in the container (`bin/console`, logs, Composer) – for humans only, not for the AI.
 - **Take over from the container:** compare what comes into being in the console or through an AI command in the container (e.g. `bin/console plugin:create`, `composer require`) and bring it into the project with the same checks as a commit.
 - **Publish:** only by click, as a pull request on a branch of its own `lotse/…` or as a plugin ZIP to upload to the shop. The AI can propose the ZIP with a card in the chat (“give me the plugin as a ZIP for the live shop”); `composer.json` is checked and the ZIP is downloaded only when you click. You hand pull request feedback to the AI with one click.
-- **Requirements:** off by default (Settings → Sandbox). Needs Docker access – that is root access to the host – and `LOTSE_PASSWORD` on a server. The containers are offline; internet only after approval. With `make sandbox-up` Lotse starts in Docker mode with a socket proxy, an internal network and its own seccomp profile (`docker/seccomp-codex.json`) that lets Codex write files.
+- **Requirements:** off by default (Settings → Sandbox). Needs Docker access – that is root access to the host – and `LOTSE_PASSWORD` on a server. The containers are offline; internet only after approval. With `make sandbox-up` Lotse starts in Docker mode with a socket proxy and an internal network.
 
 Setup: [Enable Sandbox Coding](docs/en/self-hosting.md#enable-sandbox-coding) · Usage and every case: [user guide](docs/en/user-guide.md#sandbox-coding-a-sandbox-in-the-chat) · Security model: [SECURITY.en.md](SECURITY.en.md)
 
