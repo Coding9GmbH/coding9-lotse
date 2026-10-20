@@ -24,7 +24,7 @@ export function ErrorText({ text, details }: { text: string; details: string }) 
   );
 }
 
-/** "Freigabe" tab (zur Prüfung freigeben = pull request; plain words first, the technical terms small or as tooltip): the changed files, branch → base, title and description (the AI's proposal prefilled, editable), `children`
+/** "Freigabe" tab (zur Prüfung freigeben = pull request; plain words first, the technical terms small or as tooltip), below the AI's changes (DiffPanel): branch → base, title and description (the AI's proposal prefilled, editable), `children`
  *  (the screenshots the user took, if any) and a footer that sticks to the bottom of the tab with the button and the steps Commit (only
  *  what is not committed yet; the AI's commits are pushed as they are) → Push → Pull Request. Only this click publishes; progress and errors come with the task (task.publish), so a reload shows them too.
  *  Published already: "aktualisieren" only when something changed since the last push (or title/description were edited).
@@ -76,12 +76,6 @@ export function PublishCard({ task, proposal, onPublished, children }: { task: C
     <form className={styles.form} aria-label={t.heading} onSubmit={e => { e.preventDefault(); void publish(); }}>
       <p className={styles.hint}>{t.lead}</p>
       <p className={styles.taskMeta}><code>{t.branch(task.branch, task.baseBranch)}</code> <small className={styles.tech}>{tc.tech.branch}</small></p>
-      <div className={styles.field}>
-        <span className={styles.label}>{t.files}</span>
-        {files === null ? <p className={styles.muted}>{t.filesLoading}</p> : !files.length ? <p className={styles.muted}>{t.noFiles}</p> : (
-          <ul className={styles.dfFiles}>{files.map(f => <li key={f.path}><code>{f.path}</code> <span className={styles.dfAdd}>+{f.added}</span> <span className={styles.dfDel}>−{f.removed}</span></li>)}</ul>
-        )}
-      </div>
       <label className={styles.field}>
         <span className={styles.label}>{t.title}</span>
         <input value={title} maxLength={200} required onChange={e => { setTitle(e.target.value); setEdited(true); }} disabled={running} />

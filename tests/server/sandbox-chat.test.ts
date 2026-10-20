@@ -209,19 +209,20 @@ test('after a native Write/Edit the file is mirrored into the container and show
   assert.match(inContainer ?? '', /Gratis Versand/);
 });
 
-test('Codex: code prompt with CODE_NOTE, workspace-write in the worktree only, network off, patches outside abort the turn', () => {
+test('Codex: code prompt with CODE_NOTE, read-only (writes only through the MCP tools), network off, patches outside abort the turn', () => {
   const s = getSession(chatId);
   const instr = codexInstructions(s);
   assert.ok(instr.endsWith(CODE_NOTE));
   assert.ok(instr.includes(worktree));
   const cfg = codexConfig({ mcpUrl: 'http://127.0.0.1:3333/api/mcp/x', instructions: instr, workspace: worktree });
   assert.equal(cfg.workingDirectory, worktree);
-  assert.deepEqual(cfg.configOverrides, [`permissions.lotse.filesystem={":root"="deny",${JSON.stringify(worktree)}="write",${JSON.stringify(`${worktree}/.git`)}="deny"}`]);
+  // no write permission of its own: apply_patch would need bubblewrap (user namespaces), which hardened Docker hosts refuse
+  assert.deepEqual(cfg.configOverrides, ['permissions.lotse.filesystem={":root"="deny"}']);
+  assert.match(instr, /edit_file/);
   assert.ok(Object.values(cfg.config.features as Record<string, boolean>).every(v => v === false), 'own shell etc. stay off');
   assert.deepEqual(codexConfig({ mcpUrl: 'x', instructions: '' }).configOverrides, ['permissions.lotse.filesystem={":root"="deny"}']);
-  const opts = codexThreadOptions(cfg.workingDirectory, undefined, false, true);
-  assert.deepEqual([opts.sandboxMode, opts.networkAccessEnabled, opts.webSearchMode], ['workspace-write', false, 'disabled']);
-  assert.equal(codexThreadOptions('x').sandboxMode, 'read-only');
+  const opts = codexThreadOptions(cfg.workingDirectory);
+  assert.deepEqual([opts.sandboxMode, opts.networkAccessEnabled, opts.webSearchMode], ['read-only', false, 'disabled']);
 
   const seen: ChatEvent[] = [];
   const state = { texts: new Map<string, number>(), tools: new Set<string>(), sandbox: worktree };
@@ -238,7 +239,7 @@ const rpc = (id: string, body: unknown, token: string) => mcp.POST(new Request(`
   method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` }, body: JSON.stringify(body),
 }), { params: Promise.resolve({ chatId: id }) });
 
-test('MCP route (Codex): the sandbox tools incl. the read tools; sandbox_bash runs inside the container', async () => {
+test('MCP route (Codex): the sandbox tools incl. the file tools; sandbox_bash runs inside the container', async () => {
   const token = mcpTokenFor(chatId);
   const list = await (await rpc(chatId, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, token)).json() as { result: { tools: { name: string }[] } };
   assert.deepEqual(list.result.tools.map(t => t.name), sandboxToolNames('codex'));

@@ -22,10 +22,11 @@ import { syncChanged } from './sandbox/workspace-tools';
 const CODEX_NOTE = `\n\n## Laufzeit
 Du läufst in Lotse, nicht als Programmier-Assistent. Du hast ausschließlich die Werkzeuge des MCP-Servers „shop“ (z. B. search_products, draft_page, ask_user, propose_product_changes). Führe keine Befehle aus, lies oder schreibe keine Dateien und frage nicht nach solchen Rechten. Das ist hier technisch gesperrt.`;
 const CODEX_WEB_NOTE = ' Zusätzlich darfst du die Websuche verwenden (Internetrecherche ist eingeschaltet).';
-// Chats with an attached sandbox: Codex edits the task's worktree with its own patches (only there: permission profile + check below),
-// reads it and runs commands only through the MCP tools; its own shell would run on the Lotse host and stays disabled.
+// Chats with an attached sandbox: Codex reads, edits and runs commands only through the MCP tools (write_file/edit_file are checked and
+// mirrored into the container by Lotse). Its own patches stay off (read-only): apply_patch runs inside bubblewrap, which needs user
+// namespaces that a hardened Docker host refuses – the patch then failed and nothing was saved. Its own shell would run on the Lotse host.
 export const CODE_NOTE = `\n\n## Laufzeit
-Du läufst in Lotse als Coding-Assistent in der Sandbox dieses Chats. Dein Arbeitsverzeichnis ist das Repository; Dateien änderst du mit deinen eigenen Patches (apply_patch) – nur innerhalb des Repositorys, ohne .git und geheime Dateien. Lesen und suchen mit list_files/read_file/search_files, Befehle NUR mit sandbox_bash (läuft im Container der Sandbox, ohne Internet – Internet nur nach Freigabe des Nutzers über request_internet). Committen NUR mit git_commit (lokaler Commit in sinnvollen Schritten, wie im Abschnitt „Vorgehen“ beschrieben) – kein git in einer Shell, kein Push. Eine eigene Shell gibt es hier nicht: Befehle außerhalb von sandbox_bash und Patches außerhalb des Repositorys brechen die Runde ab.`;
+Du läufst in Lotse als Coding-Assistent in der Sandbox dieses Chats. Dein Arbeitsverzeichnis ist das Repository. Dateien liest und suchst du mit list_files/read_file/search_files und änderst sie NUR mit edit_file (gezielte Ersetzung, bevorzugt) bzw. write_file (neue Datei oder ganz neu schreiben), löschen mit delete_file – nur innerhalb des Repositorys, ohne .git und geheime Dateien. Dein eigenes apply_patch ist hier gesperrt (schreibgeschützt); versuche es nicht. Befehle NUR mit sandbox_bash (läuft im Container der Sandbox, ohne Internet – Internet nur nach Freigabe des Nutzers über request_internet). Committen NUR mit git_commit (lokaler Commit in sinnvollen Schritten, wie im Abschnitt „Vorgehen“ beschrieben) – kein git in einer Shell, kein Push. Eine eigene Shell gibt es hier nicht: Befehle außerhalb von sandbox_bash brechen die Runde ab.`;
 
 /** Internal address at which the Codex process reaches Lotse (same machine/container). */
 const internalUrl = () => (process.env.LOTSE_INTERNAL_URL || `http://127.0.0.1:${process.env.PORT || 3333}`).replace(/\/$/, '');
@@ -37,15 +38,15 @@ export const codexInstructions = (s: Pick<Session, 'taskId' | 'platform' | 'loca
 function client(chatId: string, instructions: string, web = false, workspace?: string) {
   const cfg = codexConfig({ mcpUrl: `${internalUrl()}/api/mcp/${encodeURIComponent(chatId)}`, instructions, web, workspace });
   const codex = new Codex({ env: codexEnv({ LOTSE_MCP_TOKEN: mcpTokenFor(chatId) }), config: cfg.config, configOverrides: cfg.configOverrides });
-  const opts = codexThreadOptions(cfg.workingDirectory, getSettings().ai.codexModel, web, !!workspace);
+  const opts = codexThreadOptions(cfg.workingDirectory, getSettings().ai.codexModel, web);
   return { codex, opts };
 }
 
-/** Thread options for every run. Read-only sandbox (a sandbox chat: workspace-write, i.e. its worktree), no network for commands,
- *  no approval prompt; web search only with `web` (web research). */
-export function codexThreadOptions(workingDirectory: string, model?: string, web = false, write = false): ThreadOptions {
+/** Thread options for every run. Always a read-only sandbox (in a sandbox chat Codex writes through write_file/edit_file), no network
+ *  for commands, no approval prompt; web search only with `web` (web research). */
+export function codexThreadOptions(workingDirectory: string, model?: string, web = false): ThreadOptions {
   return {
-    workingDirectory, skipGitRepoCheck: true, sandboxMode: write ? 'workspace-write' : 'read-only', approvalPolicy: 'never',
+    workingDirectory, skipGitRepoCheck: true, sandboxMode: 'read-only', approvalPolicy: 'never',
     networkAccessEnabled: false, webSearchMode: web ? 'live' : 'disabled', ...(model ? { model } : {}),
   };
 }
@@ -80,7 +81,9 @@ const resultText = (item: Extract<ThreadItem, { type: 'mcp_tool_call' }>) =>
 
 
 
-/** One event of the Codex turn. Command, file change and (without web research) web search end the turn. New SDK types must be classified here. */
+/** One event of the Codex turn. Command, file change outside a sandbox chat and (without web research) web search end the turn.
+ *  In a sandbox chat its own patches are refused by the read-only sandbox; should one still apply, it is checked like before (paths
+ *  inside the worktree mirrored, the rest reverted). New SDK types must be classified here. */
 export function onCodexItem(
   item: ThreadItem,
   evType: 'item.started' | 'item.updated' | 'item.completed',
