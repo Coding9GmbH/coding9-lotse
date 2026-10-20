@@ -219,7 +219,7 @@ test('Codex: code prompt with CODE_NOTE, read-only (writes only through the MCP 
   // no write permission of its own: apply_patch would need bubblewrap (user namespaces), which hardened Docker hosts refuse
   assert.deepEqual(cfg.configOverrides, ['permissions.lotse.filesystem={":root"="deny"}']);
   assert.match(instr, /edit_file/);
-  assert.ok(Object.values(cfg.config.features as Record<string, boolean>).every(v => v === false), 'own shell etc. stay off');
+  assert.ok(Object.entries(cfg.config.features as Record<string, unknown>).every(([k, v]) => k === 'code_mode' || v === false), 'own shell etc. stay off');
   assert.deepEqual(codexConfig({ mcpUrl: 'x', instructions: '' }).configOverrides, ['permissions.lotse.filesystem={":root"="deny"}']);
   const opts = codexThreadOptions(cfg.workingDirectory);
   assert.deepEqual([opts.sandboxMode, opts.networkAccessEnabled, opts.webSearchMode], ['read-only', false, 'disabled']);

@@ -40,8 +40,8 @@ interface Props {
   sandboxInternet?: boolean | null;
 }
 
-/** Tools whose result is its own card (file, command, proposal, request): no extra work-step line for them unless they failed. */
-const CARD_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'write_file', 'edit_file', 'delete_file', 'sandbox_bash', 'start_sandbox', 'propose_publish', 'propose_zip', 'request_internet']);
+/** Tools whose result is its own card (file, command, proposal, request, question): no extra work-step line for them unless they failed. */
+const CARD_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'write_file', 'edit_file', 'delete_file', 'sandbox_bash', 'start_sandbox', 'propose_publish', 'propose_zip', 'request_internet', 'ask_user']);
 const stepsShown = (steps: Step[]) => steps.filter(s => s.state === 'bad' || !CARD_TOOLS.has(s.name));
 
 /** Per pull request proposal: the PR card that followed it (published), or whether a PR already existed before (then "aktualisieren"). */

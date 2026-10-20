@@ -161,6 +161,12 @@ function settleSteps(s: ChatState, state: 'done' | 'bad', stale = false): ChatSt
     ? { ...i, steps: i.steps.map(x => (x.state === 'run' ? { ...x, state, ...(stale ? { stale: true } : {}) } : x)) } : i)) };
 }
 
+/** End of the turn: open questions/approvals are no longer clickable (and the input field no longer answers a question). */
+function closeOpen(s: ChatState): ChatState {
+  if (!s.items.some(i => (i.kind === 'question' || i.kind === 'changeset' || i.kind === 'internet') && i.interactive)) return s;
+  return { ...s, items: s.items.map(i => ((i.kind === 'question' || i.kind === 'changeset' || i.kind === 'internet') && i.interactive ? { ...i, interactive: false } : i)) };
+}
+
 function applyPublished(s: ChatState, info: PublishedInfo, live: boolean): ChatState {
   let [next] = push(s, { kind: 'published', info, target: s.target });
   const t = next.target;
@@ -271,7 +277,8 @@ function applyEvent(state: ChatState, ev: ChatEvent, mode: Mode): ChatState {
       return next !== s ? next : push(s, { kind: 'internet', approvalId: ev.approvalId, reason: ev.reason, decision: ev.decision, error: ev.error, restart: ev.restart, interactive: live && ev.decision === undefined })[0];
     }
     case 'done': {
-      const settled = settleSteps(s, ev.error ? 'bad' : 'done');
+      // whatever is still open was left behind by the AI: the server counts it as rejected, a click would reach nobody
+      const settled = closeOpen(settleSteps(s, ev.error ? 'bad' : 'done'));
       return ev.error ? push(settled, { kind: 'error', text: ev.error })[0] : settled;
     }
     default:

@@ -12,7 +12,7 @@ import { NATIVE_TOOLS, guardNative, nativeChange, textBefore } from './sandbox/n
 import { handOff } from './sandbox/pr-watch';
 import { attachedTask, getTask, markTurn, publishRunning, publishSettled, taskPaths } from './sandbox/tasks';
 import { syncChanged } from './sandbox/workspace-tools';
-import { getSession, noteUiLocale, persist, persistSoon } from './sessions';
+import { getSession, noteUiLocale, persist, persistSoon, settleTurn } from './sessions';
 import { messages } from '@/lib/i18n';
 import { log } from './log';
 import { aiEnv, getSettings, redact } from './settings';
@@ -131,6 +131,7 @@ export function startChat({ chatId, message, target, onboarding, locale, prFeedb
     } finally {
       // `done` only once the turn is really over: whoever fetches the history afterwards no longer sees the chat as running
       s.running = false; s.abort = null;
+      settleTurn(s);
       if (code && s.taskId) markTurn(s.taskId, false);
       if (!gate.blocked) {
         const t = turnCost(end, { total: s.costTotal ?? null, session: s.costSession ?? null }, s.sdkSessionId);

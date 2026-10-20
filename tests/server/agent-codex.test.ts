@@ -16,11 +16,16 @@ test('Codex run: no own tools, sandbox read-only, network off', async () => {
   assert.equal(cfg.config.web_search, 'disabled');
   assert.equal(cfg.config.developer_instructions, 'SYS');
   assert.deepEqual(cfg.configOverrides, ['permissions.lotse.filesystem={":root"="deny"}']);
-  const features = cfg.config.features as Record<string, boolean>;
+  const { code_mode: codeMode, ...features } = cfg.config.features as Record<string, unknown>;
   for (const name of ['shell_tool', 'unified_exec', 'view_image', 'computer_use', 'browser_use', 'plugins', 'hooks', 'remote_plugin', 'browser_use_full_cdp_access', 'request_permissions_tool', 'standalone_web_search']) {
     assert.equal(features[name], false, name);
   }
   assert.ok(Object.values(features).every(v => v === false), 'no Codex feature is on');
+  // questions wait for the human: shop tools are called directly, never from a code-mode script that yields after 10 s.
+  // Only [features.code_mode] counts (a top-level code_mode table is ignored by Codex), and it does not switch code mode on.
+  assert.deepEqual(codeMode, { default_exec_yield_time_ms: 3_600_000, direct_only_tool_namespaces: ['mcp__shop'] });
+  assert.equal('code_mode' in cfg.config, false);
+  assert.deepEqual(Object.keys(cfg.config.mcp_servers), ['shop'], 'the namespace above is mcp__<server>');
   const opts = codexThreadOptions(cfg.workingDirectory, 'gpt-test');
   assert.equal(opts.sandboxMode, 'read-only');
   assert.equal(opts.approvalPolicy, 'never');
@@ -89,7 +94,7 @@ test('Codex with web research: web search live, web search event appears as a wo
   const { codexThreadOptions, onCodexItem } = await import('../../src/server/agent-codex');
   const cfg = codexConfig({ mcpUrl: 'http://127.0.0.1:3333/api/mcp/c', instructions: 'SYS', web: true });
   assert.equal(cfg.config.web_search, 'live');
-  assert.ok(Object.values(cfg.config.features as Record<string, boolean>).every(v => v === false), 'everything else stays off');
+  assert.ok(Object.entries(cfg.config.features as Record<string, unknown>).every(([k, v]) => k === 'code_mode' || v === false), 'everything else stays off');
   const opts = codexThreadOptions(cfg.workingDirectory, undefined, true);
   assert.equal(opts.webSearchMode, 'live');
   assert.equal(opts.networkAccessEnabled, false, 'no network for commands');

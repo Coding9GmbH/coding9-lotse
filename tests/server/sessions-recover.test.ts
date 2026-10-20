@@ -14,7 +14,7 @@ delete process.env.SHOP_PLATFORM;
 
 const { updateSettings } = await import('../../src/server/settings');
 const { ADAPTERS } = await import('../../src/server/platform');
-const { getSession, decideChange, dropSession, peekSession, persist, chatSnapshot, undoChangeSet, stopChat, setRunClockForTests } = await import('../../src/server/sessions');
+const { getSession, decideChange, dropSession, peekSession, persist, chatSnapshot, undoChangeSet, stopChat, settleTurn, setRunClockForTests } = await import('../../src/server/sessions');
 const { auditList, chatGet, chatPut, chatDelete, runPut, runsOpen } = await import('../../src/server/db');
 const { trackedUndo } = await import('../../src/server/changes');
 
@@ -231,6 +231,18 @@ test('S6: stopChat answers open questions with "Abgebrochen"; rebuild marks only
   const qs = chatSnapshot('c-old')!.events.filter(e => e.t === 'question');
   assert.ok(qs[0].t === 'question' && qs[0].answer === undefined, 'question of a finished turn stays as it was');
   assert.ok(qs[1].t === 'question' && /Neustart/.test(qs[1].answer ?? ''), 'open question of the last turn marked');
+});
+
+test('settleTurn: a question the AI left open at the end of its turn counts as not answered, a later click reaches nothing', async () => {
+  const s = start('c-left');
+  const q = s.askUser({ question: 'Was ändern?', options: [{ label: 'Gestaltung' }] }); await tick();
+  settleTurn(s);
+  assert.equal(await q, '');
+  assert.equal(s.approvals.size, 0);
+  const ev = chatGet('c-left')?.events.find(e => e.t === 'question');
+  assert.ok(ev?.t === 'question' && ev.answer === 'Nicht beantwortet (Runde beendet)');
+  settleTurn(s); // nothing open: no-op
+  s.running = false;
 });
 
 test('chatDelete also cleans up the run rows of the chat', () => {
