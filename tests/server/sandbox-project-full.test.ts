@@ -262,6 +262,13 @@ test('a config file of the image for a bundle the project does not register is r
   assert.deepEqual(await removeImageLeftovers(ctx, out), ['config/packages/dev/web_profiler.yaml']);
   assert.deepEqual(ran.filter(a => a[0] === 'rm'), [['rm', '-f', '--', 'config/packages/dev/web_profiler.yaml']]);
   assert.deepEqual(await removeImageLeftovers(ctx, 'something else'), []);
+  // a route file of the image importing a bundle the project does not register (found by the cache warmup)
+  fs.mkdirSync(path.join(root, 'config/routes'), { recursive: true });
+  ran.length = 0;
+  const routes = 'Bundle "WebProfilerBundle" does not exist or it is not enabled. Maybe you forgot to add it in the "registerBundles()" method';
+  const ctx2 = { ...ctx, run: async (argv: string[]) => { ran.push(argv); return { exitCode: 0, output: argv[0] === 'grep' ? 'config/routes/web_profiler.yaml\n' : '' }; } } as unknown as Parameters<typeof removeImageLeftovers>[0];
+  assert.deepEqual(await removeImageLeftovers(ctx2, routes), ['config/routes/web_profiler.yaml']);
+  assert.deepEqual(ran[0], ['grep', '-rlF', '@WebProfilerBundle/', '--', 'config/packages', 'config/routes']);
 });
 
 test('installed completely: plugins composer.json requires (vendor/) are installed too, a failure there is only a warning; not in overlay', async () => {

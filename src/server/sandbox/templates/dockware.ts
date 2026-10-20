@@ -67,6 +67,12 @@ const SET_DOMAIN_SQL = "UPDATE sales_channel_domain SET url = 'http://localhost'
  *  errors stay readable). Constant argv, no input; theme-compile clears the cache afterwards. */
 export const TIDY_ARGV = ['bash', '-c', "set -e; mkdir -p config/packages/dev; printf 'web_profiler:\\n    toolbar: false\\n    intercept_redirects: false\\n' > config/packages/dev/zz-lotse-preview.yaml; bin/console system:config:set --json core.basicInformation.useDefaultCookieConsent false"];
 
+/** A project's public/.htaccess often forces https (RewriteCond on X-Forwarded-Proto and HTTPS): the sandbox is plain http, so the start page
+ *  answered 301 to https://localhost/ and neither the preview nor the screenshots could load it. Apache says "https was terminated in front
+ *  of me" for every request of the container (a TLS proxy would do the same); the .htaccess stays untouched, so nothing of this reaches the
+ *  repository. Symfony ignores the header without trusted proxies, the shop keeps generating http://localhost URLs. As root, constant argv. */
+export const HTTPS_FORWARD_ARGV = ['bash', '-c', "set -e; a2enmod -q headers; printf '<IfModule mod_headers.c>\\n    RequestHeader set X-Forwarded-Proto https early\\n</IfModule>\\n' > /etc/apache2/conf-enabled/lotse-sandbox.conf; apache2ctl configtest; service apache2 reload"];
+
 /** The container's environment reaches bin/console, but PHP-FPM clears it for web requests: the variables of the environment and the
  *  sandbox (names as argv) are written to a block of .env.local, which Symfony loads for both (a real variable still wins in the
  *  console). The values come from the container's own environment, never from Lotse's command line; double-quoted for Symfony's Dotenv
@@ -226,6 +232,8 @@ const RUNS: Partial<Record<TemplateStep['id'], TemplateStep['run']>> = {
   // cosmetic for the preview (and screenshots taken by hand): a failure only skips the step (the preview proxy hides both by CSS as well)
   'preview-tidy': async ctx => {
     if (ctx.layout()?.kind === 'custom') { ctx.log('Eigenes Setup: Lotse ändert am Shop nichts.'); return 'skipped'; }
+    try { await ctx.run(HTTPS_FORWARD_ARGV, { timeoutMs: MIN, user: 'root' }); }
+    catch (e) { if (ctx.signal.aborted) throw e; ctx.log(`Hinweis: https-Weiterleitungen des Projekts bleiben in der Sandbox aktiv (${e instanceof Error ? e.message.split('\n')[0] : String(e)}).`); }
     try { await ctx.run(TIDY_ARGV, { timeoutMs: 2 * MIN }); ctx.log('Debug-Leiste und Cookie-Hinweis in der Sandbox ausgeschaltet.'); }
     catch (e) { if (ctx.signal.aborted) throw e; ctx.log(`Übersprungen: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`); return 'skipped'; }
   },

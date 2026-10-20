@@ -376,7 +376,7 @@ function stepCtx(t: CodeTask, step: StoredStep, signal: AbortSignal, limit: numb
     newPluginName: t.pluginName ?? null,
     ignoreProjectVersion: !!t.ignoreProjectVersion,
     run: async (cmd, o = {}) => {
-      const r = Array.isArray(cmd) ? { argv: cmd as readonly string[], user: tpl.execUser, workdir: o.workdir ?? tpl.workdir, timeoutMs: o.timeoutMs ?? limit, maxOutput: MAX_OUTPUT }
+      const r = Array.isArray(cmd) ? { argv: cmd as readonly string[], user: o.user ?? tpl.execUser, workdir: o.workdir ?? tpl.workdir, timeoutMs: o.timeoutMs ?? limit, maxOutput: MAX_OUTPUT }
         : resolveCommand(tpl, (cmd as { command: string }).command, (cmd as { args?: Record<string, string> }).args, { pluginDir: t.layout?.pluginDir ?? '' });
       if (!o.quiet) lg(`$ ${step.key === 'custom' && step.command ? step.command.split('\n')[0].slice(0, 200) : r.argv.map(a => (a.length > 80 ? `${a.slice(0, 77)}…` : a)).join(' ')}`);
       // composer gets the credentials entered while the setup waited (not in the container's Env, which is fixed at create)

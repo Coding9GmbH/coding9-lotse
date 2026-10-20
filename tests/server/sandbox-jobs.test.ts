@@ -35,7 +35,7 @@ const taskRoute = await import('../../src/app/api/sandbox/tasks/[id]/route');
 const startRoute = await import('../../src/app/api/sandbox/tasks/[id]/start/route');
 const dumpTaskRoute = await import('../../src/app/api/sandbox/tasks/[id]/dump/route');
 const D = await import('../../src/server/sandbox/dumps');
-const { BOOT_SCRIPT, ENV_LOCAL_PHP, IMPORT_ARGV, MYSQL_STOP_ARGV, TIDY_ARGV } = await import('../../src/server/sandbox/templates/dockware');
+const { BOOT_SCRIPT, ENV_LOCAL_PHP, HTTPS_FORWARD_ARGV, IMPORT_ARGV, MYSQL_STOP_ARGV, TIDY_ARGV } = await import('../../src/server/sandbox/templates/dockware');
 /** the variables' names for .env.local (none set in these tests) */
 const ENV_LOCAL = ['php', '-r', ENV_LOCAL_PHP, '--'];
 const eventsRoute = await import('../../src/app/api/sandbox/tasks/[id]/events/route');
@@ -64,6 +64,7 @@ const DIR = '/var/www/html/custom/plugins/AcmeTheme';
 const SETUP_ARGV = [
   ['mysqladmin', 'ping', '-h127.0.0.1', '-uroot', '-proot', '--silent'],
   'SET_DOMAIN',
+  HTTPS_FORWARD_ARGV,
   TIDY_ARGV,
   ['rm', '-rf', '--', DIR],
   ['bin/console', 'plugin:refresh'],
@@ -93,7 +94,8 @@ test('happy path: all steps in order, plugin synced as www-data without .git/sec
   assert.equal(done.steps.find(s => s.key === 'custom' && s.phase === 'after-db')?.label, 'Demodaten');
   const argv = execs(done.containerId!).map(a => (a[0] === 'mysql' ? (a.at(-1)!.includes('upgrade_version') ? 'PLUGIN_UPGRADES' : a.at(-1)!.includes('installed_at') ? 'PLUGIN_STATE' : 'SET_DOMAIN') : BASELINE(a)));
   assert.deepEqual(argv, SETUP_ARGV);
-  assert.ok(fake.calls.filter(c => c.op === 'exec').every(c => c.user === 'www-data'), 'every exec as www-data');
+  // the only root exec of a setup is the constant Apache one (https is terminated "in front" of the sandbox)
+  assert.ok(fake.calls.filter(c => c.op === 'exec').every(c => c.user === 'www-data' || (c.user === 'root' && JSON.stringify(c.argv) === JSON.stringify(HTTPS_FORWARD_ARGV))), 'every exec as www-data');
   // container spec: server-built, only the internal network (also on bare metal), no published port, limits, no privileges
   const spec = fake.calls.find(c => c.op === 'create')!.detail as any;
   assert.equal(spec.Labels['lotse.task'], t.id);

@@ -22,7 +22,7 @@ export interface StepCtx {
   /** a full project whose Shopware version differs from the image: the user chose "Trotzdem fortfahren" */
   ignoreProjectVersion: boolean;
   /** a fixed argv or the id of an allow-listed command; never a shell string from input. Throws on a non-zero exit (with the output's tail). */
-  run: (cmd: readonly string[] | { command: SandboxCommandKey; args?: Record<string, string> }, o?: { timeoutMs?: number; okCodes?: number[]; /** another working directory (own commands of an own setup: its target) */ workdir?: string; /** polling: neither the command nor its output go to the log */ quiet?: boolean }) => Promise<{ exitCode: number; output: string }>;
+  run: (cmd: readonly string[] | { command: SandboxCommandKey; args?: Record<string, string> }, o?: { timeoutMs?: number; okCodes?: number[]; /** another working directory (own commands of an own setup: its target) */ workdir?: string; /** polling: neither the command nor its output go to the log */ quiet?: boolean; /** setup steps only, constant argv (never built from input or given to the AI): as root, for Apache and the like */ user?: 'root' }) => Promise<{ exitCode: number; output: string }>;
   ensureImage: () => Promise<void>;
   /** fresh clone of repo@baseBranch into the task workspace (an old one is removed first) */
   clone: () => Promise<{ head: string }>;

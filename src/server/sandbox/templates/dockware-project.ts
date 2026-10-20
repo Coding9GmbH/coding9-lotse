@@ -71,17 +71,33 @@ const project = (ctx: StepCtx): { l: TaskLayout; p: ProjectInfo } => {
 const save = (ctx: StepCtx, l: TaskLayout, p: ProjectInfo) => ctx.setLayout({ ...l, project: p });
 const lines = (s: string) => s.split('\n').map(x => x.trim()).filter(Boolean);
 
-/** Config files in the container that configure the extension a failed boot names as missing, but are not in the project's repository
- *  (so they come from the image): removed; the paths removed. */
+/** Config files in the container that configure the extension a failed boot names as missing – or import the routes of a bundle it
+ *  names as not registered (config/routes/web_profiler.yaml) – but are not in the project's repository (so they come from the image):
+ *  removed; the paths removed. */
 export async function removeImageLeftovers(ctx: StepCtx, output: string): Promise<string[]> {
   const ext = /Container extension "([a-z0-9_]+)" is not registered|no extension able to load the configuration for "([a-z0-9_]+)"/.exec(output);
+  const bundle = /Bundle "([A-Za-z0-9_]+)" does not exist or it is not enabled/.exec(output)?.[1];
   const name = ext?.[1] ?? ext?.[2];
-  if (!name) return [];
-  const found = await ctx.run(['grep', '-rlE', `^[[:space:]]*${name}:`, '--', 'config/packages'], { ...ANY, quiet: true });
+  if (!name && !bundle) return [];
+  const found = await ctx.run(name ? ['grep', '-rlE', `^[[:space:]]*${name}:`, '--', 'config/packages'] : ['grep', '-rlF', `@${bundle}/`, '--', 'config/packages', 'config/routes'], { ...ANY, quiet: true });
   const root = ctx.projectRoot();
-  const files = lines(found.output).filter(f => /^config\/packages\/[\w./-]+$/.test(f) && !f.split('/').includes('..') && !fs.existsSync(path.join(root, f)));
+  const files = lines(found.output).filter(f => /^config\/(packages|routes)\/[\w./-]+$/.test(f) && !f.split('/').includes('..') && !fs.existsSync(path.join(root, f)));
   for (const f of files) await ctx.run(['rm', '-f', '--', f], { quiet: true });
   return files;
+}
+
+/** Routes are not built by "bin/console about": a route file of the image for a bundle the project lacks only fails in the cache
+ *  warmup (cache:clear of theme-compile). Built once here, the same cleanup as for the config applies. */
+const DEBUG_ROUTER = ['bin/console', 'debug:router', '--format=json'];
+async function routeLeftovers(ctx: StepCtx): Promise<void> {
+  for (let round = 0; round < BOOT_ROUNDS; round++) {
+    const r = await ctx.run(DEBUG_ROUTER, { ...ANY, quiet: true, timeoutMs: 3 * MIN });
+    if (r.exitCode === 0) return;
+    const gone = await removeImageLeftovers(ctx, r.output);
+    if (!gone.length) return; // not an image leftover: the later steps report it
+    ctx.log(`Routen des Images, die ein Bundle des Projekts nicht kennt, entfernt: ${gone.join(', ')}`);
+    await ctx.run(CLEAR_CACHE, { quiet: true });
+  }
 }
 
 /** Step 1: the clean image's APP_ENV, extension aliases and environment names; on a retry (config already synced, the console may not
@@ -155,7 +171,7 @@ async function bootCheck(ctx: StepCtx, l: TaskLayout, p: ProjectInfo, plan: Conf
   for (let round = 1; ; round++) {
     await ctx.run(CLEAR_CACHE, { quiet: true });
     const r = await ctx.run(bin('about'), { ...ANY, quiet: true, timeoutMs: 3 * MIN });
-    if (r.exitCode === 0) { ctx.log(round === 1 ? 'Shopware startet mit der Konfiguration des Projekts ✓' : `Shopware startet nach ${round - 1} Anpassung(en) ✓`); return { p, plan }; }
+    if (r.exitCode === 0) { await routeLeftovers(ctx); ctx.log(round === 1 ? 'Shopware startet mit der Konfiguration des Projekts ✓' : `Shopware startet nach ${round - 1} Anpassung(en) ✓`); return { p, plan }; }
     const why = bootError(r.output);
     // An expired commercial license in the database (a dump): Shopware deletes the key and fetches a new one from api.shopware.com at
     // boot – offline that fails once, the next boot runs without the key (commercial features off in the sandbox)
