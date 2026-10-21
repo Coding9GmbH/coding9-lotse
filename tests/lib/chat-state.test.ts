@@ -344,3 +344,11 @@ test('sandbox_attached arrives twice (the click\'s response and the chat stream)
   const other = chatReducer(twice, { type: 'event', event: { ...ev, taskId: 't2' }, mode: 'live' });
   assert.equal(other.items.filter(i => i.kind === 'sandbox_attached').length, 2);
 });
+
+test('clear_status clears only the status line it was given', () => {
+  const started = chatReducer(initialChatState, { type: 'status', text: 'Neue Sandbox aus „Demo“ gestartet: …' });
+  assert.equal(chatReducer(started, { type: 'clear_status', text: 'Neue Sandbox aus „Demo“ gestartet: …' }).status, null);
+  // a turn started meanwhile: its status stays
+  const thinking = chatReducer(started, { type: 'status', text: 'Lotse denkt nach …' });
+  assert.equal(chatReducer(thinking, { type: 'clear_status', text: 'Neue Sandbox aus „Demo“ gestartet: …' }), thinking);
+});
