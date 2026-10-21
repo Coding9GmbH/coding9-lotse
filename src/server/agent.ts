@@ -101,6 +101,8 @@ export function startChat({ chatId, message, target, onboarding, locale, prFeedb
   const ac = new AbortController();
   s.abort = ac;
   if (target && !onboarding && !code) s.target = target;
+  // Before the first request a chat is only named after its sandbox (environment/project name): the first request names it like any other chat
+  if (!s.events.some(e => e.t === 'user')) s.title = null;
   s.title ??= (onboarding ? messages(s.locale).server.onboardingTitle : message).slice(0, 70);
   // "An KI übergeben": the feedback card of this chat's sandbox, as data after the user's text (looked up before the user line is added)
   const fb = prFeedback ? handOff(s.events, prFeedback, s.taskId) : null;
