@@ -904,6 +904,8 @@ test('Sandbox Coding: saved environments – the same choices everywhere, fresh 
   await expect(panel.getByRole('heading', { name: 'Theme Demo' })).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Pausieren' })).toBeVisible({ timeout: 30_000 });
   await expect(panel.getByLabel('Pfad in der Sandbox')).toHaveValue('/de/'); // the environment's start page
+  // ready: the start line stops spinning
+  await expect(page.getByText('Neue Sandbox aus „Theme Demo“ gestartet', { exact: false })).toBeHidden();
   // the running sandbox's setup as another environment (the name is taken: say so, then another)
   await panel.getByRole('button', { name: 'Weitere Aktionen' }).click();
   await page.getByRole('menuitem', { name: 'Setup als Umgebung speichern' }).click();

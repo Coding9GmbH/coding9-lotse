@@ -348,8 +348,11 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
     dispatch({ type: 'event', event: { t: 'sandbox_attached', taskId: task.id, repo: task.repo, baseBranch: task.baseBranch }, mode: 'live' });
     loadHistory();
   };
+  // "Neue Sandbox aus … gestartet": spins while the setup runs, cleared once the task stops being busy (ready, failed, waiting for the user)
+  const [startStatus, setStartStatus] = useState<string | null>(null);
   const onSandboxTask = (task: CodeTaskPublic) => {
     setSbxTask(task);
+    if (startStatus && statusTone(displayStatus(task)) !== 'busy') { dispatch({ type: 'clear_status', text: startStatus }); setStartStatus(null); }
     if (task.status === 'done') {
       setTaskId(null); setPreviewOpen(false); setChatHidden(false);
       dispatch({ type: 'event', event: { t: 'sandbox_status', state: 'finished' }, mode: 'live' }); // a static line, not a spinner
@@ -380,7 +383,9 @@ export function Workspace({ initialChatId, initialChat }: { initialChatId: strin
         return;
       }
       attached(r.task);
-      dispatch({ type: 'status', text: tsq.started(name, q ? envSummary(q, all, known?.dumps ?? null) : r.task.title) });
+      const started = tsq.started(name, q ? envSummary(q, all, known?.dumps ?? null) : r.task.title);
+      setStartStatus(started);
+      dispatch({ type: 'status', text: started });
       for (const w of r.warnings) reportError(w);
     } catch (e) { dispatch({ type: 'status', text: null }); reportError(errorText(e)); }
     finally { setSbxBusy(false); }

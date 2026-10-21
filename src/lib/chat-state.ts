@@ -87,6 +87,8 @@ export type ChatAction =
   | { type: 'resume'; last?: ChatEvent }
   | { type: 'error'; text: string }
   | { type: 'status'; text: string | null }
+  /** Clear the status line only while it still shows this text (another status set since then stays) */
+  | { type: 'clear_status'; text: string }
   | { type: 'answer'; approvalId: string; answer: string }
   | { type: 'decide'; approvalId: string; allow: boolean; selected?: string[] }
   /** undoResults: outcome per undo step from the server (partially reverted: card shows "x of y", button stays usable) */
@@ -320,6 +322,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
     case 'error': return push(state, { kind: 'error', text: action.text })[0];
     case 'status': return { ...state, status: action.text };
+    case 'clear_status': return state.status === action.text ? { ...state, status: null } : state;
     case 'answer':
       return {
         ...update(state, 'question', i => i.approvalId === action.approvalId, i => ({ ...i, answer: action.answer, interactive: false })),
