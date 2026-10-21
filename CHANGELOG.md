@@ -5,6 +5,26 @@ Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die V
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
 Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag geschrieben (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
+## [0.9.12] – 2026-10-21
+
+### Hinzugefügt
+- Sandbox Coding: „Bilder vom Live-Shop“ (Startdialog, gespeicherte Umgebung) lädt fehlende `/media/`- und `/thumbnail/`-Dateien samt SVGs serverseitig vom Live-Shop in die Vorschau; SVGs kommen ohne Skripte.
+- Sandbox Coding: „Internet im Container: immer an“ bringt jede bereite Sandbox ohne Klick online, abschaltbar je Sandbox; `composer install` und Storefront-Build warten dann nicht.
+
+### Geändert
+- Sandbox Coding: Mit Datenbank-Dump installiert und aktiviert die Einrichtung keine Plugins und Apps mehr, es gilt der Zustand des Dumps; neuere Versionen aus dem Repository werden weiter aktualisiert.
+- Sandbox Coding: Was Claude bzw. Codex in der Sandbox geändert hat, steht jetzt oben im Reiter „Freigabe“ (mit Diff je Datei) – genau das, was als Pull Request veröffentlicht wird; der Reiter zählt die geänderten Dateien.
+- Sandbox Coding: Codex schreibt Dateien über Lotses Datei-Werkzeuge statt über eigene Patches.
+- Sandbox-Vorschau: Adresszeile und Ladebalken folgen der Navigation im Frame, die geöffnete Seite geht als Kontext an die KI, und nach Theme-Kompilieren oder Cache-Leeren bleibt die Vorschau auf der offenen Seite.
+- Docker-Image: `latest` wird bei jedem Push auf main gebaut, Images mit Versionsnummer nur noch per Tag.
+
+### Behoben
+- Sandbox Coding: SQL-Dumps mit `#`-Kommentaren (Sequel Ace, phpMyAdmin) und MariaDB-Dumps lassen sich einspielen; die Shopware-Version wird auch aus Dumps mit einer Zeile je Datensatz erkannt.
+- Sandbox Coding: Projekte mit Dump eines Live-Shops starten zuverlässig – auch mit aktiven Plugins, abgelaufener kommerzieller Lizenz oder fehlendem gebautem Storefront-JavaScript; Umgebungsvariablen stehen auch Web-Anfragen zur Verfügung.
+- Sandbox Coding: Projekte mit Resten des WebProfilerBundles oder mit einer `.htaccess`, die https erzwingt, lassen sich wieder einrichten und in der Vorschau öffnen.
+- Sandbox-Chat: Rückfragen und Freigaben mit Codex warten wieder auf den Klick, statt nach 10 s als Text wiederholt zu werden; bleibt eine Rückfrage am Rundenende offen, gilt sie als nicht beantwortet.
+- Sandbox-Chat: Die Startmeldung „Neue Sandbox … gestartet“ hört auf zu drehen, sobald die Einrichtung nicht mehr läuft.
+
 ## [0.9.11] – 2026-10-19
 
 ### Behoben
@@ -285,6 +305,7 @@ Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag gesch
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
+[0.9.12]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.11...v0.9.12
 [0.9.11]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.10...v0.9.11
 [0.9.10]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.9...v0.9.10
 [0.9.9]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.8...v0.9.9
