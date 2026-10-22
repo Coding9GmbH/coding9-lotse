@@ -5,6 +5,11 @@ Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die V
 Die Einträge bis 0.4.0 sind nachträglich aus dem Git-Verlauf und den Tags rekonstruiert.
 Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag geschrieben (siehe [CONTRIBUTING.md](CONTRIBUTING.md#versionen--changelog)).
 
+## [0.9.13] – 2026-10-22
+
+### Sicherheit
+- Docker-Image: Node auf 22.23.4 angehoben, das Security-Release vom 21.10.2026 (u. a. Lücken in http, dns, tls, crypto und brotli, dazu OpenSSL 3.5.9 und undici 6.29.1).
+
 ## [0.9.12] – 2026-10-21
 
 ### Hinzugefügt
@@ -305,6 +310,7 @@ Die Einträge werden beim Release aus dem Git-Verlauf seit dem letzten Tag gesch
 ### Hinzugefügt
 - Erste öffentliche Version: KI-Interface für Shopware 6, Shopify, Magento 2 und OpenMage (Magento 1, mit Modul `Lotse_Connector`). Chat mit Rückfragen, Änderungssets mit Freigabe, Audit-Log und Rückgängig, Styleguide-Onboarding, Shop-Check, Docker-Image.
 
+[0.9.13]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.12...v0.9.13
 [0.9.12]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.11...v0.9.12
 [0.9.11]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.10...v0.9.11
 [0.9.10]: https://github.com/Coding9GmbH/coding9-lotse/compare/v0.9.9...v0.9.10
