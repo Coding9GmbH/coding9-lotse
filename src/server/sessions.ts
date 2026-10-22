@@ -106,7 +106,7 @@ export function chatSnapshot(id: string, locale?: Locale): ChatDetail | null {
 }
 
 /** A sandbox was attached to the chat (by the user): a line in the history, live to open views; the next turn works in the sandbox.
- *  A chat without messages yet is stored now (title from the task), so it appears in the history. */
+ *  A chat without messages yet is stored now (title from the task until its first request), so it appears in the history. */
 export function noteSandboxAttached(chatId: string, t: { id: string; title: string; repo: string; baseBranch: string }) {
   const s = getSession(chatId);
   const ev: ChatEvent = { t: 'sandbox_attached', taskId: t.id, repo: t.repo, baseBranch: t.baseBranch };

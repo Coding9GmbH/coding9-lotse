@@ -16,7 +16,7 @@ for (const k of Object.keys(process.env)) if (/^(SHOPWARE_|SHOPIFY_|MAGENTO_|OPE
 process.env.AI_PROVIDER = 'codex'; // not signed in: a turn ends right after the preparation, without an AI process
 const S = await sandboxForTests();
 const { J, T, E } = S;
-const { getSession, peekSession, persist, stopChat, sweepIdleSessions } = await import('../../src/server/sessions');
+const { getSession, peekSession, persist, stopChat, sweepIdleSessions, noteSandboxAttached } = await import('../../src/server/sessions');
 const { claudeOptions, startChat, WEB_TOOLS, CODE_MAX_TURNS, recapOf } = await import('../../src/server/agent');
 const { codexInstructions, codexThreadOptions, onCodexItem, CODE_NOTE } = await import('../../src/server/agent-codex');
 const { codexConfig, mcpTokenFor } = await import('../../src/server/codex');
@@ -317,6 +317,17 @@ test('a turn during the setup waits for it; a failed setup ends the turn with th
     assert.equal(T.getTask(t.id)!.status, 'ready');
   } finally { S.fake.ensureImage = orig; (release as (() => void) | null)?.(); }
   await J.finishTask(t.id);
+});
+
+test('a chat started with a sandbox is renamed by its first request', async () => {
+  const id = crypto.randomUUID();
+  noteSandboxAttached(id, { id: 'task-title', title: 'Huntify - Demo', repo: 'acme/huntify', baseBranch: 'main' });
+  assert.equal(getSession(id).title, 'Huntify - Demo', 'listed under the environment name until the first request');
+  await startChat({ chatId: id, message: 'Den Warenkorb-Button grün machen' }).done;
+  assert.equal(getSession(id).title, 'Den Warenkorb-Button grün machen');
+  assert.equal(chatGet(id)!.title, 'Den Warenkorb-Button grün machen', 'stored for the history');
+  await startChat({ chatId: id, message: 'Noch etwas' }).done;
+  assert.equal(getSession(id).title, 'Den Warenkorb-Button grün machen', 'later requests keep the title');
 });
 
 test('no turn while Sandbox Coding is off', async () => {
