@@ -2,7 +2,7 @@
 # Lotse: AI pilot for Shopware 6 (by CODING 9)
 # One image, everything included: Next.js app, Claude agent runtime, SQLite database (in the /data volume).
 
-ARG NODE_VERSION=22.22
+ARG NODE_VERSION=22.23.4
 # Source of the Node image; CI uses the Docker Hub mirror mirror.gcr.io/library/node (no rate limit for anonymous pulls)
 ARG NODE_IMAGE=node
 
